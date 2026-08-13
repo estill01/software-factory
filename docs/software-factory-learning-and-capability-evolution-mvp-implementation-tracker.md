@@ -1,6 +1,6 @@
 # Software Factory Learning and Capability Evolution MVP Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–6
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `087803add9877b55763220070d68fa5c6e6dedb4`
@@ -1100,6 +1100,18 @@ before the completion narrative.
 - Retained open work: none in this tracker. Additional candidates, runtime
   controls, deployment, release, or acting on the disposition remain outside
   scope.
+- Terminal tracker closure (2026-08-13): every Block 0–6 remains `accepted`;
+  the final independently accepted candidate
+  `363596ce10c4c3a39ead387bc9db493c12128c8b` is an ancestor of both this
+  branch and installed release source
+  `75481f37c3b64d887fdb7fa72fe2742f033c972d`; global release
+  `75481f37c3b6-e3e2f2705136` is manifest-verified with candidate root
+  `124aaddb656790ab79c55aabf18a56914b44ee18146c39d6cdb1716d92dd6505`,
+  and all three stable skill links resolve through that exact release. Fresh
+  current validation passed all three skill validators, the inherited core
+  tracker verifier (`7` Blocks), and `git diff --check`. This closure changes
+  tracker status only; it performs no implementation, promotion, release,
+  policy, supervision, lifecycle, Gmail, or target effect.
 - Post-block audit: `accepted`.
 - Git durability: branch `codex/evolution-mvp`; accepted evidence commit and
   push recorded immediately after this update.

@@ -11,6 +11,8 @@ function row(
   const supervised = options.supervised ?? true
   const issues = options.issues ?? 0
   const blockNumber = options.block ? Number(options.block) : null
+  const trackerTotal = options.block ? (options.block === "6" ? 26 : 8) : 4
+  const acceptedBlocks = options.block ? (options.block === "6" ? 5 : 3) : 2
   const blockTitle = options.block
     ? options.block === "6"
       ? "Factory Floor composition"
@@ -105,11 +107,20 @@ function row(
       block_claims: {
         posture: options.block ? "exact" : "partial",
         tracker_total: {
-          value: options.block ? (options.block === "6" ? 26 : 8) : 4,
+          value: trackerTotal,
           posture: options.block ? "exact" : "partial",
           reason: options.block
             ? "Maintained verifier Block set for the exact canonical tracker binding."
             : "Maintained verifier Block set for a noncanonical tracker candidate.",
+        },
+        tracker_progress: {
+          accepted: acceptedBlocks,
+          remaining: trackerTotal - acceptedBlocks,
+          posture: options.block ? "exact" : "partial",
+          is_complete: options.block ? false : null,
+          reason: options.block
+            ? "Maintained tracker counts for the exact canonical tracker binding."
+            : "Maintained tracker counts for a noncanonical tracker candidate; row progress is partial.",
         },
         claims: [
           {

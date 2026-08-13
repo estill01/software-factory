@@ -42,6 +42,8 @@ MAX_AUTOMATIONS = 500
 MAX_LEDGER_BYTES = 32 * 1024 * 1024
 MAX_AUTOMATION_BYTES = 256 * 1024
 MAX_REPORT_ARTIFACT_BYTES = 32 * 1024 * 1024
+MAX_REPORT_BUNDLE_BYTES = 64 * 1024 * 1024
+MAX_REPORT_MEMBERS = 16
 MAX_TIMELINE_RECORDS = 2_500
 MAX_RECENT_RECORDS = 250
 MAX_REPORT_SETS = 250
@@ -932,6 +934,84 @@ def _record_ref(item: Mapping[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _factory_evolution_comparison(
+    review: Mapping[str, Any],
+    evaluation: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Project only owner-verified comparison material into a bounded read model."""
+
+    selection = review["selection"]
+    experiment = review["experiment"]
+    candidates = {
+        candidate["candidate_id"]: candidate for candidate in review["candidates"]
+    }
+    selected = candidates[selection["candidate_id"]]
+
+    def candidate_summary(candidate: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "candidate_id": candidate["candidate_id"],
+            "candidate_type": candidate["candidate_type"],
+            "capability_gap": candidate["capability_gap"],
+            "effect": candidate["effect"],
+            "protected_capabilities": list(candidate["protected_capabilities"]),
+            "applicability": candidate["applicability"],
+            "tradeoffs": list(candidate["tradeoffs"]),
+            "uncertainty": candidate["uncertainty"],
+        }
+
+    plan = {
+        "experiment_id": experiment["experiment_id"],
+        "selected_candidate": candidate_summary(selected),
+        "rejected_paths": [
+            candidate_summary(candidates[candidate_id])
+            for candidate_id in selection["compared_candidate_ids"]
+        ],
+        "selection_rationale": selection["rationale"],
+        "dimensions_considered": list(selection["dimensions_considered"]),
+        "comparison_mode": experiment["comparison_mode"],
+        "positive_case_ids": list(experiment["positive_case_ids"]),
+        "exception_case_ids": list(experiment["exception_case_ids"]),
+        "expected_effects": list(experiment["expected_effects"]),
+        "resource_bounds": list(experiment["resource_bounds"]),
+        "rollback_condition": experiment["rollback_condition"],
+        "success_measures": list(experiment["success_measures"]),
+        "regression_measures": list(experiment["regression_measures"]),
+        "stop_condition": experiment["stop_condition"],
+        "minimum_expected_delta": experiment["minimum_expected_delta"],
+        "non_inferiority_justification": experiment[
+            "non_inferiority_justification"
+        ],
+    }
+    if evaluation is None:
+        return plan, None
+
+    def result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "case_id": result["case_id"],
+            "evidence_class": result["evidence_class"],
+            "evidence_ids": list(result["evidence_ids"]),
+            "outcome": result["outcome"],
+            "observed_effect": result["observed_effect"],
+            "resource_cost": result["resource_cost"],
+            "regressions": list(result["regressions"]),
+            "condition_revision": result["condition_revision"],
+            "evidence_root": result["evidence_root"],
+        }
+
+    results = {
+        "baseline_results": [
+            result_summary(result) for result in evaluation["baseline_results"]
+        ],
+        "candidate_results": [
+            result_summary(result) for result in evaluation["candidate_results"]
+        ],
+        "contrary_evidence_ids": list(evaluation["contrary_evidence_ids"]),
+        "regression_findings": list(evaluation["regression_findings"]),
+        "rationale": evaluation["rationale"],
+    }
+    return plan, results
+
+
 class OperationsProjectionService:
     """Read canonical supervision families without becoming an operational owner."""
 
@@ -1302,6 +1382,18 @@ class OperationsProjectionService:
             ),
             None,
         )
+        current_state_source = next(
+            (
+                item
+                for item in reversed(evidence.active_events)
+                if isinstance(item.get("record_id"), str)
+                and isinstance(item.get("record_sha256"), str)
+                and SHA256.fullmatch(str(item["record_sha256"]))
+                and isinstance(item.get("state_fingerprint"), str)
+                and item["state_fingerprint"]
+            ),
+            None,
+        )
         lifecycle_record = next(
             (
                 item
@@ -1334,6 +1426,15 @@ class OperationsProjectionService:
                     if item.get("kind") == "notification"
                     and item.get("status") == "sent"
                 ]
+        successor_transitions = owner_module.successor_transition_heads(
+            list(evidence.events)
+        )
+        successor_transition_records = {
+            transition_id: owner_module.successor_transition_events(
+                list(evidence.events), transition_id
+            )
+            for transition_id in sorted(successor_transitions)
+        }
         open_successor_transitions = owner_module.successor_transition_heads(
             list(evidence.events),
             open_only=True,
@@ -1357,6 +1458,21 @@ class OperationsProjectionService:
             "policy_history_count": len(evidence.policy_history),
             "policy_history_head": history_head.get("record_sha256"),
             "source_record": source_record,
+            "current_state_source_record": (
+                current_state_source.get("record_id")
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
+            "current_state_source_sha256": (
+                current_state_source.get("record_sha256")
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
+            "current_state_fingerprint": (
+                current_state_source.get("state_fingerprint")
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
             "event_head": event_head,
             "event_count": len(evidence.events),
             "active_event_count": len(evidence.active_events),
@@ -1371,6 +1487,13 @@ class OperationsProjectionService:
             ],
             "lifecycle_status": lifecycle_status,
             "open_successor_transition_ids": sorted(open_successor_transitions),
+            "successor_transition_ids": sorted(successor_transitions),
+            "successor_transition_record_roots": {
+                transition_id: [
+                    record.get("record_sha256") for record in records
+                ]
+                for transition_id, records in successor_transition_records.items()
+            },
             "open_mission_activation_ids": sorted(open_mission_activations),
             "automations": {
                 role: automation.get("manifest_sha256") if automation else None
@@ -1406,9 +1529,18 @@ class OperationsProjectionService:
                 if isinstance(lifecycle_record, Mapping)
                 else None
             ),
+            "current_state_source": (
+                json.loads(json.dumps(current_state_source))
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
             "post_lifecycle_notifications": post_lifecycle_notifications,
             "open_successor_transitions": json.loads(
                 json.dumps(open_successor_transitions)
+            ),
+            "successor_transitions": json.loads(json.dumps(successor_transitions)),
+            "successor_transition_records": json.loads(
+                json.dumps(successor_transition_records)
             ),
             "open_mission_activations": json.loads(
                 json.dumps(open_mission_activations)
@@ -1438,6 +1570,288 @@ class OperationsProjectionService:
             "automation_timezone": automation_timezone,
         }
 
+    def mission_history_snapshot(self, target_thread_id: str) -> dict[str, Any]:
+        """Return exact mission segmentation without promoting historical state."""
+
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        unresolved = self.supervision_root / target_thread_id
+        if unresolved.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            directory = unresolved.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found",
+                "Supervision target is not discoverable.",
+                status=404,
+            ) from error
+        if directory.parent != self.supervision_root or not directory.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, cache_status = self._load_target(directory)
+        owner = self._module("supervision")
+        binding = owner.bound_mission(evidence.policy)
+        active_root = (
+            binding.get("mission_root") if isinstance(binding, Mapping) else None
+        )
+        segments = self._mission_segments(evidence)
+        active_record_ids = [
+            item.get("record_id")
+            for item in evidence.active_events
+            if isinstance(item.get("record_id"), str)
+        ]
+        active_record_sha256s = [
+            item.get("record_sha256")
+            for item in evidence.active_events
+            if isinstance(item.get("record_sha256"), str)
+            and SHA256.fullmatch(str(item["record_sha256"]))
+        ]
+        material = {
+            "target_thread_id": target_thread_id,
+            "active_mission_root": active_root,
+            "policy_sha256": evidence.policy.get("policy_sha256"),
+            "segments": segments,
+            "active_record_ids": active_record_ids,
+            "active_record_sha256s": active_record_sha256s,
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "cache_status": cache_status,
+        }
+
+    def mission_successor_plan_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        source_record: str,
+        source_sha256: str,
+        predecessor_disposition: str,
+        first_eligible_work: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Plan one same-target mission succession through the maintained owner."""
+
+        if (
+            not SAFE_ID.fullmatch(target_thread_id)
+            or not SAFE_ID.fullmatch(source_record)
+            or not SHA256.fullmatch(source_sha256)
+            or predecessor_disposition not in {"completed", "superseded"}
+            or not isinstance(first_eligible_work, str)
+            or not first_eligible_work
+            or len(first_eligible_work) > 160
+            or "\n" in first_eligible_work
+            or "\r" in first_eligible_work
+            or not isinstance(reason, str)
+            or not reason
+            or len(reason) > 480
+            or "\n" in reason
+            or "\r" in reason
+            or any(
+                marker in value
+                for value in (first_eligible_work, reason)
+                for marker in ("/Users/", "file://", "\\Users\\")
+            )
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_input_invalid",
+                "Mission succession requires exact bounded source, disposition, first-work, and reason fields.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        history_before = self.mission_history_snapshot(target_thread_id)
+        policy = before.get("policy")
+        if not isinstance(policy, Mapping):
+            raise OperationsProjectionError(
+                "mission_successor_policy_unavailable",
+                "The current supervision policy is unavailable.",
+                status=409,
+            )
+        owner = self._module("supervision")
+        current = owner.bound_mission(dict(policy))
+        if (
+            not isinstance(current, Mapping)
+            or not owner.mission_binding_is_supported(
+                current,
+                target_thread=target_thread_id,
+            )
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_predecessor_unavailable",
+                "Mission succession requires one supported current predecessor binding.",
+                status=409,
+            )
+        try:
+            successor = owner.derive_mission_binding(
+                target_thread=target_thread_id,
+                source_class="direct-user",
+                source_record=source_record,
+                source_sha256=source_sha256,
+            )
+        except Exception as error:
+            raise OperationsProjectionError(
+                "mission_successor_source_invalid",
+                "The maintained owner rejected the exact direct-user successor source.",
+                status=422,
+            ) from error
+        if (
+            current.get("mission_source_record") == source_record
+            or owner.mission_binding_identity(current)
+            == owner.mission_binding_identity(successor)
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_unchanged",
+                "The candidate source derives the already-current mission binding.",
+                status=409,
+            )
+
+        directory = (self.supervision_root / target_thread_id).resolve(strict=True)
+        evidence, _cache_status = self._load_target(directory)
+        if evidence.policy.get("policy_sha256") != before.get("policy_sha256"):
+            raise OperationsProjectionError(
+                "mission_successor_source_changed",
+                "The policy changed while the succession plan was being composed.",
+                status=409,
+                retryable=True,
+            )
+        all_events = list(evidence.events)
+        incident_heads: dict[str, Mapping[str, Any]] = {}
+        decision_heads: dict[str, Mapping[str, Any]] = {}
+        for item in all_events:
+            incident_id = item.get("incident_id")
+            if incident_id and owner.is_substantive_incident_record(
+                item,
+                str(incident_id),
+            ):
+                incident_heads[str(incident_id)] = item
+            if item.get("kind") == "decision" and item.get("decision_id"):
+                decision_heads[str(item["decision_id"])] = item
+        open_incidents = sorted(
+            incident_id
+            for incident_id, item in incident_heads.items()
+            if not owner.is_terminal_incident_record(item, incident_id)
+        )
+        open_decisions = sorted(
+            decision_id
+            for decision_id, item in decision_heads.items()
+            if item.get("phase") != "target-acknowledged"
+        )
+        open_transitions = owner.successor_transition_heads(
+            all_events,
+            open_only=True,
+        )
+        scoped_events = owner.mission_scoped_events(
+            directory,
+            dict(policy),
+            all_events,
+        )
+        open_activations = owner.mission_activation_heads(
+            scoped_events,
+            open_only=True,
+        )
+        if open_incidents or open_decisions or open_transitions or open_activations:
+            raise OperationsProjectionError(
+                "mission_successor_open_heads",
+                "Mission succession requires closed incidents, decisions, successor transitions, and current mission activation.",
+                status=409,
+            )
+        lifecycle = [item for item in scoped_events if item.get("kind") == "lifecycle"]
+        predecessor_terminal = lifecycle[-1] if lifecycle else None
+        if predecessor_disposition == "completed" and (
+            not isinstance(predecessor_terminal, Mapping)
+            or predecessor_terminal.get("status") != "completed"
+            or not isinstance(predecessor_terminal.get("record_id"), str)
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_completion_unavailable",
+                "Completed succession requires one exact current predecessor completion lifecycle.",
+                status=409,
+            )
+        expected_evidence = [source_record]
+        if predecessor_disposition == "completed":
+            expected_evidence.append(str(predecessor_terminal["record_id"]))
+        expected_policy = json.loads(json.dumps(policy))
+        expected_policy["mission_binding"] = successor
+        expected_policy["policy_version"] = int(policy.get("policy_version", 0)) + 1
+        expected_policy.pop("policy_sha256", None)
+        expected_policy.pop("updated_at", None)
+        expected_normalized_policy_sha256 = _digest(expected_policy)
+        current_segment = next(
+            (
+                item
+                for item in history_before["segments"]
+                if item.get("posture") == "current"
+            ),
+            None,
+        )
+        if (
+            not isinstance(current_segment, Mapping)
+            or current_segment.get("mission_root") != current.get("mission_root")
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_history_unavailable",
+                "The exact predecessor mission segment is unavailable.",
+                status=409,
+            )
+        after = self.policy_control_snapshot(target_thread_id)
+        history_after = self.mission_history_snapshot(target_thread_id)
+        if (
+            before.get("fingerprint") != after.get("fingerprint")
+            or history_before.get("fingerprint") != history_after.get("fingerprint")
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_source_changed",
+                "Mission, policy, history, or open-head evidence changed during planning.",
+                status=409,
+                retryable=True,
+            )
+        material = {
+            "target_thread_id": target_thread_id,
+            "control_fingerprint": before.get("fingerprint"),
+            "history_fingerprint": history_before.get("fingerprint"),
+            "predecessor": current,
+            "successor": successor,
+            "predecessor_disposition": predecessor_disposition,
+            "predecessor_terminal_record": (
+                predecessor_terminal.get("record_id")
+                if isinstance(predecessor_terminal, Mapping)
+                else None
+            ),
+            "source_record": source_record,
+            "source_sha256": source_sha256,
+            "first_eligible_work": first_eligible_work,
+            "reason": reason,
+            "expected_evidence": expected_evidence,
+            "expected_policy_version": expected_policy["policy_version"],
+            "expected_normalized_policy_sha256": expected_normalized_policy_sha256,
+            "policy_history_head": before.get("policy_history_head"),
+            "policy_history_count": len(before.get("policy_history_records", [])),
+            "predecessor_segment": current_segment,
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "owner_sha256": before.get("owner_sha256"),
+            "policy_sha256": before.get("policy_sha256"),
+            "policy_version": before.get("policy_version"),
+            "expected_history_kind": "policy-mission-successor",
+            "expected_history_reason": f"{predecessor_disposition}: {reason}",
+            "open_incident_ids": open_incidents,
+            "open_decision_ids": open_decisions,
+            "open_successor_transition_ids": sorted(open_transitions),
+            "open_mission_activation_ids": sorted(open_activations),
+            "control": before,
+            "history": history_before,
+        }
+
     def lifecycle_gate_snapshot(
         self,
         target_thread_id: str,
@@ -1445,16 +1859,25 @@ class OperationsProjectionService:
         lifecycle_state: str,
         source_record: str,
         state_fingerprint: str,
+        terminal_report_set_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the maintained lifecycle gate read-only against one exact record."""
 
-        if lifecycle_state not in {"completed", "paused", "blocked", "failed", "stopped"}:
+        if lifecycle_state not in {
+            "completed",
+            "paused",
+            "blocked",
+            "failed",
+            "stopped",
+        }:
             raise OperationsProjectionError(
                 "lifecycle_state_invalid",
                 "The requested lifecycle state is unsupported.",
                 status=422,
             )
-        if not SAFE_ID.fullmatch(target_thread_id) or not SAFE_ID.fullmatch(source_record):
+        if not SAFE_ID.fullmatch(target_thread_id) or not SAFE_ID.fullmatch(
+            source_record
+        ):
             raise OperationsProjectionError(
                 "lifecycle_source_invalid",
                 "The lifecycle target or source record identity is invalid.",
@@ -1464,6 +1887,15 @@ class OperationsProjectionService:
             raise OperationsProjectionError(
                 "lifecycle_source_invalid",
                 "The lifecycle state fingerprint is required.",
+                status=422,
+            )
+        if terminal_report_set_id is not None and (
+            lifecycle_state != "completed"
+            or not SAFE_ID.fullmatch(terminal_report_set_id)
+        ):
+            raise OperationsProjectionError(
+                "lifecycle_terminal_report_invalid",
+                "An exact terminal report set may be selected only for a completed lifecycle.",
                 status=422,
             )
         before = self.policy_control_snapshot(target_thread_id)
@@ -1480,19 +1912,20 @@ class OperationsProjectionService:
                 "The exact current lifecycle record does not match the requested gate source.",
                 status=409,
             )
-        payload = self._owner_command(
-            [
-                "lifecycle-gate",
-                "--target-thread",
-                target_thread_id,
-                "--lifecycle-state",
-                lifecycle_state,
-                "--source-record",
-                source_record,
-                "--state-fingerprint",
-                state_fingerprint,
-            ]
-        )
+        command = [
+            "lifecycle-gate",
+            "--target-thread",
+            target_thread_id,
+            "--lifecycle-state",
+            lifecycle_state,
+            "--source-record",
+            source_record,
+            "--state-fingerprint",
+            state_fingerprint,
+        ]
+        if terminal_report_set_id is not None:
+            command.extend(["--terminal-report-set-id", terminal_report_set_id])
+        payload = self._owner_command(command)
         after = self.policy_control_snapshot(target_thread_id)
         if before.get("fingerprint") != after.get("fingerprint"):
             raise OperationsProjectionError(
@@ -1504,17 +1937,25 @@ class OperationsProjectionService:
         required = {
             "completion_permitted",
             "duplicate",
+            "event_count",
+            "event_head",
             "lifecycle_state",
             "notification_category",
             "notification_dedup_key",
+            "open_decision_ids",
+            "open_incident_ids",
             "open_mission_activations",
             "open_successor_transitions",
+            "pause_automation_ids",
             "policy_sha256",
+            "reason",
             "send_now",
             "source_record",
             "source_stop_permitted",
             "state_fingerprint",
             "supervision_pause_permitted",
+            "terminal_report_set_id",
+            "terminal_reports_delivered",
         }
         if (
             not required.issubset(payload)
@@ -1522,12 +1963,33 @@ class OperationsProjectionService:
             or payload.get("source_record") != source_record
             or payload.get("state_fingerprint") != state_fingerprint
             or payload.get("policy_sha256") != before.get("policy_sha256")
+            or (
+                terminal_report_set_id is not None
+                and payload.get("terminal_report_set_id") != terminal_report_set_id
+            )
             or not isinstance(payload.get("notification_category"), str)
             or not payload["notification_category"]
             or not isinstance(payload.get("notification_dedup_key"), str)
             or not payload["notification_dedup_key"]
+            or type(payload.get("event_count")) is not int
+            or payload.get("event_count") != before.get("event_count")
+            or not isinstance(payload.get("event_head"), str)
+            or not SHA256.fullmatch(str(payload["event_head"]))
+            or payload.get("event_head") != before.get("event_head")
+            or not isinstance(payload.get("open_incident_ids"), list)
+            or not isinstance(payload.get("open_decision_ids"), list)
             or not isinstance(payload.get("open_mission_activations"), list)
             or not isinstance(payload.get("open_successor_transitions"), list)
+            or not isinstance(payload.get("pause_automation_ids"), list)
+            or not isinstance(payload.get("reason"), str)
+            or type(payload.get("terminal_reports_delivered")) is not bool
+            or (
+                payload.get("terminal_report_set_id") is not None
+                and (
+                    not isinstance(payload.get("terminal_report_set_id"), str)
+                    or not SAFE_ID.fullmatch(str(payload["terminal_report_set_id"]))
+                )
+            )
             or any(
                 type(payload.get(key)) is not bool
                 for key in (
@@ -1565,12 +2027,8 @@ class OperationsProjectionService:
                 len(matching_notifications) != 1
                 or not isinstance(matching_notifications[0].get("record_id"), str)
                 or not SAFE_ID.fullmatch(str(matching_notifications[0]["record_id"]))
-                or not isinstance(
-                    matching_notifications[0].get("record_sha256"), str
-                )
-                or not SHA256.fullmatch(
-                    str(matching_notifications[0]["record_sha256"])
-                )
+                or not isinstance(matching_notifications[0].get("record_sha256"), str)
+                or not SHA256.fullmatch(str(matching_notifications[0]["record_sha256"]))
                 or _event_time(matching_notifications[0]) is None
             ):
                 raise OperationsProjectionError(
@@ -1609,6 +2067,338 @@ class OperationsProjectionService:
             ),
             "control_fingerprint": before.get("fingerprint"),
             "currentness": currentness,
+            "gate": json.loads(json.dumps(payload)),
+        }
+
+    def supervision_resume_gate_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        pause_record: str,
+        source_record: str,
+        state_fingerprint: str,
+    ) -> dict[str, Any]:
+        """Run the maintained semantic-resume gate without mutating an owner."""
+
+        if (
+            not SAFE_ID.fullmatch(target_thread_id)
+            or not SAFE_ID.fullmatch(pause_record)
+            or not SAFE_ID.fullmatch(source_record)
+            or not isinstance(state_fingerprint, str)
+            or not state_fingerprint
+            or len(state_fingerprint) > 128
+        ):
+            raise OperationsProjectionError(
+                "supervision_resume_source_invalid",
+                "The resume target, pause, source, or state identity is invalid.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        payload = self._owner_command(
+            [
+                "resume-gate",
+                "--target-thread",
+                target_thread_id,
+                "--pause-record",
+                pause_record,
+                "--source-record",
+                source_record,
+                "--state-fingerprint",
+                state_fingerprint,
+            ]
+        )
+        after = self.policy_control_snapshot(target_thread_id)
+        if before.get("fingerprint") != after.get("fingerprint"):
+            raise OperationsProjectionError(
+                "supervision_resume_source_changed",
+                "The resume lifecycle, policy, source, or named automation owners changed during validation.",
+                status=409,
+                retryable=True,
+            )
+        status = payload.get("status")
+        if status == "already-resumed":
+            record = payload.get("resume_record")
+            current = after.get("lifecycle_record")
+            if (
+                payload.get("eligible") is not True
+                or payload.get("ready_to_finalize") is not True
+                or payload.get("duplicate") is not True
+                or payload.get("action") != "none"
+                or payload.get("policy_sha256") != after.get("policy_sha256")
+                or not isinstance(record, Mapping)
+                or record.get("kind") != "lifecycle"
+                or record.get("category") != "supervision-resume"
+                or record.get("status") != "resumed"
+                or record.get("resume_contract_version") != 1
+                or record.get("pause_record_id") != pause_record
+                or record.get("source_record_id") != source_record
+                or record.get("state_fingerprint") != state_fingerprint
+                or not isinstance(record.get("record_id"), str)
+                or not SAFE_ID.fullmatch(str(record["record_id"]))
+                or not isinstance(record.get("record_sha256"), str)
+                or not SHA256.fullmatch(str(record["record_sha256"]))
+                or not isinstance(current, Mapping)
+                or current.get("record_id") != record.get("record_id")
+                or current.get("record_sha256") != record.get("record_sha256")
+            ):
+                raise OperationsProjectionError(
+                    "supervision_resume_gate_output_invalid",
+                    "The maintained resume gate returned an invalid canonical-resume result.",
+                    status=503,
+                )
+        elif status in {"pending-activation", "ready"}:
+            states = payload.get("automation_states")
+            activate_ids = payload.get("activate_automation_ids")
+            required = {
+                "action",
+                "automation_states",
+                "activate_automation_ids",
+                "duplicate",
+                "eligibility_root",
+                "eligible",
+                "group_id",
+                "mission_root",
+                "pause_record_id",
+                "policy_sha256",
+                "policy_version",
+                "ready_to_finalize",
+                "source_currentness_root",
+                "source_record_id",
+                "state_fingerprint",
+                "status",
+            }
+            states_valid = bool(
+                isinstance(states, Mapping)
+                and 2 <= len(states) <= MAX_AUTOMATIONS
+                and all(
+                    isinstance(automation_id, str)
+                    and SAFE_ID.fullmatch(automation_id)
+                    and isinstance(state, Mapping)
+                    and set(state)
+                    == {
+                        "automation_id",
+                        "configuration_sha256",
+                        "manifest_sha256",
+                        "role",
+                        "rrule",
+                        "status",
+                        "target_thread_id",
+                        "updated_at",
+                    }
+                    and state.get("automation_id") == automation_id
+                    and isinstance(state.get("role"), str)
+                    and bool(state["role"])
+                    and state.get("status") in {"ACTIVE", "PAUSED"}
+                    and isinstance(state.get("rrule"), str)
+                    and bool(state["rrule"])
+                    and isinstance(state.get("target_thread_id"), str)
+                    and SAFE_ID.fullmatch(str(state["target_thread_id"]))
+                    and type(state.get("updated_at")) is int
+                    and state["updated_at"] > 0
+                    and isinstance(state.get("manifest_sha256"), str)
+                    and SHA256.fullmatch(str(state["manifest_sha256"]))
+                    and isinstance(state.get("configuration_sha256"), str)
+                    and SHA256.fullmatch(str(state["configuration_sha256"]))
+                    for automation_id, state in states.items()
+                )
+            )
+            paused_ids = (
+                sorted(
+                    str(automation_id)
+                    for automation_id, state in states.items()
+                    if isinstance(state, Mapping) and state.get("status") == "PAUSED"
+                )
+                if isinstance(states, Mapping)
+                else []
+            )
+            if (
+                not required.issubset(payload)
+                or payload.get("eligible") is not True
+                or payload.get("duplicate") is not False
+                or payload.get("pause_record_id") != pause_record
+                or payload.get("source_record_id") != source_record
+                or payload.get("state_fingerprint") != state_fingerprint
+                or payload.get("policy_sha256") != before.get("policy_sha256")
+                or payload.get("policy_version") != before.get("policy_version")
+                or not isinstance(payload.get("group_id"), str)
+                or not payload["group_id"]
+                or not isinstance(payload.get("mission_root"), str)
+                or not SHA256.fullmatch(str(payload["mission_root"]))
+                or not isinstance(payload.get("eligibility_root"), str)
+                or not SHA256.fullmatch(str(payload["eligibility_root"]))
+                or not isinstance(payload.get("source_currentness_root"), str)
+                or not SHA256.fullmatch(str(payload["source_currentness_root"]))
+                or not states_valid
+                or not isinstance(activate_ids, list)
+                or activate_ids != paused_ids
+                or payload.get("ready_to_finalize") is not (not paused_ids)
+                or status != ("ready" if not paused_ids else "pending-activation")
+                or payload.get("action")
+                != (
+                    "resume-finalize"
+                    if not paused_ids
+                    else "activate-exact-bound-automations"
+                )
+            ):
+                raise OperationsProjectionError(
+                    "supervision_resume_gate_output_invalid",
+                    "The maintained resume gate returned an invalid eligibility result.",
+                    status=503,
+                )
+        else:
+            raise OperationsProjectionError(
+                "supervision_resume_gate_output_invalid",
+                "The maintained resume gate returned an unsupported status.",
+                status=503,
+            )
+        currentness = _digest(
+            {
+                "control": before.get("fingerprint"),
+                "owner": before.get("owner_sha256"),
+                "pause_record": pause_record,
+                "source_record": source_record,
+                "state_fingerprint": state_fingerprint,
+                "gate": payload,
+            }
+        )
+        return {
+            "target_thread_id": target_thread_id,
+            "owner_sha256": before.get("owner_sha256"),
+            "control_fingerprint": before.get("fingerprint"),
+            "currentness": currentness,
+            "gate": json.loads(json.dumps(payload)),
+        }
+
+    def successor_transition_gate_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        transition_id: str,
+        task_creation_authority: str,
+    ) -> dict[str, Any]:
+        """Run the maintained successor-transition gate against one exact head."""
+
+        if (
+            not SAFE_ID.fullmatch(target_thread_id)
+            or not SAFE_ID.fullmatch(transition_id)
+            or task_creation_authority not in {"available", "unavailable"}
+        ):
+            raise OperationsProjectionError(
+                "successor_transition_source_invalid",
+                "The successor-transition target, identity, or authority posture is invalid.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        heads = before.get("successor_transitions")
+        heads = heads if isinstance(heads, Mapping) else {}
+        head = heads.get(transition_id)
+        if not isinstance(head, Mapping):
+            raise OperationsProjectionError(
+                "successor_transition_not_open",
+                "The exact successor transition is not a canonical head.",
+                status=409,
+            )
+        record_id = head.get("record_id")
+        record_sha256 = head.get("record_sha256")
+        if (
+            not isinstance(record_id, str)
+            or not SAFE_ID.fullmatch(record_id)
+            or not isinstance(record_sha256, str)
+            or not SHA256.fullmatch(record_sha256)
+        ):
+            raise OperationsProjectionError(
+                "successor_transition_head_invalid",
+                "The canonical successor-transition head identity is incomplete.",
+                status=422,
+            )
+        payload = self._owner_command(
+            [
+                "successor-transition-gate",
+                "--target-thread",
+                target_thread_id,
+                "--transition-id",
+                transition_id,
+                "--task-creation-authority",
+                task_creation_authority,
+            ]
+        )
+        after = self.policy_control_snapshot(target_thread_id)
+        if before.get("fingerprint") != after.get("fingerprint"):
+            raise OperationsProjectionError(
+                "successor_transition_source_changed",
+                "The successor-transition source changed while its maintained gate was evaluated.",
+                status=409,
+                retryable=True,
+            )
+        required = {
+            "transition_id",
+            "phase",
+            "transition_open",
+            "source_stop_permitted",
+            "required_source_posture",
+            "next_action",
+            "direct_task_creation_authority_required",
+            "human_input_required",
+            "task_creation_authority",
+            "failure_mode_if_stopped",
+            "tracker_sha256",
+            "tracker_source_record",
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "first_eligible_block",
+            "policy_sha256",
+            "record_id",
+        }
+        if (
+            not required.issubset(payload)
+            or payload.get("transition_id") != transition_id
+            or payload.get("phase") != head.get("phase")
+            or payload.get("record_id") != record_id
+            or payload.get("task_creation_authority") != task_creation_authority
+            or payload.get("tracker_sha256") != head.get("tracker_sha256")
+            or payload.get("tracker_source_record")
+            != head.get("tracker_source_record")
+            or payload.get("first_eligible_block") != head.get("first_eligible_block")
+            or payload.get("successor_thread_id")
+            != (head.get("successor_thread_id") or None)
+            or payload.get("successor_mission_root")
+            != (head.get("successor_mission_root") or None)
+            or payload.get("successor_group_id")
+            != (head.get("successor_group_id") or None)
+            or payload.get("policy_sha256") != before.get("policy_sha256")
+            or any(
+                type(payload.get(field)) is not bool
+                for field in (
+                    "transition_open",
+                    "source_stop_permitted",
+                    "direct_task_creation_authority_required",
+                    "human_input_required",
+                )
+            )
+            or not isinstance(payload.get("next_action"), str)
+            or not payload["next_action"]
+        ):
+            raise OperationsProjectionError(
+                "successor_transition_gate_invalid",
+                "The maintained successor-transition gate returned an inconsistent contract.",
+                status=503,
+            )
+        return {
+            "target_thread_id": target_thread_id,
+            "transition_id": transition_id,
+            "head": json.loads(json.dumps(head)),
+            "head_record_sha256": record_sha256,
+            "control_fingerprint": before.get("fingerprint"),
+            "owner_sha256": before.get("owner_sha256"),
+            "currentness": _digest(
+                {
+                    "control": before.get("fingerprint"),
+                    "owner": before.get("owner_sha256"),
+                    "head": record_sha256,
+                    "gate": payload,
+                }
+            ),
             "gate": json.loads(json.dumps(payload)),
         }
 
@@ -2650,6 +3440,8 @@ class OperationsProjectionService:
         paths = {
             "supervision": self.supervision_owner,
             "weekly": self.weekly_owner,
+            "terminal": self.terminal_owner,
+            "evolution": self.evolution_owner,
         }
         path = paths[family]
         before = _stat_key(path)
@@ -3131,6 +3923,40 @@ class OperationsProjectionService:
                 checks.append(item)
             if self._is_conclusion(item, owner):
                 conclusions.append(item)
+
+        # Lifecycle records describe the exact state fingerprint at which they
+        # were written.  Keep a terminal record in history, but do not project
+        # it as the current run lifecycle after a later current-mission record
+        # proves that the supervised state changed.  A new lifecycle record is
+        # already the list tail and therefore remains authoritative.
+        if lifecycle and lifecycle[-1].get("status") in {
+            "blocked",
+            "completed",
+            "failed",
+            "stopped",
+        }:
+            terminal = lifecycle[-1]
+            terminal_fingerprint = terminal.get("state_fingerprint")
+            terminal_index = next(
+                (
+                    index
+                    for index in range(len(evidence.active_events) - 1, -1, -1)
+                    if evidence.active_events[index] is terminal
+                ),
+                None,
+            )
+            if (
+                isinstance(terminal_fingerprint, str)
+                and terminal_fingerprint
+                and terminal_index is not None
+                and any(
+                    isinstance(item.get("state_fingerprint"), str)
+                    and bool(item["state_fingerprint"])
+                    and item["state_fingerprint"] != terminal_fingerprint
+                    for item in evidence.active_events[terminal_index + 1 :]
+                )
+            ):
+                lifecycle = []
         return {
             "incidents": incidents,
             "decisions": decisions,
@@ -3439,20 +4265,50 @@ class OperationsProjectionService:
     def _report_tree_key(directory: Path, owner_sha256: str) -> tuple[Any, ...]:
         if not directory.exists():
             return (str(directory), owner_sha256, None)
+        paths: list[Path] = []
+        overflow = False
+        for path in directory.iterdir():
+            if len(paths) >= MAX_REPORT_MEMBERS:
+                overflow = True
+                break
+            paths.append(path)
         entries = tuple(
             _stat_key(path)
-            for path in sorted(directory.iterdir(), key=lambda item: item.name)
+            for path in sorted(paths, key=lambda item: item.name)
             if path.is_file()
         )
-        return (str(directory), owner_sha256, entries)
+        return (
+            str(directory),
+            owner_sha256,
+            _stat_key(directory),
+            entries,
+            overflow,
+        )
 
     @staticmethod
     def _report_members(directory: Path) -> list[dict[str, Any]]:
+        paths: list[Path] = []
+        for path in directory.iterdir():
+            if len(paths) >= MAX_REPORT_MEMBERS:
+                raise OperationsProjectionError(
+                    "report_member_limit_exceeded",
+                    f"Report bundles may contain at most {MAX_REPORT_MEMBERS} members.",
+                    status=422,
+                )
+            paths.append(path)
         members: list[dict[str, Any]] = []
-        for path in sorted(directory.iterdir(), key=lambda item: item.name):
+        total_bytes = 0
+        for path in sorted(paths, key=lambda item: item.name):
             if not path.is_file() or path.is_symlink() or path.name == ".append.lock":
                 continue
             raw = _read_bounded(path, MAX_REPORT_ARTIFACT_BYTES)
+            total_bytes += len(raw)
+            if total_bytes > MAX_REPORT_BUNDLE_BYTES:
+                raise OperationsProjectionError(
+                    "report_bundle_limit_exceeded",
+                    "Report bundle exceeds the bounded read budget.",
+                    status=422,
+                )
             members.append(
                 {
                     "name": path.name,
@@ -3473,6 +4329,2111 @@ class OperationsProjectionService:
             )
         return members
 
+    @staticmethod
+    def _exact_report_json(value: Mapping[str, Any]) -> bytes:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8") + b"\n"
+
+    def _weekly_report_workflow(
+        self,
+        evidence: TargetEvidence,
+        *,
+        coverage_days: int | None = None,
+    ) -> dict[str, Any]:
+        expected_members = [
+            "metrics.json",
+            "review-packet.json",
+            "review.json",
+            "report.json",
+            "report.md",
+            "report.pdf",
+            "manifest.json",
+        ]
+
+        def unavailable(code: str, message: str, *, retryable: bool = False) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_id": None,
+                "coverage": None,
+                "coverage_days": None,
+                "timezone": None,
+                "source_root": None,
+                "manifest_root": None,
+                "fingerprint": _digest(
+                    {
+                        "target": evidence.target_thread_id,
+                        "source": evidence.fingerprint,
+                        "error": code,
+                    }
+                ),
+                "writer_role": "roundup_writer",
+                "writer_task_id": None,
+                "expected_members": expected_members,
+                "members": [],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "reason": "Artifact verification has not completed.",
+                },
+                "limitations": [
+                    "No report stage may advance while its canonical source is unavailable."
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        if not evidence.events:
+            return unavailable(
+                "weekly_report_source_empty",
+                "The canonical supervision ledger has no reportable records.",
+            )
+        weekly_config = _policy_weekly_report(evidence.policy)
+        selected_days = (
+            coverage_days
+            if coverage_days is not None
+            else weekly_config.get("coverage_days", 7)
+        )
+        if type(selected_days) is not int or not 2 <= selected_days <= 31:
+            return unavailable(
+                "weekly_report_period_invalid",
+                "Weekly report coverage must be an exact 2-31 day interval.",
+            )
+        owner = self._module("supervision")
+        reportable_events = [
+            item
+            for item in evidence.events
+            if item.get("category")
+            != getattr(owner, "WEEKLY_REPORT_DELIVERY_CATEGORY", "gmail-weekly-report")
+        ]
+        if not reportable_events:
+            return unavailable(
+                "weekly_report_source_empty",
+                "The canonical supervision ledger has no reportable records.",
+            )
+        end = _event_time(reportable_events[-1])
+        first = _event_time(evidence.events[0])
+        if end is None or first is None:
+            return unavailable(
+                "weekly_report_time_invalid",
+                "The canonical report window timestamps are invalid.",
+            )
+        start = max(first, end - timedelta(days=selected_days))
+        timezone_name = str(
+            weekly_config.get(
+                "timezone",
+                evidence.policy.get("schedule", {}).get(
+                    "roundup_timezone", "America/Los_Angeles"
+                ),
+            )
+        )
+        weekly = self._module("weekly")
+        try:
+            canonical_resume_record_ids = frozenset(
+                str(item["record_id"])
+                for item in evidence.events
+                if owner.supervision_resume_record_is_canonical(
+                    item,
+                    list(evidence.events),
+                    list(evidence.policy_history),
+                )
+            )
+            metrics, packet = weekly.build_metrics(
+                target_label=str(
+                    evidence.policy.get(
+                        "target_label", evidence.target_thread_id[:12]
+                    )
+                ),
+                target_thread_id=evidence.target_thread_id,
+                start=start,
+                end=end,
+                timezone_name=timezone_name,
+                all_events=list(evidence.events),
+                policy_history=list(evidence.policy_history),
+                current_policy=evidence.policy,
+                projection_inventory=owner.weekly_projection_inventory(
+                    evidence.directory
+                ),
+                canonical_resume_record_ids=canonical_resume_record_ids,
+            )
+        except Exception as exc:
+            return unavailable(
+                "weekly_report_plan_invalid",
+                f"The maintained weekly-report owner rejected the current window: {exc}",
+            )
+        report_id = str(metrics.get("report_id", ""))
+        source_root = metrics.get("source", {}).get("source_root")
+        if not SAFE_ID.fullmatch(report_id) or not isinstance(
+            source_root, str
+        ) or not SHA256.fullmatch(source_root):
+            return unavailable(
+                "weekly_report_plan_invalid",
+                "The maintained owner returned an invalid report identity.",
+            )
+        report_directory = evidence.directory / "reports" / "weekly" / report_id
+        if report_directory.is_symlink() or (
+            report_directory.exists() and not report_directory.is_dir()
+        ):
+            return unavailable(
+                "weekly_report_directory_invalid",
+                "The current report path is not an owner-local directory.",
+            )
+        report_tree_key = self._report_tree_key(
+            report_directory,
+            self.owner_revisions()["weekly_report"]["sha256"],
+        )
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "report_id": report_id,
+                "source_root": source_root,
+                "coverage_days": selected_days,
+                "report_tree": report_tree_key,
+            }
+        )
+        try:
+            members = (
+                self._report_members(report_directory)
+                if report_directory.is_dir()
+                else []
+            )
+        except OperationsProjectionError as exc:
+            return {
+                **unavailable(exc.code, str(exc)),
+                "report_id": report_id,
+                "coverage": metrics.get("coverage"),
+                "coverage_days": selected_days,
+                "timezone": timezone_name,
+                "source_root": source_root,
+                "fingerprint": workflow_fingerprint,
+                "writer_task_id": evidence.policy.get("runtime", {}).get(
+                    "roundup_thread_id"
+                ),
+            }
+        member_names = {item["name"] for item in members}
+        metrics_path = report_directory / "metrics.json"
+        packet_path = report_directory / "review-packet.json"
+        prepare_files = (metrics_path, packet_path)
+        prepared = all(path.is_file() and not path.is_symlink() for path in prepare_files)
+        if any(path.exists() for path in prepare_files):
+            if not prepared:
+                prepared = False
+            else:
+                try:
+                    prepared = bool(
+                        _read_bounded(metrics_path, MAX_REPORT_ARTIFACT_BYTES)
+                        == self._exact_report_json(metrics)
+                        and _read_bounded(packet_path, MAX_REPORT_ARTIFACT_BYTES)
+                        == self._exact_report_json(packet)
+                    )
+                except (OSError, OperationsProjectionError):
+                    prepared = False
+            if not prepared and all(path.exists() for path in prepare_files):
+                return unavailable(
+                    "weekly_report_prepare_conflict",
+                    "Existing deterministic report inputs differ from the current maintained source plan.",
+                )
+
+        verification: Mapping[str, Any] | None = None
+        delivery: dict[str, Any] = {
+            "status": "not-ready",
+            "configured": False,
+            "retryable": False,
+            "record_id": None,
+            "message_id": None,
+            "thread_id": None,
+            "reason": "Artifact verification has not completed.",
+        }
+        verification_error: str | None = None
+        retained_review_valid = False
+        final_member_names = set(expected_members[2:])
+        if prepared and final_member_names.issubset(member_names):
+            try:
+                report_status = self._owner_command(
+                    [
+                        "weekly-report",
+                        "--target-thread",
+                        evidence.target_thread_id,
+                        "--action",
+                        "status",
+                        "--report-id",
+                        report_id,
+                    ]
+                )
+                verification_value = report_status.get("verified")
+                delivery_value = report_status.get("delivery")
+                if not isinstance(verification_value, Mapping) or not isinstance(
+                    delivery_value, Mapping
+                ):
+                    raise OperationsProjectionError(
+                        "report_owner_output_invalid",
+                        "Maintained weekly report status omitted verification or delivery posture.",
+                        status=503,
+                    )
+                verification = verification_value
+                delivery = dict(delivery_value)
+                retained_review_valid = True
+            except Exception as exc:
+                verification_error = str(exc)
+        elif prepared and member_names.intersection(final_member_names):
+            review_path = report_directory / "review.json"
+            if review_path.is_file() and not review_path.is_symlink():
+                try:
+                    review = json.loads(
+                        _read_bounded(
+                            review_path, MAX_REPORT_ARTIFACT_BYTES
+                        ).decode("utf-8")
+                    )
+                    record_ids = {
+                        str(item.get("record_id"))
+                        for item in packet.get("event_records", [])
+                        if item.get("record_id")
+                    }
+                    weekly.validate_review(
+                        review,
+                        report_id=report_id,
+                        source_root=source_root,
+                        record_ids=record_ids,
+                    )
+                    retained_review_valid = True
+                except Exception as exc:
+                    verification_error = (
+                        "The retained cognitive review is invalid: " + str(exc)
+                    )
+            elif member_names.intersection(final_member_names - {"review.json"}):
+                verification_error = (
+                    "Final report members exist without the canonical cognitive review."
+                )
+
+        if verification_error is not None:
+            return {
+                **unavailable(
+                    "weekly_report_artifact_invalid",
+                    verification_error,
+                ),
+                "report_id": report_id,
+                "coverage": metrics.get("coverage"),
+                "coverage_days": selected_days,
+                "timezone": timezone_name,
+                "source_root": source_root,
+                "fingerprint": workflow_fingerprint,
+                "writer_task_id": evidence.policy.get("runtime", {}).get(
+                    "roundup_thread_id"
+                ),
+                "members": members,
+            }
+
+        verified = isinstance(verification, Mapping) and verification.get("valid") is True
+        delivery_status = str(delivery.get("status", "not-ready"))
+        review_complete = verified or retained_review_valid
+        finalized = verified or final_member_names.issubset(member_names)
+        display_complete = verified and all(
+            name in member_names
+            for name in ("report.json", "report.md", "report.pdf", "manifest.json")
+        )
+        if not prepared:
+            stage = "prepare"
+            next_action = "prepare"
+        elif not review_complete:
+            stage = "review-finalize"
+            next_action = "review-finalize"
+        elif not verified:
+            stage = "finalize-verify"
+            next_action = "finalize-verify"
+        elif delivery_status == "pending":
+            stage = "delivery"
+            next_action = "deliver"
+        elif delivery_status == "stale":
+            stage = "delivery-stale"
+            next_action = None
+        elif delivery_status == "delivered":
+            stage = "delivered"
+            next_action = None
+        else:
+            stage = "verified"
+            next_action = None
+
+        stages = [
+            {
+                "id": "prepare",
+                "label": "Deterministic prepare",
+                "status": "complete" if prepared else "current",
+                "owner": "maintained weekly-report prepare owner",
+            },
+            {
+                "id": "source-currentness",
+                "label": "Source currentness",
+                "status": "complete" if prepared else "pending",
+                "owner": "canonical policy/event and report-source owner",
+            },
+            {
+                "id": "cognitive-review",
+                "label": "Cognitive review",
+                "status": "complete" if review_complete else (
+                    "current" if prepared else "pending"
+                ),
+                "owner": "configured Sol XHigh roundup writer",
+            },
+            {
+                "id": "finalize",
+                "label": "Finalize projections",
+                "status": "complete" if finalized else (
+                    "current" if prepared else "pending"
+                ),
+                "owner": "maintained weekly-report finalize owner",
+            },
+            {
+                "id": "verify",
+                "label": "Bundle verification",
+                "status": "complete" if verified else "pending",
+                "owner": "maintained weekly-report verifier",
+            },
+            {
+                "id": "display",
+                "label": "Artifact display",
+                "status": "complete" if display_complete else "pending",
+                "owner": "dashboard read-only report projection",
+            },
+            {
+                "id": "delivery",
+                "label": "Configured delivery",
+                "status": (
+                    "complete"
+                    if delivery_status == "delivered"
+                    else "current"
+                    if delivery_status == "pending"
+                    else "unavailable"
+                    if delivery_status in {"unavailable", "stale"}
+                    else "pending"
+                ),
+                "owner": "roundup writer + Gmail read-back + weekly delivery owner",
+            },
+        ]
+        limitations = list(metrics.get("limitations", []))
+        if delivery_status == "unavailable":
+            limitations.append(
+                "The report is verified locally; configured Gmail delivery is unavailable and remains separately retryable."
+            )
+        writer_task_id = evidence.policy.get("runtime", {}).get(
+            "roundup_thread_id"
+        )
+        writer_configured = bool(
+            isinstance(writer_task_id, str)
+            and writer_task_id
+            and writer_task_id != evidence.target_thread_id
+        )
+        workflow_error = None
+        if next_action is not None and not writer_configured:
+            workflow_error = {
+                "code": "weekly_report_writer_unavailable",
+                "message": (
+                    "The current report stage cannot advance because no distinct roundup writer is configured."
+                ),
+                "retryable": False,
+            }
+            limitations.append(workflow_error["message"])
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": next_action is not None and writer_configured,
+            "report_id": report_id,
+            "coverage": metrics.get("coverage"),
+            "coverage_days": selected_days,
+            "timezone": timezone_name,
+            "source_root": source_root,
+            "manifest_root": (
+                verification.get("manifest_root") if verification else None
+            ),
+            "fingerprint": workflow_fingerprint,
+            "writer_role": "roundup_writer",
+            "writer_task_id": writer_task_id,
+            "expected_members": expected_members,
+            "members": members,
+            "stages": stages,
+            "delivery": delivery,
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+
+    def weekly_report_workflow_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        coverage_days: int | None = None,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._weekly_report_workflow(
+            evidence, coverage_days=coverage_days
+        )
+
+    @staticmethod
+    def _latest_terminal_delivery_for_report_set(
+        owner: Any,
+        all_events: Sequence[Mapping[str, Any]],
+        *,
+        lifecycle_record_id: str,
+        report_set_id: str,
+    ) -> Mapping[str, Any] | None:
+        return owner.latest_terminal_delivery(
+            [
+                item
+                for item in all_events
+                if item.get("report_set_id") == report_set_id
+            ],
+            lifecycle_record_id=lifecycle_record_id,
+        )
+
+    def _terminal_report_workflow(
+        self,
+        evidence: TargetEvidence,
+    ) -> dict[str, Any]:
+        expected_members = [
+            "review-packet.json",
+            "review.json",
+            "delta-report.json",
+            "delta-report.md",
+            "delta-report.pdf",
+            "full-report.json",
+            "full-report.md",
+            "full-report.pdf",
+            "manifest.json",
+        ]
+
+        def unavailable(
+            code: str,
+            message: str,
+            *,
+            retryable: bool = False,
+            report_set_id: str | None = None,
+            source_root: str | None = None,
+            state_fingerprint: str | None = None,
+            completion_record_id: str | None = None,
+            lifecycle_record_id: str | None = None,
+            mission_root: str | None = None,
+            coverage: Mapping[str, Any] | None = None,
+            prior_reports: Sequence[Mapping[str, Any]] = (),
+            members: Sequence[Mapping[str, Any]] = (),
+            fingerprint_value: str | None = None,
+        ) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_set_id": report_set_id,
+                "source_root": source_root,
+                "manifest_root": None,
+                "fingerprint": fingerprint_value,
+                "state_fingerprint": state_fingerprint,
+                "mission_root": mission_root,
+                "completion": {
+                    "status": "unavailable",
+                    "record_id": completion_record_id,
+                    "lifecycle_record_id": lifecycle_record_id,
+                    "reconciled": False,
+                },
+                "coverage": dict(coverage) if isinstance(coverage, Mapping) else None,
+                "prior_reports": [dict(item) for item in prior_reports],
+                "writer_role": "base_reviewer",
+                "writer_task_id": None,
+                "expected_members": expected_members,
+                "members": [dict(item) for item in members],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "required": True,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "readback_root": None,
+                    "reason": "The verified terminal bundle is not ready for delivery.",
+                },
+                "shutdown": {
+                    "status": "separate-owner",
+                    "permitted": False,
+                    "reason": "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+                },
+                "limitations": [
+                    "No terminal-report stage may advance while its canonical completion or source evidence is unavailable.",
+                    "Terminal-report readiness is separate from request-stop, automation pause, and shutdown.",
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        owner = self._module("supervision")
+        if evidence.policy.get("reports", {}).get("terminal") != owner.terminal_report_contract():
+            return unavailable(
+                "terminal_report_disabled",
+                "The maintained terminal-report contract is not enabled for this run.",
+            )
+        mission = owner.bound_mission(evidence.policy)
+        if not isinstance(mission, Mapping):
+            return unavailable(
+                "terminal_report_mission_unavailable",
+                "Terminal reporting requires one exact current mission binding.",
+            )
+        lifecycle_records = [
+            item
+            for item in evidence.active_events
+            if item.get("kind") == "lifecycle"
+        ]
+        lifecycle = lifecycle_records[-1] if lifecycle_records else None
+        if not isinstance(lifecycle, Mapping) or lifecycle.get("status") != "completed":
+            return unavailable(
+                "terminal_report_completion_unavailable",
+                "Terminal reporting remains unavailable until the current mission has one canonical completed lifecycle.",
+                mission_root=str(mission["mission_root"]),
+                lifecycle_record_id=(
+                    str(lifecycle.get("record_id")) if isinstance(lifecycle, Mapping) else None
+                ),
+            )
+        state_fingerprint = str(lifecycle.get("state_fingerprint", ""))
+        completion = owner.latest_outcome_completion_record(
+            list(evidence.events), state_fingerprint=state_fingerprint
+        )
+        permitted, completion_reason = owner.assess_outcome_completion_record(
+            completion,
+            policy=evidence.policy,
+            state_fingerprint=state_fingerprint,
+        )
+        completion_record_id = (
+            str(completion.get("record_id"))
+            if isinstance(completion, Mapping)
+            else None
+        )
+        lifecycle_record_id = str(lifecycle.get("record_id", ""))
+        completion_reconciled = bool(
+            permitted
+            and completion_record_id
+            and lifecycle.get("outcome_completion_record_id") == completion_record_id
+        )
+        if not completion_reconciled or not 1 <= len(state_fingerprint) <= 128:
+            return unavailable(
+                "terminal_report_completion_unverified",
+                str(completion_reason),
+                state_fingerprint=state_fingerprint or None,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+            )
+        terminal = self._module("terminal")
+        try:
+            prior_reports = owner.terminal_prior_report_inventory(evidence.directory)
+            packet = terminal.build_packet(
+                target_label=str(
+                    evidence.policy.get("target_label", evidence.target_thread_id[:12])
+                ),
+                target_thread_id=evidence.target_thread_id,
+                mission_root=str(mission["mission_root"]),
+                state_fingerprint=state_fingerprint,
+                completion_record=completion,
+                lifecycle_record=lifecycle,
+                all_events=list(evidence.events),
+                prior_reports=prior_reports,
+            )
+        except Exception as exc:
+            return unavailable(
+                "terminal_report_plan_invalid",
+                f"The maintained terminal-report owner rejected the current source: {exc}",
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+            )
+        report_set_id = str(packet.get("report_set_id", ""))
+        source_root = str(packet.get("source_root", ""))
+        if not SAFE_ID.fullmatch(report_set_id) or not SHA256.fullmatch(source_root):
+            return unavailable(
+                "terminal_report_plan_invalid",
+                "The maintained owner returned an invalid terminal report identity.",
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+            )
+        prior_projection = [
+            {
+                "report_id": str(item.get("report_id", "")),
+                "source_root": str(item.get("source_root", "")),
+                "manifest_root": str(item.get("manifest_root", "")),
+                "coverage": dict(item.get("coverage", {}))
+                if isinstance(item.get("coverage"), Mapping)
+                else None,
+            }
+            for item in packet.get("prior_report_records", [])
+            if isinstance(item, Mapping)
+        ]
+        report_directory = evidence.directory / "reports" / "terminal" / report_set_id
+        if report_directory.is_symlink() or (
+            report_directory.exists() and not report_directory.is_dir()
+        ):
+            return unavailable(
+                "terminal_report_directory_invalid",
+                "The terminal-report path is not an owner-local directory.",
+                report_set_id=report_set_id,
+                source_root=source_root,
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+                coverage=packet.get("coverage"),
+                prior_reports=prior_projection,
+            )
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "report_set_id": report_set_id,
+                "source_root": source_root,
+                "report_tree": self._report_tree_key(
+                    report_directory,
+                    self.owner_revisions()["terminal_report"]["sha256"],
+                ),
+            }
+        )
+        try:
+            members = (
+                self._report_members(report_directory)
+                if report_directory.is_dir()
+                else []
+            )
+        except OperationsProjectionError as exc:
+            return unavailable(
+                exc.code,
+                str(exc),
+                report_set_id=report_set_id,
+                source_root=source_root,
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+                coverage=packet.get("coverage"),
+                prior_reports=prior_projection,
+                fingerprint_value=workflow_fingerprint,
+            )
+        member_names = {item["name"] for item in members}
+        packet_path = report_directory / "review-packet.json"
+        prepared = False
+        if packet_path.exists():
+            if not packet_path.is_file() or packet_path.is_symlink():
+                return unavailable(
+                    "terminal_report_prepare_conflict",
+                    "The terminal review packet is not a canonical owner file.",
+                    report_set_id=report_set_id,
+                    source_root=source_root,
+                    state_fingerprint=state_fingerprint,
+                    completion_record_id=completion_record_id,
+                    lifecycle_record_id=lifecycle_record_id,
+                    mission_root=str(mission["mission_root"]),
+                    coverage=packet.get("coverage"),
+                    prior_reports=prior_projection,
+                    members=members,
+                    fingerprint_value=workflow_fingerprint,
+                )
+            try:
+                prepared = _read_bounded(
+                    packet_path, MAX_REPORT_ARTIFACT_BYTES
+                ) == self._exact_report_json(packet)
+            except (OSError, OperationsProjectionError):
+                prepared = False
+            if not prepared:
+                return unavailable(
+                    "terminal_report_prepare_conflict",
+                    "The retained terminal review packet differs from the current maintained source plan.",
+                    report_set_id=report_set_id,
+                    source_root=source_root,
+                    state_fingerprint=state_fingerprint,
+                    completion_record_id=completion_record_id,
+                    lifecycle_record_id=lifecycle_record_id,
+                    mission_root=str(mission["mission_root"]),
+                    coverage=packet.get("coverage"),
+                    prior_reports=prior_projection,
+                    members=members,
+                    fingerprint_value=workflow_fingerprint,
+                )
+
+        retained_review_valid = False
+        verification: Mapping[str, Any] | None = None
+        artifact_error: str | None = None
+        partial_bundle = False
+        final_members = set(expected_members[1:])
+        review_path = report_directory / "review.json"
+        if prepared and review_path.is_file() and not review_path.is_symlink():
+            try:
+                review = json.loads(
+                    _read_bounded(review_path, MAX_REPORT_ARTIFACT_BYTES).decode("utf-8")
+                )
+                terminal.validate_review(review, packet)
+                retained_review_valid = True
+            except Exception as exc:
+                artifact_error = f"The retained terminal cognitive review is invalid: {exc}"
+        elif member_names.intersection(final_members):
+            artifact_error = (
+                "Terminal report artifacts exist without the exact retained cognitive review."
+            )
+        if prepared and final_members.issubset(member_names):
+            try:
+                candidate = self._owner_command(
+                    [
+                        "terminal-report",
+                        "--target-thread",
+                        evidence.target_thread_id,
+                        "--action",
+                        "verify",
+                        "--report-set-id",
+                        report_set_id,
+                    ]
+                )
+                if candidate.get("valid") is not True:
+                    raise OperationsProjectionError(
+                        "terminal_report_verification_failed",
+                        "The maintained terminal verifier did not accept the report set.",
+                        status=422,
+                    )
+                verification = candidate
+                retained_review_valid = True
+            except Exception as exc:
+                artifact_error = str(exc)
+        elif prepared and (member_names - {"review-packet.json", "review.json"}):
+            partial_bundle = retained_review_valid
+            if not retained_review_valid:
+                artifact_error = (
+                    "Terminal bundle members exist without a valid retained cognitive review."
+                )
+        if artifact_error is not None:
+            return unavailable(
+                "terminal_report_artifact_invalid",
+                artifact_error,
+                report_set_id=report_set_id,
+                source_root=source_root,
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+                coverage=packet.get("coverage"),
+                prior_reports=prior_projection,
+                members=members,
+                fingerprint_value=workflow_fingerprint,
+            )
+
+        verified = isinstance(verification, Mapping)
+        delivery_config = evidence.policy.get("notifications", {}).get("gmail", {})
+        delivery_configured = bool(
+            isinstance(delivery_config, Mapping)
+            and delivery_config.get("enabled") is True
+            and isinstance(delivery_config.get("reply_message_id"), str)
+            and delivery_config.get("reply_message_id")
+        )
+        delivery_record = (
+            self._latest_terminal_delivery_for_report_set(
+                owner,
+                evidence.events,
+                lifecycle_record_id=lifecycle_record_id,
+                report_set_id=report_set_id,
+            )
+            if verified
+            else None
+        )
+        delivery_current = bool(
+            verified
+            and isinstance(delivery_record, Mapping)
+            and owner.terminal_delivery_is_current(delivery_record, verification)
+            and delivery_record.get("state_fingerprint") == state_fingerprint
+        )
+        if delivery_current:
+            delivery_status = "delivered"
+            delivery_reason = (
+                "Both verified terminal PDFs were read back from the configured Gmail reply."
+            )
+        elif isinstance(delivery_record, Mapping):
+            delivery_status = "stale"
+            delivery_reason = (
+                "A terminal delivery record exists but no longer matches the verified bundle and read-back receipt."
+            )
+        elif verified and delivery_configured:
+            delivery_status = "pending"
+            delivery_reason = (
+                "Both verified terminal PDFs require one owner-mediated Gmail reply and exact read-back receipt."
+            )
+        elif verified:
+            delivery_status = "unavailable"
+            delivery_reason = (
+                "The terminal bundle is verified, but the canonical Gmail delivery lane is unavailable."
+            )
+        else:
+            delivery_status = "not-ready"
+            delivery_reason = "Artifact verification has not completed."
+
+        if not prepared:
+            stage, next_action = "prepare", "prepare"
+        elif not retained_review_valid:
+            stage, next_action = "review-finalize", "review-finalize"
+        elif not verified:
+            stage, next_action = "finalize-verify", "finalize-verify"
+        elif delivery_status == "pending":
+            stage, next_action = "delivery", "deliver"
+        elif delivery_status == "delivered":
+            stage, next_action = "delivered", None
+        elif delivery_status == "stale":
+            stage, next_action = "delivery-stale", None
+        else:
+            stage, next_action = "verified", None
+
+        stages = [
+            {
+                "id": "prepare",
+                "label": "Deterministic prepare",
+                "status": "complete" if prepared else "current",
+                "owner": "maintained terminal-report prepare owner",
+            },
+            {
+                "id": "source-currentness",
+                "label": "Outcome and source currentness",
+                "status": "complete" if prepared else "pending",
+                "owner": "canonical outcome, lifecycle, mission, event, and prior-report owners",
+            },
+            {
+                "id": "cognitive-review",
+                "label": "Independent cognitive review",
+                "status": "complete"
+                if retained_review_valid
+                else "current"
+                if prepared
+                else "pending",
+                "owner": "configured Sol XHigh base reviewer",
+            },
+            {
+                "id": "finalize",
+                "label": "Finalize delta and full reports",
+                "status": "complete"
+                if verified
+                else "current"
+                if retained_review_valid
+                else "pending",
+                "owner": "maintained terminal-report finalize owner",
+            },
+            {
+                "id": "verify",
+                "label": "JSON, Markdown, PDF, and manifest verification",
+                "status": "complete" if verified else "pending",
+                "owner": "maintained terminal-report verifier",
+            },
+            {
+                "id": "display",
+                "label": "Read-only artifact display",
+                "status": "complete" if verified else "pending",
+                "owner": "dashboard report projection",
+            },
+            {
+                "id": "delivery",
+                "label": "Configured Gmail delivery and read-back",
+                "status": "complete"
+                if delivery_status == "delivered"
+                else "current"
+                if delivery_status == "pending"
+                else "unavailable"
+                if delivery_status in {"unavailable", "stale"}
+                else "pending",
+                "owner": "configured base reviewer + Gmail read owners + terminal delivery owner",
+            },
+        ]
+        writer_task_id = evidence.policy.get("runtime", {}).get(
+            "base_reviewer_thread_id"
+        )
+        writer_configured = bool(
+            isinstance(writer_task_id, str)
+            and writer_task_id
+            and writer_task_id != evidence.target_thread_id
+        )
+        workflow_error = None
+        if next_action is not None and not writer_configured:
+            workflow_error = {
+                "code": "terminal_report_writer_unavailable",
+                "message": "No distinct configured Sol XHigh base reviewer can advance this terminal-report stage.",
+                "retryable": False,
+            }
+        elif verified and not delivery_configured:
+            workflow_error = {
+                "code": "terminal_report_delivery_unavailable",
+                "message": delivery_reason,
+                "retryable": False,
+            }
+        elif delivery_status == "stale":
+            workflow_error = {
+                "code": "terminal_report_delivery_stale",
+                "message": (
+                    "The existing terminal delivery receipt no longer matches the "
+                    "verified report set. The maintained append-once delivery owner "
+                    "cannot replace it, so no retry is supported for this report set."
+                ),
+                "retryable": False,
+            }
+        limitations = [
+            str(packet.get("content_boundary", "Terminal reporting is derived evidence only.")),
+            "A verified or delivered terminal report does not permit request-stop, automation pause, or shutdown.",
+            "The dashboard never reads Gmail messages, downloads Gmail attachments, sends email, or records delivery directly.",
+        ]
+        if partial_bundle:
+            limitations.append(
+                "A later-stage terminal bundle is partial; the exact retained review remains accepted and only maintained finalize/verify recovery is available."
+            )
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": next_action is not None and writer_configured,
+            "report_set_id": report_set_id,
+            "source_root": source_root,
+            "manifest_root": verification.get("manifest_root") if verified else None,
+            "fingerprint": workflow_fingerprint,
+            "state_fingerprint": state_fingerprint,
+            "mission_root": str(mission["mission_root"]),
+            "completion": {
+                "status": "reconciled",
+                "record_id": completion_record_id,
+                "lifecycle_record_id": lifecycle_record_id,
+                "reconciled": True,
+            },
+            "coverage": dict(packet["coverage"]),
+            "prior_reports": prior_projection,
+            "writer_role": "base_reviewer",
+            "writer_task_id": writer_task_id,
+            "expected_members": expected_members,
+            "members": members,
+            "stages": stages,
+            "delivery": {
+                "status": delivery_status,
+                "configured": delivery_configured,
+                "required": True,
+                "retryable": delivery_status == "pending",
+                "record_id": (
+                    delivery_record.get("record_id")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "message_id": (
+                    delivery_record.get("gmail_message_id")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "thread_id": (
+                    delivery_record.get("gmail_thread_id")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "readback_root": (
+                    delivery_record.get("gmail_readback_root")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "reason": delivery_reason,
+            },
+            "shutdown": {
+                "status": "separate-owner",
+                "permitted": False,
+                "reason": "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+            },
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+
+    def terminal_report_workflow_snapshot(
+        self,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._terminal_report_workflow(evidence)
+
+    def _terminal_shutdown_workflow(
+        self,
+        evidence: TargetEvidence,
+        *,
+        terminal_report: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        owner = self._module("supervision")
+
+        def unavailable(
+            code: str, message: str, *, retryable: bool = False
+        ) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "fingerprint": None,
+                "mission_root": None,
+                "state_fingerprint": None,
+                "completion_record_id": None,
+                "lifecycle_record_id": None,
+                "report_set_id": None,
+                "manifest_root": None,
+                "delivery_record_id": None,
+                "delivery_timestamp": None,
+                "source_record": None,
+                "gate": {
+                    "status": "unavailable",
+                    "completion_permitted": None,
+                    "source_stop_permitted": None,
+                    "supervision_pause_permitted": None,
+                    "terminal_reports_delivered": None,
+                    "reason": message,
+                    "currentness": None,
+                },
+                "open_heads": {
+                    "incident_ids": [],
+                    "decision_ids": [],
+                    "successor_transition_ids": [],
+                    "mission_activation_ids": [],
+                },
+                "automations": [],
+                "receipt": {
+                    "status": "unavailable",
+                    "record_id": None,
+                    "record_sha256": None,
+                    "previous_record_sha256": None,
+                    "automation_state_root": None,
+                    "reason": "Terminal shutdown evidence is unavailable.",
+                },
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": "Repair the named unavailable prerequisite through its maintained owner before previewing shutdown.",
+                },
+                "limitations": [
+                    "Terminal shutdown never follows from task status, tracker status, a green floor light, or report file existence.",
+                    "The dashboard does not write lifecycle, automation, report, delivery, or shutdown records directly.",
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        mission = owner.bound_mission(evidence.policy)
+        heads = self._active_heads(evidence)
+        lifecycle = heads["lifecycle"][-1] if heads["lifecycle"] else None
+        if (
+            not isinstance(mission, Mapping)
+            or not isinstance(mission.get("mission_root"), str)
+            or not isinstance(lifecycle, Mapping)
+            or lifecycle.get("status") != "completed"
+            or not isinstance(lifecycle.get("record_id"), str)
+            or not isinstance(lifecycle.get("record_sha256"), str)
+            or not SHA256.fullmatch(str(lifecycle["record_sha256"]))
+            or not isinstance(lifecycle.get("state_fingerprint"), str)
+            or not lifecycle["state_fingerprint"]
+        ):
+            return unavailable(
+                "terminal_shutdown_completion_unavailable",
+                "Terminal shutdown requires one exact current mission and completed lifecycle.",
+            )
+        terminal_report = (
+            terminal_report
+            if terminal_report is not None
+            else self._terminal_report_workflow(evidence)
+        )
+        delivery_projection = terminal_report.get("delivery")
+        completion_projection = terminal_report.get("completion")
+        if (
+            terminal_report.get("status") != "available"
+            or terminal_report.get("stage") != "delivered"
+            or not isinstance(delivery_projection, Mapping)
+            or delivery_projection.get("status") != "delivered"
+            or not isinstance(completion_projection, Mapping)
+            or completion_projection.get("reconciled") is not True
+            or completion_projection.get("lifecycle_record_id")
+            != lifecycle["record_id"]
+            or not isinstance(terminal_report.get("report_set_id"), str)
+            or not isinstance(terminal_report.get("manifest_root"), str)
+            or not SHA256.fullmatch(str(terminal_report["manifest_root"]))
+            or not isinstance(delivery_projection.get("record_id"), str)
+        ):
+            reason = (
+                terminal_report.get("error", {}).get("message")
+                if isinstance(terminal_report.get("error"), Mapping)
+                else "The exact current terminal report and delivery are not verified."
+            )
+            return unavailable(
+                "terminal_shutdown_report_unavailable",
+                str(reason),
+            )
+        report_set_id = str(terminal_report["report_set_id"])
+        delivery = owner.latest_terminal_delivery(
+            list(evidence.events),
+            lifecycle_record_id=str(lifecycle["record_id"]),
+            report_set_id=report_set_id,
+        )
+        delivery_at = _event_time(delivery) if isinstance(delivery, Mapping) else None
+        if (
+            not isinstance(delivery, Mapping)
+            or delivery.get("record_id") != delivery_projection.get("record_id")
+            or delivery.get("report_set_id") != report_set_id
+            or delivery.get("state_fingerprint") != lifecycle["state_fingerprint"]
+            or delivery_at is None
+        ):
+            return unavailable(
+                "terminal_shutdown_delivery_unavailable",
+                "The exact current terminal delivery receipt is missing, stale, or ambiguous.",
+            )
+        try:
+            verification = self._owner_command(
+                [
+                    "terminal-report",
+                    "--target-thread",
+                    evidence.target_thread_id,
+                    "--action",
+                    "verify",
+                    "--report-set-id",
+                    report_set_id,
+                ]
+            )
+            control = self.policy_control_snapshot(evidence.target_thread_id)
+            gate_snapshot = self.lifecycle_gate_snapshot(
+                evidence.target_thread_id,
+                lifecycle_state="completed",
+                source_record=str(lifecycle["record_id"]),
+                state_fingerprint=str(lifecycle["state_fingerprint"]),
+                terminal_report_set_id=report_set_id,
+            )
+        except OperationsProjectionError as error:
+            return unavailable(error.code, str(error), retryable=error.retryable)
+        if verification.get("valid") is not True:
+            return unavailable(
+                "terminal_shutdown_report_unavailable",
+                "The maintained terminal verifier did not accept the exact current report set.",
+            )
+        gate = gate_snapshot.get("gate")
+        policy = control.get("policy")
+        automations_by_role = control.get("automations_by_role")
+        current_lifecycle = control.get("lifecycle_record")
+        if (
+            not isinstance(gate, Mapping)
+            or not isinstance(policy, Mapping)
+            or policy.get("policy_sha256") != evidence.policy.get("policy_sha256")
+            or not isinstance(automations_by_role, Mapping)
+            or not isinstance(current_lifecycle, Mapping)
+            or current_lifecycle.get("record_sha256") != lifecycle.get("record_sha256")
+        ):
+            return unavailable(
+                "terminal_shutdown_gate_unavailable",
+                "The lifecycle gate, policy, or exact automation owner set changed during projection.",
+                retryable=True,
+            )
+
+        incident_ids = sorted(
+            incident_id
+            for incident_id, item in heads["incidents"].items()
+            if not owner.is_terminal_incident_record(item, incident_id)
+        )
+        decision_ids = sorted(
+            decision_id
+            for decision_id, item in heads["decisions"].items()
+            if item.get("phase") != "target-acknowledged"
+        )
+        transition_ids = sorted(
+            transition_id
+            for transition_id, item in heads["transitions"].items()
+            if item.get("phase") != "work-started"
+        )
+        activation_ids = sorted(
+            owner.mission_activation_heads(list(evidence.active_events), open_only=True)
+        )
+        open_heads = {
+            "incident_ids": incident_ids,
+            "decision_ids": decision_ids,
+            "successor_transition_ids": transition_ids,
+            "mission_activation_ids": activation_ids,
+        }
+        expected_ids = owner.expected_terminal_automation_ids(policy)
+        gate_ids = gate.get("pause_automation_ids")
+        if (
+            not expected_ids
+            or not isinstance(gate_ids, list)
+            or gate_ids != expected_ids
+            or len(expected_ids) != len(set(expected_ids))
+        ):
+            return unavailable(
+                "terminal_shutdown_automation_set_unavailable",
+                "The lifecycle gate and policy do not expose one exact nonempty terminal automation set.",
+            )
+        runtime = policy.get("runtime")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        normalized_automations: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for role, contract in sorted(AUTOMATION_BINDING_CONTRACTS.items()):
+            automation_id = self._policy_automation_id(policy, role)
+            if automation_id is None:
+                continue
+            automation = automations_by_role.get(role)
+            target_thread_id = runtime.get(contract["thread_key"])
+            if (
+                automation_id not in expected_ids
+                or automation_id in seen_ids
+                or not isinstance(target_thread_id, str)
+                or not target_thread_id
+                or not isinstance(automation, Mapping)
+                or automation.get("status") != "available"
+                or automation.get("id") != automation_id
+                or automation.get("kind") != "heartbeat"
+                or automation.get("target_thread_id") != target_thread_id
+                or automation.get("owner_status") not in {"ACTIVE", "PAUSED"}
+                or not isinstance(automation.get("manifest_sha256"), str)
+                or not SHA256.fullmatch(str(automation["manifest_sha256"]))
+                or not isinstance(automation.get("protected_sha256"), str)
+                or not SHA256.fullmatch(str(automation["protected_sha256"]))
+                or _event_time({"timestamp": automation.get("updated_at")}) is None
+            ):
+                return unavailable(
+                    "terminal_shutdown_automation_owner_unavailable",
+                    f"The exact {contract['label']} automation owner is missing, ambiguous, or malformed.",
+                )
+            seen_ids.add(automation_id)
+            updated_at = _event_time({"timestamp": automation["updated_at"]})
+            post_delivery = bool(
+                automation.get("owner_status") == "PAUSED"
+                and updated_at is not None
+                and updated_at >= delivery_at
+            )
+            normalized_automations.append(
+                {
+                    "role": role,
+                    "label": contract["label"],
+                    "automation_id": automation_id,
+                    "target_thread_id": target_thread_id,
+                    "owner_status": automation["owner_status"],
+                    "updated_at": automation["updated_at"],
+                    "manifest_sha256": automation["manifest_sha256"],
+                    "protected_sha256": automation["protected_sha256"],
+                    "post_delivery": post_delivery,
+                    "action": "preserve" if post_delivery else "pause-after-delivery",
+                }
+            )
+        if seen_ids != set(expected_ids):
+            return unavailable(
+                "terminal_shutdown_automation_set_unavailable",
+                "The projected policy roles do not account for every exact terminal automation owner.",
+            )
+        exact_owner_states: Mapping[str, Mapping[str, Any]] | None = None
+        exact_owner_error: str | None = None
+        try:
+            exact_owner_states = owner.terminal_automation_owner_states(
+                expected_ids,
+                not_before=delivery_at,
+                automation_root=self.automations_root,
+            )
+        except Exception as error:
+            exact_owner_error = str(error)
+
+        shutdown_records = [
+            item
+            for item in evidence.active_events
+            if item.get("kind") == "check"
+            and item.get("category") == owner.TERMINAL_SHUTDOWN_CATEGORY
+            and item.get("report_set_id") == report_set_id
+        ]
+        if len(shutdown_records) > 1:
+            return unavailable(
+                "terminal_shutdown_receipt_ambiguous",
+                "More than one terminal shutdown receipt claims the exact report set.",
+            )
+        receipt = shutdown_records[0] if shutdown_records else None
+        receipt_current = bool(
+            isinstance(receipt, Mapping)
+            and isinstance(exact_owner_states, Mapping)
+            and evidence.events
+            and receipt.get("record_sha256")
+            == evidence.events[-1].get("record_sha256")
+            and owner.terminal_shutdown_record_is_canonical(
+                receipt,
+                policy=policy,
+                lifecycle=lifecycle,
+                delivery=delivery,
+                verified=verification,
+                automation_states=exact_owner_states,
+            )
+        )
+        if isinstance(receipt, Mapping):
+            receipt_status = "verified" if receipt_current else "stale"
+            receipt_reason = (
+                "The canonical shutdown receipt matches the exact report set and every current paused automation owner."
+                if receipt_current
+                else "A shutdown receipt exists but no longer matches the exact lifecycle, report, policy, or current automation owners."
+            )
+        else:
+            receipt_status = "missing"
+            receipt_reason = "No canonical terminal shutdown receipt has been recorded for this report set."
+
+        gate_ready = bool(
+            gate.get("completion_permitted") is True
+            and gate.get("source_stop_permitted") is True
+            and gate.get("supervision_pause_permitted") is True
+            and gate.get("terminal_reports_delivered") is True
+            and gate.get("terminal_report_set_id") == report_set_id
+            and gate.get("event_head")
+            == (evidence.events[-1].get("record_sha256") if evidence.events else None)
+            and gate.get("open_incident_ids") == incident_ids
+            and gate.get("open_decision_ids") == decision_ids
+            and gate.get("open_mission_activations") == []
+            and gate.get("open_successor_transitions") == []
+            and not any(open_heads.values())
+        )
+        if receipt_current and gate_ready:
+            stage = "shutdown"
+            next_action = None
+            actionable = False
+            workflow_error = None
+            recovery_posture = "complete"
+            recovery_guidance = (
+                "No further shutdown action is supported for this report set."
+            )
+        elif receipt_current:
+            stage = "blocked"
+            next_action = None
+            actionable = False
+            workflow_error = {
+                "code": "terminal_shutdown_postcondition_changed",
+                "message": "The receipt is canonical, but a current source-stop or open-head gate no longer permits terminal shutdown.",
+                "retryable": False,
+            }
+            recovery_posture = "prerequisite-denied"
+            recovery_guidance = "Preserve the append-once receipt and reconcile the newly opened prerequisite through its maintained owner; do not retry shutdown."
+        elif isinstance(receipt, Mapping):
+            stage = "blocked"
+            next_action = None
+            actionable = False
+            workflow_error = {
+                "code": "terminal_shutdown_receipt_stale",
+                "message": receipt_reason,
+                "retryable": False,
+            }
+            recovery_posture = "owner-reconciliation-required"
+            recovery_guidance = "Do not retry or overwrite the append-once receipt; reconcile the named owner divergence outside this operation."
+        elif gate_ready:
+            stage = "request-stop"
+            next_action = "shutdown"
+            actionable = True
+            workflow_error = None
+            recovery_posture = (
+                "finish-shutdown"
+                if any(item["post_delivery"] for item in normalized_automations)
+                else "ready"
+            )
+            recovery_guidance = "Pause only each still-active or pre-delivery named automation, then run the maintained terminal-shutdown owner once."
+        else:
+            stage = "blocked"
+            next_action = None
+            actionable = False
+            blocked_reason = str(
+                gate.get("reason")
+                or "One or more outcome, open-head, report, lifecycle, or source-stop gates remain closed."
+            )
+            workflow_error = {
+                "code": "terminal_shutdown_gate_denied",
+                "message": blocked_reason,
+                "retryable": False,
+            }
+            recovery_posture = "prerequisite-denied"
+            recovery_guidance = "Close only the named current prerequisite through its maintained owner, then preview again."
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "terminal_report": terminal_report.get("fingerprint"),
+                "gate": gate_snapshot.get("currentness"),
+                "open_heads": open_heads,
+                "automations": [
+                    {
+                        "id": item["automation_id"],
+                        "status": item["owner_status"],
+                        "updated_at": item["updated_at"],
+                        "manifest": item["manifest_sha256"],
+                    }
+                    for item in normalized_automations
+                ],
+                "receipt": receipt.get("record_sha256")
+                if isinstance(receipt, Mapping)
+                else None,
+            }
+        )
+        limitations = [
+            "Source-stop permission, automation pause, and the terminal shutdown receipt are separate postconditions.",
+            "The dashboard delegates the exact owner sequence to the configured fix executor and never edits automation TOML or the supervision ledger directly.",
+            "A partial owner transition is retained without automatic retry or rollback.",
+            "The implementation task is observed and preserved; task status is never accepted as shutdown authority.",
+        ]
+        if exact_owner_error and not receipt_current:
+            limitations.append(
+                f"Exact paused-owner postcondition is not yet satisfied: {_bounded(exact_owner_error, 300)}"
+            )
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": actionable,
+            "fingerprint": workflow_fingerprint,
+            "mission_root": str(mission["mission_root"]),
+            "state_fingerprint": str(lifecycle["state_fingerprint"]),
+            "completion_record_id": completion_projection.get("record_id"),
+            "lifecycle_record_id": str(lifecycle["record_id"]),
+            "report_set_id": report_set_id,
+            "manifest_root": terminal_report["manifest_root"],
+            "delivery_record_id": str(delivery["record_id"]),
+            "delivery_timestamp": delivery_at.isoformat().replace("+00:00", "Z"),
+            "source_record": str(delivery["record_id"]),
+            "gate": {
+                "status": "ready" if gate_ready else "blocked",
+                "completion_permitted": gate.get("completion_permitted"),
+                "source_stop_permitted": gate.get("source_stop_permitted"),
+                "supervision_pause_permitted": gate.get("supervision_pause_permitted"),
+                "terminal_reports_delivered": gate.get("terminal_reports_delivered"),
+                "reason": str(gate.get("reason", "Unavailable")),
+                "currentness": gate_snapshot.get("currentness"),
+            },
+            "open_heads": open_heads,
+            "automations": normalized_automations,
+            "receipt": {
+                "status": receipt_status,
+                "record_id": receipt.get("record_id")
+                if isinstance(receipt, Mapping)
+                else None,
+                "record_sha256": receipt.get("record_sha256")
+                if isinstance(receipt, Mapping)
+                else None,
+                "previous_record_sha256": receipt.get("previous_record_sha256")
+                if isinstance(receipt, Mapping)
+                else None,
+                "automation_state_root": receipt.get("automation_state_root")
+                if isinstance(receipt, Mapping)
+                else None,
+                "reason": receipt_reason,
+            },
+            "recovery": {
+                "posture": recovery_posture,
+                "guidance": recovery_guidance,
+            },
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+    def terminal_shutdown_workflow_snapshot(
+        self,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._terminal_shutdown_workflow(evidence)
+    def _factory_evolution_workflow(
+        self,
+        evidence: TargetEvidence,
+    ) -> dict[str, Any]:
+        expected_members = [
+            "learning-packet.json",
+            "prepare-manifest.json",
+            "review.json",
+            "finalize-manifest.json",
+            "evaluation.json",
+            "machine-report.json",
+            "manifest.json",
+        ]
+
+        def unavailable(
+            code: str,
+            message: str,
+            *,
+            retryable: bool = False,
+            source_report_id: str | None = None,
+            source_report_root: str | None = None,
+        ) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "evolution_id": None,
+                "packet_id": None,
+                "packet_root": None,
+                "review_id": None,
+                "review_root": None,
+                "evaluation_id": None,
+                "evaluation_root": None,
+                "disposition": None,
+                "comparison_plan": None,
+                "comparison_results": None,
+                "source_report_id": source_report_id,
+                "source_report_root": source_report_root,
+                "event_head_sha256": (
+                    evidence.events[-1].get("record_sha256")
+                    if evidence.events
+                    else None
+                ),
+                "manifest_root": None,
+                "fingerprint": _digest(
+                    {
+                        "target": evidence.target_thread_id,
+                        "source": evidence.fingerprint,
+                        "error": code,
+                        "report": source_report_root,
+                    }
+                ),
+                "proposer": {"role": "base_reviewer", "task_id": None},
+                "implementer": {
+                    "status": "not-selected",
+                    "task_id": None,
+                    "baseline_revision": None,
+                    "candidate_revision": None,
+                },
+                "evaluator": {"role": "reviewer", "task_id": None},
+                "expected_members": expected_members,
+                "members": [],
+                "stages": [],
+                "limitations": [
+                    "Factory evolution is unavailable until every exact source and role prerequisite is current.",
+                    "Evolution never implements, adopts, installs, routes, schedules, deploys, or measures a candidate outcome.",
+                ],
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": message,
+                    "preserved_roots": [
+                        root
+                        for root in (source_report_root,)
+                        if isinstance(root, str) and SHA256.fullmatch(root)
+                    ],
+                },
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        weekly = self._weekly_report_workflow(evidence)
+        source_report_id = weekly.get("report_id")
+        source_report_root = weekly.get("source_root")
+        verified_stage_ids = {
+            item.get("id")
+            for item in weekly.get("stages", [])
+            if isinstance(item, Mapping) and item.get("status") == "complete"
+        }
+        if (
+            weekly.get("status") != "available"
+            or not isinstance(source_report_id, str)
+            or not SAFE_ID.fullmatch(source_report_id)
+            or not isinstance(source_report_root, str)
+            or not SHA256.fullmatch(source_report_root)
+            or not {"prepare", "source-currentness", "cognitive-review", "finalize", "verify", "display"}.issubset(verified_stage_ids)
+        ):
+            return unavailable(
+                "factory_evolution_verified_report_unavailable",
+                "Factory evolution requires one current verified weekly report before its deterministic packet can be prepared.",
+                source_report_id=(source_report_id if isinstance(source_report_id, str) else None),
+                source_report_root=(source_report_root if isinstance(source_report_root, str) else None),
+            )
+        report_path = (
+            evidence.directory
+            / "reports"
+            / "weekly"
+            / source_report_id
+            / "report.json"
+        )
+        events_path = evidence.directory / "events.jsonl"
+        if (
+            report_path.is_symlink()
+            or events_path.is_symlink()
+            or not report_path.is_file()
+            or not events_path.is_file()
+        ):
+            return unavailable(
+                "factory_evolution_source_path_unavailable",
+                "The exact verified report or canonical event source is unavailable or unsafe.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        evolution = self._module("evolution")
+        try:
+            packet = evolution.build_learning_packet(
+                report_paths=[report_path],
+                event_paths=[events_path],
+            )
+            evolution.verify_learning_packet(packet)
+        except Exception as exc:
+            return unavailable(
+                "factory_evolution_packet_invalid",
+                f"The maintained Factory-evolution owner rejected the explicit source set: {exc}",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        packet_id = packet.get("packet_id")
+        packet_root = packet.get("packet_root")
+        if (
+            not isinstance(packet_id, str)
+            or not SAFE_ID.fullmatch(packet_id)
+            or not isinstance(packet_root, str)
+            or not SHA256.fullmatch(packet_root)
+        ):
+            return unavailable(
+                "factory_evolution_packet_identity_invalid",
+                "The maintained Factory-evolution owner returned an invalid packet identity.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        evolution_id = f"evolution-{packet_root[:20]}"
+        directory = evidence.directory / "learning" / "factory-evolution" / evolution_id
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            return unavailable(
+                "factory_evolution_directory_invalid",
+                "The current evolution path is not an owner-local directory.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        try:
+            members = self._report_members(directory) if directory.is_dir() else []
+        except OperationsProjectionError as exc:
+            return unavailable(
+                exc.code,
+                str(exc),
+                retryable=exc.retryable,
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        verification: Mapping[str, Any] | None = None
+        if directory.is_dir():
+            try:
+                verification = self._owner_command(
+                    [
+                        "factory-evolution",
+                        "--target-thread",
+                        evidence.target_thread_id,
+                        "--evolution-id",
+                        evolution_id,
+                        "--action",
+                        "verify",
+                    ]
+                )
+            except OperationsProjectionError as exc:
+                return unavailable(
+                    "factory_evolution_artifact_invalid",
+                    str(exc),
+                    retryable=exc.retryable,
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            if (
+                verification.get("evolution_id") != evolution_id
+                or verification.get("packet_id") != packet_id
+                or verification.get("packet_root") != packet_root
+            ):
+                return unavailable(
+                    "factory_evolution_source_conflict",
+                    "The retained evolution set does not match the current deterministic packet.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+
+        runtime = evidence.policy.get("runtime")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        proposer_task_id = runtime.get("base_reviewer_thread_id")
+        evaluator_task_id = runtime.get("reviewer_thread_id")
+        role_configuration_current = bool(
+            isinstance(proposer_task_id, str)
+            and SAFE_ID.fullmatch(proposer_task_id)
+            and isinstance(evaluator_task_id, str)
+            and SAFE_ID.fullmatch(evaluator_task_id)
+            and len({proposer_task_id, evaluator_task_id, evidence.target_thread_id}) == 3
+        )
+        owner_stage = verification.get("stage") if verification else None
+        review: Mapping[str, Any] | None = None
+        review_id = verification.get("review_id") if verification else None
+        review_root = verification.get("review_root") if verification else None
+        evaluation_id = verification.get("evaluation_id") if verification else None
+        evaluation_root = verification.get("evaluation_root") if verification else None
+        disposition = verification.get("disposition") if verification else None
+        comparison_plan: dict[str, Any] | None = None
+        comparison_results: dict[str, Any] | None = None
+        implementer = {
+            "status": "not-selected",
+            "task_id": None,
+            "baseline_revision": None,
+            "candidate_revision": None,
+        }
+        if owner_stage in {"finalized", "evaluated"}:
+            review_path = directory / "review.json"
+            try:
+                review_value = json.loads(
+                    _read_bounded(review_path, MAX_REPORT_ARTIFACT_BYTES).decode("utf-8")
+                )
+                review = evolution.verify_evolution_review(packet, review_value)
+            except Exception as exc:
+                return unavailable(
+                    "factory_evolution_review_invalid",
+                    f"The retained evolution review is invalid: {exc}",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            experiment = review.get("experiment")
+            if not isinstance(experiment, Mapping):
+                return unavailable(
+                    "factory_evolution_experiment_unavailable",
+                    "The retained review has no exact experiment contract.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            if (
+                not role_configuration_current
+                or review.get("reviewer_id") != proposer_task_id
+                or experiment.get("proposer_id") != proposer_task_id
+                or experiment.get("evaluator_id") != evaluator_task_id
+                or experiment.get("implementer_id") != evidence.target_thread_id
+            ):
+                return unavailable(
+                    "factory_evolution_role_identity_mismatch",
+                    "The retained review does not preserve the configured distinct proposer, implementation, and evaluator identities.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            implementer = {
+                "status": (
+                    "evaluation-evidence-recorded"
+                    if owner_stage == "evaluated"
+                    else "awaiting-owner-proof"
+                ),
+                "task_id": experiment.get("implementer_id"),
+                "baseline_revision": experiment.get("baseline_revision"),
+                "candidate_revision": experiment.get("candidate_revision"),
+            }
+        if owner_stage == "evaluated":
+            try:
+                evaluation_value = json.loads(
+                    _read_bounded(
+                        directory / "evaluation.json", MAX_REPORT_ARTIFACT_BYTES
+                    ).decode("utf-8")
+                )
+                evaluation = evolution.verify_candidate_evaluation(
+                    packet,
+                    review,
+                    evaluation_value,
+                )
+            except Exception as exc:
+                return unavailable(
+                    "factory_evolution_evaluation_invalid",
+                    f"The retained candidate evaluation is invalid: {exc}",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+        if review is not None:
+            try:
+                comparison_plan, comparison_results = _factory_evolution_comparison(
+                    review,
+                    evaluation if owner_stage == "evaluated" else None,
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                return unavailable(
+                    "factory_evolution_comparison_projection_invalid",
+                    f"The verified comparison evidence cannot be projected safely: {exc}",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+        if owner_stage == "evaluated" and disposition not in {
+            "promote",
+            "advisory",
+            "revise",
+            "reject",
+        }:
+            return unavailable(
+                "factory_evolution_disposition_invalid",
+                "The verified evolution set has no supported disposition.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+
+        if verification is None:
+            stage, next_action = "prepare", "prepare"
+        elif owner_stage == "prepared":
+            stage, next_action = "finalize", "finalize"
+        elif owner_stage == "finalized":
+            stage, next_action = "awaiting-implementation", "evaluate"
+        elif owner_stage == "evaluated":
+            stage, next_action = "verified", None
+        else:
+            return unavailable(
+                "factory_evolution_stage_invalid",
+                "The maintained Factory-evolution owner returned an unsupported stage.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        manifest_name = {
+            "prepared": "prepare-manifest.json",
+            "finalized": "finalize-manifest.json",
+            "evaluated": "manifest.json",
+        }.get(str(owner_stage))
+        manifest_root: str | None = None
+        if manifest_name:
+            try:
+                manifest = json.loads(
+                    _read_bounded(
+                        directory / manifest_name, MAX_REPORT_ARTIFACT_BYTES
+                    ).decode("utf-8")
+                )
+                manifest_root_value = manifest.get("manifest_root")
+                manifest_root = (
+                    manifest_root_value
+                    if isinstance(manifest_root_value, str)
+                    and SHA256.fullmatch(manifest_root_value)
+                    else None
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError, OperationsProjectionError):
+                manifest_root = None
+            if manifest_root is None:
+                return unavailable(
+                    "factory_evolution_manifest_identity_unavailable",
+                    "The verified evolution stage has no exact readable manifest identity.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+        stage_statuses = {
+            "prepare": "complete" if verification else "current",
+            "finalize": (
+                "complete" if owner_stage in {"finalized", "evaluated"}
+                else "current" if owner_stage == "prepared" else "pending"
+            ),
+            "external-implementation": (
+                "complete" if owner_stage == "evaluated"
+                else "current" if owner_stage == "finalized" else "pending"
+            ),
+            "evaluate": (
+                "complete" if owner_stage == "evaluated"
+                else "pending"
+            ),
+            "verify": "complete" if owner_stage == "evaluated" else "pending",
+        }
+        stages = [
+            {
+                "id": "prepare",
+                "label": "Deterministic prepare",
+                "status": stage_statuses["prepare"],
+                "owner": "maintained Factory-evolution packet owner",
+            },
+            {
+                "id": "finalize",
+                "label": "Cognitive finalize",
+                "status": stage_statuses["finalize"],
+                "owner": "configured independent Sol XHigh proposer",
+            },
+            {
+                "id": "external-implementation",
+                "label": "External implementation",
+                "status": stage_statuses["external-implementation"],
+                "owner": "separate Block 11 author/implement/supervise owner",
+            },
+            {
+                "id": "evaluate",
+                "label": "Independent evaluate",
+                "status": stage_statuses["evaluate"],
+                "owner": "configured independent Sol evaluator",
+            },
+            {
+                "id": "verify",
+                "label": "Deterministic verify",
+                "status": stage_statuses["verify"],
+                "owner": "maintained Factory-evolution verifier",
+            },
+        ]
+        workflow_error = None
+        if next_action is not None and not role_configuration_current:
+            workflow_error = {
+                "code": "factory_evolution_roles_unavailable",
+                "message": "Factory evolution requires distinct configured proposer, implementation, and evaluator task identities.",
+                "retryable": False,
+            }
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "report": weekly.get("fingerprint"),
+                "packet": packet_root,
+                "tree": self._report_tree_key(
+                    directory,
+                    self.owner_revisions()["factory_evolution"]["sha256"],
+                ),
+                "roles": [proposer_task_id, evidence.target_thread_id, evaluator_task_id],
+                "stage": stage,
+            }
+        )
+        limitations = [
+            "The selected candidate is implemented only by a separate Block 11 owner; this workflow can validate its exact evidence but cannot launch or accept it.",
+            "A promote disposition is review evidence only. Adoption, installation, routing, scheduling, deployment, rollback, and later outcome remain not performed by evolution.",
+        ]
+        if stage == "awaiting-implementation":
+            limitations.append(
+                "Evaluation remains unavailable until the exact external implementation task and baseline/candidate revisions are current and independently readable."
+            )
+        if workflow_error:
+            limitations.append(workflow_error["message"])
+        preserved_roots = [
+            root
+            for root in (
+                packet_root,
+                review_root,
+                evaluation_root,
+                manifest_root,
+            )
+            if isinstance(root, str) and SHA256.fullmatch(root)
+        ]
+        if stage == "prepare":
+            recovery = {
+                "posture": "available",
+                "guidance": "Prepare the current deterministic packet once; changed source evidence creates a different evolution identity.",
+                "preserved_roots": preserved_roots,
+            }
+        elif stage == "finalize":
+            recovery = {
+                "posture": "available",
+                "guidance": "Retain the prepared packet and retry only the independent cognitive finalize stage with the same current source.",
+                "preserved_roots": preserved_roots,
+            }
+        elif stage == "awaiting-implementation":
+            recovery = {
+                "posture": "blocked",
+                "guidance": "Retain the verified review; evaluation waits for separately owned baseline and candidate evidence from Block 11.",
+                "preserved_roots": preserved_roots,
+            }
+        else:
+            recovery = {
+                "posture": "not-required",
+                "guidance": "The immutable verified disposition is retained; a changed source set begins a new evolution identity.",
+                "preserved_roots": preserved_roots,
+            }
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": next_action is not None and role_configuration_current,
+            "evolution_id": evolution_id,
+            "packet_id": packet_id,
+            "packet_root": packet_root,
+            "review_id": review_id,
+            "review_root": review_root,
+            "evaluation_id": evaluation_id,
+            "evaluation_root": evaluation_root,
+            "disposition": disposition,
+            "comparison_plan": comparison_plan,
+            "comparison_results": comparison_results,
+            "source_report_id": source_report_id,
+            "source_report_root": source_report_root,
+            "event_head_sha256": (
+                evidence.events[-1].get("record_sha256") if evidence.events else None
+            ),
+            "manifest_root": manifest_root,
+            "fingerprint": workflow_fingerprint,
+            "proposer": {"role": "base_reviewer", "task_id": proposer_task_id},
+            "implementer": implementer,
+            "evaluator": {"role": "reviewer", "task_id": evaluator_task_id},
+            "expected_members": expected_members,
+            "members": members,
+            "stages": stages,
+            "limitations": limitations,
+            "recovery": recovery,
+            "error": workflow_error,
+        }
+
+    def factory_evolution_workflow_snapshot(
+        self,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._factory_evolution_workflow(evidence)
+
     def _verify_report(
         self,
         *,
@@ -3491,9 +6452,19 @@ class OperationsProjectionService:
                 return dict(cached)
         try:
             if family == "weekly":
-                verification = self._owner_command(
-                    ["weekly-report", "--target-thread", target, "--action", "verify", "--report-id", report_id]
+                status_payload = self._owner_command(
+                    ["weekly-report", "--target-thread", target, "--action", "status", "--report-id", report_id]
                 )
+                verification = status_payload.get("verified")
+                delivery = status_payload.get("delivery")
+                if not isinstance(verification, Mapping) or not isinstance(
+                    delivery, Mapping
+                ):
+                    raise OperationsProjectionError(
+                        "report_owner_output_invalid",
+                        "Maintained weekly report status output is incomplete.",
+                        status=503,
+                    )
                 report_path = directory / "report.json"
                 report = json.loads(_read_bounded(report_path, MAX_REPORT_ARTIFACT_BYTES))
                 review = report.get("cognitive_review") if isinstance(report, Mapping) else None
@@ -3513,6 +6484,7 @@ class OperationsProjectionService:
                         "assessment": _bounded(review.get("executive_assessment"), 1_500),
                     } if isinstance(review, Mapping) else None,
                     "verification": verification,
+                    "delivery": delivery,
                     "members": self._report_members(directory),
                     "limitations": list(metrics.get("limitations", [])) if isinstance(metrics, Mapping) else [],
                     "error": None,
@@ -3533,6 +6505,7 @@ class OperationsProjectionService:
                     "coverage": None,
                     "review_summary": None,
                     "verification": verification,
+                    "delivery": None,
                     "members": self._report_members(directory),
                     "limitations": ["A verified terminal report is not lifecycle or observable-outcome authority."],
                     "error": None,
@@ -3553,6 +6526,7 @@ class OperationsProjectionService:
                     "coverage": None,
                     "review_summary": None,
                     "verification": verification,
+                    "delivery": None,
                     "members": self._report_members(directory),
                     "limitations": ["Factory-evolution disposition grants no implementation, adoption, deployment, or outcome authority."],
                     "error": None,
@@ -3577,6 +6551,7 @@ class OperationsProjectionService:
                 "coverage": None,
                 "review_summary": None,
                 "verification": None,
+                "delivery": None,
                 "members": members,
                 "limitations": ["This source-local report failure does not suppress independent run or report families."],
                 "error": {"code": error.code, "message": str(error), "retryable": error.retryable},
@@ -3613,6 +6588,7 @@ class OperationsProjectionService:
                 "coverage": None,
                 "review_summary": None,
                 "verification": None,
+                "delivery": None,
                 "members": [],
                 "limitations": [
                     "This source-local report inventory failure does not suppress independent run or report families."
@@ -3822,8 +6798,12 @@ class OperationsProjectionService:
         owner = self._module("supervision")
         binding = owner.bound_mission(evidence.policy)
         current_mission = {
-            "root": str(binding["mission_root"]) if isinstance(binding, Mapping) else None,
-            "source_record": str(binding["mission_source_record"]) if isinstance(binding, Mapping) else None,
+            "root": str(binding["mission_root"])
+            if isinstance(binding, Mapping)
+            else None,
+            "source_record": str(binding["mission_source_record"])
+            if isinstance(binding, Mapping)
+            else None,
             "policy_sha256": evidence.policy.get("policy_sha256"),
         }
         heads = self._active_heads(evidence)
@@ -3843,6 +6823,13 @@ class OperationsProjectionService:
         light = self._light(evidence, heads, anomalies, include_integration_gap=True)
         timeline, timeline_truncated = self._timeline(evidence)
         reports = self._reports(evidence, owners)
+        weekly_report_workflow = self._weekly_report_workflow(evidence)
+        terminal_report_workflow = self._terminal_report_workflow(evidence)
+        terminal_shutdown_workflow = self._terminal_shutdown_workflow(
+            evidence,
+            terminal_report=terminal_report_workflow,
+        )
+        factory_evolution_workflow = self._factory_evolution_workflow(evidence)
         metrics = self._metrics(evidence)
         incidents = []
         for incident_id, head in sorted(heads["incidents"].items()):
@@ -3854,15 +6841,58 @@ class OperationsProjectionService:
                 }
             )
         decisions = [
-            {"decision_id": decision_id, "open": item.get("phase") != "target-acknowledged", "head": _record_ref(item), "phase": _bounded(item.get("phase")), "safe_frontier": _bounded(item.get("safe_frontier"))}
+            {
+                "decision_id": decision_id,
+                "open": item.get("phase") != "target-acknowledged",
+                "head": _record_ref(item),
+                "phase": _bounded(item.get("phase")),
+                "safe_frontier": _bounded(item.get("safe_frontier")),
+            }
             for decision_id, item in sorted(heads["decisions"].items())
         ]
         transitions = [
-            {"transition_id": transition_id, "open": item.get("phase") != "work-started", "head": _record_ref(item), "phase": _bounded(item.get("phase"))}
+            {
+                "transition_id": transition_id,
+                "open": item.get("phase") != "work-started",
+                "head": _record_ref(item),
+                "phase": _bounded(item.get("phase")),
+                "tracker_sha256": _bounded(item.get("tracker_sha256"), 64),
+                "tracker_source_record": _bounded(
+                    item.get("tracker_source_record"), 160
+                ),
+                "requested_block_range": _bounded(
+                    item.get("requested_block_range"), 80
+                ),
+                "first_eligible_block": _bounded(item.get("first_eligible_block"), 40),
+                "source_mission_root": _bounded(item.get("source_mission_root"), 64),
+                "governing_authority_source_class": _bounded(
+                    item.get("governing_authority_source_class"), 40
+                ),
+                "governing_authority_source_record": _bounded(
+                    item.get("governing_authority_source_record"), 160
+                ),
+                "successor_thread_id": _bounded(item.get("successor_thread_id"), 128),
+                "successor_mission_root": _bounded(
+                    item.get("successor_mission_root"), 64
+                ),
+                "successor_group_id": _bounded(item.get("successor_group_id"), 128),
+                "handoff_record": _bounded(item.get("handoff_record"), 128),
+                "acknowledgement_record": _bounded(
+                    item.get("acknowledgement_record"), 128
+                ),
+                "started_block": _bounded(item.get("started_block"), 40),
+                "state_fingerprint": _bounded(item.get("state_fingerprint"), 128),
+            }
             for transition_id, item in sorted(heads["transitions"].items())
         ]
-        activity_records = [item for item in evidence.active_events if item.get("kind") in ACTIVITY_KINDS]
-        conclusion_records = [item for item in evidence.active_events if self._is_conclusion(item, owner)]
+        activity_records = [
+            item
+            for item in evidence.active_events
+            if item.get("kind") in ACTIVITY_KINDS
+        ]
+        conclusion_records = [
+            item for item in evidence.active_events if self._is_conclusion(item, owner)
+        ]
         activities = [
             _event_projection(
                 item,
@@ -3887,7 +6917,10 @@ class OperationsProjectionService:
         lifecycle = heads["lifecycle"][-1] if heads["lifecycle"] else None
         topology = {
             "supervisor_group_id": _digest(
-                {"target": evidence.target_thread_id, "mission": current_mission["root"]}
+                {
+                    "target": evidence.target_thread_id,
+                    "mission": current_mission["root"],
+                }
             ),
             "implementation": {
                 "thread_id": evidence.target_thread_id,
@@ -3908,26 +6941,41 @@ class OperationsProjectionService:
         return {
             "status": "available",
             "target_thread_id": evidence.target_thread_id,
-            "target_label": str(evidence.policy.get("target_label", evidence.target_thread_id[:12])),
+            "target_label": str(
+                evidence.policy.get("target_label", evidence.target_thread_id[:12])
+            ),
             "observed_at": _observed_at(),
             "fingerprint": evidence.fingerprint,
             "current_mission": current_mission,
             "project_binding": project_binding,
             "event_count": len(evidence.events),
             "current_event_count": len(evidence.active_events),
-            "predecessor_count": sum(1 for segment in self._mission_segments(evidence) if segment["posture"] != "current"),
-            "lifecycle": {"status": _bounded(lifecycle.get("status")) if lifecycle else None, "record": _record_ref(lifecycle)},
+            "predecessor_count": sum(
+                1
+                for segment in self._mission_segments(evidence)
+                if segment["posture"] != "current"
+            ),
+            "lifecycle": {
+                "status": _bounded(lifecycle.get("status")) if lifecycle else None,
+                "record": _record_ref(lifecycle),
+            },
             "counts": {
                 "open_incidents": sum(1 for item in incidents if item["open"]),
                 "open_decisions": sum(1 for item in decisions if item["open"]),
-                "open_successor_transitions": sum(1 for item in transitions if item["open"]),
+                "open_successor_transitions": sum(
+                    1 for item in transitions if item["open"]
+                ),
                 "activities": len(activity_records),
                 "conclusions": len(conclusion_records),
                 "reports": dict(sorted(report_counts.items())),
             },
             "last_check": _record_ref(heads["checks"][-1] if heads["checks"] else None),
-            "latest_activity": _record_ref(activity_records[-1] if activity_records else None),
-            "latest_conclusion": _record_ref(conclusion_records[-1] if conclusion_records else None),
+            "latest_activity": _record_ref(
+                activity_records[-1] if activity_records else None
+            ),
+            "latest_conclusion": _record_ref(
+                conclusion_records[-1] if conclusion_records else None
+            ),
             "light": light,
             "topology": topology,
             "policy": {
@@ -3959,9 +7007,18 @@ class OperationsProjectionService:
                     "record_id": record.get("record_id"),
                     "timestamp": record.get("timestamp"),
                     "kind": record.get("kind"),
-                    "policy_version": record.get("policy", {}).get("policy_version") if isinstance(record.get("policy"), Mapping) else None,
-                    "policy_sha256": record.get("policy", {}).get("policy_sha256") if isinstance(record.get("policy"), Mapping) else None,
-                    "mission_root": evidence.roots_by_policy.get(str(record.get("policy", {}).get("policy_sha256", "")), "unbound") if isinstance(record.get("policy"), Mapping) else "unbound",
+                    "policy_version": record.get("policy", {}).get("policy_version")
+                    if isinstance(record.get("policy"), Mapping)
+                    else None,
+                    "policy_sha256": record.get("policy", {}).get("policy_sha256")
+                    if isinstance(record.get("policy"), Mapping)
+                    else None,
+                    "mission_root": evidence.roots_by_policy.get(
+                        str(record.get("policy", {}).get("policy_sha256", "")),
+                        "unbound",
+                    )
+                    if isinstance(record.get("policy"), Mapping)
+                    else "unbound",
                 }
                 for record in evidence.policy_history
             ],
@@ -3977,19 +7034,37 @@ class OperationsProjectionService:
             "timeline_truncated": timeline_truncated,
             "operating_history": self._operating_history(evidence),
             "reports": reports,
+            "weekly_report_workflow": weekly_report_workflow,
+            "terminal_report_workflow": terminal_report_workflow,
+            "terminal_shutdown_workflow": terminal_shutdown_workflow,
+            "factory_evolution_workflow": factory_evolution_workflow,
             "metrics": metrics,
             "source": {
                 "identity": "supervise-tracker-runs/scripts/supervision_log.py",
                 "root": str(evidence.directory),
                 "revision": owners["supervision"]["sha256"],
-                "event_head_sha256": evidence.events[-1].get("record_sha256") if evidence.events else None,
+                "event_head_sha256": evidence.events[-1].get("record_sha256")
+                if evidence.events
+                else None,
                 "policy_head_sha256": evidence.policy.get("policy_sha256"),
                 "cache_status": cache_status,
             },
             "coverage": {
                 "status": "partial",
-                "observed": ["policy", "policy-history", "event-ledger", "mission-scoped-state", "automations", "reports", "metrics"],
-                "missing": ["codex-app-server-task-state", "canonical-tracker-association", "automation-wake-receipts"],
+                "observed": [
+                    "policy",
+                    "policy-history",
+                    "event-ledger",
+                    "mission-scoped-state",
+                    "automations",
+                    "reports",
+                    "metrics",
+                ],
+                "missing": [
+                    "codex-app-server-task-state",
+                    "canonical-tracker-association",
+                    "automation-wake-receipts",
+                ],
             },
             "limitations": [
                 "Current state is scoped to the active mission root; predecessor records remain separate history.",
@@ -3997,12 +7072,21 @@ class OperationsProjectionService:
                 "Canonical supervision events do not identify an emitting task or role; actor attribution is unavailable rather than inferred from model or reasoning.",
                 "Traffic lights are transparent derived facts, never lifecycle or completion state.",
                 "API-equivalent cost is an estimate from the maintained report owner, not billing telemetry.",
-            ] + (["Timeline was bounded to its newest records; source line identities remain exact."] if timeline_truncated else []),
+            ]
+            + (
+                [
+                    "Timeline was bounded to its newest records; source line identities remain exact."
+                ]
+                if timeline_truncated
+                else []
+            ),
             "error": None,
         }
 
     @staticmethod
-    def _unavailable_run(target: str, error: OperationsProjectionError) -> dict[str, Any]:
+    def _unavailable_run(
+        target: str, error: OperationsProjectionError
+    ) -> dict[str, Any]:
         observed = _observed_at()
         return {
             "status": "unavailable",
@@ -4011,7 +7095,12 @@ class OperationsProjectionService:
             "observed_at": observed,
             "fingerprint": None,
             "current_mission": None,
-            "project_binding": {"status": "unassigned", "project_id": None, "evidence": [], "limitations": []},
+            "project_binding": {
+                "status": "unassigned",
+                "project_id": None,
+                "evidence": [],
+                "limitations": [],
+            },
             "event_count": None,
             "current_event_count": None,
             "predecessor_count": None,
@@ -4023,16 +7112,18 @@ class OperationsProjectionService:
             "light": {
                 "posture": "red",
                 "label": "Action required",
-                "facts": [{
-                    "rule": "source-integrity-failure",
-                    "severity": "red",
-                    "record_id": None,
-                    "observed_at": observed,
-                    "detail": str(error),
-                    "source_identity": "supervise-tracker-runs/source-validation",
-                    "source_path": None,
-                    "source_line": None,
-                }],
+                "facts": [
+                    {
+                        "rule": "source-integrity-failure",
+                        "severity": "red",
+                        "record_id": None,
+                        "observed_at": observed,
+                        "detail": str(error),
+                        "source_identity": "supervise-tracker-runs/source-validation",
+                        "source_path": None,
+                        "source_line": None,
+                    }
+                ],
                 "derived": True,
                 "completion_claim": False,
             },
@@ -4051,11 +7142,196 @@ class OperationsProjectionService:
             "timeline_truncated": False,
             "operating_history": [],
             "reports": [],
-            "metrics": {"status": "unavailable", "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py", "metrics": None, "error": {"code": error.code, "message": str(error), "retryable": error.retryable}},
+            "weekly_report_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_id": None,
+                "coverage": None,
+                "coverage_days": None,
+                "timezone": None,
+                "source_root": None,
+                "manifest_root": None,
+                "fingerprint": None,
+                "writer_role": "roundup_writer",
+                "writer_task_id": None,
+                "expected_members": [],
+                "members": [],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "reason": "Run source is unavailable.",
+                },
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
+            "terminal_report_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_set_id": None,
+                "source_root": None,
+                "manifest_root": None,
+                "fingerprint": None,
+                "state_fingerprint": None,
+                "mission_root": None,
+                "completion": {
+                    "status": "unavailable",
+                    "record_id": None,
+                    "lifecycle_record_id": None,
+                    "reconciled": False,
+                },
+                "coverage": None,
+                "prior_reports": [],
+                "writer_role": "base_reviewer",
+                "writer_task_id": None,
+                "expected_members": [],
+                "members": [],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "required": True,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "readback_root": None,
+                    "reason": "Run source is unavailable.",
+                },
+                "shutdown": {
+                    "status": "separate-owner",
+                    "permitted": False,
+                    "reason": "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+                },
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
+            "terminal_shutdown_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "fingerprint": None,
+                "mission_root": None,
+                "state_fingerprint": None,
+                "completion_record_id": None,
+                "lifecycle_record_id": None,
+                "report_set_id": None,
+                "manifest_root": None,
+                "delivery_record_id": None,
+                "delivery_timestamp": None,
+                "source_record": None,
+                "gate": {
+                    "status": "unavailable",
+                    "completion_permitted": None,
+                    "source_stop_permitted": None,
+                    "supervision_pause_permitted": None,
+                    "terminal_reports_delivered": None,
+                    "reason": "Run source is unavailable.",
+                    "currentness": None,
+                },
+                "open_heads": {
+                    "incident_ids": [],
+                    "decision_ids": [],
+                    "successor_transition_ids": [],
+                    "mission_activation_ids": [],
+                },
+                "automations": [],
+                "receipt": {
+                    "status": "unavailable",
+                    "record_id": None,
+                    "record_sha256": None,
+                    "previous_record_sha256": None,
+                    "automation_state_root": None,
+                    "reason": "Terminal shutdown evidence is unavailable.",
+                },
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": "Repair the run source before previewing shutdown.",
+                },
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
+            "factory_evolution_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "evolution_id": None,
+                "packet_id": None,
+                "packet_root": None,
+                "review_id": None,
+                "review_root": None,
+                "evaluation_id": None,
+                "evaluation_root": None,
+                "disposition": None,
+                "source_report_id": None,
+                "source_report_root": None,
+                "event_head_sha256": None,
+                "manifest_root": None,
+                "fingerprint": None,
+                "proposer": {"role": "base_reviewer", "task_id": None},
+                "implementer": {
+                    "status": "not-selected",
+                    "task_id": None,
+                    "baseline_revision": None,
+                    "candidate_revision": None,
+                },
+                "evaluator": {"role": "reviewer", "task_id": None},
+                "expected_members": [],
+                "members": [],
+                "stages": [],
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
+            "metrics": {
+                "status": "unavailable",
+                "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+                "metrics": None,
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
             "source": None,
-            "coverage": {"status": "unavailable", "observed": [], "missing": ["supervision-integrity"]},
-            "limitations": ["This source-local failure does not suppress independent targets."],
-            "error": {"code": error.code, "message": str(error), "retryable": error.retryable},
+            "coverage": {
+                "status": "unavailable",
+                "observed": [],
+                "missing": ["supervision-integrity"],
+            },
+            "limitations": [
+                "This source-local failure does not suppress independent targets."
+            ],
+            "error": {
+                "code": error.code,
+                "message": str(error),
+                "retryable": error.retryable,
+            },
         }
 
     @staticmethod
@@ -4151,6 +7427,24 @@ class OperationsProjectionService:
             if automation_id not in referenced_automations
         ]
         reports = [report for run in runs for report in run.get("reports", [])]
+        evolution_workflows = [
+            {
+                "target_thread_id": run["target_thread_id"],
+                "target_label": run["target_label"],
+                "project_binding": run["project_binding"],
+                "workflow": run["factory_evolution_workflow"],
+            }
+            for run in runs
+        ]
+        terminal_workflows = [
+            {
+                "target_thread_id": run["target_thread_id"],
+                "target_label": run["target_label"],
+                "project_binding": run["project_binding"],
+                "workflow": run["terminal_report_workflow"],
+            }
+            for run in runs
+        ]
         bound_project_ids = {
             str(run["project_binding"]["project_id"])
             for run in runs
@@ -4452,6 +7746,11 @@ class OperationsProjectionService:
                 "runs": [run.get("fingerprint") or run.get("error") for run in runs],
                 "automations": [automation.get("manifest_sha256") for automation in automations.values()],
                 "reports": [report.get("manifest_root") or report.get("error") for report in reports],
+                "terminal_workflows": [
+                    item["workflow"].get("fingerprint")
+                    or item["workflow"].get("error")
+                    for item in terminal_workflows
+                ],
             }
         )
         automation_inventory_available = not (
@@ -4479,6 +7778,8 @@ class OperationsProjectionService:
             "orphan_automations": orphan_automations,
             "unmonitored_projects": unmonitored_projects,
             "reports": reports,
+            "terminal_workflows": terminal_workflows,
+            "evolution_workflows": evolution_workflows,
             "metrics": {
                 "aggregate": aggregate,
                 "factory_history": factory_history,

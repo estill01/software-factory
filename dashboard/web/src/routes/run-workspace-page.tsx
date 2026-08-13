@@ -14,6 +14,7 @@ import {
   WorkspaceBack,
 } from "@/components/workspace-ui"
 import { Button } from "@/components/ui/button"
+import { FactoryEvolutionEvidence } from "@/features/admin/factory-evolution-evidence"
 import { RunSupervisionActions } from "@/features/admin/factory-workflow-actions"
 import { fetchRun, type RunDetail } from "@/lib/operations-api"
 import { fetchTask, fetchTasks } from "@/lib/task-api"
@@ -392,6 +393,12 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           roleRepairRoles={(run.topology?.roles ?? [])
             .filter((role) => role.binding_status === "missing-thread")
             .map((role) => role.role)}
+          currentMission={run.current_mission}
+          successorTransitions={missionTransitions}
+          weeklyReportWorkflow={run.weekly_report_workflow}
+          terminalReportWorkflow={run.terminal_report_workflow}
+          terminalShutdownWorkflow={run.terminal_shutdown_workflow}
+          factoryEvolutionWorkflow={run.factory_evolution_workflow}
         />
       )}
 
@@ -472,7 +479,21 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
               <div className="workspace-panel-heading"><h2>Decisions &amp; succession</h2><span>{decisionCount + transitionCount}</span></div>
               {isCurrent && missionDecisions.length + missionTransitions.length ? <div className="workspace-record-list">
                 {missionDecisions.map((decision) => <article className="workspace-record" key={decision.decision_id}><div><strong>{decision.decision_id}</strong><BoundedSummary value={decision.head.summary} /></div><StatusMark status={decision.open ? "open" : decision.head.status} /><span>Safe frontier: {decision.safe_frontier ?? "Unavailable"}</span><TimeValue value={decision.head.timestamp} /></article>)}
-                {missionTransitions.map((transition) => <article className="workspace-record" key={transition.transition_id}><div><strong>{transition.transition_id}</strong><BoundedSummary value={transition.head.summary} /></div><StatusMark status={transition.open ? "open" : transition.head.status} /><span>{transition.phase ?? "Phase unavailable"}</span><TimeValue value={transition.head.timestamp} /></article>)}
+                {missionTransitions.map((transition) => (
+                  <article className="workspace-record successor-transition-record" id={`transition-${transition.transition_id}`} key={transition.transition_id}>
+                    <div><strong>{transition.transition_id}</strong><BoundedSummary value={transition.head.summary} /></div>
+                    <StatusMark status={transition.open ? "open" : transition.head.status} />
+                    <span>{transition.phase ?? "Phase unavailable"} · {transition.first_eligible_block ?? "First Block unavailable"}</span>
+                    <TimeValue value={transition.head.timestamp} />
+                    <dl className="successor-transition-facts">
+                      <div><dt>Range</dt><dd>{transition.requested_block_range ?? "Unavailable"}</dd></div>
+                      <div><dt>Successor</dt><dd>{transition.successor_thread_id ? <Link to={`/tasks/${encodeURIComponent(transition.successor_thread_id)}${backQuery}`}><Identity value={transition.successor_thread_id} /></Link> : "Not created"}</dd></div>
+                      <div><dt>Mission / group</dt><dd>{transition.successor_mission_root ? <Identity value={transition.successor_mission_root} /> : "Not bound"}{transition.successor_group_id ? <> · <Identity value={transition.successor_group_id} /></> : null}</dd></div>
+                      <div><dt>Handoff / acknowledgement</dt><dd>{transition.handoff_record ?? "Pending"} · {transition.acknowledgement_record ?? "Pending"}</dd></div>
+                      <div><dt>Source stop</dt><dd>{transition.phase === "work-started" ? "Gate verification required" : "Prohibited"}</dd></div>
+                    </dl>
+                  </article>
+                ))}
               </div> : !isCurrent && historicalDecisionEvents.length + historicalTransitionEvents.length ? <div className="workspace-record-list">{[...historicalDecisionEvents, ...historicalTransitionEvents].map((event, index) => (
                 <article className="workspace-record" key={`${event.record_id}:historical-decision:${index}`}><div><strong>{event.decision_id ?? event.transition_id ?? "Mission record"}</strong><BoundedSummary value={eventLabel(event)} /></div><StatusMark status={event.status ?? event.kind} /><span>Open posture unavailable; no current aggregate carried</span><TimeValue value={event.timestamp} /></article>
               ))}</div> : <QueryState kind="empty" message="No decision or transition in this mission segment" />}
@@ -528,7 +549,85 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           <div className="workspace-split">
             <section className="workspace-panel">
               <div className="workspace-panel-heading"><h2>Reports</h2><span>{isCurrent ? run.reports.length : "Historical"}</span></div>
-              {!isCurrent ? <QueryState kind="empty" message="Report association is not carried into a predecessor mission" /> : run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span><Identity value={report.manifest_root} /></article>)}</div> : <QueryState kind="empty" message="No report associated" />}
+              {!isCurrent ? <QueryState kind="empty" message="Report association is not carried into a predecessor mission" /> : <>
+                <article className="weekly-report-progress" aria-label="Current weekly report workflow">
+                  <div><strong>{run.weekly_report_workflow.report_id ?? "Weekly report"}</strong><StatusMark status={run.weekly_report_workflow.stage} /></div>
+                  <div className="weekly-report-stages">{run.weekly_report_workflow.stages.map((stage) => <span key={stage.id} data-status={stage.status}>{stage.label}<small>{stage.status}</small></span>)}</div>
+                  <div><span>{run.weekly_report_workflow.coverage ? `${run.weekly_report_workflow.coverage.start} — ${run.weekly_report_workflow.coverage.end} · ${run.weekly_report_workflow.timezone}` : "Report period unavailable"}</span><span>Writer <Identity value={run.weekly_report_workflow.writer_task_id} /></span></div>
+                  <div><Identity value={run.weekly_report_workflow.source_root} /><span>{run.weekly_report_workflow.delivery.status}{run.weekly_report_workflow.delivery.reason ? ` · ${run.weekly_report_workflow.delivery.reason}` : ""}</span></div>
+                  {run.weekly_report_workflow.error ? <div className="workspace-bound">{run.weekly_report_workflow.error.message}</div> : null}
+                </article>
+                <article className="weekly-report-progress terminal-report-progress" aria-label="Current terminal report workflow">
+                  <div><strong>{run.terminal_report_workflow.report_set_id ?? "Terminal report"}</strong><StatusMark status={run.terminal_report_workflow.stage} /></div>
+                  <div className="weekly-report-stages">{run.terminal_report_workflow.stages.map((stage) => <span key={stage.id} data-status={stage.status}>{stage.label}<small>{stage.status}</small></span>)}</div>
+                  <div>
+                    <span>{run.terminal_report_workflow.completion.reconciled ? `Outcome ${run.terminal_report_workflow.completion.record_id} · lifecycle ${run.terminal_report_workflow.completion.lifecycle_record_id}` : "Completion reconciliation unavailable"}</span>
+                    <span>Writer <Identity value={run.terminal_report_workflow.writer_task_id} /></span>
+                  </div>
+                  <div>
+                    <span>{run.terminal_report_workflow.coverage ? `${run.terminal_report_workflow.coverage.delta_start} — ${run.terminal_report_workflow.coverage.end} · full since ${run.terminal_report_workflow.coverage.full_start}` : "Terminal coverage unavailable"}</span>
+                    <span>{run.terminal_report_workflow.prior_reports.length} verified prior report{run.terminal_report_workflow.prior_reports.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div><Identity value={run.terminal_report_workflow.source_root} /><Identity value={run.terminal_report_workflow.manifest_root} /><span>{run.terminal_report_workflow.delivery.status} · {run.terminal_report_workflow.delivery.reason}</span></div>
+                  <div><span>{run.terminal_report_workflow.members.length}/{run.terminal_report_workflow.expected_members.length} bundle members</span><span>{run.terminal_report_workflow.expected_members.join(" · ") || "Bundle contract unavailable"}</span></div>
+                  <div className="workspace-bound">Report readiness is separate from request-stop, automation pause, and shutdown.</div>
+                  {run.terminal_report_workflow.limitations.map((item) => <div className="workspace-bound" key={item}>{item}</div>)}
+                  {run.terminal_report_workflow.error ? <div className="workspace-bound">{run.terminal_report_workflow.error.message}</div> : null}
+                </article>
+                <article className="weekly-report-progress terminal-shutdown-progress" aria-label="Terminal supervision shutdown">
+                  <div>
+                    <strong>Terminal shutdown</strong>
+                    <StatusMark status={run.terminal_shutdown_workflow.stage} />
+                  </div>
+                  <div>
+                    <span>Source stop: {run.terminal_shutdown_workflow.gate.source_stop_permitted === true ? "permitted" : run.terminal_shutdown_workflow.gate.source_stop_permitted === false ? "denied" : "unavailable"}</span>
+                    <span>Outcome: {run.terminal_shutdown_workflow.gate.completion_permitted === true ? "reconciled" : run.terminal_shutdown_workflow.gate.completion_permitted === false ? "open" : "unavailable"}</span>
+                    <span>Delivery: {run.terminal_shutdown_workflow.gate.terminal_reports_delivered === true ? "verified" : run.terminal_shutdown_workflow.gate.terminal_reports_delivered === false ? "missing" : "unavailable"}</span>
+                  </div>
+                  <div>
+                    <span>Lifecycle <Identity value={run.terminal_shutdown_workflow.lifecycle_record_id} /></span>
+                    <span>Report <Identity value={run.terminal_shutdown_workflow.report_set_id} /></span>
+                    <span>Delivery <Identity value={run.terminal_shutdown_workflow.delivery_record_id} /></span>
+                  </div>
+                  <div className="weekly-report-stages">
+                    {run.terminal_shutdown_workflow.automations.map((automation) => (
+                      <span key={automation.automation_id} data-status={automation.post_delivery ? "complete" : "current"}>
+                        {automation.label}<small>{automation.owner_status}{automation.post_delivery ? " · after delivery" : " · pause required"}</small>
+                      </span>
+                    ))}
+                  </div>
+                  <div>
+                    <span>{run.terminal_shutdown_workflow.receipt.status} · {run.terminal_shutdown_workflow.receipt.reason}</span>
+                    <Identity value={run.terminal_shutdown_workflow.receipt.previous_record_sha256} />
+                    <Identity value={run.terminal_shutdown_workflow.receipt.record_sha256} />
+                  </div>
+                  <div className="workspace-bound">{run.terminal_shutdown_workflow.gate.reason}</div>
+                  <div className="workspace-bound">{run.terminal_shutdown_workflow.recovery.guidance}</div>
+                  {run.terminal_shutdown_workflow.error ? <div className="workspace-bound">{run.terminal_shutdown_workflow.error.message}</div> : null}
+                </article>
+                <article className="weekly-report-progress evolution-progress" aria-label="Current Factory evolution workflow">
+                  <div><strong>{run.factory_evolution_workflow.evolution_id ?? "Factory evolution"}</strong><StatusMark status={run.factory_evolution_workflow.stage} /></div>
+                  <div className="weekly-report-stages">{run.factory_evolution_workflow.stages.map((stage) => <span key={stage.id} data-status={stage.status}>{stage.label}<small>{stage.status}</small></span>)}</div>
+                  <div>
+                    <span>Packet <Identity value={run.factory_evolution_workflow.packet_root} /></span>
+                    <span>Report <Identity value={run.factory_evolution_workflow.source_report_root} /></span>
+                  </div>
+                  <div>
+                    <span>Proposer <Identity value={run.factory_evolution_workflow.proposer.task_id} /></span>
+                    <span>Implementer <Identity value={run.factory_evolution_workflow.implementer.task_id} /></span>
+                    <span>Evaluator <Identity value={run.factory_evolution_workflow.evaluator.task_id} /></span>
+                  </div>
+                  <div>
+                    <span>{run.factory_evolution_workflow.implementer.status}{run.factory_evolution_workflow.implementer.candidate_revision ? <> · <Identity value={run.factory_evolution_workflow.implementer.candidate_revision} /></> : null}</span>
+                    <span>{run.factory_evolution_workflow.disposition ? `Disposition: ${run.factory_evolution_workflow.disposition}` : "Disposition unavailable"}</span>
+                    <Link to="/reports?view=reports&family=factory-evolution">Source</Link>
+                  </div>
+                  <div className="workspace-bound">Implementation, adoption, installation, routing, scheduling, deployment, rollback, and later outcome are not performed by evolution.</div>
+                  <FactoryEvolutionEvidence workflow={run.factory_evolution_workflow} targetId={run.target_thread_id} />
+                  {run.factory_evolution_workflow.error ? <div className="workspace-bound">{run.factory_evolution_workflow.error.message}</div> : null}
+                </article>
+                {run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span>{report.delivery ? <span>Delivery: {report.delivery.status}</span> : null}<Identity value={report.manifest_root} /><Link to="/reports">Artifacts</Link></article>)}</div> : <QueryState kind="empty" message="No report associated" />}
+              </>}
             </section>
             <section className="workspace-panel" id={isCurrent ? "current-metric" : undefined}>
               <div className="workspace-panel-heading"><h2>Metrics</h2><span>{isCurrent ? run.metrics.status : "Historical"}</span></div>

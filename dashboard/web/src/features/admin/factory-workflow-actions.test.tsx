@@ -109,6 +109,231 @@ const policy = {
   read_only: true,
 } as unknown as NonNullable<RunDetail["policy"]>
 
+const weeklyReportWorkflow = {
+  status: "available",
+  stage: "delivery",
+  next_action: "deliver",
+  actionable: true,
+  report_id: "weekly-20260801-20260808-test",
+  coverage: {
+    start: "2026-08-01T00:00:00+00:00",
+    end: "2026-08-08T00:00:00+00:00",
+    timezone: "America/Los_Angeles",
+    calendar_days: ["2026-08-01"],
+    elapsed_hours: 168,
+    partial_week: false,
+  },
+  coverage_days: 7,
+  timezone: "America/Los_Angeles",
+  source_root: hash,
+  manifest_root: hash,
+  fingerprint: hash,
+  writer_role: "roundup_writer",
+  writer_task_id: "roundup-writer-task",
+  expected_members: ["metrics.json", "review-packet.json", "review.json", "report.json", "report.md", "report.pdf", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Prepare", status: "complete", owner: "weekly owner" },
+    { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+    { id: "cognitive-review", label: "Review", status: "complete", owner: "roundup writer" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "weekly owner" },
+    { id: "verify", label: "Verify", status: "complete", owner: "weekly owner" },
+    { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+    { id: "delivery", label: "Delivery", status: "current", owner: "delivery owner" },
+  ],
+  delivery: {
+    status: "pending",
+    configured: true,
+    retryable: true,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    reason: "Verified report awaits configured delivery.",
+  },
+  limitations: ["Delivery is a separate postcondition."],
+  error: null,
+} satisfies RunDetail["weekly_report_workflow"]
+
+const retainedReviewWorkflow = {
+  ...weeklyReportWorkflow,
+  stage: "finalize-verify",
+  next_action: "finalize-verify",
+  delivery: {
+    ...weeklyReportWorkflow.delivery,
+    status: "not-ready",
+    configured: false,
+    retryable: false,
+    reason: "Artifact verification has not completed.",
+  },
+  stages: weeklyReportWorkflow.stages.map((stage) => (
+    stage.id === "finalize"
+      ? { ...stage, status: "current" as const }
+      : stage.id === "verify" || stage.id === "display"
+        ? { ...stage, status: "pending" as const }
+        : stage.id === "delivery"
+          ? { ...stage, status: "pending" as const }
+          : stage
+  )),
+} satisfies RunDetail["weekly_report_workflow"]
+
+const terminalReportWorkflow = {
+  status: "available",
+  stage: "delivery",
+  next_action: "deliver",
+  actionable: true,
+  report_set_id: "terminal-task-demo-0011223344556677",
+  source_root: hash,
+  manifest_root: hash,
+  fingerprint: hash,
+  state_fingerprint: "terminal-state-001",
+  mission_root: hash,
+  completion: {
+    status: "reconciled",
+    record_id: "EVT-TERMINAL-COMPLETION",
+    lifecycle_record_id: "EVT-TERMINAL-LIFECYCLE",
+    reconciled: true,
+  },
+  coverage: {
+    delta_start: "2026-08-08T00:00:00+00:00",
+    full_start: "2026-08-01T00:00:00+00:00",
+    end: "2026-08-09T00:00:00+00:00",
+    delta_anchor_record_id: "weekly-test-001",
+    delta_anchor_kind: "verified-prior-report",
+  },
+  prior_reports: [{ report_id: "weekly-test-001", source_root: hash, manifest_root: hash, coverage: weeklyReportWorkflow.coverage }],
+  writer_role: "base_reviewer",
+  writer_task_id: "base-reviewer-task",
+  expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Prepare", status: "complete", owner: "terminal owner" },
+    { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+    { id: "cognitive-review", label: "Review", status: "complete", owner: "base reviewer" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "terminal owner" },
+    { id: "verify", label: "Verify", status: "complete", owner: "terminal owner" },
+    { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+    { id: "delivery", label: "Delivery", status: "current", owner: "Gmail owner" },
+  ],
+  delivery: {
+    status: "pending",
+    configured: true,
+    required: true,
+    retryable: true,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    readback_root: null,
+    reason: "Verified terminal PDFs await configured delivery.",
+  },
+  shutdown: {
+    status: "separate-owner",
+    permitted: false,
+    reason: "Terminal reporting is not shutdown authority.",
+  },
+  limitations: ["Derived evidence only."],
+  error: null,
+} satisfies RunDetail["terminal_report_workflow"]
+
+const terminalShutdownWorkflow = {
+  status: "available",
+  stage: "request-stop",
+  next_action: "shutdown",
+  actionable: true,
+  fingerprint: hash,
+  mission_root: hash,
+  state_fingerprint: "terminal-state-001",
+  completion_record_id: "EVT-TERMINAL-COMPLETION",
+  lifecycle_record_id: "EVT-TERMINAL-LIFECYCLE",
+  report_set_id: "terminal-task-demo-0011223344556677",
+  manifest_root: hash,
+  delivery_record_id: "EVT-TERMINAL-DELIVERY",
+  delivery_timestamp: "2026-08-10T10:00:00.000Z",
+  source_record: "EVT-TERMINAL-DELIVERY",
+  gate: {
+    status: "ready",
+    completion_permitted: true,
+    source_stop_permitted: true,
+    supervision_pause_permitted: true,
+    terminal_reports_delivered: true,
+    reason: "Every exact terminal gate is satisfied.",
+    currentness: hash,
+  },
+  open_heads: {
+    incident_ids: [],
+    decision_ids: [],
+    successor_transition_ids: [],
+    mission_activation_ids: [],
+  },
+  automations: [{
+    role: "watcher",
+    label: "Watcher",
+    automation_id: "watcher-automation",
+    target_thread_id: "watcher-task",
+    owner_status: "ACTIVE",
+    updated_at: "2026-08-10T09:59:00.000Z",
+    manifest_sha256: hash,
+    protected_sha256: hash,
+    post_delivery: false,
+    action: "pause-after-delivery",
+  }],
+  receipt: {
+    status: "missing",
+    record_id: null,
+    record_sha256: null,
+    previous_record_sha256: null,
+    automation_state_root: null,
+    reason: "No canonical terminal shutdown receipt exists.",
+  },
+  recovery: {
+    posture: "ready",
+    guidance: "Pause the named automation and invoke the maintained owner once.",
+  },
+  limitations: ["The implementation task remains observed and unchanged."],
+  error: null,
+} satisfies RunDetail["terminal_shutdown_workflow"]
+
+const factoryEvolutionWorkflow = {
+  status: "available",
+  stage: "awaiting-implementation",
+  next_action: "evaluate",
+  actionable: true,
+  evolution_id: "evolution-test-001",
+  packet_id: "packet-test-001",
+  packet_root: hash,
+  review_id: "review-test-001",
+  review_root: hash,
+  evaluation_id: null,
+  evaluation_root: null,
+  disposition: null,
+  comparison_plan: null,
+  comparison_results: null,
+  source_report_id: "weekly-test-001",
+  source_report_root: hash,
+  event_head_sha256: hash,
+  manifest_root: hash,
+  fingerprint: hash,
+  proposer: { role: "base_reviewer", task_id: "proposer-task" },
+  implementer: {
+    status: "awaiting-owner-proof",
+    task_id: "task-demo",
+    baseline_revision: "1".repeat(40),
+    candidate_revision: "2".repeat(40),
+  },
+  evaluator: { role: "reviewer", task_id: "evaluator-task" },
+  expected_members: ["learning-packet.json", "review.json", "evaluation.json", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Prepare", status: "complete", owner: "factory owner" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "proposer-task" },
+    { id: "external-implementation", label: "External implementation", status: "current", owner: "Block 11" },
+    { id: "evaluate", label: "Evaluate", status: "pending", owner: "evaluator-task" },
+    { id: "verify", label: "Verify", status: "pending", owner: "factory owner" },
+  ],
+  limitations: ["Disposition is not adoption authority."],
+  recovery: { posture: "blocked", guidance: "Await exact external evidence.", preserved_roots: [hash] },
+  error: null,
+} satisfies RunDetail["factory_evolution_workflow"]
+
 function previewEnvelope(type: string): OperationPreviewEnvelope {
   return {
     data: {
@@ -305,6 +530,164 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("One mechanical watcher check · no semantic conclusion")).toBeVisible()
   })
 
+  it("previews only the first incomplete weekly report stage", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        weeklyReportWorkflow={weeklyReportWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Deliver report" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.weekly-supervision-report",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { coverage_days: 7 },
+    })
+    expect(await screen.findByText("weekly-20260801-20260808-test")).toBeVisible()
+    expect(screen.getByText("delivery → deliver")).toBeVisible()
+    expect(screen.getByText(/Advance one stage only/)).toBeVisible()
+  })
+
+  it("labels retained-review recovery as finalize without requesting review again", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        weeklyReportWorkflow={retainedReviewWorkflow}
+      />,
+    )
+
+    expect(screen.queryByRole("button", { name: "Review & finalize" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Finalize & verify" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toMatchObject({
+      operation_type: "factory.weekly-supervision-report",
+      input: { coverage_days: 7 },
+    })
+    expect(await screen.findByText("finalize-verify → finalize-verify")).toBeVisible()
+  })
+
+  it("previews one terminal-report delivery stage without stop, pause, or shutdown", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        terminalReportWorkflow={terminalReportWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Deliver terminal report" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.terminal-supervision-report",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("terminal-task-demo-0011223344556677")).toBeVisible()
+    expect(screen.getByText("reconciled · EVT-TERMINAL-COMPLETION · EVT-TERMINAL-LIFECYCLE")).toBeVisible()
+    expect(screen.getByText(/Request-stop · automation pause · terminal shutdown/)).toHaveTextContent("separate and not performed")
+  })
+
+  it("previews terminal shutdown as a distinct bounded owner sequence", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        terminalShutdownWorkflow={terminalShutdownWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Request stop & shut down" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.terminal-supervision-shutdown",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("EVT-TERMINAL-COMPLETION")).toBeVisible()
+    expect(screen.getByText("ready · Every exact terminal gate is satisfied.")).toBeVisible()
+    expect(screen.getByText("Watcher: ACTIVE → PAUSED after delivery")).toBeVisible()
+    expect(screen.getByText(/no task stop or turn interrupt/)).toBeVisible()
+  })
+
+  it("keeps a stale append-once terminal delivery unavailable and non-retryable", () => {
+    const staleWorkflow = {
+      ...terminalReportWorkflow,
+      stage: "delivery-stale",
+      next_action: null,
+      actionable: false,
+      delivery: {
+        ...terminalReportWorkflow.delivery,
+        status: "stale",
+        retryable: false,
+        reason: "The retained receipt no longer matches the verified report set.",
+      },
+      error: {
+        code: "terminal_report_delivery_stale",
+        message: "The maintained append-once owner cannot replace this receipt.",
+        retryable: false,
+      },
+    } satisfies RunDetail["terminal_report_workflow"]
+
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        terminalReportWorkflow={staleWorkflow}
+      />,
+    )
+
+    const action = screen.getByRole("button", { name: "Terminal report unavailable" })
+    expect(action).toBeDisabled()
+    expect(action).toHaveAttribute(
+      "title",
+      "The maintained append-once owner cannot replace this receipt.",
+    )
+    expect(mocks.previewOperation).not.toHaveBeenCalled()
+  })
+
+  it("previews only the current Factory-evolution stage and keeps adoption outside it", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        factoryEvolutionWorkflow={factoryEvolutionWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Evaluate candidate" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.evolution-evaluate",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("awaiting-implementation → evaluate")).toBeVisible()
+    expect(screen.getByText(/Disposition evidence only/)).toHaveTextContent(
+      "no implementation, adoption, installation, routing, scheduling, deployment, rollback, or outcome mutation",
+    )
+  })
+
   it("maps a server expiry to the same re-preview posture", async () => {
     const user = userEvent.setup()
     mocks.executeOperation.mockRejectedValueOnce(new DashboardApiError(409, {
@@ -401,6 +784,117 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/Mission overwrite/)).toBeVisible()
   })
 
+  it("previews one same-target successor with direct-source review and no task claim", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        currentMission={{ root: hash, source_record: "direct-user-item-1", policy_sha256: hash }}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Successor mission" }))
+    expect(screen.getByRole("dialog", { name: "Successor mission" })).toBeVisible()
+    await user.type(
+      screen.getByLabelText("Direct mission source record"),
+      "codex:task-demo:turn-source-002:item-source-002",
+    )
+    await user.selectOptions(screen.getByLabelText("Predecessor disposition"), "superseded")
+    await user.type(screen.getByLabelText("First eligible work"), "Block 0 capability review")
+    await user.type(
+      screen.getByLabelText("Reason"),
+      "The direct user requested a materially different mission.",
+    )
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-mission-successor",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {
+        mission_source_record: "codex:task-demo:turn-source-002:item-source-002",
+        predecessor_disposition: "superseded",
+        first_eligible_work: "Block 0 capability review",
+        reason: "The direct user requested a materially different mission.",
+      },
+    })
+    expect(await screen.findByText(/exact bytes and direct authority require independent review/)).toBeVisible()
+    expect(screen.getByText(/pending activation, not proof of work-start/)).toBeVisible()
+    expect(screen.getByText(/Bind overwrite · successor task/)).toBeVisible()
+  })
+
+  it("advances one exact successor-task phase and fails closed on conflicting heads", async () => {
+    const user = userEvent.setup()
+    const transitions = [{
+      transition_id: "TRANSITION-001",
+      open: true,
+      phase: "successor-bound",
+      head: {
+        record_id: "EVT-000101",
+        timestamp: "2026-08-12T12:00:00Z",
+        kind: "successor-transition",
+        status: null,
+        severity: null,
+        category: null,
+        summary: "Successor binding is current; handoff is next.",
+      },
+      tracker_sha256: hash,
+      tracker_source_record: "commit:tracker",
+      requested_block_range: "26-31",
+      first_eligible_block: "Block 26",
+      source_mission_root: hash,
+      governing_authority_source_class: "direct-user",
+      governing_authority_source_record: "direct-user-item-44",
+      successor_thread_id: "successor-task-001",
+      successor_mission_root: "b".repeat(64),
+      successor_group_id: "successor-task-001",
+      handoff_record: null,
+      acknowledgement_record: null,
+      started_block: null,
+      state_fingerprint: "state-successor-bound",
+    }] as RunDetail["successor_transitions"]
+    const { rerender } = renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        successorTransitions={transitions}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Advance continuity" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.successor-task-transition",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { transition_id: "TRANSITION-001" },
+    })
+    expect(await screen.findByText("successor-bound")).toBeVisible()
+    expect(screen.getByText("In progress until exact work-started evidence")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={policy}
+          successorTransitions={[
+            ...transitions,
+            { ...transitions[0], transition_id: "TRANSITION-002" },
+          ]}
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByRole("button", { name: "Continuity conflict" })).toBeDisabled()
+  })
+
   it("offers only projected missing owner-backed roles and submits one exact role", async () => {
     const user = userEvent.setup()
     renderActions(
@@ -483,7 +977,7 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/No automatic retry or rollback/)).toBeVisible()
   })
 
-  it("requests semantic pause separately from turn interruption and keeps resume unavailable", async () => {
+  it("keeps semantic pause and resume separate from task or turn controls", async () => {
     const user = userEvent.setup()
     const { rerender } = renderActions(
       <RunSupervisionActions
@@ -495,13 +989,11 @@ describe("Factory workflow action strips", () => {
       />,
     )
 
-    const resume = screen.getByRole("button", {
-      name: "Resume supervision unavailable until the canonical lifecycle owner is accepted",
-    })
+    const resume = screen.getByRole("button", { name: "Resume" })
     expect(resume).toBeDisabled()
     expect(resume).toHaveAttribute(
       "title",
-      "Semantic resume requires the canonical resumed lifecycle owner in Block 23.",
+      "Resume is available only for a canonical paused lifecycle.",
     )
     await user.click(screen.getByRole("button", { name: "Pause" }))
 
@@ -514,6 +1006,7 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("Canonical paused lifecycle + every exact bound automation PAUSED")).toBeVisible()
     expect(screen.getByText(/Implementation task and turn state/)).toBeVisible()
     expect(screen.getByText(/Partial owner state stays visible/)).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const pausedPolicy = {
@@ -536,6 +1029,15 @@ describe("Factory workflow action strips", () => {
     )
     expect(screen.getByRole("button", { name: "Paused" })).toBeDisabled()
     expect(screen.queryByRole("button", { name: "Finish pause" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Resume" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledTimes(2))
+    expect(mocks.previewOperation.mock.calls[1][0]).toEqual({
+      operation_type: "factory.supervision-resume",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
 
     const partialPausedPolicy = {
       ...pausedPolicy,
@@ -571,6 +1073,41 @@ describe("Factory workflow action strips", () => {
     )
     expect(screen.getByRole("button", { name: "Finish pause" })).toBeEnabled()
     expect(screen.queryByRole("button", { name: "Paused" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume unavailable" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Resume unavailable" })).toHaveAttribute(
+      "title",
+      "Resume requires complete current automation-owner coverage.",
+    )
+
+    const resumedUnavailablePolicy = {
+      ...policy,
+      automation_reconciliation: policy.automation_reconciliation.map((row, index) => ({
+        ...row,
+        owner_status: "ACTIVE",
+        state: index === 0 ? "unavailable" : "reconciled",
+        duplicate_coverage: index === 0 ? "unavailable" : "exact",
+        reason: index === 0
+          ? "Target-specific owner coverage is unavailable."
+          : row.reason,
+      })),
+    } as NonNullable<RunDetail["policy"]>
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={resumedUnavailablePolicy}
+          lifecycleStatus="resumed"
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByRole("button", { name: "Running" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume incomplete" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Resume incomplete" })).toHaveAttribute(
+      "title",
+      "Canonical resume exists, but exact active automation-owner coverage is unavailable or incomplete.",
+    )
   })
 
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {

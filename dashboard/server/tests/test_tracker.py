@@ -291,6 +291,34 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertTrue(all_accepted["verifier"]["valid"])
         self.assertTrue(all_accepted["header_block_status_conflict"])
 
+        all_completed_path = self.root / "docs" / "all-completed-implementation-tracker.md"
+        all_completed_path.write_text(
+            FULL_TRACKER.replace(
+                "Tracker status: `in-progress`",
+                "Tracker status: `completed`",
+            )
+            .replace("`accepted`", "`completed`")
+            .replace("`not-started`", "`completed`")
+            .replace("Pending.", "- Commit `def456` completed."),
+            encoding="utf-8",
+        )
+        all_completed = self.service.project(
+            self.project,
+            "docs/all-completed-implementation-tracker.md",
+        )
+        self.assertTrue(all_completed["verifier"]["valid"])
+        self.assertEqual(all_completed["counts"]["by_status"], {"completed": 2})
+        self.assertEqual(all_completed["counts"]["accepted"], 2)
+        self.assertEqual(all_completed["counts"]["open"], 0)
+        self.assertFalse(all_completed["header_block_status_conflict"])
+        self.assertEqual(all_completed["eligible_blocks"], [])
+        self.assertTrue(
+            all(
+                block["completion_evidence"]["posture"] == "recorded"
+                for block in all_completed["blocks"]
+            )
+        )
+
         open_items_path = self.root / "docs" / "open-items-implementation-tracker.md"
         open_items_path.write_text(
             FULL_TRACKER.replace("not-started", "completed-with-open-items"),

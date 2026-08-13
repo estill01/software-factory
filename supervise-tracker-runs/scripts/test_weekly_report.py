@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+import hashlib
 import io
 import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from email.message import EmailMessage
 from pathlib import Path
 
 import supervision_log
@@ -38,6 +40,7 @@ def event(
     reasoning: str = "max",
     block: str = "1",
     incident_id: str | None = None,
+    **extra: object,
 ) -> dict[str, object]:
     value: dict[str, object] = {
         "schema_version": 1,
@@ -59,6 +62,7 @@ def event(
     }
     if incident_id:
         value["incident_id"] = incident_id
+    value.update(extra)
     return value
 
 
@@ -147,6 +151,72 @@ def fixture_review(report_id: str, source_root: str) -> dict[str, object]:
     }
 
 
+def weekly_gmail_readback(
+    *,
+    verified: dict[str, object],
+    policy: dict[str, object],
+) -> str:
+    now = dt.datetime.now(dt.timezone.utc)
+    roundup = policy["notifications"]["gmail_roundup"]
+    seed = EmailMessage()
+    seed["Subject"] = roundup["subject"]
+    seed["From"] = "codex@example.test"
+    seed["To"] = "operator@example.test"
+    seed["Date"] = now - dt.timedelta(minutes=1)
+    seed["Message-ID"] = "<weekly-seed@example.test>"
+    seed.set_content("Weekly roundup seed.")
+    message = EmailMessage()
+    message["Subject"] = roundup["subject"]
+    message["From"] = "codex@example.test"
+    message["To"] = "operator@example.test"
+    message["Date"] = now
+    message["Message-ID"] = "<weekly-report@example.test>"
+    message["In-Reply-To"] = "<weekly-seed@example.test>"
+    message["References"] = "<weekly-seed@example.test>"
+    message.set_content("Verified weekly supervision report attached.")
+    payload = Path(str(verified["pdf_path"])).read_bytes()
+    message.add_attachment(
+        payload,
+        maintype="application",
+        subtype="pdf",
+        filename="report.pdf",
+    )
+    readback = {
+        "schema_version": 1,
+        "kind": "gmail-weekly-report-delivery-readback",
+        "seed_message": {
+            "provider": "gmail.read_email",
+            "message_id": roundup["reply_message_id"],
+            "thread_id": "gmail-weekly-thread",
+            "read_tool_call_id": "exec-read-weekly-seed",
+            "fetched_at": now.isoformat(),
+            "raw_mime_base64": base64.urlsafe_b64encode(seed.as_bytes()).decode(),
+        },
+        "sent_message": {
+            "provider": "gmail.read_email",
+            "message_id": "gmail-weekly-result",
+            "thread_id": "gmail-weekly-thread",
+            "read_tool_call_id": "exec-read-weekly-email",
+            "fetched_at": now.isoformat(),
+            "raw_mime_base64": base64.urlsafe_b64encode(message.as_bytes()).decode(),
+        },
+        "attachments": [
+            {
+                "filename": "report.pdf",
+                "attachment_id": "gmail-weekly-attachment",
+                "owner_message_id": "gmail-weekly-result",
+                "owner_thread_id": "gmail-weekly-thread",
+                "read_tool_call_id": "exec-read-weekly-attachment",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+            }
+        ],
+    }
+    return base64.b64encode(
+        json.dumps(readback, separators=(",", ":")).encode()
+    ).decode()
+
+
 class WeeklyMetricsTests(unittest.TestCase):
     def build(self) -> tuple[dict[str, object], dict[str, object]]:
         return weekly_report.build_metrics(
@@ -222,6 +292,101 @@ class WeeklyMetricsTests(unittest.TestCase):
         self.assertEqual(value["core_heartbeats_scheduled_active_hours"], 36.0)
         self.assertEqual(value["core_heartbeats_explicitly_paused_hours"], 12.0)
         self.assertEqual(len(value["explicit_pause_intervals"]), 1)
+
+    def test_availability_closes_only_the_exact_canonical_pause(self) -> None:
+        events = fixture_events()
+        events.extend(
+            [
+                event(
+                    8,
+                    "2026-08-01T12:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-pause",
+                    status="paused",
+                    state_fingerprint="state-paused",
+                ),
+                event(
+                    9,
+                    "2026-08-01T18:00:00+00:00",
+                    kind="policy-change",
+                    category="supervision-resume",
+                    status="resumed",
+                ),
+                event(
+                    10,
+                    "2026-08-02T00:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-resume",
+                    status="resumed",
+                    resume_contract_version=1,
+                    pause_record_id="EVT-000008",
+                    source_currentness_root="a" * 64,
+                    eligibility_root="b" * 64,
+                    automation_evidence_root="c" * 64,
+                ),
+            ]
+        )
+
+        value = weekly_report.availability_metrics(
+            sorted(events, key=weekly_report.record_time),
+            dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
+            dt.datetime(2026, 8, 3, tzinfo=dt.timezone.utc),
+            canonical_resume_record_ids=frozenset({"EVT-000010"}),
+        )
+
+        self.assertEqual(value["core_heartbeats_explicitly_paused_hours"], 12.0)
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["pause_record_id"],
+            "EVT-000008",
+        )
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["resume_record_id"],
+            "EVT-000010",
+        )
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["evidence_posture"],
+            "canonical-lifecycle",
+        )
+
+    def test_pause_before_window_is_clipped_and_closed_by_its_resume(self) -> None:
+        events = fixture_events()
+        events.extend(
+            [
+                event(
+                    8,
+                    "2026-07-31T18:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-pause",
+                    status="paused",
+                    state_fingerprint="state-paused",
+                ),
+                event(
+                    9,
+                    "2026-08-01T06:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-resume",
+                    status="resumed",
+                    resume_contract_version=1,
+                    pause_record_id="EVT-000008",
+                    source_currentness_root="a" * 64,
+                    eligibility_root="b" * 64,
+                    automation_evidence_root="c" * 64,
+                ),
+            ]
+        )
+
+        value = weekly_report.availability_metrics(
+            sorted(events, key=weekly_report.record_time),
+            dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
+            dt.datetime(2026, 8, 2, tzinfo=dt.timezone.utc),
+            canonical_resume_record_ids=frozenset({"EVT-000009"}),
+        )
+
+        self.assertEqual(value["core_heartbeats_explicitly_paused_hours"], 6.0)
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["start"],
+            "2026-08-01T00:00:00+00:00",
+        )
 
     def test_pricing_profile_and_estimate_are_deterministic(self) -> None:
         profile = weekly_report.load_pricing_profile()
@@ -369,12 +534,23 @@ class WeeklyCommandTests(unittest.TestCase):
             mission_source_sha256=None,
         )
 
-    def prepare_root(self, root: Path) -> None:
+    def prepare_root(self, root: Path, *, delivery: bool = False) -> None:
         directory = root / TARGET
         directory.mkdir(parents=True)
         (directory / "incidents").mkdir()
         (directory / "reviews").mkdir()
         policy = supervision_log.default_policy(self.init_args())
+        if delivery:
+            policy["notifications"]["gmail_roundup"] = {
+                "enabled": True,
+                "project_key": "weekly-project",
+                "reply_message_id": "gmail-weekly-seed",
+                "subject": "Weekly supervision roundup",
+            }
+            policy["permissions"]["gmail_roundup_notification"] = True
+            policy["policy_sha256"] = supervision_log.digest(
+                supervision_log.policy_material(policy)
+            )
         supervision_log.atomic_json(directory / "policy.json", policy)
         supervision_log.append_raw(
             directory / "policy-history.jsonl",
@@ -435,6 +611,103 @@ class WeeklyCommandTests(unittest.TestCase):
             self.assertEqual(machine["cognitive_review"]["report_id"], prepared["report_id"])
             manifest = json.loads((report_directory / "manifest.json").read_text())
             self.assertIn("report.json", manifest["files"])
+
+            status = supervision_log.weekly_delivery_status(
+                root / TARGET, supervision_log.load_policy(finalize_args)[1], verified
+            )
+            self.assertEqual(status["status"], "unavailable")
+            self.assertTrue(status["retryable"])
+            extra = report_directory / "unowned-extra.txt"
+            extra.write_text("not in the manifest\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "directory member set differs",
+            ):
+                supervision_log.verify_weekly_report_set(
+                    root / TARGET, prepared["report_id"]
+                )
+            extra.unlink()
+            self.assertTrue(
+                supervision_log.verify_weekly_report_set(
+                    root / TARGET, prepared["report_id"]
+                )["valid"]
+            )
+
+    def test_verified_weekly_delivery_requires_exact_gmail_readback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.prepare_root(root, delivery=True)
+            prepare_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                start="2026-08-01T00:00:00+00:00",
+                end="2026-08-03T00:00:00+00:00",
+                days=7,
+                since_inception=False,
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                supervision_log.cmd_weekly_report_prepare(prepare_args)
+            prepared = json.loads(output.getvalue())
+            review = fixture_review(prepared["report_id"], prepared["source_root"])
+            finalize_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_id=prepared["report_id"],
+                review_base64=base64.b64encode(
+                    json.dumps(review, separators=(",", ":")).encode()
+                ).decode(),
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_weekly_report_finalize(finalize_args)
+            verified = supervision_log.verify_weekly_report_set(
+                root / TARGET, prepared["report_id"]
+            )
+            policy = supervision_log.load_policy(finalize_args)[1]
+            before = supervision_log.weekly_delivery_status(
+                root / TARGET, policy, verified
+            )
+            self.assertEqual(before["status"], "pending")
+            delivery_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_id=prepared["report_id"],
+                gmail_readback_base64=weekly_gmail_readback(
+                    verified=verified, policy=policy
+                ),
+            )
+            delivered_output = io.StringIO()
+            with redirect_stdout(delivered_output):
+                supervision_log.cmd_weekly_report_delivery(delivery_args)
+            delivered = json.loads(delivered_output.getvalue())
+            self.assertEqual(delivered["delivery"]["status"], "delivered")
+            self.assertEqual(delivered["record"]["report_id"], prepared["report_id"])
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_weekly_report_delivery(delivery_args)
+            records = supervision_log.events(root / TARGET / "events.jsonl")
+            self.assertEqual(
+                len(
+                    [
+                        item
+                        for item in records
+                        if item.get("category")
+                        == supervision_log.WEEKLY_REPORT_DELIVERY_CATEGORY
+                    ]
+                ),
+                1,
+            )
+            corrupt = json.loads(
+                base64.b64decode(delivery_args.gmail_readback_base64).decode()
+            )
+            corrupt["attachments"][0]["sha256"] = "f" * 64
+            delivery_args.gmail_readback_base64 = base64.b64encode(
+                json.dumps(corrupt, separators=(",", ":")).encode()
+            ).decode()
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "attachment read-back differs",
+            ):
+                supervision_log.cmd_weekly_report_delivery(delivery_args)
 
 
 if __name__ == "__main__":

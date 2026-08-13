@@ -7,6 +7,7 @@ import json
 from typing import Any, Mapping, Sequence
 
 from .factory_workflows import task_workflow_marker
+from .tracker import tracker_block_is_complete
 
 
 MAX_FLOOR_ROWS = 80
@@ -295,7 +296,7 @@ def _block_source_ref(
 def _tracker_block_claim(
     tracker: Mapping[str, Any],
     tracker_source: Mapping[str, Any] | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     route = (
         f"/trackers/{tracker.get('id')}/blocks"
         if isinstance(tracker.get("id"), str)
@@ -316,14 +317,23 @@ def _tracker_block_claim(
         "posture": "unavailable",
         "reason": "The maintained verifier cannot establish an exact nonzero Block total.",
     }
+    progress = {
+        "accepted": None,
+        "remaining": None,
+        "posture": "unavailable",
+        "is_complete": None,
+        "reason": "Maintained tracker counts cannot establish accepted and remaining Blocks.",
+    }
     if not isinstance(tracker_source, Mapping) or tracker_source.get("status") != "available":
-        return unavailable, total
+        return unavailable, total, progress
 
     verifier = tracker_source.get("verifier")
     counts = tracker_source.get("counts")
     coverage = tracker_source.get("coverage")
     verifier_blocks = verifier.get("blocks") if isinstance(verifier, Mapping) else None
     total_value = counts.get("total") if isinstance(counts, Mapping) else None
+    accepted_value = counts.get("accepted") if isinstance(counts, Mapping) else None
+    remaining_value = counts.get("open") if isinstance(counts, Mapping) else None
     verifier_numbers = (
         verifier_blocks
         if isinstance(verifier_blocks, list)
@@ -352,16 +362,55 @@ def _tracker_block_claim(
                 else "Maintained verifier Block set for a noncanonical tracker candidate."
             ),
         }
+        progress_values_are_exact = bool(
+            type(accepted_value) is int
+            and accepted_value >= 0
+            and type(remaining_value) is int
+            and remaining_value >= 0
+            and accepted_value + remaining_value == total_value
+        )
+        if progress_values_are_exact:
+            exact_association = association == "exact"
+            all_blocks_accepted = remaining_value == 0
+            header_conflict = tracker_source.get("header_block_status_conflict") is True
+            tracker_status = tracker_source.get("tracker_status")
+            header_confirms_completion = tracker_status in {"accepted", "completed"}
+            progress_posture = "exact" if exact_association else "partial"
+            completion: bool | None = all_blocks_accepted if exact_association else None
+            progress_reason = (
+                "Maintained tracker counts for the exact canonical tracker binding."
+                if exact_association
+                else "Maintained tracker counts for a noncanonical tracker candidate; row progress is partial."
+            )
+            if header_conflict:
+                progress_posture = "conflict"
+                completion = None
+                progress_reason = (
+                    "The tracker header status conflicts with its exact Block statuses; completion is withheld."
+                )
+            elif all_blocks_accepted and not header_confirms_completion:
+                progress_posture = "partial"
+                completion = None
+                progress_reason = (
+                    "Every Block is accepted, but the tracker header does not establish accepted or completed status."
+                )
+            progress = {
+                "accepted": accepted_value,
+                "remaining": remaining_value,
+                "posture": progress_posture,
+                "is_complete": completion,
+                "reason": progress_reason,
+            }
     else:
         unavailable["reason"] = (
             "Tracker parsing, verifier validity, or coverage cannot establish current active Blocks."
         )
-        return unavailable, total
+        return unavailable, total, progress
 
     current = tracker_source.get("current_blocks")
     if not isinstance(current, list) or not all(type(number) is int and number >= 0 for number in current):
         unavailable["reason"] = "The maintained tracker projection omits exact current Blocks."
-        return unavailable, total
+        return unavailable, total, progress
     blocks = [_block_source_ref(tracker_source, number) for number in current]
     missing_headings = any(block["title"] is None or block["status"] is None for block in blocks)
     if association != "exact" or missing_headings:
@@ -385,6 +434,7 @@ def _tracker_block_claim(
             "reason": reason,
         },
         total,
+        progress,
     )
 
 
@@ -577,7 +627,7 @@ def _block_claims(
     tracker: Mapping[str, Any],
     tracker_source: Mapping[str, Any] | None,
 ) -> tuple[dict[str, Any], list[str]]:
-    tracker_claim, total = _tracker_block_claim(tracker, tracker_source)
+    tracker_claim, total, progress = _tracker_block_claim(tracker, tracker_source)
     mission = run.get("current_mission") if isinstance(run, Mapping) else None
     mission_root = mission.get("root") if isinstance(mission, Mapping) else None
     task_claim = _task_block_claim(
@@ -590,6 +640,9 @@ def _block_claims(
     supervision_claim = _supervision_block_claim(run, tracker_source)
     claims = [tracker_claim, task_claim, supervision_claim]
     conflicts = [claim["reason"] for claim in claims if claim["status"] == "conflict"]
+    progress_conflicts = (
+        [progress["reason"]] if progress["posture"] == "conflict" else []
+    )
     comparable = [
         claim
         for claim in claims
@@ -628,9 +681,10 @@ def _block_claims(
         {
             "posture": posture,
             "tracker_total": total,
+            "tracker_progress": progress,
             "claims": claims,
         },
-        conflicts,
+        conflicts + progress_conflicts,
     )
 
 
@@ -1107,7 +1161,9 @@ def _outcomes(trackers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             continue
         blocks = tracker.get("blocks")
         for block in blocks if isinstance(blocks, list) else []:
-            if not isinstance(block, Mapping) or block.get("status") != "accepted":
+            if not isinstance(block, Mapping) or not tracker_block_is_complete(
+                block.get("status")
+            ):
                 continue
             completion = block.get("completion_evidence")
             git = tracker.get("git") if isinstance(tracker.get("git"), Mapping) else {}

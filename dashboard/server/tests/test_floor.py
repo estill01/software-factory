@@ -150,6 +150,7 @@ def tracker(
     path: str,
     blocks: list[dict[str, object]],
 ) -> dict[str, object]:
+    all_accepted = bool(blocks) and all(block["status"] == "accepted" for block in blocks)
     return {
         "id": tracker_id,
         "project_id": project_id,
@@ -159,6 +160,8 @@ def tracker(
         "observed_at": "2026-08-09T17:54:00.000Z",
         "fingerprint": tracker_id[0] * 64,
         "title": f"{project_id.title()} tracker",
+        "tracker_status": "accepted" if all_accepted else "in-progress",
+        "header_block_status_conflict": False,
         "blocks": blocks,
         "verifier": {
             "valid": bool(blocks),
@@ -323,6 +326,16 @@ class FactoryFloorCompositionTests(unittest.TestCase):
                 "reason": "Maintained verifier Block set for the exact canonical tracker binding.",
             },
         )
+        self.assertEqual(
+            alpha["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": 1,
+                "remaining": 1,
+                "posture": "exact",
+                "is_complete": False,
+                "reason": "Maintained tracker counts for the exact canonical tracker binding.",
+            },
+        )
         claims = {
             claim["source"]: claim for claim in alpha["work"]["block_claims"]["claims"]
         }
@@ -453,6 +466,16 @@ class FactoryFloorCompositionTests(unittest.TestCase):
             "unavailable",
         )
         self.assertIsNone(row["work"]["block_claims"]["tracker_total"]["value"])
+        self.assertEqual(
+            row["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": None,
+                "remaining": None,
+                "posture": "unavailable",
+                "is_complete": None,
+                "reason": "Maintained tracker counts cannot establish accepted and remaining Blocks.",
+            },
+        )
         self.assertNotEqual(row["work"]["block_claims"]["posture"], "exact")
 
         alpha_tracker["blocks"] = [{
@@ -464,10 +487,42 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         alpha_tracker["verifier"] = {"valid": True, "blocks": [0]}
         alpha_tracker["counts"] = {"total": 1, "accepted": 1, "open": 0}
         alpha_tracker["current_blocks"] = []
+        alpha_tracker["tracker_status"] = "accepted"
         none_active = next(
             item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
         )
         self.assertEqual(none_active["work"]["block_claims"]["posture"], "none")
+        self.assertEqual(
+            none_active["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": 1,
+                "remaining": 0,
+                "posture": "exact",
+                "is_complete": True,
+                "reason": "Maintained tracker counts for the exact canonical tracker binding.",
+            },
+        )
+
+        alpha_tracker["tracker_status"] = "in-progress"
+        alpha_tracker["header_block_status_conflict"] = True
+        conflicting_header = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        self.assertEqual(
+            conflicting_header["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": 1,
+                "remaining": 0,
+                "posture": "conflict",
+                "is_complete": None,
+                "reason": "The tracker header status conflicts with its exact Block statuses; completion is withheld.",
+            },
+        )
+        self.assertIn(
+            "tracker header status conflicts",
+            conflicting_header["disagreements"][-1].lower(),
+        )
+        self.assertEqual(conflicting_header["light"]["posture"], "amber")
 
     def test_preserves_attention_precedence_and_partial_sources(self) -> None:
         floor = self.compose()
@@ -481,6 +536,7 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         self.assertEqual(source_item["owner"], "tasks")
 
     def test_conclusions_and_acceptance_come_only_from_their_owners(self) -> None:
+        self.trackers[0]["blocks"][0]["status"] = "completed"  # type: ignore[index]
         floor = self.compose()
         conclusions = floor["conclusions"]  # type: ignore[index]
         outcomes = floor["accepted_outcomes"]  # type: ignore[index]

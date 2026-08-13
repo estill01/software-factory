@@ -101,6 +101,9 @@ function weeklyReport(id: string, end: string, status: "available" | "unavailabl
     review_summary: status === "available" ? { headline: "Exact review", assessment: "Evidence-bound assessment." } : null,
     verification: status === "available" ? { valid: true, report_id: id, source_root: hash("a"), manifest_root: hash("b"), page_count: 2, pdf_path: "/report.pdf", report_sha256: hash("c"), review_sha256: hash("d"), pdf_sha256: hash("e") } : null,
     members: [],
+    delivery: status === "available"
+      ? { status: "delivered", configured: true, retryable: false, record_id: "EVT-DELIVERY", message_id: "gmail-message", thread_id: "gmail-thread", reason: null }
+      : { status: "not-ready", configured: false, retryable: false, record_id: null, message_id: null, thread_id: null, reason: "Report is not verified." },
     limitations: ["Recorded activity is a lower bound."],
     error: status === "unavailable" ? { code: "report_verification_failed", message: "Manifest mismatch", retryable: false } : null,
   }
@@ -111,6 +114,97 @@ const reports = [
   weeklyReport("weekly-two", "2026-08-09T00:00:00Z"),
   weeklyReport("weekly-invalid", "2026-08-10T00:00:00Z", "unavailable"),
 ]
+
+const terminalWorkflows = [{
+  target_thread_id: runs[0].target_thread_id,
+  target_label: runs[0].target_label,
+  project_binding: runs[0].project_binding,
+  workflow: {
+    status: "available",
+    stage: "delivery",
+    next_action: "deliver",
+    actionable: true,
+    report_set_id: "terminal-alpha-0011223344556677",
+    source_root: hash("1"),
+    manifest_root: hash("2"),
+    fingerprint: hash("3"),
+    state_fingerprint: "terminal-state-001",
+    mission_root: hash("4"),
+    completion: { status: "reconciled", record_id: "EVT-COMPLETION", lifecycle_record_id: "EVT-LIFECYCLE", reconciled: true },
+    coverage: { delta_start: "2026-08-08T00:00:00Z", full_start: "2026-08-01T00:00:00Z", end: "2026-08-09T00:00:00Z", delta_anchor_record_id: "weekly-one", delta_anchor_kind: "verified-prior-report" },
+    prior_reports: [{ report_id: "weekly-one", source_root: hash("a"), manifest_root: hash("b"), coverage: reports[0].coverage }],
+    writer_role: "base_reviewer",
+    writer_task_id: "base-reviewer-001",
+    expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      { id: "prepare", label: "Prepare", status: "complete", owner: "terminal owner" },
+      { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+      { id: "cognitive-review", label: "Review", status: "complete", owner: "base reviewer" },
+      { id: "finalize", label: "Finalize", status: "complete", owner: "terminal owner" },
+      { id: "verify", label: "Verify", status: "complete", owner: "terminal owner" },
+      { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+      { id: "delivery", label: "Delivery", status: "current", owner: "Gmail owner" },
+    ],
+    delivery: { status: "pending", configured: true, required: true, retryable: true, record_id: null, message_id: null, thread_id: null, readback_root: null, reason: "Verified terminal PDFs await read-back." },
+    shutdown: { status: "separate-owner", permitted: false, reason: "Terminal reporting is not shutdown authority." },
+    limitations: ["Derived evidence only."],
+    error: null,
+  },
+}]
+
+const evolutionWorkflows = [{
+  target_thread_id: runs[0].target_thread_id,
+  target_label: runs[0].target_label,
+  project_binding: runs[0].project_binding,
+  workflow: {
+    status: "available",
+    stage: "awaiting-implementation",
+    next_action: "evaluate",
+    actionable: true,
+    evolution_id: "evolution-test-001",
+    packet_id: "packet-test-001",
+    packet_root: hash("4"),
+    review_id: "review-test-001",
+    review_root: hash("5"),
+    evaluation_id: null,
+    evaluation_root: null,
+    disposition: null,
+    comparison_plan: {
+      experiment_id: "experiment-test-001",
+      selected_candidate: { candidate_id: "candidate-selected", candidate_type: "skill-method", capability_gap: "Comparison visibility gap.", effect: "Expose source-backed evaluation.", protected_capabilities: ["Owner boundary"], applicability: "Factory changes.", tradeoffs: ["Independent evaluation required."], uncertainty: "One bounded cycle." },
+      rejected_paths: [{ candidate_id: "candidate-detector", candidate_type: "detector", capability_gap: "Comparison visibility gap.", effect: "Detect only.", protected_capabilities: ["Owner boundary"], applicability: "Detection only.", tradeoffs: ["Underreaches."], uncertainty: "No correction." }],
+      selection_rationale: "The selected method supplies the bounded comparison.",
+      dimensions_considered: ["effect", "recurrence", "reach", "compounding_value", "reliability", "product_gain", "evidence_strength", "cost", "regression_risk", "complexity", "reversibility", "time_to_evidence"],
+      comparison_mode: "improvement",
+      positive_case_ids: ["case-positive"], exception_case_ids: ["case-exception"],
+      expected_effects: ["Make the comparison inspectable."], resource_bounds: ["Two cases."],
+      rollback_condition: "Do not adopt on regression.", success_measures: ["Both cases are evaluated."], regression_measures: ["No owner bypass."],
+      stop_condition: "Stop after disposition.", minimum_expected_delta: "Candidate improves one case.", non_inferiority_justification: "",
+    },
+    comparison_results: null,
+    source_report_id: "weekly-one",
+    source_report_root: hash("a"),
+    event_head_sha256: hash("6"),
+    manifest_root: hash("7"),
+    fingerprint: hash("8"),
+    proposer: { role: "base_reviewer", task_id: "proposer-task" },
+    implementer: { status: "awaiting-owner-proof", task_id: runs[0].target_thread_id, baseline_revision: "1".repeat(40), candidate_revision: "2".repeat(40) },
+    evaluator: { role: "reviewer", task_id: "evaluator-task" },
+    expected_members: [],
+    members: [],
+    stages: [
+      { id: "prepare", label: "Deterministic prepare", status: "complete", owner: "factory owner" },
+      { id: "finalize", label: "Cognitive finalize", status: "complete", owner: "proposer-task" },
+      { id: "external-implementation", label: "External implementation", status: "current", owner: "Block 11" },
+      { id: "evaluate", label: "Independent evaluate", status: "pending", owner: "evaluator-task" },
+      { id: "verify", label: "Deterministic verify", status: "pending", owner: "factory owner" },
+    ],
+    limitations: ["Disposition is not adoption authority."],
+    recovery: { posture: "blocked", guidance: "Retain the review while external evidence is produced.", preserved_roots: [hash("4"), hash("5")] },
+    error: null,
+  },
+}]
 
 function reportDetail(report: ReturnType<typeof weeklyReport>, recordedEvents: number) {
   const run = runs[0]
@@ -148,7 +242,7 @@ describe("metrics and report history workspace", () => {
     vi.clearAllMocks()
     mocks.fetchProjects.mockResolvedValue({ data: { projects } })
     mocks.fetchMetrics.mockResolvedValue(metricsResponse())
-    mocks.fetchReports.mockResolvedValue({ coverage: { status: "partial" }, data: { reports } })
+    mocks.fetchReports.mockResolvedValue({ coverage: { status: "partial" }, data: { reports, terminal_workflows: terminalWorkflows, evolution_workflows: evolutionWorkflows } })
     mocks.fetchReport.mockImplementation((_target: string, _family: string, id: string) => Promise.resolve(reportDetail(reports.find((report) => report.id === id)!, id === "weekly-one" ? 10 : 16)))
     mocks.fetchReportArtifactText.mockResolvedValue("# Exact report\n\n<script>not executable</script>")
   })
@@ -191,6 +285,16 @@ describe("metrics and report history workspace", () => {
     renderReports("/reports?view=reports")
 
     expect(await screen.findByRole("heading", { name: "History" })).toBeVisible()
+    const terminal = screen.getByRole("heading", { name: "Terminal" }).closest("section")!
+    expect(terminal).toHaveTextContent("terminal-alpha-0011223344556677")
+    expect(terminal).toHaveTextContent("Outcome EVT-COMPLETION · lifecycle EVT-LIFECYCLE")
+    expect(terminal).toHaveTextContent("0/5 bundle members")
+    expect(terminal).toHaveTextContent("Derived evidence only")
+    expect(terminal).toHaveTextContent("shutdown remain separate")
+    const evolution = screen.getByRole("heading", { name: "Evolution" }).closest("section")!
+    expect(evolution).toHaveTextContent("awaiting-implementation")
+    expect(evolution).toHaveTextContent("External implementation: awaiting-owner-proof")
+    expect(evolution).toHaveTextContent("not performed by evolution")
     expect(screen.getByText("Manifest mismatch")).toBeVisible()
     await user.click(screen.getByRole("button", { name: /weekly-one/ }))
     expect(await screen.findByRole("heading", { name: "Detail" })).toBeVisible()

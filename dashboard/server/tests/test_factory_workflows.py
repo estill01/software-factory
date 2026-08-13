@@ -252,16 +252,27 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             self.register(origin)
             framework = json.loads(response(f"{origin}/api/v1/operations").body)
             descriptors = framework["data"]["framework"]["registered_operations"]
-            supported = [item["type"] for item in descriptors if item["status"] == "supported"]
-            unavailable = [item for item in descriptors if item["status"] == "unavailable"]
+            supported = [
+                item["type"] for item in descriptors if item["status"] == "supported"
+            ]
+            unavailable = [
+                item for item in descriptors if item["status"] == "unavailable"
+            ]
             request_payload = {
                 "operation_type": "factory.tracker-author",
-                "target": {"kind": "project", "id": "workflow", "project_id": "workflow"},
+                "target": {
+                    "kind": "project",
+                    "id": "workflow",
+                    "project_id": "workflow",
+                },
                 "input": {
                     "repository_head": self.head(),
                     "objective": "Build the smallest exact demo tracker; preserve this wording.",
                     "sources": ["README.md", "direct-user-item-1"],
-                    "non_goals": ["Do not implement code", "Do not add a second task system"],
+                    "non_goals": [
+                        "Do not implement code",
+                        "Do not add a second task system",
+                    ],
                 },
             }
             status, previewed = preview(origin, request_payload)
@@ -276,13 +287,20 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 18)
+        self.assertEqual(len(supported), 25)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-repair-mission-binding", supported)
         self.assertIn("factory.supervision-repair-role-task-binding", supported)
         self.assertIn("factory.supervision-pause", supported)
+        self.assertIn("factory.supervision-resume", supported)
+        self.assertIn("factory.supervision-mission-successor", supported)
+        self.assertIn("factory.successor-task-transition", supported)
+        self.assertIn("factory.weekly-supervision-report", supported)
+        self.assertIn("factory.terminal-supervision-report", supported)
+        self.assertIn("factory.terminal-supervision-shutdown", supported)
+        self.assertIn("factory.evolution-evaluate", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -297,17 +315,1104 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             {item["type"] for item in unavailable},
             {
                 "factory.supervision-repair-automation-binding",
-                "factory.supervision-resume",
                 "factory.tracker-authoring-supervision",
             },
         )
         prompt = task["turns"][0]["items"][0]["summary"]
         self.assertTrue(prompt.startswith("SOFTWARE_FACTORY_DASHBOARD_MISSION "))
         self.assertIn("$author-implementation-trackers", prompt)
-        self.assertIn("Build the smallest exact demo tracker; preserve this wording.", prompt)
+        self.assertIn(
+            "Build the smallest exact demo tracker; preserve this wording.", prompt
+        )
         self.assertIn("Do not implement it.", prompt)
-        self.assertFalse(executed["data"]["operation"]["verification_evidence"]["block_accepted"])
-        self.assertNotIn("smallest exact demo", json.dumps(executed["data"]["operation"]))
+        self.assertFalse(
+            executed["data"]["operation"]["verification_evidence"]["block_accepted"]
+        )
+        self.assertNotIn(
+            "smallest exact demo", json.dumps(executed["data"]["operation"])
+        )
+
+    def test_weekly_report_advances_one_exact_owner_stage_and_rechecks_writer(self) -> None:
+        project_root = self.root / "weekly-project"
+        writer_root = self.root / "weekly-writer"
+        project_root.mkdir()
+        writer_root.mkdir()
+        project = ProjectRecord(
+            id="weekly-project",
+            label="Weekly project",
+            root=str(project_root),
+        )
+        target_id = "weekly-target-001"
+        writer_id = "weekly-writer-001"
+        policy_sha = "a" * 64
+        execution_sha = "b" * 64
+        catalog_fingerprint = "c" * 64
+        binding_fingerprint = "d" * 64
+        workflow_fingerprint = "e" * 64
+        source_root = "f" * 64
+        tasks = {
+            writer_id: {
+                "id": writer_id,
+                "cwd": str(writer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "source_record_sha256": execution_sha,
+                },
+            }
+        }
+        project_claim = {
+            "fingerprint": binding_fingerprint,
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+            },
+        }
+        control = {
+            "fingerprint": "1" * 64,
+            "policy_sha256": policy_sha,
+            "policy_version": 4,
+            "source_record": "EVT-WEEKLY-SOURCE-001",
+            "policy": {"policy_sha256": policy_sha},
+            "runtime": {"roundup_thread_id": writer_id},
+        }
+        workflow = {
+            "status": "available",
+            "stage": "prepare",
+            "next_action": "prepare",
+            "actionable": True,
+            "report_id": "weekly-20260801-20260808-test",
+            "coverage": {
+                "start": "2026-08-01T00:00:00+00:00",
+                "end": "2026-08-08T00:00:00+00:00",
+                "timezone": "America/Los_Angeles",
+                "calendar_days": ["2026-08-01"],
+                "elapsed_hours": 168.0,
+                "partial_week": False,
+            },
+            "coverage_days": 7,
+            "timezone": "America/Los_Angeles",
+            "source_root": source_root,
+            "manifest_root": None,
+            "fingerprint": workflow_fingerprint,
+            "writer_role": "roundup_writer",
+            "writer_task_id": writer_id,
+            "expected_members": ["metrics.json", "review-packet.json"],
+            "members": [],
+            "stages": [
+                {
+                    "id": "prepare",
+                    "label": "Deterministic prepare",
+                    "status": "current",
+                    "owner": "weekly owner",
+                },
+                {
+                    "id": "source-currentness",
+                    "label": "Source currentness",
+                    "status": "pending",
+                    "owner": "source owner",
+                },
+            ],
+            "delivery": {
+                "status": "not-ready",
+                "configured": False,
+                "retryable": False,
+                "record_id": None,
+                "message_id": None,
+                "thread_id": None,
+                "reason": "Artifact verification has not completed.",
+            },
+            "limitations": [],
+            "error": None,
+        }
+        group = {"ids": [target_id]}
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong weekly project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target, *, automation_roles=()):
+                if selected_target != target_id or automation_roles != ():
+                    raise AssertionError("wrong weekly policy source")
+                return control
+
+            @staticmethod
+            def weekly_report_workflow_snapshot(selected_target, *, coverage_days):
+                if selected_target != target_id or coverage_days != 7:
+                    raise AssertionError("wrong weekly report source")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong weekly group target")
+                return list(group["ids"])
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task_with_execution_contract(_projects, task_id):
+                if task_id != writer_id:
+                    raise AssertionError("wrong weekly writer read")
+                return {"task": tasks[writer_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = writer_root.stat()
+                if (
+                    task_id != writer_id
+                    or expected_cwd != str(writer_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong weekly writer dispatch")
+                self.prompt = text
+                tasks[writer_id]["status"] = {"type": "active"}
+                tasks[writer_id]["turns"] = [
+                    {
+                        "id": "turn-weekly-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-weekly-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._weekly_report_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), catalog_fingerprint)
+        definition = owner._weekly_report_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs = {"coverage_days": 7}
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["action"], "prepare")
+        changes = {
+            item.id: item for item in definition.describe_effect(
+                target, inputs, source
+            ).semantic_changes
+        }
+        self.assertEqual(changes["weekly-report-stage"].kind, "changed")
+        self.assertEqual(changes["weekly-report-source"].kind, "preserved")
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("Advance exactly one weekly supervision-report stage", owner.app_server_client.prompt)
+        self.assertIn("Do not perform cognitive review", owner.app_server_client.prompt)
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["direct_report_write"])
+        self.assertFalse(pending.evidence["direct_gmail_action"])
+
+        workflow["stage"] = "review-finalize"
+        workflow["next_action"] = "review-finalize"
+        workflow["stages"][0]["status"] = "complete"
+        workflow["stages"][1]["status"] = "complete"
+        tasks[writer_id]["status"] = {"type": "idle"}
+        tasks[writer_id]["turns"][0]["status"] = "completed"
+
+        tasks[writer_id]["execution_contract"]["source_record_sha256"] = "9" * 64
+        changed_writer = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_writer.state, "pending")
+        self.assertFalse(changed_writer.evidence["writer_contract_current"])
+        tasks[writer_id]["execution_contract"]["source_record_sha256"] = execution_sha
+
+        group["ids"] = [target_id, "unrelated-target"]
+        changed_group = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_group.state, "pending")
+        self.assertFalse(changed_group.evidence["supervision_group_current"])
+        group["ids"] = [target_id]
+
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["weekly_report_applied"])
+        self.assertTrue(applied.evidence["writer_turn_completed"])
+        self.assertTrue(applied.evidence["writer_contract_current"])
+        self.assertTrue(applied.evidence["prior_stages_preserved"])
+        self.assertFalse(applied.evidence["automatic_retry"])
+
+        workflow.update(
+            {
+                "stage": "finalize-verify",
+                "next_action": "finalize-verify",
+                "fingerprint": "2" * 64,
+            }
+        )
+        workflow["stages"] = [
+            {"id": "prepare", "label": "Prepare", "status": "complete", "owner": "weekly owner"},
+            {"id": "source-currentness", "label": "Source", "status": "complete", "owner": "source owner"},
+            {"id": "cognitive-review", "label": "Review", "status": "complete", "owner": "roundup writer"},
+            {"id": "finalize", "label": "Finalize", "status": "current", "owner": "weekly owner"},
+            {"id": "verify", "label": "Verify", "status": "pending", "owner": "weekly owner"},
+            {"id": "display", "label": "Display", "status": "pending", "owner": "dashboard"},
+            {"id": "delivery", "label": "Delivery", "status": "pending", "owner": "delivery owner"},
+        ]
+        tasks[writer_id]["status"] = {"type": "idle"}
+        recovery_source = definition.resolve_source(target, inputs)
+        self.assertEqual(recovery_source.evidence["action"], "finalize-verify")
+        recovery_dispatched = definition.dispatch(target, inputs, recovery_source)
+        self.assertEqual(
+            recovery_dispatched.evidence["requested_action"], "finalize-verify"
+        )
+        self.assertIn(
+            "Do not produce, regenerate, edit, or reinterpret that review",
+            owner.app_server_client.prompt,
+        )
+        self.assertIn(
+            "base64-encode that exact JSON",
+            owner.app_server_client.prompt,
+        )
+        self.assertNotIn(
+            "Produce one evidence-bound Sol XHigh synthesis",
+            owner.app_server_client.prompt,
+        )
+
+    def test_terminal_report_advances_one_stage_without_stop_pause_or_shutdown(self) -> None:
+        project_root = self.root / "terminal-project"
+        writer_root = self.root / "terminal-writer"
+        project_root.mkdir()
+        writer_root.mkdir()
+        project = ProjectRecord(
+            id="terminal-project",
+            label="Terminal project",
+            root=str(project_root),
+        )
+        target_id = "terminal-target-001"
+        writer_id = "terminal-writer-001"
+        policy_sha = "a" * 64
+        execution_sha = "b" * 64
+        catalog_fingerprint = "c" * 64
+        binding_fingerprint = "d" * 64
+        source_root = "e" * 64
+        state_fingerprint = "terminal-state-001"
+        tasks = {
+            writer_id: {
+                "id": writer_id,
+                "cwd": str(writer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "source_record_sha256": execution_sha,
+                },
+            }
+        }
+        project_claim = {
+            "fingerprint": binding_fingerprint,
+            "project_binding": {"status": "bound", "project_id": project.id},
+        }
+        control = {
+            "fingerprint": "1" * 64,
+            "policy_sha256": policy_sha,
+            "policy_version": 8,
+            "source_record": "EVT-TERMINAL-SOURCE-001",
+            "policy": {"policy_sha256": policy_sha},
+            "runtime": {"base_reviewer_thread_id": writer_id},
+        }
+        coverage = {
+            "delta_start": "2026-08-08T00:00:00+00:00",
+            "full_start": "2026-08-01T00:00:00+00:00",
+            "end": "2026-08-09T00:00:00+00:00",
+            "delta_anchor_record_id": "weekly-report-001",
+            "delta_anchor_kind": "verified-prior-report",
+        }
+        prior_reports = [
+            {
+                "report_id": "weekly-report-001",
+                "source_root": "2" * 64,
+                "manifest_root": "3" * 64,
+                "coverage": None,
+            }
+        ]
+        workflow = {
+            "status": "available",
+            "stage": "prepare",
+            "next_action": "prepare",
+            "actionable": True,
+            "report_set_id": "terminal-target-001-source001",
+            "source_root": source_root,
+            "manifest_root": None,
+            "fingerprint": "f" * 64,
+            "state_fingerprint": state_fingerprint,
+            "mission_root": "4" * 64,
+            "completion": {
+                "status": "reconciled",
+                "record_id": "EVT-TERMINAL-COMPLETION",
+                "lifecycle_record_id": "EVT-TERMINAL-LIFECYCLE",
+                "reconciled": True,
+            },
+            "coverage": coverage,
+            "prior_reports": prior_reports,
+            "writer_role": "base_reviewer",
+            "writer_task_id": writer_id,
+            "expected_members": [
+                "review-packet.json",
+                "review.json",
+                "delta-report.pdf",
+                "full-report.pdf",
+                "manifest.json",
+            ],
+            "members": [],
+            "stages": [
+                {"id": "prepare", "label": "Prepare", "status": "current", "owner": "terminal owner"},
+                {"id": "source-currentness", "label": "Source", "status": "pending", "owner": "source owner"},
+            ],
+            "delivery": {
+                "status": "not-ready",
+                "configured": True,
+                "required": True,
+                "retryable": False,
+                "record_id": None,
+                "message_id": None,
+                "thread_id": None,
+                "readback_root": None,
+                "reason": "Artifacts are not verified.",
+            },
+            "shutdown": {
+                "status": "separate-owner",
+                "permitted": False,
+                "reason": "Terminal reporting is not shutdown authority.",
+            },
+            "limitations": ["Derived evidence only."],
+            "error": None,
+        }
+        group = {"ids": [target_id]}
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong terminal project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target, *, automation_roles=()):
+                if selected_target != target_id or automation_roles != ():
+                    raise AssertionError("wrong terminal policy source")
+                return control
+
+            @staticmethod
+            def terminal_report_workflow_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong terminal report source")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong terminal group target")
+                return list(group["ids"])
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task_with_execution_contract(_projects, task_id):
+                if task_id != writer_id:
+                    raise AssertionError("wrong terminal writer read")
+                return {"task": tasks[writer_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = writer_root.stat()
+                if (
+                    task_id != writer_id
+                    or expected_cwd != str(writer_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong terminal writer dispatch")
+                self.prompt = text
+                tasks[writer_id]["status"] = {"type": "active"}
+                tasks[writer_id]["turns"] = [
+                    {
+                        "id": "turn-terminal-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {"turn": {"id": "turn-terminal-001"}, "task_resumed": False}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._terminal_report_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), catalog_fingerprint)
+        definition = owner._terminal_report_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs: dict[str, object] = {}
+
+        control["runtime"] = {"roundup_thread_id": writer_id}
+        with self.assertRaisesRegex(OperationError, "base reviewer"):
+            definition.resolve_source(target, inputs)
+        control["runtime"] = {"base_reviewer_thread_id": writer_id}
+        workflow["writer_role"] = "roundup_writer"
+        with self.assertRaisesRegex(OperationError, "base reviewer"):
+            definition.resolve_source(target, inputs)
+        workflow["writer_role"] = "base_reviewer"
+
+        source = definition.resolve_source(target, inputs)
+        route_request = definition.route_gate_request(target, inputs, source)
+        self.assertEqual(route_request.purpose, "changed-state-review")
+        self.assertEqual(route_request.recipient, writer_id)
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(target, inputs, source).semantic_changes
+        }
+        self.assertEqual(changes["terminal-report-stage"].kind, "changed")
+        self.assertEqual(changes["terminal-report-outcome"].kind, "preserved")
+        self.assertEqual(changes["terminal-report-shutdown"].after.value, "not performed")
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("Advance exactly one terminal supervision-report stage", owner.app_server_client.prompt)
+        self.assertIn("Do not review, finalize, deliver, request-stop, pause", owner.app_server_client.prompt)
+        self.assertFalse(dispatched.evidence["direct_gmail_action"])
+        self.assertFalse(dispatched.evidence["direct_lifecycle_action"])
+        self.assertFalse(dispatched.evidence["request_stop"])
+        self.assertFalse(dispatched.evidence["automation_pause"])
+        self.assertFalse(dispatched.evidence["terminal_shutdown"])
+
+        workflow["stage"] = "review-finalize"
+        workflow["next_action"] = "review-finalize"
+        workflow["stages"][0]["status"] = "complete"
+        workflow["stages"][1]["status"] = "complete"
+        tasks[writer_id]["status"] = {"type": "idle"}
+        tasks[writer_id]["turns"][0]["status"] = "completed"
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["terminal_report_applied"])
+        self.assertFalse(applied.evidence["shutdown_permitted"])
+        self.assertFalse(applied.evidence["direct_gmail_action"])
+        self.assertFalse(applied.evidence["automatic_retry"])
+
+        workflow["shutdown"]["permitted"] = True
+        with self.assertRaisesRegex(OperationError, "shutdown-separation"):
+            definition.resolve_source(target, inputs)
+        workflow["shutdown"]["permitted"] = False
+        workflow.update(
+            {
+                "stage": "finalize-verify",
+                "next_action": "finalize-verify",
+                "fingerprint": "5" * 64,
+            }
+        )
+        workflow["stages"] = [
+            {"id": "prepare", "label": "Prepare", "status": "complete", "owner": "terminal owner"},
+            {"id": "source-currentness", "label": "Source", "status": "complete", "owner": "source owner"},
+            {"id": "cognitive-review", "label": "Review", "status": "complete", "owner": "base reviewer"},
+            {"id": "finalize", "label": "Finalize", "status": "current", "owner": "terminal owner"},
+            {"id": "verify", "label": "Verify", "status": "pending", "owner": "terminal owner"},
+            {"id": "display", "label": "Display", "status": "pending", "owner": "dashboard"},
+            {"id": "delivery", "label": "Delivery", "status": "pending", "owner": "Gmail owner"},
+        ]
+        recovery_source = definition.resolve_source(target, inputs)
+        recovery_dispatched = definition.dispatch(target, inputs, recovery_source)
+        self.assertEqual(recovery_dispatched.evidence["requested_action"], "finalize-verify")
+        self.assertIn("Do not produce, regenerate, edit, or reinterpret it", owner.app_server_client.prompt)
+        self.assertNotIn("Produce one bounded Sol XHigh cognitive review", owner.app_server_client.prompt)
+
+    def test_terminal_shutdown_requires_every_gate_and_preserves_target_task(
+        self,
+    ) -> None:
+        project_root = self.root / "shutdown-project"
+        fix_root = self.root / "shutdown-fix"
+        project_root.mkdir()
+        fix_root.mkdir()
+        project = ProjectRecord(
+            id="shutdown-project",
+            label="Shutdown project",
+            root=str(project_root),
+        )
+        target_id = "shutdown-target-001"
+        fix_id = "shutdown-fix-001"
+        policy_sha = "a" * 64
+        catalog_fingerprint = "b" * 64
+        binding_fingerprint = "c" * 64
+        mission_root = "d" * 64
+        lifecycle_sha = "e" * 64
+        gate_currentness = "f" * 64
+        manifest_root = "1" * 64
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(project_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "bound", "project_id": project.id},
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "turn-target-complete",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        project_claim = {
+            "fingerprint": binding_fingerprint,
+            "project_binding": {"status": "bound", "project_id": project.id},
+        }
+        lifecycle = {
+            "record_id": "EVT-SHUTDOWN-LIFECYCLE",
+            "record_sha256": lifecycle_sha,
+            "status": "completed",
+            "state_fingerprint": "shutdown-state-001",
+        }
+        control = {
+            "policy_sha256": policy_sha,
+            "event_head": "2" * 64,
+            "policy": {
+                "policy_sha256": policy_sha,
+                "mission_binding": {"mission_root": mission_root},
+            },
+            "runtime": {"fix_executor_thread_id": fix_id},
+            "lifecycle_record": lifecycle,
+        }
+        workflow = {
+            "status": "available",
+            "stage": "request-stop",
+            "next_action": "shutdown",
+            "actionable": True,
+            "fingerprint": "3" * 64,
+            "mission_root": mission_root,
+            "state_fingerprint": lifecycle["state_fingerprint"],
+            "completion_record_id": "EVT-SHUTDOWN-COMPLETION",
+            "lifecycle_record_id": lifecycle["record_id"],
+            "report_set_id": "terminal-shutdown-report-001",
+            "manifest_root": manifest_root,
+            "delivery_record_id": "EVT-SHUTDOWN-DELIVERY",
+            "delivery_timestamp": "2026-08-12T08:00:00Z",
+            "source_record": "EVT-SHUTDOWN-DELIVERY",
+            "gate": {
+                "status": "ready",
+                "completion_permitted": True,
+                "source_stop_permitted": True,
+                "supervision_pause_permitted": True,
+                "terminal_reports_delivered": True,
+                "reason": "Every exact terminal gate is satisfied.",
+                "currentness": gate_currentness,
+            },
+            "open_heads": {
+                "incident_ids": [],
+                "decision_ids": [],
+                "successor_transition_ids": [],
+                "mission_activation_ids": [],
+            },
+            "automations": [
+                {
+                    "role": "reviewer",
+                    "label": "Reviewer",
+                    "automation_id": "shutdown-reviewer-automation",
+                    "target_thread_id": "shutdown-reviewer-task",
+                    "owner_status": "PAUSED",
+                    "updated_at": "2026-08-12T08:01:00.000Z",
+                    "manifest_sha256": "4" * 64,
+                    "protected_sha256": "5" * 64,
+                    "post_delivery": True,
+                    "action": "preserve",
+                },
+                {
+                    "role": "watcher",
+                    "label": "Watcher",
+                    "automation_id": "shutdown-watcher-automation",
+                    "target_thread_id": "shutdown-watcher-task",
+                    "owner_status": "ACTIVE",
+                    "updated_at": "2026-08-12T07:59:00.000Z",
+                    "manifest_sha256": "6" * 64,
+                    "protected_sha256": "7" * 64,
+                    "post_delivery": False,
+                    "action": "pause-after-delivery",
+                },
+            ],
+            "receipt": {
+                "status": "missing",
+                "record_id": None,
+                "record_sha256": None,
+                "previous_record_sha256": None,
+                "automation_state_root": None,
+                "reason": "No shutdown receipt exists.",
+            },
+            "recovery": {
+                "posture": "ready",
+                "guidance": "Pause the named watcher and record the exact receipt.",
+            },
+            "limitations": [],
+            "error": None,
+        }
+        group = {"ids": [target_id]}
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+            supervision_owner = (
+                Path(__file__).resolve().parents[3]
+                / "supervise-tracker-runs"
+                / "scripts"
+                / "supervision_log.py"
+            )
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown control target")
+                return control
+
+            @staticmethod
+            def terminal_shutdown_workflow_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown workflow target")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown group target")
+                return list(group["ids"])
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if not include_turns or task_id not in tasks:
+                    raise AssertionError("wrong shutdown task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong shutdown dispatch")
+                self.prompt = text
+                tasks[fix_id]["status"] = {"type": "active"}
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-shutdown-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-shutdown-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._terminal_shutdown_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), catalog_fingerprint)
+        definition = owner._terminal_shutdown_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs: dict[str, object] = {}
+
+        workflow["open_heads"]["incident_ids"] = ["INC-SHUTDOWN-OPEN"]
+        with self.assertRaisesRegex(OperationError, "gates deny shutdown"):
+            definition.resolve_source(target, inputs)
+        workflow["open_heads"]["incident_ids"] = []
+
+        source = definition.resolve_source(target, inputs)
+        route_request = definition.route_gate_request(target, inputs, source)
+        self.assertEqual(route_request.purpose, "fix-execution")
+        self.assertEqual(route_request.source_record, "EVT-SHUTDOWN-DELIVERY")
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(
+                target, inputs, source
+            ).semantic_changes
+        }
+        self.assertEqual(changes["terminal-shutdown-receipt"].kind, "added")
+        self.assertEqual(
+            changes["terminal-shutdown-automation-watcher"].after.value,
+            "PAUSED after terminal delivery",
+        )
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("--terminal-report-set-id", owner.app_server_client.prompt)
+        self.assertIn(
+            "uv run --python 3.14 python",
+            owner.app_server_client.prompt,
+        )
+        self.assertNotIn("invoke python3", owner.app_server_client.prompt)
+        self.assertIn("--expected-event-head", owner.app_server_client.prompt)
+        self.assertIn("open_incident_ids", owner.app_server_client.prompt)
+        self.assertIn("open_decision_ids", owner.app_server_client.prompt)
+        self.assertIn(
+            "Immediately before any automation pause",
+            owner.app_server_client.prompt,
+        )
+        self.assertIn(
+            "Do not stop, interrupt, continue, resume, archive",
+            owner.app_server_client.prompt,
+        )
+        self.assertFalse(dispatched.evidence["target_task_stopped"])
+        self.assertFalse(dispatched.evidence["target_turn_interrupted"])
+
+        tasks[fix_id]["status"] = {"type": "idle"}
+        tasks[fix_id]["turns"][0]["status"] = "completed"
+        workflow["stage"] = "shutdown"
+        workflow["next_action"] = None
+        workflow["actionable"] = False
+        workflow["automations"][1].update(
+            {
+                "owner_status": "PAUSED",
+                "updated_at": "2026-08-12T08:02:00.000Z",
+                "manifest_sha256": "8" * 64,
+                "post_delivery": True,
+                "action": "preserve",
+            }
+        )
+        workflow["receipt"] = {
+            "status": "verified",
+            "record_id": "EVT-SHUTDOWN-RECEIPT",
+            "record_sha256": "9" * 64,
+            "previous_record_sha256": control["event_head"],
+            "automation_state_root": "0" * 64,
+            "reason": "Every exact terminal owner is current.",
+        }
+        workflow["recovery"] = {
+            "posture": "complete",
+            "guidance": "No further shutdown action is supported.",
+        }
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["terminal_shutdown_applied"])
+        self.assertTrue(applied.evidence["target_task_preserved"])
+        self.assertTrue(applied.evidence["automation_postcondition_current"])
+        self.assertTrue(applied.evidence["shutdown_receipt_postcondition_current"])
+        self.assertFalse(applied.evidence["automatic_retry"])
+
+        workflow["receipt"]["previous_record_sha256"] = "1" * 64
+        intervening_event = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(intervening_event.state, "pending")
+        self.assertFalse(intervening_event.evidence["terminal_shutdown_applied"])
+        workflow["receipt"]["previous_record_sha256"] = control["event_head"]
+
+        workflow["automations"][1]["owner_status"] = "ACTIVE"
+        workflow["automations"][1]["post_delivery"] = False
+        workflow["automations"][1]["action"] = "pause-after-delivery"
+        partial = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(partial.state, "pending")
+        self.assertFalse(partial.evidence["automation_postcondition_current"])
+        self.assertFalse(partial.evidence["terminal_shutdown_applied"])
+    def test_factory_evolution_advances_one_maintained_stage_without_candidate_or_adoption(self) -> None:
+        project_root = self.root / "evolution-project"
+        proposer_root = self.root / "evolution-proposer"
+        evaluator_root = self.root / "evolution-evaluator"
+        project_root.mkdir()
+        proposer_root.mkdir()
+        evaluator_root.mkdir()
+        project = ProjectRecord(
+            id="evolution-project",
+            label="Evolution project",
+            root=str(project_root),
+        )
+        target_id = "evolution-target-001"
+        proposer_id = "evolution-proposer-001"
+        evaluator_id = "evolution-evaluator-001"
+        policy_sha = "a" * 64
+        tasks = {
+            proposer_id: {
+                "id": proposer_id,
+                "cwd": str(proposer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "source_record_sha256": "b" * 64,
+                },
+            },
+            evaluator_id: {
+                "id": evaluator_id,
+                "cwd": str(evaluator_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "max",
+                    "source_record_sha256": "c" * 64,
+                },
+            },
+        }
+        project_claim = {
+            "fingerprint": "d" * 64,
+            "project_binding": {"status": "bound", "project_id": project.id},
+        }
+        control = {
+            "fingerprint": "e" * 64,
+            "policy_sha256": policy_sha,
+            "source_record": "EVT-EVOLUTION-SOURCE-001",
+        }
+        workflow = {
+            "status": "available",
+            "stage": "prepare",
+            "next_action": "prepare",
+            "actionable": True,
+            "evolution_id": "evolution-test-001",
+            "packet_id": "packet-test-001",
+            "packet_root": "f" * 64,
+            "review_id": None,
+            "review_root": None,
+            "evaluation_id": None,
+            "evaluation_root": None,
+            "disposition": None,
+            "source_report_id": "weekly-test-001",
+            "source_report_root": "1" * 64,
+            "event_head_sha256": "2" * 64,
+            "manifest_root": None,
+            "fingerprint": "3" * 64,
+            "proposer": {"role": "base_reviewer", "task_id": proposer_id},
+            "implementer": {
+                "status": "not-selected",
+                "task_id": None,
+                "baseline_revision": None,
+                "candidate_revision": None,
+            },
+            "evaluator": {"role": "reviewer", "task_id": evaluator_id},
+            "expected_members": ["learning-packet.json", "prepare-manifest.json"],
+            "members": [],
+            "stages": [
+                {"id": "prepare", "label": "Prepare", "status": "current", "owner": "factory owner"},
+                {"id": "finalize", "label": "Finalize", "status": "pending", "owner": "proposer"},
+                {"id": "external-implementation", "label": "External", "status": "pending", "owner": "Block 11"},
+                {"id": "evaluate", "label": "Evaluate", "status": "pending", "owner": "evaluator"},
+                {"id": "verify", "label": "Verify", "status": "pending", "owner": "factory owner"},
+            ],
+            "limitations": ["Adoption is not performed by evolution."],
+            "error": None,
+        }
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong evolution project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target, *, automation_roles=()):
+                if selected_target != target_id or automation_roles != ():
+                    raise AssertionError("wrong evolution policy source")
+                return control
+
+            @staticmethod
+            def factory_evolution_workflow_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong evolution workflow target")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                return [selected_target]
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task_with_execution_contract(_projects, task_id):
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                if task_id != proposer_id or expected_cwd != str(proposer_root):
+                    raise AssertionError("wrong evolution role dispatch")
+                metadata = proposer_root.stat()
+                if expected_cwd_identity != (metadata.st_dev, metadata.st_ino):
+                    raise AssertionError("wrong evolution cwd identity")
+                self.prompt = text
+                tasks[proposer_id]["status"] = {"type": "active"}
+                tasks[proposer_id]["turns"] = [{
+                    "id": "turn-evolution-001",
+                    "status": "inProgress",
+                    "items_truncated": False,
+                    "items": [{"type": "userMessage", "summary": text}],
+                }]
+                return {"turn": {"id": "turn-evolution-001"}, "task_resumed": False}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._factory_evolution_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "4" * 64)
+        definition = owner._factory_evolution_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs: dict[str, object] = {}
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["action"], "prepare")
+        semantic = {row.id: row for row in definition.describe_effect(target, inputs, source).semantic_changes}
+        self.assertEqual(semantic["factory-evolution-stage"].kind, "changed")
+        dispatched = definition.dispatch(target, inputs, source)
+        prompt = owner.app_server_client.prompt
+        self.assertIn("Run only deterministic prepare", prompt)
+        self.assertIn("Do not synthesize review", prompt)
+        self.assertNotIn("implement a candidate", prompt.lower().split("do not synthesize review")[0])
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+
+        tasks[proposer_id]["status"] = {"type": "idle"}
+        tasks[proposer_id]["turns"][0]["status"] = "completed"
+        workflow["stage"] = "finalize"
+        workflow["next_action"] = "finalize"
+        workflow["stages"][0]["status"] = "complete"
+        workflow["stages"][1]["status"] = "current"
+        tasks[evaluator_id]["execution_contract"]["source_record_sha256"] = "9" * 64
+        changed_evaluator = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_evaluator.state, "pending")
+        self.assertFalse(changed_evaluator.evidence["role_contracts_current"])
+        tasks[evaluator_id]["execution_contract"]["source_record_sha256"] = "c" * 64
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["factory_evolution_applied"])
+        self.assertFalse(applied.evidence["external_implementation_started"])
+        self.assertFalse(applied.evidence["candidate_adopted"])
+        self.assertFalse(applied.evidence["deployment_changed"])
+        self.assertFalse(applied.evidence["outcome_claimed"])
+
+        workflow["proposer"] = {"role": "base_reviewer", "task_id": target_id}
+        with self.assertRaisesRegex(OperationError, "not distinct"):
+            definition.resolve_source(target, inputs)
 
     def test_supervision_pause_requires_both_owners_and_preserves_target_state(self) -> None:
         project_root = self.root / "pause-project"
@@ -735,6 +1840,1464 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             definition.resolve_source(target, {})
         self.assertEqual(already.exception.code, "supervision_already_paused")
 
+    def test_supervision_resume_requires_both_owners_and_never_resumes_target_task(self) -> None:
+        project_root = self.root / "resume-project"
+        target_root = project_root / "target"
+        fix_root = self.root / "resume-fix-role"
+        target_root.mkdir(parents=True)
+        fix_root.mkdir(parents=True)
+        project = ProjectRecord(
+            id="resume-project",
+            label="Resume project",
+            root=str(project_root),
+        )
+        target_id = "target-resume-0001"
+        fix_id = "fix-resume-0001"
+        policy_sha = "b" * 64
+        mission_root = "c" * 64
+        pause_record_id = "EVT-PAUSE-RESUME-001"
+        source_record_id = "EVT-RESUME-SOURCE-001"
+        state_fingerprint = "resume-source-state-001"
+        eligibility_root = "d" * 64
+        source_currentness_root = "e" * 64
+        group_id = "group-" + "f" * 64
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(target_root),
+                "status": {"type": "active"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": project.id,
+                },
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "target-resume-turn-001",
+                        "status": "inProgress",
+                        "items": [],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "unassigned", "project_id": None},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        policy = {
+            "project_root": str(project_root),
+            "policy_version": 8,
+            "policy_sha256": policy_sha,
+            "mission_binding": {"mission_root": mission_root},
+            "runtime": {
+                "watcher_thread_id": "watcher-resume-0001",
+                "reviewer_thread_id": "reviewer-resume-0001",
+                "fix_executor_thread_id": fix_id,
+                "routine_automation_id": "watcher-automation-resume",
+                "meta_automation_id": "reviewer-automation-resume",
+                "gmail_gate_thread_id": None,
+                "gmail_poll_automation_id": None,
+                "roundup_thread_id": None,
+                "roundup_automation_id": None,
+            },
+            "reports": {"weekly": {"enabled": False}},
+            "notifications": {"gmail": {"enabled": True}},
+        }
+        pause_record = {
+            "record_id": pause_record_id,
+            "record_sha256": "1" * 64,
+            "timestamp": "2026-08-11T09:00:00Z",
+            "kind": "lifecycle",
+            "status": "paused",
+            "category": "supervision-pause",
+            "policy_sha256": policy_sha,
+            "state_fingerprint": "paused-state-001",
+        }
+        state_source = {
+            "record_id": source_record_id,
+            "record_sha256": "2" * 64,
+            "timestamp": "2026-08-11T09:02:30Z",
+            "kind": "check",
+            "status": "no-intervention",
+            "category": "changed-state-review",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "policy_sha256": policy_sha,
+            "state_fingerprint": state_fingerprint,
+            "evidence": ["exact-target-read"],
+        }
+        control = {
+            "fingerprint": "3" * 64,
+            "target_thread_id": target_id,
+            "owner_sha256": "4" * 64,
+            "policy": policy,
+            "runtime": policy["runtime"],
+            "policy_sha256": policy_sha,
+            "policy_version": 8,
+            "policy_history_head": "5" * 64,
+            "source_record": source_record_id,
+            "current_state_source": state_source,
+            "event_head": state_source["record_sha256"],
+            "lifecycle_status": "paused",
+            "lifecycle_record": pause_record,
+            "open_successor_transitions": {},
+            "open_mission_activations": {},
+            "automations_by_role": {
+                "watcher": {
+                    "status": "available",
+                    "id": "watcher-automation-resume",
+                    "name": "Resume watcher",
+                    "kind": "heartbeat",
+                    "owner_status": "PAUSED",
+                    "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                    "target_thread_id": "watcher-resume-0001",
+                    "manifest_sha256": "6" * 64,
+                    "protected_sha256": "7" * 64,
+                    "updated_at": "2026-08-11T09:01:00Z",
+                },
+                "reviewer": {
+                    "status": "available",
+                    "id": "reviewer-automation-resume",
+                    "name": "Resume reviewer",
+                    "kind": "heartbeat",
+                    "owner_status": "ACTIVE",
+                    "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                    "target_thread_id": "reviewer-resume-0001",
+                    "manifest_sha256": "8" * 64,
+                    "protected_sha256": "9" * 64,
+                    "updated_at": "2026-08-11T09:02:00Z",
+                },
+                "gmail_gate": None,
+                "roundup_writer": None,
+                "weekly_report": None,
+            },
+        }
+        configuration_roots = {
+            "watcher-automation-resume": "a" * 64,
+            "reviewer-automation-resume": "0" * 64,
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong resume target")
+                return control
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong resume group target")
+                return [target_id]
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong resume project target")
+                return {
+                    "fingerprint": "a" * 64,
+                    "project_binding": {
+                        "status": "bound",
+                        "project_id": project.id,
+                    },
+                }
+
+            @staticmethod
+            def supervision_resume_gate_snapshot(
+                selected_target,
+                *,
+                pause_record,
+                source_record,
+                state_fingerprint,
+            ):
+                if (
+                    selected_target != target_id
+                    or pause_record != pause_record_id
+                    or source_record != source_record_id
+                    or state_fingerprint != "resume-source-state-001"
+                ):
+                    raise AssertionError("wrong resume-gate source")
+                if control["lifecycle_status"] == "resumed":
+                    return {
+                        "currentness": "b" * 64,
+                        "gate": {
+                            "status": "already-resumed",
+                            "eligible": True,
+                            "ready_to_finalize": True,
+                            "duplicate": True,
+                            "action": "none",
+                            "policy_sha256": policy_sha,
+                            "resume_record": control["lifecycle_record"],
+                        },
+                    }
+                states = {}
+                for role, owner_role, configuration_root in (
+                    ("watcher", "watcher", configuration_roots["watcher-automation-resume"]),
+                    ("reviewer", "reviewer", configuration_roots["reviewer-automation-resume"]),
+                ):
+                    automation = control["automations_by_role"][role]
+                    states[automation["id"]] = {
+                        "automation_id": automation["id"],
+                        "configuration_sha256": configuration_root,
+                        "manifest_sha256": automation["manifest_sha256"],
+                        "role": owner_role,
+                        "rrule": automation["rrule"],
+                        "status": automation["owner_status"],
+                        "target_thread_id": automation["target_thread_id"],
+                        "updated_at": {
+                            "2026-08-11T09:01:00Z": 1_786_438_860_000,
+                            "2026-08-11T09:02:00Z": 1_786_438_920_000,
+                            "2026-08-11T09:03:00Z": 1_786_438_980_000,
+                        }[automation["updated_at"]],
+                    }
+                paused_ids = sorted(
+                    automation_id
+                    for automation_id, state in states.items()
+                    if state["status"] == "PAUSED"
+                )
+                return {
+                    "currentness": "b" * 64,
+                    "gate": {
+                        "status": "pending-activation" if paused_ids else "ready",
+                        "eligible": True,
+                        "ready_to_finalize": not paused_ids,
+                        "duplicate": False,
+                        "action": (
+                            "activate-exact-bound-automations"
+                            if paused_ids
+                            else "resume-finalize"
+                        ),
+                        "activate_automation_ids": paused_ids,
+                        "automation_states": states,
+                        "eligibility_root": eligibility_root,
+                        "source_currentness_root": source_currentness_root,
+                        "pause_record_id": pause_record_id,
+                        "source_record_id": source_record_id,
+                        "state_fingerprint": state_fingerprint,
+                        "group_id": group_id,
+                        "mission_root": mission_root,
+                        "policy_version": 8,
+                        "policy_sha256": policy_sha,
+                    },
+                }
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": capability, "status": "supported"}
+                        for capability in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong resume task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong resume owner dispatch")
+                self.prompt = text
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-resume-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {"turn": {"id": "turn-resume-001"}, "task_resumed": False}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._supervision_resume_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "c" * 64)
+        definition = owner._supervision_resume_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+
+        source = definition.resolve_source(target, {})
+        self.assertEqual(
+            source.evidence["activate_automation_ids"],
+            ["watcher-automation-resume"],
+        )
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(target, {}, source).semantic_changes
+        }
+        self.assertEqual(changes["supervision-resume-lifecycle"].before.value, "paused")
+        self.assertEqual(changes["supervision-resume-lifecycle"].after.value, "resumed")
+        self.assertEqual(
+            changes["supervision-resume-automation-watcher"].kind,
+            "changed",
+        )
+        self.assertEqual(
+            changes["supervision-resume-automation-reviewer"].kind,
+            "preserved",
+        )
+        route_request = definition.route_gate_request(target, {}, source)
+        route_result = owner.route_gate(route_request)
+        self.assertTrue(route_result.allowed)
+        self.assertEqual(route_result.recipient, route_request.recipient)
+        self.assertEqual(route_result.purpose, route_request.purpose)
+        self.assertEqual(route_result.source_record, route_request.source_record)
+        self.assertEqual(route_result.target_thread, route_request.target_thread)
+        self.assertEqual(
+            route_result.action_hash,
+            route_action_fingerprint(route_request.required_action),
+        )
+        self.assertEqual(route_result.policy_fingerprint, policy_sha)
+        dispatched = definition.dispatch(target, {}, source)
+        self.assertIn("$supervise-tracker-runs", owner.app_server_client.prompt)
+        self.assertIn("Do not continue, interrupt, stop, or resume", owner.app_server_client.prompt)
+        self.assertIn("Do not edit policy JSON", owner.app_server_client.prompt)
+        self.assertIn("resume-finalize once", owner.app_server_client.prompt)
+
+        partial = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(partial.state, "pending")
+        self.assertEqual(partial.evidence["partial_posture"], "activation-partial")
+        self.assertFalse(partial.evidence["target_task_or_turn_resumed"])
+
+        watcher = control["automations_by_role"]["watcher"]
+        watcher["owner_status"] = "ACTIVE"
+        watcher["manifest_sha256"] = "d" * 64
+        watcher["updated_at"] = "2026-08-11T09:03:00Z"
+        owner_only = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(owner_only.state, "pending")
+        self.assertEqual(
+            owner_only.evidence["partial_posture"],
+            "automations-active-lifecycle-pending",
+        )
+        self.assertFalse(owner_only.evidence["lifecycle_postcondition_current"])
+
+        final_states = {}
+        for role, owner_role in (("watcher", "watcher"), ("reviewer", "reviewer")):
+            automation = control["automations_by_role"][role]
+            final_states[automation["id"]] = {
+                "automation_id": automation["id"],
+                "configuration_sha256": configuration_roots[automation["id"]],
+                "manifest_sha256": automation["manifest_sha256"],
+                "role": owner_role,
+                "rrule": automation["rrule"],
+                "status": "ACTIVE",
+                "target_thread_id": automation["target_thread_id"],
+                "updated_at": {
+                    "2026-08-11T09:02:00Z": 1_786_438_920_000,
+                    "2026-08-11T09:03:00Z": 1_786_438_980_000,
+                }[automation["updated_at"]],
+            }
+        resume_record = {
+            "record_id": "EVT-RESUME-001",
+            "record_sha256": "e" * 64,
+            "timestamp": "2026-08-11T09:04:00Z",
+            "kind": "lifecycle",
+            "category": "supervision-resume",
+            "status": "resumed",
+            "resume_contract_version": 1,
+            "pause_record_id": pause_record_id,
+            "pause_record_sha256": pause_record["record_sha256"],
+            "source_record_id": source_record_id,
+            "source_record_sha256": state_source["record_sha256"],
+            "state_fingerprint": state_fingerprint,
+            "source_currentness_root": source_currentness_root,
+            "eligibility_root": eligibility_root,
+            "group_id": group_id,
+            "mission_root": mission_root,
+            "policy_sha256": policy_sha,
+            "policy_version": 8,
+            "policy_history_head": control["policy_history_head"],
+            "automation_configuration_roots": configuration_roots,
+            "automation_states": final_states,
+        }
+        control["lifecycle_status"] = "resumed"
+        control["lifecycle_record"] = resume_record
+        applied = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["supervision_resume_applied"])
+        self.assertTrue(applied.evidence["automation_postcondition_current"])
+        self.assertTrue(applied.evidence["lifecycle_postcondition_current"])
+        self.assertTrue(applied.evidence["target_task_preserved"])
+        self.assertFalse(applied.evidence["target_task_or_turn_resumed"])
+        self.assertEqual(applied.evidence["pause_record_id"], pause_record_id)
+        self.assertEqual(applied.evidence["resume_record_id"], "EVT-RESUME-001")
+
+        accepted_route_gate = owner.route_gate
+        owner.route_gate = lambda request: RouteGateResult(
+            False,
+            None,
+            reason="The exact route is no longer permitted.",
+        )
+        denied = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(denied.state, "pending")
+        self.assertTrue(denied.evidence["lifecycle_postcondition_current"])
+        self.assertTrue(denied.evidence["automation_postcondition_current"])
+        self.assertFalse(denied.evidence["route_gate_accepted"])
+        self.assertEqual(
+            denied.evidence["partial_posture"],
+            "owners-resumed-operation-unverified",
+        )
+        owner.route_gate = accepted_route_gate
+
+        tasks[target_id]["turns"][0]["status"] = "interrupted"
+        interrupted = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(interrupted.state, "pending")
+        self.assertFalse(interrupted.evidence["target_task_preserved"])
+        tasks[target_id]["turns"][0]["status"] = "inProgress"
+
+        with self.assertRaises(OperationError) as already:
+            definition.resolve_source(target, {})
+        self.assertEqual(already.exception.code, "supervision_already_running")
+
+    def test_mission_successor_preserves_history_and_ends_at_pending_activation(self) -> None:
+        project_root = self.root / "successor-project"
+        target_root = project_root / "target"
+        reviewer_root = self.root / "successor-reviewer"
+        fix_root = self.root / "successor-fix"
+        for path in (target_root, reviewer_root, fix_root):
+            path.mkdir(parents=True)
+        project = ProjectRecord(
+            id="successor-project",
+            label="Successor project",
+            root=str(project_root),
+        )
+        target_id = "target-successor-001"
+        reviewer_id = "reviewer-successor-001"
+        fix_id = "fix-successor-001"
+        source_turn_id = "turn-successor-source-001"
+        source_item_id = "item-successor-source-001"
+        source_record = f"codex:{target_id}:{source_turn_id}:{source_item_id}"
+        source_text = "Begin the materially different dashboard reliability mission."
+        source_sha = sha256(source_text.encode("utf-8")).hexdigest()
+        source_envelope_sha = sha256(
+            json.dumps(
+                [{"type": "text", "text": source_text}],
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        source_item = {
+            "id": source_item_id,
+            "type": "userMessage",
+            "summary": source_text,
+            "client_id": "client-successor-001",
+            "user_content_sha256": source_sha,
+            "user_content_truncated": False,
+            "user_content_envelope_sha256": source_envelope_sha,
+            "user_content_part_types": ["text"],
+            "user_input_classification": "ordinary-user-message",
+            "user_authority_status": "unverified",
+        }
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(target_root),
+                "status": {"type": "idle"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": project.id,
+                },
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": source_turn_id,
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [source_item],
+                    }
+                ],
+            },
+            reviewer_id: {
+                "id": reviewer_id,
+                "cwd": str(reviewer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        predecessor_root = "a" * 64
+        older_root = "b" * 64
+        successor_root = "c" * 64
+        predecessor_binding = {
+            "contract_version": 3,
+            "mission_root": predecessor_root,
+            "mission_source_record": "direct-user-predecessor",
+        }
+        successor_binding = {
+            "contract_version": 3,
+            "mission_root": successor_root,
+            "mission_source_record": source_record,
+            "mission_derivation": {
+                "controlling_source": {
+                    "class": "direct-user",
+                    "record": source_record,
+                    "sha256": source_sha,
+                }
+            },
+        }
+        runtime = {
+            "watcher_thread_id": "watcher-successor-001",
+            "base_reviewer_thread_id": None,
+            "reviewer_thread_id": reviewer_id,
+            "notice_reviewer_thread_id": None,
+            "fix_executor_thread_id": fix_id,
+            "gmail_gate_thread_id": None,
+            "gmail_processor_thread_id": None,
+            "roundup_thread_id": "roundup-successor-001",
+            "routine_automation_id": "watcher-automation-successor",
+            "meta_automation_id": "reviewer-automation-successor",
+            "gmail_poll_automation_id": None,
+            "roundup_automation_id": None,
+            "automation_id": None,
+        }
+        policy = {
+            "schema_version": 1,
+            "policy_version": 4,
+            "policy_sha256": "d" * 64,
+            "target_thread_id": target_id,
+            "project_root": str(project_root),
+            "mission_binding": predecessor_binding,
+            "runtime": runtime,
+            "reports": {
+                "weekly": {
+                    "enabled": True,
+                    "automation_id": "weekly-automation-successor",
+                }
+            },
+        }
+        next_policy = {
+            **json.loads(json.dumps(policy)),
+            "policy_version": 5,
+            "policy_sha256": "e" * 64,
+            "updated_at": "2026-08-12T01:00:00+00:00",
+            "mission_binding": successor_binding,
+        }
+        prior_policy_record = {
+            "record_id": "POLICY-4",
+            "record_sha256": "f" * 64,
+            "timestamp": "2026-08-11T23:00:00+00:00",
+            "kind": "policy-bind",
+            "reason": "Existing mission binding.",
+            "evidence": [],
+            "policy": policy,
+        }
+        automations = {
+            "watcher": {
+                "status": "available",
+                "id": "watcher-automation-successor",
+                "name": "Successor watcher",
+                "kind": "heartbeat",
+                "owner_status": "ACTIVE",
+                "target_thread_id": runtime["watcher_thread_id"],
+                "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                "manifest_sha256": "1" * 64,
+                "protected_sha256": "2" * 64,
+                "updated_at": "2026-08-11T23:30:00Z",
+            },
+            "reviewer": {
+                "status": "available",
+                "id": "reviewer-automation-successor",
+                "name": "Successor reviewer",
+                "kind": "heartbeat",
+                "owner_status": "ACTIVE",
+                "target_thread_id": reviewer_id,
+                "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                "manifest_sha256": "3" * 64,
+                "protected_sha256": "4" * 64,
+                "updated_at": "2026-08-11T23:31:00Z",
+            },
+            "weekly_report": {
+                "status": "available",
+                "id": "weekly-automation-successor",
+                "name": "Successor weekly report",
+                "kind": "heartbeat",
+                "owner_status": "ACTIVE",
+                "target_thread_id": runtime["roundup_thread_id"],
+                "rrule": "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0",
+                "manifest_sha256": "5" * 64,
+                "protected_sha256": "6" * 64,
+                "updated_at": "2026-08-11T23:32:00Z",
+            },
+            "gmail_gate": None,
+            "roundup_writer": None,
+        }
+        control = {
+            "fingerprint": "5" * 64,
+            "target_thread_id": target_id,
+            "owner_sha256": "6" * 64,
+            "policy": policy,
+            "runtime": runtime,
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": policy["policy_version"],
+            "policy_history_head": prior_policy_record["record_sha256"],
+            "policy_history_records": [prior_policy_record],
+            "source_record": "EVT-SUCCESSOR-SOURCE-001",
+            "open_mission_activations": {},
+            "automations_by_role": automations,
+        }
+        older_segment = {
+            "mission_root": older_root,
+            "mission_source_record": "direct-user-older",
+            "posture": "predecessor",
+            "superseded_by": predecessor_root,
+            "event_count": 2,
+            "incident_count": 0,
+            "open_incident_count": 0,
+            "conclusion_count": 1,
+            "terminal_record": "EVT-OLDER-COMPLETE",
+        }
+        predecessor_segment = {
+            "mission_root": predecessor_root,
+            "mission_source_record": "direct-user-predecessor",
+            "posture": "current",
+            "superseded_by": None,
+            "event_count": 3,
+            "incident_count": 0,
+            "open_incident_count": 0,
+            "conclusion_count": 0,
+            "terminal_record": None,
+        }
+        history = {
+            "target_thread_id": target_id,
+            "active_mission_root": predecessor_root,
+            "policy_sha256": policy["policy_sha256"],
+            "segments": [older_segment, predecessor_segment],
+            "active_record_ids": ["EVT-PREDECESSOR-001"],
+            "active_record_sha256s": ["7" * 64],
+            "fingerprint": "8" * 64,
+        }
+        plan = {
+            "fingerprint": "9" * 64,
+            "owner_sha256": control["owner_sha256"],
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": 4,
+            "policy_history_head": prior_policy_record["record_sha256"],
+            "policy_history_count": 1,
+            "predecessor": predecessor_binding,
+            "successor": successor_binding,
+            "predecessor_disposition": "superseded",
+            "predecessor_terminal_record": None,
+            "source_record": source_record,
+            "source_sha256": source_sha,
+            "first_eligible_work": "Block 0 capability review",
+            "reason": "The direct user requested a materially different mission.",
+            "expected_evidence": [source_record],
+            "expected_policy_version": 5,
+            "expected_normalized_policy_sha256": _normalized_policy_root(next_policy),
+            "expected_history_kind": "policy-mission-successor",
+            "expected_history_reason": (
+                "superseded: The direct user requested a materially different mission."
+            ),
+            "open_incident_ids": [],
+            "open_decision_ids": [],
+            "open_successor_transition_ids": [],
+            "open_mission_activation_ids": [],
+            "control": control,
+            "history": history,
+            "history_fingerprint": history["fingerprint"],
+            "predecessor_segment": predecessor_segment,
+        }
+        run_project = {
+            "fingerprint": "0" * 64,
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+            },
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def mission_successor_plan_snapshot(
+                selected_target,
+                *,
+                source_record,
+                source_sha256,
+                predecessor_disposition,
+                first_eligible_work,
+                reason,
+            ):
+                if (
+                    selected_target != target_id
+                    or source_record != plan["source_record"]
+                    or source_sha256 != plan["source_sha256"]
+                    or predecessor_disposition != plan["predecessor_disposition"]
+                    or first_eligible_work != plan["first_eligible_work"]
+                    or reason != plan["reason"]
+                ):
+                    raise AssertionError("wrong mission-successor plan source")
+                return plan
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-successor target")
+                return control
+
+            @staticmethod
+            def mission_history_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-history target")
+                return history
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-project target")
+                return run_project
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-group target")
+                return [target_id]
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong mission-successor task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = reviewer_root.stat()
+                if (
+                    task_id != reviewer_id
+                    or expected_cwd != str(reviewer_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong mission reviewer dispatch")
+                self.prompt = text
+                tasks[reviewer_id]["turns"] = [
+                    {
+                        "id": "turn-successor-review-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-successor-review-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy["policy_sha256"],
+            target_thread=request.target_thread,
+        )
+        owner._mission_successor_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "a" * 64)
+        definition = owner._mission_successor_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs = {
+            "mission_source_record": source_record,
+            "predecessor_disposition": "superseded",
+            "first_eligible_work": plan["first_eligible_work"],
+            "reason": plan["reason"],
+        }
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(
+            source.evidence["source_authority_status"],
+            "unverified-reviewer-verification-required",
+        )
+        self.assertEqual(
+            source.evidence["prior_policy_history_roots"],
+            [prior_policy_record["record_sha256"]],
+        )
+        self.assertEqual(
+            [item["role"] for item in source.evidence["automations"]],
+            ["watcher", "reviewer", "weekly_report"],
+        )
+        semantic = {
+            item.id: item
+            for item in definition.describe_effect(
+                target, inputs, source
+            ).semantic_changes
+        }
+        self.assertEqual(semantic["mission-successor-binding"].kind, "changed")
+        self.assertEqual(
+            semantic["mission-successor-target-task"].kind,
+            "preserved",
+        )
+        original_summary = source_item["summary"]
+        original_sha = source_item["user_content_sha256"]
+        original_envelope = source_item["user_content_envelope_sha256"]
+        source_item["summary"] = "<codex_delegation>routed</codex_delegation>"
+        source_item["user_content_sha256"] = sha256(
+            source_item["summary"].encode("utf-8")
+        ).hexdigest()
+        source_item["user_content_envelope_sha256"] = sha256(
+            json.dumps(
+                [{"type": "text", "text": source_item["summary"]}],
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        with self.assertRaises(OperationError) as routed:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(routed.exception.code, "mission_successor_source_unavailable")
+        source_item["summary"] = original_summary
+        source_item["user_content_sha256"] = original_sha
+        source_item["user_content_envelope_sha256"] = original_envelope
+
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("$supervise-tracker-runs", owner.app_server_client.prompt)
+        self.assertIn("must not use bind", owner.app_server_client.prompt)
+        self.assertIn("Do not create a successor task", owner.app_server_client.prompt)
+        self.assertIn("mission-activation-start", owner.app_server_client.prompt)
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["mission_successor_applied"])
+
+        authority_summary = (
+            "SOFTWARE_FACTORY_DASHBOARD_MISSION_SUCCESSOR_AUTHORITY_REVIEW "
+            + json.dumps(
+                owner._mission_successor_authority_marker(target, source),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\nIndependent direct-source and material-difference review passed."
+        )
+        reviewer_turn = tasks[reviewer_id]["turns"][0]
+        reviewer_turn["status"] = "completed"
+        reviewer_turn["items"].append(
+            {
+                "type": "agentMessage",
+                "summary": authority_summary,
+                "summary_truncated": False,
+                "summary_sha256": sha256(
+                    authority_summary.encode("utf-8")
+                ).hexdigest(),
+            }
+        )
+        successor_record = {
+            "record_id": "POLICY-5",
+            "record_sha256": "a" * 64,
+            "timestamp": "2026-08-12T01:00:01+00:00",
+            "kind": plan["expected_history_kind"],
+            "reason": plan["expected_history_reason"],
+            "evidence": plan["expected_evidence"],
+            "policy": next_policy,
+        }
+        activation = {
+            "activation_id": "ACTIVATION-SUCCESSOR-001",
+            "record_id": "EVT-SUCCESSOR-ACTIVATION-001",
+            "phase": "pending",
+            "target_thread_id": target_id,
+            "mission_root": successor_root,
+            "mission_source_record": source_record,
+            "activation_policy_sha256": next_policy["policy_sha256"],
+            "policy_sha256": next_policy["policy_sha256"],
+            "first_eligible_work": plan["first_eligible_work"],
+            "evidence": plan["expected_evidence"],
+        }
+        control.update(
+            {
+                "policy": next_policy,
+                "runtime": next_policy["runtime"],
+                "policy_sha256": next_policy["policy_sha256"],
+                "policy_version": 5,
+                "policy_history_head": successor_record["record_sha256"],
+                "policy_history_records": [prior_policy_record, successor_record],
+                "open_mission_activations": {
+                    activation["activation_id"]: activation
+                },
+            }
+        )
+        history.update(
+            {
+                "active_mission_root": successor_root,
+                "policy_sha256": next_policy["policy_sha256"],
+                "segments": [
+                    dict(older_segment),
+                    {
+                        **predecessor_segment,
+                        "posture": "predecessor",
+                        "superseded_by": successor_root,
+                    },
+                    {
+                        "mission_root": successor_root,
+                        "mission_source_record": source_record,
+                        "posture": "current",
+                        "superseded_by": None,
+                        "policy_sha256s": [next_policy["policy_sha256"]],
+                        "event_count": 1,
+                        "incident_count": 0,
+                        "open_incident_count": 0,
+                        "conclusion_count": 0,
+                        "terminal_record": None,
+                    },
+                ],
+                "active_record_ids": [activation["record_id"]],
+                "active_record_sha256s": ["b" * 64],
+                "fingerprint": "c" * 64,
+            }
+        )
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["mission_successor_applied"])
+        self.assertTrue(applied.evidence["predecessor_history_preserved"])
+        self.assertTrue(applied.evidence["successor_current_state_isolated"])
+        self.assertTrue(applied.evidence["mission_activation_pending"])
+        self.assertFalse(applied.evidence["successor_task_created"])
+        self.assertFalse(applied.evidence["mission_activation_started"])
+        self.assertEqual(len(tasks), 3)
+        self.assertEqual(
+            history["segments"][0]["superseded_by"],
+            predecessor_root,
+        )
+
+        weekly = control["automations_by_role"]["weekly_report"]
+        weekly_manifest = weekly["manifest_sha256"]
+        weekly_updated_at = weekly["updated_at"]
+        weekly["manifest_sha256"] = "d" * 64
+        weekly["updated_at"] = "2026-08-12T01:01:00Z"
+        changed_weekly = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_weekly.state, "unverified")
+        self.assertFalse(changed_weekly.evidence["automations_preserved"])
+        weekly_result = next(
+            item
+            for item in changed_weekly.evidence["automation_results"]
+            if item["role"] == "weekly_report"
+        )
+        self.assertFalse(weekly_result["preserved"])
+        weekly["manifest_sha256"] = weekly_manifest
+        weekly["updated_at"] = weekly_updated_at
+
+        history["segments"][-1]["conclusion_count"] = 1
+        leaked = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(leaked.state, "unverified")
+        self.assertFalse(leaked.evidence["successor_current_state_isolated"])
+
+    def test_successor_transition_requires_acknowledgement_and_concrete_first_work(self) -> None:
+        self.assertTrue(
+            FactoryWorkflowOwner._successor_transition_range_contains(
+                "Blocks 0-25, 27–31", 27
+            )
+        )
+        self.assertFalse(
+            FactoryWorkflowOwner._successor_transition_range_contains(
+                "Blocks 0-25, 27–31", 26
+            )
+        )
+        self.assertFalse(
+            FactoryWorkflowOwner._successor_transition_range_contains(
+                "0-25 plus 27-31", 27
+            )
+        )
+        project_root = self.root / "continuity-project"
+        source_root = project_root / "source"
+        successor_root = project_root / "successor"
+        fix_root = self.root / "continuity-fix"
+        for path in (source_root, successor_root, fix_root):
+            path.mkdir(parents=True)
+        project = ProjectRecord(
+            id="continuity-project",
+            label="Continuity project",
+            root=str(project_root),
+        )
+        target_id = "continuity-source-001"
+        successor_id = "continuity-successor-001"
+        fix_id = "continuity-fix-001"
+        transition_id = "TRANSITION-CONTINUITY-001"
+        source_mission = "a" * 64
+        successor_mission = "b" * 64
+        tracker_sha = "c" * 64
+        bootstrap_fingerprint = "d" * 64
+        work_fingerprint = "e" * 64
+        authority_text = (
+            "Continue the full implementation tracker in a distinct successor task "
+            "when that owner boundary is required."
+        )
+        authority_record = (
+            f"codex:{target_id}:turn-authority-001:item-authority-001"
+        )
+        authority_item = {
+            "id": "item-authority-001",
+            "type": "userMessage",
+            "summary": authority_text,
+            "user_content_sha256": sha256(authority_text.encode("utf-8")).hexdigest(),
+            "user_content_envelope_sha256": sha256(
+                json.dumps(
+                    [{"text": authority_text, "type": "text"}],
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest(),
+            "user_content_part_types": ["text"],
+            "user_content_truncated": False,
+            "user_input_classification": "ordinary-user-message",
+            "user_authority_status": "unverified",
+            "client_id": "codex-desktop",
+        }
+        tracker = {
+            "tracker_id": "f" * 64,
+            "tracker_path": "docs/continuity-implementation-tracker.md",
+            "tracker_sha256": tracker_sha,
+            "tracker_fingerprint": "1" * 64,
+            "repository_head": "2" * 40,
+            "first_block_number": 26,
+            "first_block_title": "Successor-task continuity",
+            "first_block_status": "in-progress",
+            "profile": "full",
+        }
+        bootstrap_marker = {
+            "kind": "successor-continuity",
+            "source_fingerprint": bootstrap_fingerprint,
+            "project_id": project.id,
+            "tracker_id": tracker["tracker_id"],
+            "tracker_sha256": tracker_sha,
+            "transition_id": transition_id,
+            "requested_block_range": "26-31",
+            "first_eligible_block": "Block 26",
+            "source_mission_root": source_mission,
+            "governing_authority_source_record": authority_record,
+        }
+        bootstrap_text = "SOFTWARE_FACTORY_DASHBOARD_MISSION " + json.dumps(
+            bootstrap_marker,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        handoff_id = "HANDOFF-CONTINUITY-001"
+        ack_id = "ACK-CONTINUITY-001"
+        handoff_text = (
+            "SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION "
+            + json.dumps(
+                {
+                    "kind": "handoff",
+                    "transition_id": transition_id,
+                    "record_id": handoff_id,
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        acknowledgement_text = (
+            "SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION "
+            + json.dumps(
+                {
+                    "kind": "acknowledgement",
+                    "transition_id": transition_id,
+                    "record_id": ack_id,
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(source_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "bound", "project_id": project.id},
+                "turns_truncated": False,
+                "turns": [{
+                    "id": "turn-authority-001",
+                    "status": "completed",
+                    "items_truncated": False,
+                    "items": [authority_item],
+                }],
+            },
+            successor_id: {
+                "id": successor_id,
+                "cwd": str(successor_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "bound", "project_id": project.id},
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "turn-bootstrap-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [
+                            {"type": "userMessage", "summary": bootstrap_text},
+                            {
+                                "type": "userMessage",
+                                "summary": handoff_text,
+                                "summary_truncated": False,
+                            },
+                            {
+                                "type": "agentMessage",
+                                "summary": acknowledgement_text,
+                                "summary_truncated": False,
+                            },
+                        ],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "unassigned", "project_id": None},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        head = {
+            "record_id": "EVT-CONTINUITY-005",
+            "record_sha256": "3" * 64,
+            "transition_id": transition_id,
+            "phase": "target-acknowledged",
+            "tracker_sha256": tracker_sha,
+            "tracker_source_record": "commit:continuity-tracker",
+            "requested_block_range": "26-31",
+            "first_eligible_block": "Block 26",
+            "source_mission_root": source_mission,
+            "governing_authority_source_class": "direct-user",
+            "governing_authority_source_record": authority_record,
+            "successor_thread_id": successor_id,
+            "successor_mission_root": successor_mission,
+            "successor_group_id": successor_id,
+            "handoff_record": handoff_id,
+            "acknowledgement_record": ack_id,
+            "started_block": "",
+            "state_fingerprint": "state-before-work",
+        }
+        source_policy_sha = "4" * 64
+        source_control = {
+            "fingerprint": "5" * 64,
+            "owner_sha256": "6" * 64,
+            "policy_sha256": source_policy_sha,
+            "policy": {
+                "policy_sha256": source_policy_sha,
+                "mission_binding": {"mission_root": source_mission},
+            },
+            "runtime": {"fix_executor_thread_id": fix_id},
+            "open_successor_transitions": {transition_id: head},
+            "successor_transitions": {transition_id: head},
+            "successor_transition_records": {
+                transition_id: [{
+                    **head,
+                    "record_id": "EVT-CONTINUITY-002",
+                    "phase": "successor-created",
+                    "state_fingerprint": bootstrap_fingerprint,
+                }],
+            },
+        }
+        successor_control = {
+            "fingerprint": "7" * 64,
+            "policy_sha256": "8" * 64,
+            "policy": {
+                "policy_sha256": "8" * 64,
+                "mission_binding": {"mission_root": successor_mission},
+            },
+            "runtime": {},
+            "open_successor_transitions": {},
+            "successor_transitions": {},
+        }
+
+        expected_transition_id = transition_id
+
+        class OperationsStub:
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target == target_id:
+                    return source_control
+                if selected_target == successor_id:
+                    return successor_control
+                raise AssertionError("wrong continuity control target")
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target == target_id:
+                    return [target_id]
+                if selected_target == successor_id:
+                    return [successor_id]
+                raise AssertionError("wrong continuity group target")
+
+            @staticmethod
+            def successor_transition_gate_snapshot(
+                selected_target,
+                *,
+                transition_id,
+                task_creation_authority,
+            ):
+                if (
+                    selected_target != target_id
+                    or transition_id != expected_transition_id
+                    or task_creation_authority != "available"
+                ):
+                    raise AssertionError("wrong continuity gate source")
+                stopped = head["phase"] == "work-started"
+                next_action = {
+                    "target-acknowledged": "start-first-eligible-block",
+                    "work-started": "continue-successor-and-close-transition-incident",
+                }[head["phase"]]
+                return {
+                    "currentness": "9" * 64,
+                    "owner_sha256": "6" * 64,
+                    "gate": {
+                        "transition_id": expected_transition_id,
+                        "phase": head["phase"],
+                        "transition_open": not stopped,
+                        "source_stop_permitted": stopped,
+                        "required_source_posture": (
+                            "transition-satisfied" if stopped else "in-progress"
+                        ),
+                        "next_action": next_action,
+                    },
+                }
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks:
+                    raise AssertionError("wrong continuity task read")
+                if include_turns is False:
+                    return {"task": tasks[task_id]}
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong continuity owner dispatch")
+                self.prompt = text
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-continuity-fix-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                implementation_marker = {
+                    "kind": "implement-blocks",
+                    "source_fingerprint": work_fingerprint,
+                    "project_id": project.id,
+                    "tracker_id": tracker["tracker_id"],
+                    "block_start": 26,
+                    "block_end": 31,
+                    "mission_root": successor_mission,
+                    "mission_source_record": authority_record,
+                }
+                implementation_text = (
+                    "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+                    + json.dumps(
+                        implementation_marker,
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                )
+                tasks[successor_id]["turns"].append(
+                    {
+                        "id": "turn-first-work-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [
+                            {"type": "userMessage", "summary": implementation_text},
+                            {
+                                "type": "fileChange",
+                                "summary": "1 file change",
+                                "status": "completed",
+                            },
+                        ],
+                    }
+                )
+                head.update(
+                    {
+                        "record_id": "EVT-CONTINUITY-006",
+                        "record_sha256": "a" * 64,
+                        "phase": "work-started",
+                        "started_block": "Block 26",
+                        "state_fingerprint": work_fingerprint,
+                    }
+                )
+                source_control["open_successor_transitions"] = {}
+                return {
+                    "turn": {"id": "turn-continuity-fix-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=source_policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._successor_transition_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "b" * 64)
+        owner._successor_transition_tracker = lambda selected, selected_head: tracker
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        definition = owner._successor_transition_definition()
+        inputs = {"transition_id": transition_id}
+
+        head["governing_authority_source_record"] = "invented-direct-source"
+        with self.assertRaises(OperationError) as invented_authority:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            invented_authority.exception.code,
+            "successor_transition_authority_unavailable",
+        )
+        head["governing_authority_source_record"] = authority_record
+
+        creation_record = source_control["successor_transition_records"][
+            transition_id
+        ][0]
+        creation_record["state_fingerprint"] = "f" * 64
+        with self.assertRaises(OperationError) as wrong_bootstrap_currentness:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            wrong_bootstrap_currentness.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        creation_record["state_fingerprint"] = bootstrap_fingerprint
+
+        handoff_item = tasks[successor_id]["turns"][0]["items"][1]
+        handoff_item["type"] = "agentMessage"
+        with self.assertRaises(OperationError) as spoofed_handoff:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            spoofed_handoff.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        handoff_item["type"] = "userMessage"
+
+        acknowledgement_item = tasks[successor_id]["turns"][0]["items"].pop()
+        with self.assertRaises(OperationError) as missing_ack:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            missing_ack.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        tasks[successor_id]["turns"][0]["items"].append(acknowledgement_item)
+
+        acknowledgement_item["type"] = "userMessage"
+        with self.assertRaises(OperationError) as spoofed_ack:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            spoofed_ack.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        acknowledgement_item["type"] = "agentMessage"
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["phase"], "target-acknowledged")
+        self.assertEqual(source.evidence["next_phase"], "work-started")
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("start the exact first eligible Block", owner.app_server_client.prompt)
+
+        concrete_item = tasks[successor_id]["turns"][-1]["items"].pop()
+        tasks[successor_id]["turns"][-1]["items"].append(
+            {"type": "agentMessage", "summary": "Starting the requested work."}
+        )
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["source_stop_permitted"])
+        self.assertTrue(pending.evidence["maintained_gate_source_stop_claim"])
+        self.assertFalse(pending.evidence["work_started_current"])
+        self.assertFalse(pending.evidence["successor_transition_applied"])
+
+        tasks[successor_id]["turns"][-1]["items"].pop()
+        tasks[successor_id]["turns"][-1]["items"].append(concrete_item)
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["work_started_current"])
+        self.assertTrue(applied.evidence["source_stop_permitted"])
+        self.assertTrue(applied.evidence["source_task_active"])
+        self.assertFalse(applied.evidence["source_completed"])
+
     def test_http_role_binding_repair_uses_disposable_policy_and_existing_task(self) -> None:
         target_id = "target-role-repair-001"
         candidate_id = "task-fake-001"
@@ -824,6 +3387,20 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
 
     def test_review_is_read_only_and_implement_enforces_range_conflict_and_tracker_truth(self) -> None:
         tracker_path = self.add_tracker()
+        tracker_path.write_text(
+            tracker_path.read_text(encoding="utf-8")
+            .replace(
+                "| 0 | Accepted base | — | `accepted` |",
+                "| 0 | Accepted base | — | `completed` |",
+            )
+            .replace("Status: `accepted`", "Status: `completed`", 1),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.repository), "add", "docs"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repository), "commit", "-qm", "complete base"],
+            check=True,
+        )
         with self.server() as origin:
             self.register(origin)
             listed = json.loads(response(f"{origin}/api/v1/trackers").body)

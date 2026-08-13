@@ -241,7 +241,22 @@ test("three-project floor keeps operations, attention, outcomes, and partial tru
   await expect(alphaRow).toContainText("Watcher · Reviewer")
   await expect(alphaRow).toContainText("group-ta…alpha")
   await expect(alphaRow).toContainText("26 Blocks")
+  await expect(alphaRow).toContainText("5 done · 21 remaining")
   await expect(alphaRow).toContainText("Block 6 — Factory Floor composition")
+  const gammaDisclosure = page.getByRole("button", { name: /Gamma implementation/ })
+  const gammaRow = page.locator("article.operational-disclosure").filter({ has: gammaDisclosure })
+  await expect(gammaRow).toContainText("Unmonitored")
+  await expect(gammaRow).toContainText("2 done · 2 remaining · partial")
+  const rowRegionsOverlap = await alphaRow.evaluate((row) => {
+    const summary = row.querySelector(".operational-disclosure-summary")?.getBoundingClientRect()
+    const trailing = row.querySelector(".operational-disclosure-trailing")?.getBoundingClientRect()
+    if (!summary || !trailing) return true
+    return summary.left < trailing.right
+      && summary.right > trailing.left
+      && summary.top < trailing.bottom
+      && summary.bottom > trailing.top
+  })
+  expect(rowRegionsOverlap).toBe(false)
   await expect(alphaDisclosure).toHaveAttribute("aria-expanded", "false")
   await alphaDisclosure.focus()
   await alphaDisclosure.press("Enter")
@@ -288,6 +303,51 @@ test("three-project floor keeps operations, attention, outcomes, and partial tru
   await page.getByRole("button", { name: "Close inspector" }).click()
   await expect(page.getByRole("complementary", { name: "Factory source inspector" })).toHaveCount(0)
 
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(
+    results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
+test("collapsed Factory Floor row makes exact completion visible", async ({ page }) => {
+  const envelope = makeFactoryFloorEnvelope()
+  const completed = envelope.data.rows[1]
+  completed.implementation.status = "idle"
+  completed.implementation.status_label = "Idle"
+  completed.supervision.status = "completed"
+  completed.supervision.status_label = "Completed"
+  completed.work.block_claims.posture = "none"
+  completed.work.block_claims.tracker_progress = {
+    accepted: 8,
+    remaining: 0,
+    posture: "exact",
+    is_complete: true,
+    reason: "Maintained tracker counts for the exact canonical tracker binding.",
+  }
+  completed.work.block_claims.claims.forEach((claim) => {
+    claim.status = "none"
+    claim.blocks = []
+    claim.range = null
+    claim.reason = `${claim.label} reports no active Block.`
+  })
+  envelope.data.rows = [completed]
+
+  await page.route("**/api/v1/factory-floor", (route) => route.fulfill({ json: envelope }))
+  await page.goto("/")
+
+  const disclosure = page.getByRole("button", { name: /Beta implementation/ })
+  const row = page.locator("article.operational-disclosure").filter({ has: disclosure })
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+  await expect(row).toContainText("8 Blocks")
+  await expect(row).toContainText("8 done · 0 remaining")
+  await expect(row).toContainText("Tracker complete")
+  await expect(disclosure).toHaveAccessibleName(/Tracker complete/)
+  await expect(disclosure).toHaveAccessibleName(/None active/)
   const results = await new AxeBuilder({ page }).analyze()
   expect(
     results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
@@ -508,11 +568,643 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
-test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page }) => {
+test("retained weekly review requests only finalize and verify", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.weekly_report_workflow = {
+    status: "available",
+    stage: "finalize-verify",
+    next_action: "finalize-verify",
+    actionable: true,
+    report_id: "weekly-20260801-20260808-browser",
+    coverage: {
+      start: "2026-08-01T00:00:00+00:00",
+      end: "2026-08-08T00:00:00+00:00",
+      timezone: "America/Los_Angeles",
+      calendar_days: ["2026-08-01"],
+      elapsed_hours: 168,
+      partial_week: false,
+    },
+    coverage_days: 7,
+    timezone: "America/Los_Angeles",
+    source_root: "7".repeat(64),
+    manifest_root: "8".repeat(64),
+    fingerprint: "9".repeat(64),
+    writer_role: "roundup_writer",
+    writer_task_id: "roundup-writer-browser",
+    expected_members: ["metrics.json", "review-packet.json", "review.json", "report.json", "report.md", "report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      ["prepare", "Deterministic prepare", "complete", "weekly owner"],
+      ["source-currentness", "Source currentness", "complete", "source owner"],
+      ["cognitive-review", "Cognitive review", "complete", "roundup writer"],
+      ["finalize", "Finalize projections", "current", "weekly owner"],
+      ["verify", "Bundle verification", "pending", "weekly owner"],
+      ["display", "Artifact display", "pending", "dashboard"],
+      ["delivery", "Configured delivery", "pending", "delivery owner"],
+    ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
+    delivery: {
+      status: "not-ready",
+      configured: false,
+      retryable: false,
+      record_id: null,
+      message_id: null,
+      thread_id: null,
+      reason: "Artifact verification has not completed.",
+    },
+    limitations: ["Delivery remains a separate postcondition."],
+    error: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  let requested: unknown = null
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({
+      status: 409,
+      json: {
+        data: null,
+        source: { kind: "administrative-operation", identity: "operations", revision: "a".repeat(64) },
+        observed_at: "2026-08-12T02:00:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-request"], missing: ["owner-postcondition"] },
+        limitations: ["Browser proof does not dispatch the owner."],
+        error: { code: "weekly_report_source_changed", message: "Focused browser proof stopped before dispatch.", retryable: false },
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Current weekly report workflow" })
+  await expect(workflow).toContainText("weekly-20260801-20260808-browser")
+  await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(7)
+  await expect(workflow.locator('[data-status="current"]')).toContainText("Finalize projections")
+  await page.getByRole("button", { name: "Finalize & verify" }).click()
+  await expect.poll(() => requested).toEqual({
+    operation_type: "factory.weekly-supervision-report",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    input: { coverage_days: 7 },
+  })
+  await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before dispatch")
+  const axe = await new AxeBuilder({ page }).analyze()
+  expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
+test("terminal reporting advances one delivery stage and remains separate from shutdown", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const terminalWorkflow = {
+    status: "available",
+    stage: "delivery",
+    next_action: "deliver",
+    actionable: true,
+    report_set_id: "terminal-browser-0011223344556677",
+    source_root: "1".repeat(64),
+    manifest_root: "2".repeat(64),
+    fingerprint: "3".repeat(64),
+    state_fingerprint: "terminal-browser-state",
+    mission_root: "4".repeat(64),
+    completion: {
+      status: "reconciled",
+      record_id: "EVT-BROWSER-COMPLETION",
+      lifecycle_record_id: "EVT-BROWSER-LIFECYCLE",
+      reconciled: true,
+    },
+    coverage: {
+      delta_start: "2026-08-08T00:00:00+00:00",
+      full_start: "2026-08-01T00:00:00+00:00",
+      end: "2026-08-09T00:00:00+00:00",
+      delta_anchor_record_id: "weekly-browser-001",
+      delta_anchor_kind: "verified-prior-report",
+    },
+    prior_reports: [{
+      report_id: "weekly-browser-001",
+      source_root: "5".repeat(64),
+      manifest_root: "6".repeat(64),
+      coverage: null,
+    }],
+    writer_role: "base_reviewer",
+    writer_task_id: "base-reviewer-browser",
+    expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      ["prepare", "Deterministic prepare", "complete", "terminal owner"],
+      ["source-currentness", "Outcome and source currentness", "complete", "source owner"],
+      ["cognitive-review", "Independent cognitive review", "complete", "base reviewer"],
+      ["finalize", "Finalize delta and full reports", "complete", "terminal owner"],
+      ["verify", "JSON, Markdown, PDF, and manifest verification", "complete", "terminal owner"],
+      ["display", "Read-only artifact display", "complete", "dashboard"],
+      ["delivery", "Configured Gmail delivery and read-back", "current", "Gmail owner"],
+    ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
+    delivery: {
+      status: "pending",
+      configured: true,
+      required: true,
+      retryable: true,
+      record_id: null,
+      message_id: null,
+      thread_id: null,
+      readback_root: null,
+      reason: "Both verified terminal PDFs require one owner-mediated Gmail reply and exact read-back receipt.",
+    },
+    shutdown: {
+      status: "separate-owner",
+      permitted: false,
+      reason: "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+    },
+    limitations: ["Derived evidence only."],
+    error: null,
+  }
+  runEnvelope.data.run.terminal_report_workflow = terminalWorkflow
+  const reportsResponse = await request.get("/api/v1/reports")
+  expect(reportsResponse.ok()).toBeTruthy()
+  const reportsEnvelope = await reportsResponse.json()
+  reportsEnvelope.data.terminal_workflows = [{
+    target_thread_id: target,
+    target_label: runEnvelope.data.run.target_label,
+    project_binding: runEnvelope.data.run.project_binding,
+    workflow: terminalWorkflow,
+  }]
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/reports", (route) => route.fulfill({ json: reportsEnvelope }))
+  let requested: unknown = null
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({
+      status: 409,
+      json: {
+        data: null,
+        source: { kind: "administrative-operation", identity: "operations", revision: "a".repeat(64) },
+        observed_at: "2026-08-12T04:00:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-request"], missing: ["owner-postcondition"] },
+        limitations: ["Browser proof stops before configured Gmail owner dispatch."],
+        error: { code: "terminal_report_source_changed", message: "Focused browser proof stopped before owner dispatch.", retryable: false },
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Current terminal report workflow" })
+  await expect(workflow).toContainText("terminal-browser-0011223344556677")
+  await expect(workflow).toContainText("Outcome EVT-BROWSER-COMPLETION · lifecycle EVT-BROWSER-LIFECYCLE")
+  await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(7)
+  await expect(workflow.locator('[data-status="current"]')).toContainText("Configured Gmail delivery and read-back")
+  await expect(workflow).toContainText("Report readiness is separate from request-stop, automation pause, and shutdown")
+  await page.getByRole("button", { name: "Deliver terminal report" }).click()
+  await expect.poll(() => requested).toEqual({
+    operation_type: "factory.terminal-supervision-report",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    input: {},
+  })
+  await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before owner dispatch")
+  await expect(page.getByRole("button", { name: /request stop|terminal shutdown/i })).toHaveCount(0)
+
+  await page.goto("/reports?view=reports&family=terminal")
+  const terminal = page.getByRole("region", { name: "Terminal" })
+  await expect(terminal).toContainText("terminal-browser-0011223344556677")
+  await expect(terminal).toContainText("Outcome EVT-BROWSER-COMPLETION · lifecycle EVT-BROWSER-LIFECYCLE")
+  await expect(terminal).toContainText("shutdown remain separate")
+  const axe = await new AxeBuilder({ page }).analyze()
+  expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
+test("terminal shutdown previews exact gates and owners without stopping the implementation task", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.terminal_shutdown_workflow = {
+    status: "available",
+    stage: "request-stop",
+    next_action: "shutdown",
+    actionable: true,
+    fingerprint: "7".repeat(64),
+    mission_root: "4".repeat(64),
+    state_fingerprint: "terminal-browser-state",
+    completion_record_id: "EVT-BROWSER-COMPLETION",
+    lifecycle_record_id: "EVT-BROWSER-LIFECYCLE",
+    report_set_id: "terminal-browser-0011223344556677",
+    manifest_root: "2".repeat(64),
+    delivery_record_id: "EVT-BROWSER-DELIVERY",
+    delivery_timestamp: "2026-08-12T08:00:00.000Z",
+    source_record: "EVT-BROWSER-DELIVERY",
+    gate: {
+      status: "ready",
+      completion_permitted: true,
+      source_stop_permitted: true,
+      supervision_pause_permitted: true,
+      terminal_reports_delivered: true,
+      reason: "Every exact terminal gate is satisfied.",
+      currentness: "8".repeat(64),
+    },
+    open_heads: {
+      incident_ids: [],
+      decision_ids: [],
+      successor_transition_ids: [],
+      mission_activation_ids: [],
+    },
+    automations: [
+      {
+        role: "reviewer",
+        label: "Meta reviewer",
+        automation_id: "reviewer-automation",
+        target_thread_id: "reviewer-task",
+        owner_status: "PAUSED",
+        updated_at: "2026-08-12T08:01:00.000Z",
+        manifest_sha256: "9".repeat(64),
+        protected_sha256: "a".repeat(64),
+        post_delivery: true,
+        action: "preserve",
+      },
+      {
+        role: "watcher",
+        label: "Routine watcher",
+        automation_id: "watcher-automation",
+        target_thread_id: "watcher-task",
+        owner_status: "ACTIVE",
+        updated_at: "2026-08-12T07:59:00.000Z",
+        manifest_sha256: "b".repeat(64),
+        protected_sha256: "c".repeat(64),
+        post_delivery: false,
+        action: "pause-after-delivery",
+      },
+    ],
+    receipt: {
+      status: "missing",
+      record_id: null,
+      record_sha256: null,
+      previous_record_sha256: null,
+      automation_state_root: null,
+      reason: "No canonical terminal shutdown receipt exists.",
+    },
+    recovery: {
+      posture: "finish-shutdown",
+      guidance: "Preserve the reconciled reviewer and pause only the named watcher.",
+    },
+    limitations: ["The implementation task is observed and preserved."],
+    error: null,
+  }
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_terminal_shutdown_preview",
+    type: "factory.terminal-supervision-shutdown",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained lifecycle/source-stop gate + exact Codex automation owner + maintained terminal-shutdown receipt owner",
+    authority: ["one exact completed supervision group"],
+    preview: {
+      effect: `Request terminal supervision shutdown for ${target}.`,
+      risk: "Monitoring ends only after every exact owner postcondition agrees.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "terminal-shutdown-lifecycle",
+            subject: "Completed lifecycle",
+            kind: "preserved",
+            before: { posture: "exact", value: "EVT-BROWSER-LIFECYCLE" },
+            after: { posture: "exact", value: "EVT-BROWSER-LIFECYCLE" },
+            owner: "maintained lifecycle record and source-stop gate owner",
+            source_identity: `supervision-lifecycle:${target}`,
+            source_revision: "d".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "terminal-shutdown-automation-watcher",
+            subject: "Routine watcher automation",
+            kind: "changed",
+            before: { posture: "exact", value: "ACTIVE" },
+            after: { posture: "exact", value: "PAUSED after terminal delivery" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:watcher-automation",
+            source_revision: "b".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "terminal-shutdown-receipt",
+            subject: "Terminal shutdown receipt",
+            kind: "added",
+            before: { posture: "unavailable", value: null },
+            after: { posture: "exact", value: "verified" },
+            owner: "maintained terminal-shutdown receipt owner",
+            source_identity: `terminal-shutdown:${target}`,
+            source_revision: "e".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "terminal-shutdown-target-task",
+            subject: "Implementation task state",
+            kind: "preserved",
+            before: { posture: "exact", value: "idle" },
+            after: { posture: "exact", value: "idle" },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "f".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "7".repeat(64),
+      source_evidence: { report_set_id: "terminal-browser-0011223344556677" },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-BROWSER-DELIVERY",
+        required_action: "Request one exact terminal supervision shutdown.",
+        action_hash: "1".repeat(64),
+        policy_fingerprint: "2".repeat(64),
+        binding_fingerprint: "3".repeat(64),
+      },
+      consequences: {
+        ordinary: ["Only the named automation owners and append-once shutdown receipt may change."],
+        failure: ["Partial owner state remains visible without retry or rollback."],
+      },
+      confirmation: {
+        class: "terminal-supervision-shutdown",
+        prompt: "Type REQUEST TERMINAL SHUTDOWN to route this exact owner sequence.",
+        expected_value: "REQUEST TERMINAL SHUTDOWN",
+      },
+      expected_postcondition: "Every named automation is paused after delivery and one canonical receipt exists; the implementation task is unchanged.",
+      idempotency: "One consumed preview starts at most one fix-executor turn.",
+      limitations: ["Task stop, turn interrupt, ordinary pause/resume, and automatic retry remain separate."],
+      expires_at: "2099-08-12T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-12T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.terminal-supervision-shutdown",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {},
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "t".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "7".repeat(64) },
+        observed_at: "2026-08-12T09:25:00.000Z",
+        fingerprint: "7".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Terminal supervision shutdown" })
+  await expect(workflow).toContainText("Source stop: permitted")
+  await expect(workflow).toContainText("Meta reviewerPAUSED · after delivery")
+  await expect(workflow).toContainText("Routine watcherACTIVE · pause required")
+  await page.getByRole("button", { name: "Request stop & shut down" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("One exact supervision group · no task stop or turn interrupt")
+  const changes = preview.getByLabel("Owner supplied operation changes")
+  await expect(changes).toContainText("Completed lifecycle")
+  await expect(changes).toContainText("Routine watcher automation")
+  await expect(changes).toContainText("Terminal shutdown receipt")
+  await expect(changes).toContainText("Implementation task state")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const axe = await new AxeBuilder({ page }).analyze()
+  expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("article", { name: "Terminal supervision shutdown" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Request stop & shut down" })).toHaveCount(0)
+})
+
+test("Factory evolution exposes one current stage without adoption authority", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const evolutionWorkflow = {
+    status: "available",
+    stage: "awaiting-implementation",
+    next_action: "evaluate",
+    actionable: true,
+    evolution_id: "evolution-browser-001",
+    packet_id: "packet-browser-001",
+    packet_root: "1".repeat(64),
+    review_id: "review-browser-001",
+    review_root: "2".repeat(64),
+    evaluation_id: null,
+    evaluation_root: null,
+    disposition: null,
+    comparison_plan: {
+      experiment_id: "experiment-browser-001",
+      selected_candidate: { candidate_id: "candidate-browser-selected", candidate_type: "skill-method", capability_gap: "The operator needs the exact comparison.", effect: "Expose source-backed evaluation evidence.", protected_capabilities: ["Maintained owner"], applicability: "Consequential Factory changes.", tradeoffs: ["Independent evaluation remains required."], uncertainty: "One bounded cycle." },
+      rejected_paths: [{ candidate_id: "candidate-browser-detector", candidate_type: "detector", capability_gap: "The same comparison gap.", effect: "Detect only.", protected_capabilities: ["Maintained owner"], applicability: "Detection only.", tradeoffs: ["Underreaches the operator need."], uncertainty: "No evaluation display." }],
+      selection_rationale: "The selected path exposes the bounded evidence without adding an owner.",
+      dimensions_considered: ["effect", "recurrence", "reach", "compounding_value", "reliability", "product_gain", "evidence_strength", "cost", "regression_risk", "complexity", "reversibility", "time_to_evidence"],
+      comparison_mode: "improvement",
+      positive_case_ids: ["case-browser-positive"], exception_case_ids: ["case-browser-exception"],
+      expected_effects: ["Expose both exact cases."], resource_bounds: ["Two cases and one evaluator."],
+      rollback_condition: "Do not adopt after regression.", success_measures: ["Every case is evaluated."], regression_measures: ["No owner bypass."],
+      stop_condition: "Stop after disposition.", minimum_expected_delta: "Candidate improves one exact case.", non_inferiority_justification: "",
+    },
+    comparison_results: null,
+    source_report_id: "weekly-browser-001",
+    source_report_root: "3".repeat(64),
+    event_head_sha256: "4".repeat(64),
+    manifest_root: "5".repeat(64),
+    fingerprint: "6".repeat(64),
+    proposer: { role: "base_reviewer", task_id: "evolution-proposer-browser" },
+    implementer: {
+      status: "awaiting-owner-proof",
+      task_id: target,
+      baseline_revision: "7".repeat(40),
+      candidate_revision: "8".repeat(40),
+    },
+    evaluator: { role: "reviewer", task_id: "evolution-evaluator-browser" },
+    expected_members: ["learning-packet.json", "review.json", "evaluation.json", "manifest.json"],
+    members: [],
+    stages: [
+      ["prepare", "Deterministic prepare", "complete", "factory owner"],
+      ["finalize", "Cognitive finalize", "complete", "proposer"],
+      ["external-implementation", "External implementation", "current", "Block 11"],
+      ["evaluate", "Independent evaluate", "pending", "evaluator"],
+      ["verify", "Deterministic verify", "pending", "factory owner"],
+    ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
+    limitations: ["Disposition is not adoption authority."],
+    recovery: { posture: "blocked", guidance: "Retain the review while external evidence is produced.", preserved_roots: ["1".repeat(64), "2".repeat(64)] },
+    error: null,
+  }
+  runEnvelope.data.run.factory_evolution_workflow = evolutionWorkflow
+  const reportsResponse = await request.get("/api/v1/reports")
+  expect(reportsResponse.ok()).toBeTruthy()
+  const reportsEnvelope = await reportsResponse.json()
+  reportsEnvelope.data.evolution_workflows = [{
+    target_thread_id: target,
+    target_label: runEnvelope.data.run.target_label,
+    project_binding: runEnvelope.data.run.project_binding,
+    workflow: evolutionWorkflow,
+  }]
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/reports", (route) => route.fulfill({ json: reportsEnvelope }))
+  let requested: unknown = null
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({
+      status: 409,
+      json: {
+        data: null,
+        source: { kind: "administrative-operation", identity: "operations", revision: "a".repeat(64) },
+        observed_at: "2026-08-12T03:00:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-request"], missing: ["owner-postcondition"] },
+        limitations: ["Browser proof does not dispatch an evolution role."],
+        error: { code: "factory_evolution_implementation_unavailable", message: "Focused browser proof stopped before owner dispatch.", retryable: false },
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Current Factory evolution workflow" })
+  await expect(workflow).toContainText("evolution-browser-001")
+  await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(5)
+  await expect(workflow.locator('[data-status="current"]')).toContainText("External implementation")
+  await expect(workflow).toContainText("not performed by evolution")
+  await expect(workflow).toContainText("Comparison planned")
+  await expect(workflow).toContainText("Detect only")
+  await expect(workflow).toContainText("Retain the review while external evidence is produced")
+  await page.getByRole("button", { name: "Evaluate candidate" }).click()
+  await expect.poll(() => requested).toEqual({
+    operation_type: "factory.evolution-evaluate",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    input: {},
+  })
+  await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before owner dispatch")
+  await expect(page.getByRole("button", { name: /adopt|deploy|install/i })).toHaveCount(0)
+
+  const verifiedEvolutionWorkflow = {
+    ...evolutionWorkflow,
+    stage: "verified",
+    next_action: null,
+    actionable: false,
+    evaluation_id: "evaluation-browser-001",
+    evaluation_root: "9".repeat(64),
+    disposition: "revise",
+    implementer: { ...evolutionWorkflow.implementer, status: "evaluation-evidence-recorded" },
+    stages: evolutionWorkflow.stages.map((stage) => ({ ...stage, status: "complete" })),
+    comparison_results: {
+      baseline_results: [
+        { case_id: "case-browser-positive", evidence_class: "observed", evidence_ids: ["EVT-BROWSER-BASE"], outcome: "fail", observed_effect: "Baseline omitted the decision evidence.", resource_cost: "One bounded case.", regressions: [], condition_revision: "7".repeat(40), evidence_root: "a".repeat(64) },
+        { case_id: "case-browser-exception", evidence_class: "observed", evidence_ids: ["EVT-BROWSER-EXCEPTION"], outcome: "mixed", observed_effect: "Baseline exposed roots only.", resource_cost: "One bounded case.", regressions: [], condition_revision: "7".repeat(40), evidence_root: "b".repeat(64) },
+      ],
+      candidate_results: [
+        { case_id: "case-browser-positive", evidence_class: "observed", evidence_ids: ["EVT-BROWSER-CANDIDATE"], outcome: "pass", observed_effect: "Candidate exposed the exact comparison.", resource_cost: "One bounded case.", regressions: [], condition_revision: "8".repeat(40), evidence_root: "c".repeat(64) },
+        { case_id: "case-browser-exception", evidence_class: "shadow", evidence_ids: ["EVT-BROWSER-CONTRARY"], outcome: "mixed", observed_effect: "Exception remains unresolved.", resource_cost: "One bounded case.", regressions: ["Exception path remains."], condition_revision: "8".repeat(40), evidence_root: "d".repeat(64) },
+      ],
+      contrary_evidence_ids: ["EVT-BROWSER-CONTRARY"],
+      regression_findings: ["Exception path remains."],
+      rationale: "Revise before any separately governed adoption decision.",
+    },
+    recovery: { posture: "not-required", guidance: "Retain the immutable verified disposition.", preserved_roots: ["1".repeat(64), "2".repeat(64), "9".repeat(64)] },
+  }
+  runEnvelope.data.run.factory_evolution_workflow = verifiedEvolutionWorkflow
+  reportsEnvelope.data.evolution_workflows[0].workflow = verifiedEvolutionWorkflow
+
+  for (const [path, regionName] of [
+    ["/reports?view=reports", "Evolution"],
+    ["/admin", "Factory evolution"],
+  ] as const) {
+    await page.goto(path)
+    const region = page.getByRole("region", { name: regionName })
+    await expect(region).toContainText("verified")
+    await expect(region).toContainText("External implementation")
+    await expect(region).toContainText("Verified comparison")
+    await expect(region).toContainText("Detect only")
+    await expect(region).toContainText("Baseline omitted the decision evidence")
+    await expect(region).toContainText("Exception path remains")
+    await expect(region.getByRole("link", { name: "EVT-BROWSER-CONTRARY" }).first()).toHaveAttribute("href", `/runs/${target}#EVT-BROWSER-CONTRARY`)
+    await expect(region).toContainText(/not performed by evolution|Evolution performs no adoption/)
+    await expect(page.getByRole("button", { name: /adopt|deploy|install/i })).toHaveCount(0)
+    const axe = await new AxeBuilder({ page }).analyze()
+    expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+      .toEqual([])
+    const dimensions = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }))
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  }
+})
+
+test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page, request }) => {
   test.setTimeout(180_000)
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const predecessor = "bc955bd48e01db90aeb98fa27256546e2ce1eaf289fd6f630f36374d3c89d810"
   const returnPath = "/?project=software-factory&time=24h&posture=all&severity=all"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  const hasOpenIncident = runEnvelope.data.run.incidents.some(
+    (incident: { open: boolean }) => incident.open,
+  )
   const projectFloor = makeFactoryFloorEnvelope()
   projectFloor.data.projects = [{ id: "software-factory", label: "Software Factory" }]
   projectFloor.data.rows = [{
@@ -560,7 +1252,13 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   const metaReview = page.getByRole("button", { name: "Meta-review" })
   await expect(checkpointReview).toBeEnabled()
   await expect(metaReview).toBeEnabled()
-  await expect(page.getByRole("button", { name: "Issue follow-up" })).toBeDisabled()
+  const issueFollowUp = page.getByRole("button", { name: "Issue follow-up" })
+  if (hasOpenIncident) {
+    await expect(page.getByRole("combobox", { name: "Issue for follow-up" })).toBeVisible()
+    await expect(issueFollowUp).toBeEnabled()
+  } else {
+    await expect(issueFollowUp).toBeDisabled()
+  }
   await checkpointReview.click()
   const checkpointPreview = page.getByRole("dialog")
   await expect(checkpointPreview).toContainText(/one checkpoint review/i)
@@ -1159,7 +1857,7 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
   await expect(page.getByRole("button", { name: "Repair automation" })).toHaveCount(0)
 })
 
-test("semantic pause previews both owners and leaves resume unavailable", async ({ page, request }) => {
+test("semantic pause previews both owners and keeps resume lifecycle-gated", async ({ page, request }) => {
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
@@ -1296,13 +1994,11 @@ test("semantic pause previews both owners and leaves resume unavailable", async 
 
   await page.goto(`/runs/${target}`)
   await expect(page.getByRole("button", { name: "Pause" })).toBeEnabled()
-  const resume = page.getByRole("button", {
-    name: "Resume supervision unavailable until the canonical lifecycle owner is accepted",
-  })
+  const resume = page.getByRole("button", { name: "Resume" })
   await expect(resume).toBeDisabled()
   await expect(resume).toHaveAttribute(
     "title",
-    "Semantic resume requires the canonical resumed lifecycle owner in Block 23.",
+    "Resume is available only for a canonical paused lifecycle.",
   )
   await page.getByRole("button", { name: "Pause" }).click()
   const preview = page.getByRole("dialog")
@@ -1330,5 +2026,606 @@ test("semantic pause previews both owners and leaves resume unavailable", async 
   await preview.getByRole("button", { name: "Close operation preview" }).click()
   await page.goto(`/runs/${target}?mission=${predecessor}`)
   await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0)
-  await expect(page.getByText("Resume unavailable", { exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Resume" })).toHaveCount(0)
+})
+
+test("semantic resume previews exact owners without resuming the implementation task", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.lifecycle = {
+    status: "paused",
+    record: {
+      record_id: "EVT-PAUSE-001",
+      timestamp: "2026-08-11T09:00:00Z",
+      kind: "lifecycle",
+      status: "paused",
+      severity: "info",
+      category: "supervision-pause",
+      summary: "Paused exact supervision group.",
+    },
+  }
+  const represented = runEnvelope.data.run.policy.automation_reconciliation.filter(
+    (row: { role: string }) => row.role === "watcher" || row.role === "reviewer",
+  )
+  expect(represented).toHaveLength(2)
+  represented[0].owner_status = "PAUSED"
+  represented[0].state = "partial"
+  represented[1].owner_status = "ACTIVE"
+  represented[1].state = "partial"
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_supervision_resume_preview",
+    type: "factory.supervision-resume",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained canonical supervision-resume lifecycle owner + exact Codex automation owner",
+    authority: ["one exact canonically paused supervision group"],
+    preview: {
+      effect: `Resume supervision group group-${"a".repeat(64)} with 2 exact bound automations.`,
+      risk: "Monitoring is current only after every exact automation owner and the canonical resume lifecycle agree; task and turn state remains unchanged.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "supervision-resume-lifecycle",
+            subject: "Supervision lifecycle",
+            kind: "changed",
+            before: { posture: "exact", value: "paused" },
+            after: { posture: "exact", value: "resumed" },
+            owner: "maintained canonical supervision-resume lifecycle owner",
+            source_identity: `supervision-lifecycle:${target}`,
+            source_revision: "a".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-resume-automation-watcher",
+            subject: "Routine watcher automation",
+            kind: "changed",
+            before: { posture: "exact", value: "PAUSED" },
+            after: { posture: "exact", value: "ACTIVE" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:watcher-automation",
+            source_revision: "c".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-resume-automation-reviewer",
+            subject: "Effectiveness reviewer automation",
+            kind: "preserved",
+            before: { posture: "exact", value: "ACTIVE" },
+            after: { posture: "exact", value: "ACTIVE" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:reviewer-automation",
+            source_revision: "d".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-resume-target-task-state",
+            subject: "Implementation task state",
+            kind: "preserved",
+            before: { posture: "exact", value: "active" },
+            after: { posture: "exact", value: "active" },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "e".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "b".repeat(64),
+      source_evidence: {
+        group_id: `group-${"a".repeat(64)}`,
+        pause_record: "EVT-PAUSE-001",
+        source_record: "EVT-CHECK-002",
+        state_fingerprint: "state-resume-001",
+        eligibility_root: "f".repeat(64),
+        automation_ids: ["watcher-automation", "reviewer-automation"],
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-CHECK-002",
+        required_action: "Resume exact supervision target through maintained owners.",
+        action_hash: "1".repeat(64),
+        policy_fingerprint: "2".repeat(64),
+        binding_fingerprint: "3".repeat(64),
+      },
+      consequences: {
+        ordinary: ["Only the exact named paused automation owners may be activated, then one canonical resume may be finalized."],
+        failure: ["Partial owner state remains visible without automatic retry."],
+      },
+      confirmation: {
+        class: "supervision-resume",
+        prompt: "Type RESUME SUPERVISION to request this exact group resume.",
+        expected_value: "RESUME SUPERVISION",
+      },
+      expected_postcondition: "Every exact named automation ACTIVE + canonical supervision-resume lifecycle; implementation task state unchanged.",
+      idempotency: "One consumed preview starts at most one fix-executor turn.",
+      limitations: ["App Server task and turn resume remain separate."],
+      expires_at: "2099-08-11T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-11T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-resume",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {},
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "r".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "b".repeat(64) },
+        observed_at: "2026-08-11T09:25:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("button", { name: "Finish resume" })).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Finish pause" })).toBeEnabled()
+  await page.getByRole("button", { name: "Finish resume" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("Every exact named automation ACTIVE + canonical supervision-resume lifecycle")
+  await expect(preview).toContainText("Implementation task state")
+  await expect(preview).toContainText("Partial owner state stays visible")
+  await expect(preview).toContainText("RESUME SUPERVISION")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges.getByRole("row", { name: /Supervision lifecycle.*paused.*resumed/ })).toBeVisible()
+  await expect(semanticChanges.getByRole("row", { name: /Routine watcher automation.*PAUSED.*ACTIVE/ })).toBeVisible()
+  await expect(semanticChanges).toContainText("maintained canonical supervision-resume lifecycle owner")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => (
+      impact === "serious" || impact === "critical"
+    )),
+  ).toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+
+  runEnvelope.data.run.lifecycle.status = "resumed"
+  runEnvelope.data.run.lifecycle.record.status = "resumed"
+  runEnvelope.data.run.lifecycle.record.category = "supervision-resume"
+  represented.forEach((row: { owner_status: string; state: string; duplicate_coverage: string }) => {
+    row.owner_status = "ACTIVE"
+    row.state = "reconciled"
+    row.duplicate_coverage = "exact"
+  })
+  represented[0].state = "unavailable"
+  represented[0].duplicate_coverage = "unavailable"
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Running" })).toHaveCount(0)
+  const incomplete = page.getByRole("button", { name: "Resume incomplete" })
+  await expect(incomplete).toBeDisabled()
+  await expect(incomplete).toHaveAttribute(
+    "title",
+    "Canonical resume exists, but exact active automation-owner coverage is unavailable or incomplete.",
+  )
+
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Finish resume" })).toHaveCount(0)
+  await expect(page.getByText("RESUME SUPERVISION", { exact: true })).toHaveCount(0)
+})
+
+test("same-target succession preserves history and stops at pending first-work activation", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const predecessor = runEnvelope.data.run.current_mission?.root ?? "a".repeat(64)
+  runEnvelope.data.run.current_mission = {
+    root: predecessor,
+    source_record: "direct-user-predecessor",
+    policy_sha256: "b".repeat(64),
+  }
+  const historicalRoot = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(historicalRoot).toBeTruthy()
+  const successor = "c".repeat(64)
+  const sourceRecord = `codex:${target}:turn-source-002:item-source-002`
+  const operation = {
+    id: "op_e2e_mission_successor_preview",
+    type: "factory.supervision-mission-successor",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "independent reviewer + maintained fix executor + supervision mission-successor/policy/activation owner",
+    authority: [
+      "explicit operator confirmation to request one bounded review, not mission authority",
+      "independent reviewer verification of direct authority and material difference",
+    ],
+    preview: {
+      effect: `Request independent review of one same-target successor mission for run ${target}.`,
+      risk: "Only the maintained owner may replace the active binding and preserve predecessor history.",
+      recipient: "reviewer-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "mission-successor-binding",
+            subject: "Active mission binding",
+            kind: "changed",
+            before: { posture: "exact", value: predecessor },
+            after: { posture: "exact", value: successor },
+            owner: "maintained supervision mission-successor owner",
+            source_identity: `supervision-policy:${target}`,
+            source_revision: "b".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-successor-predecessor-history",
+            subject: "Predecessor mission segment",
+            kind: "preserved",
+            before: { posture: "exact", value: predecessor },
+            after: { posture: "exact", value: predecessor },
+            owner: "maintained policy-history and mission-scoped event projection",
+            source_identity: `supervision-mission:${predecessor}`,
+            source_revision: "e".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-successor-first-work",
+            subject: "Successor first eligible work",
+            kind: "added",
+            before: { posture: "unavailable", value: null },
+            after: { posture: "exact", value: "Block 0 capability review" },
+            owner: "maintained same-target mission-activation owner",
+            source_identity: `supervision-source:${sourceRecord}`,
+            source_revision: "f".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-successor-target-task",
+            subject: "Target task identity",
+            kind: "preserved",
+            before: { posture: "exact", value: target },
+            after: { posture: "exact", value: target },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "1".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "d".repeat(64),
+      source_evidence: {
+        predecessor_mission_root: predecessor,
+        successor_mission_root: successor,
+        mission_source_record: sourceRecord,
+        source_authority_status: "unverified-reviewer-verification-required",
+        material_difference_status: "unverified-reviewer-verification-required",
+        first_eligible_work: "Block 0 capability review",
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "reviewer-task",
+        purpose: "semantic-escalation",
+        source_record: "EVT-CURRENT-SOURCE",
+        required_action: "Review one same-target successor mission.",
+        action_hash: "2".repeat(64),
+        policy_fingerprint: "3".repeat(64),
+        binding_fingerprint: "4".repeat(64),
+      },
+      consequences: {
+        ordinary: ["One independent review may lead to one successor policy version and pending activation."],
+        failure: ["No bind overwrite, retry, rollback, or task creation."],
+      },
+      confirmation: {
+        class: "supervision-mission-successor",
+        prompt: "Type BEGIN SUCCESSOR MISSION to request independent review of this exact candidate. This does not attest authority.",
+        expected_value: "BEGIN SUCCESSOR MISSION",
+      },
+      expected_postcondition: "One reviewed direct mission is active on the same target; predecessor history is preserved and first-work activation remains pending.",
+      idempotency: "One consumed preview starts at most one reviewer turn.",
+      limitations: [
+        "Operator confirmation does not prove direct mission authority.",
+        "The applied boundary does not create a task or claim first work began.",
+      ],
+      expires_at: "2099-08-12T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-12T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-mission-successor",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {
+        mission_source_record: sourceRecord,
+        predecessor_disposition: "superseded",
+        first_eligible_work: "Block 0 capability review",
+        reason: "The direct user requested a materially different mission.",
+      },
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "m".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "d".repeat(64) },
+        observed_at: "2026-08-12T09:25:00.000Z",
+        fingerprint: "d".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("button", { name: "Successor mission" })).toBeEnabled()
+  await page.getByRole("button", { name: "Successor mission" }).click()
+  const inputDialog = page.getByRole("dialog", { name: "Successor mission" })
+  await inputDialog.getByLabel("Direct mission source record").fill(sourceRecord)
+  await inputDialog.getByLabel("Predecessor disposition").selectOption("superseded")
+  await inputDialog.getByLabel("First eligible work").fill("Block 0 capability review")
+  await inputDialog.getByLabel("Reason").fill("The direct user requested a materially different mission.")
+  await inputDialog.getByRole("button", { name: "Preview" }).click()
+
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("exact bytes and direct authority require independent review")
+  await expect(preview).toContainText("pending activation, not proof of work-start")
+  await expect(preview).toContainText("Bind overwrite · successor task")
+  await expect(preview).toContainText("BEGIN SUCCESSOR MISSION")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges.getByRole("row", { name: /Active mission binding/ })).toContainText(predecessor.slice(0, 12))
+  await expect(semanticChanges).toContainText("Predecessor mission segment")
+  await expect(semanticChanges).toContainText("Block 0 capability review")
+  await expect(semanticChanges).toContainText("maintained same-target mission-activation owner")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${historicalRoot}`)
+  await expect(page.getByRole("button", { name: "Successor mission" })).toHaveCount(0)
+})
+
+test("successor-task continuity exposes one exact phase and keeps source stop closed", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const transitionId = "TRANSITION-E2E-001"
+  const successorId = "successor-task-e2e-001"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const currentRoot = runEnvelope.data.run.current_mission?.root ?? "a".repeat(64)
+  runEnvelope.data.run.successor_transitions = [{
+    transition_id: transitionId,
+    open: true,
+    phase: "successor-bound",
+    head: {
+      record_id: "EVT-CONTINUITY-E2E-003",
+      timestamp: "2026-08-12T11:00:00Z",
+      kind: "successor-transition",
+      status: null,
+      severity: null,
+      category: null,
+      summary: "Successor task and isolated supervision are bound.",
+    },
+    tracker_sha256: "1".repeat(64),
+    tracker_source_record: "commit:continuity-e2e",
+    requested_block_range: "26-31",
+    first_eligible_block: "Block 26 — Successor-task continuity",
+    source_mission_root: currentRoot,
+    governing_authority_source_class: "direct-user",
+    governing_authority_source_record: "direct-user-item-44",
+    successor_thread_id: successorId,
+    successor_mission_root: "2".repeat(64),
+    successor_group_id: successorId,
+    handoff_record: null,
+    acknowledgement_record: null,
+    started_block: null,
+    state_fingerprint: "state-successor-bound",
+  }]
+  const currentEvent = runEnvelope.data.run.timeline.find(
+    (event: { mission_root: string }) => event.mission_root === currentRoot,
+  )
+  expect(currentEvent).toBeTruthy()
+  runEnvelope.data.run.timeline.push({
+    ...currentEvent,
+    record_id: "EVT-CONTINUITY-E2E-003",
+    timestamp: "2026-08-12T11:00:00Z",
+    kind: "successor-transition",
+    status: "in-progress",
+    transition_id: transitionId,
+    phase: "successor-bound",
+    summary: "Successor task and isolated supervision are bound.",
+    state_fingerprint: "state-successor-bound",
+    evidence: ["successor-task-e2e", "successor-group-e2e"],
+    mission_root: currentRoot,
+  })
+  runEnvelope.data.run.counts.open_successor_transitions = 1
+  const operation = {
+    id: "op_e2e_successor_transition_preview",
+    type: "factory.successor-task-transition",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained fix executor + successor-transition record/gate + Codex task and supervision owners",
+    authority: ["one canonical open transition carrying direct task-creation authority"],
+    preview: {
+      effect: `Advance transition ${transitionId} from successor-bound to handoff-sent.`,
+      risk: "Exactly one maintained phase owner may act; the source cannot stop before verified work-started evidence.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "successor-transition-phase",
+            subject: "Continuity phase",
+            kind: "changed",
+            before: { posture: "exact", value: "successor-bound" },
+            after: { posture: "exact", value: "handoff-sent" },
+            owner: "maintained successor-transition record and gate owner",
+            source_identity: `successor-transition:${transitionId}`,
+            source_revision: "3".repeat(64),
+            currentness_fingerprint: "4".repeat(64),
+            links: [{ label: "Source run", href: `/runs/${target}` }],
+          },
+          {
+            id: "successor-transition-source-posture",
+            subject: "Source run posture",
+            kind: "preserved",
+            before: { posture: "exact", value: "in-progress" },
+            after: { posture: "exact", value: "in-progress" },
+            owner: "maintained successor-transition gate",
+            source_identity: `supervision-run:${target}`,
+            source_revision: "3".repeat(64),
+            currentness_fingerprint: "4".repeat(64),
+            links: [{ label: "Source run", href: `/runs/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "4".repeat(64),
+      source_evidence: {
+        transition_id: transitionId,
+        phase: "successor-bound",
+        next_phase: "handoff-sent",
+        next_action: "send-exact-handoff",
+        source_stop_permitted: false,
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-CONTINUITY-E2E-003",
+        required_action: `Advance successor transition ${transitionId}.`,
+        action_hash: "5".repeat(64),
+        policy_fingerprint: "6".repeat(64),
+        binding_fingerprint: "7".repeat(64),
+      },
+      consequences: {
+        ordinary: ["One exact next continuity phase may be requested."],
+        failure: ["Partial state remains open with no automatic retry."],
+      },
+      confirmation: {
+        class: "successor-task-transition",
+        prompt: "Type ADVANCE CONTINUITY to request this exact next phase.",
+        expected_value: "ADVANCE CONTINUITY",
+      },
+      expected_postcondition: "One exact phase advances while the source remains in-progress.",
+      idempotency: "One consumed preview may advance only one immediate phase.",
+      limitations: ["A handoff never permits source stop."],
+      expires_at: "2099-08-12T12:00:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-12T11:00:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.successor-task-transition",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: { transition_id: transitionId },
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "c".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "4".repeat(64) },
+        observed_at: "2026-08-12T11:00:00.000Z",
+        fingerprint: "4".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByText(transitionId, { exact: true })).toBeVisible()
+  await expect(page.getByText(/successor-bound · Block 26/)).toBeVisible()
+  await expect(page.getByText("Prohibited", { exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Advance continuity" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("successor-bound")
+  await expect(preview).toContainText("handoff-sent")
+  await expect(preview).toContainText("Source run posture")
+  await expect(preview).toContainText("in-progress")
+  await expect(preview).toContainText("ADVANCE CONTINUITY")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Advance continuity" })).toHaveCount(0)
 })

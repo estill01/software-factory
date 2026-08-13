@@ -34,8 +34,187 @@ type InputQuestion = Extract<PendingRequest, { family: "user_input" }>["details"
 type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
+type CurrentMission = NonNullable<RunDetail["current_mission"]>
+type WeeklyReportWorkflow = RunDetail["weekly_report_workflow"]
+type TerminalReportWorkflow = RunDetail["terminal_report_workflow"]
+type TerminalShutdownWorkflow = RunDetail["terminal_shutdown_workflow"]
+type FactoryEvolutionWorkflow = RunDetail["factory_evolution_workflow"]
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
+type SuccessorTransition = RunDetail["successor_transitions"][number]
+const unavailableWeeklyReportWorkflow: WeeklyReportWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  report_id: null,
+  coverage: null,
+  coverage_days: null,
+  timezone: null,
+  source_root: null,
+  manifest_root: null,
+  fingerprint: null,
+  writer_role: "roundup_writer",
+  writer_task_id: null,
+  expected_members: [],
+  members: [],
+  stages: [],
+  delivery: {
+    status: "unavailable",
+    configured: false,
+    retryable: false,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    reason: "Weekly report workflow projection is unavailable.",
+  },
+  limitations: ["Weekly report workflow projection is unavailable."],
+  error: {
+    code: "weekly_report_workflow_unavailable",
+    message: "Weekly report workflow projection is unavailable.",
+    retryable: true,
+  },
+}
+const unavailableTerminalReportWorkflow: TerminalReportWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  report_set_id: null,
+  source_root: null,
+  manifest_root: null,
+  fingerprint: null,
+  state_fingerprint: null,
+  mission_root: null,
+  completion: {
+    status: "unavailable",
+    record_id: null,
+    lifecycle_record_id: null,
+    reconciled: false,
+  },
+  coverage: null,
+  prior_reports: [],
+  writer_role: "base_reviewer",
+  writer_task_id: null,
+  expected_members: [],
+  members: [],
+  stages: [],
+  delivery: {
+    status: "not-ready",
+    configured: false,
+    required: true,
+    retryable: false,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    readback_root: null,
+    reason: "Terminal report workflow projection is unavailable.",
+  },
+  shutdown: {
+    status: "separate-owner",
+    permitted: false,
+    reason: "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+  },
+  limitations: ["Terminal report workflow projection is unavailable."],
+  error: {
+    code: "terminal_report_workflow_unavailable",
+    message: "Terminal report workflow projection is unavailable.",
+    retryable: true,
+  },
+}
+const unavailableTerminalShutdownWorkflow: TerminalShutdownWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  fingerprint: null,
+  mission_root: null,
+  state_fingerprint: null,
+  completion_record_id: null,
+  lifecycle_record_id: null,
+  report_set_id: null,
+  manifest_root: null,
+  delivery_record_id: null,
+  delivery_timestamp: null,
+  source_record: null,
+  gate: {
+    status: "unavailable",
+    completion_permitted: null,
+    source_stop_permitted: null,
+    supervision_pause_permitted: null,
+    terminal_reports_delivered: null,
+    reason: "Terminal shutdown projection is unavailable.",
+    currentness: null,
+  },
+  open_heads: {
+    incident_ids: [],
+    decision_ids: [],
+    successor_transition_ids: [],
+    mission_activation_ids: [],
+  },
+  automations: [],
+  receipt: {
+    status: "unavailable",
+    record_id: null,
+    record_sha256: null,
+    previous_record_sha256: null,
+    automation_state_root: null,
+    reason: "Terminal shutdown evidence is unavailable.",
+  },
+  recovery: {
+    posture: "unavailable",
+    guidance: "Repair the exact named prerequisite before previewing shutdown.",
+  },
+  limitations: ["Terminal shutdown projection is unavailable."],
+  error: {
+    code: "terminal_shutdown_workflow_unavailable",
+    message: "Terminal shutdown projection is unavailable.",
+    retryable: true,
+  },
+}
+const unavailableFactoryEvolutionWorkflow: FactoryEvolutionWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  evolution_id: null,
+  packet_id: null,
+  packet_root: null,
+  review_id: null,
+  review_root: null,
+  evaluation_id: null,
+  evaluation_root: null,
+  disposition: null,
+  comparison_plan: null,
+  comparison_results: null,
+  source_report_id: null,
+  source_report_root: null,
+  event_head_sha256: null,
+  manifest_root: null,
+  fingerprint: null,
+  proposer: { role: "base_reviewer", task_id: null },
+  implementer: {
+    status: "not-selected",
+    task_id: null,
+    baseline_revision: null,
+    candidate_revision: null,
+  },
+  evaluator: { role: "reviewer", task_id: null },
+  expected_members: [],
+  members: [],
+  stages: [],
+  limitations: ["Factory-evolution workflow projection is unavailable."],
+  recovery: {
+    posture: "unavailable",
+    guidance: "Factory-evolution workflow projection is unavailable.",
+    preserved_roots: [],
+  },
+  error: {
+    code: "factory_evolution_workflow_unavailable",
+    message: "Factory-evolution workflow projection is unavailable.",
+    retryable: true,
+  },
+}
 const roleRepairLabels = {
   base_reviewer: "Base reviewer",
   notice_reviewer: "Notice reviewer",
@@ -452,6 +631,12 @@ export function RunSupervisionActions({
   lifecycleStatus = null,
   missionBindingMissing = false,
   roleRepairRoles = [],
+  currentMission = null,
+  successorTransitions = [],
+  weeklyReportWorkflow = unavailableWeeklyReportWorkflow,
+  terminalReportWorkflow = unavailableTerminalReportWorkflow,
+  terminalShutdownWorkflow = unavailableTerminalShutdownWorkflow,
+  factoryEvolutionWorkflow = unavailableFactoryEvolutionWorkflow,
 }: {
   targetId: string
   projectId: string | null
@@ -460,6 +645,12 @@ export function RunSupervisionActions({
   lifecycleStatus?: string | null
   missionBindingMissing?: boolean
   roleRepairRoles?: string[]
+  currentMission?: CurrentMission | null
+  successorTransitions?: SuccessorTransition[]
+  weeklyReportWorkflow?: WeeklyReportWorkflow
+  terminalReportWorkflow?: TerminalReportWorkflow
+  terminalShutdownWorkflow?: TerminalShutdownWorkflow
+  factoryEvolutionWorkflow?: FactoryEvolutionWorkflow
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -467,6 +658,11 @@ export function RunSupervisionActions({
   const [adjustReason, setAdjustReason] = useState("")
   const [adjustEnabled, setAdjustEnabled] = useState<Partial<Record<PolicyField, boolean>>>({})
   const [adjustValues, setAdjustValues] = useState<Partial<Record<PolicyField, string>>>({})
+  const [successorOpen, setSuccessorOpen] = useState(false)
+  const [successorSource, setSuccessorSource] = useState("")
+  const [successorDisposition, setSuccessorDisposition] = useState<"completed" | "superseded">("superseded")
+  const [successorFirstWork, setSuccessorFirstWork] = useState("")
+  const [successorReason, setSuccessorReason] = useState("")
   const repairableRoles = roleRepairRoles.filter(
     (role): role is RepairableRole => role in roleRepairLabels,
   )
@@ -595,6 +791,24 @@ export function RunSupervisionActions({
     && pauseAutomationRows.every((row) => (
       Boolean(row.automation_id) && row.owner_status === "PAUSED"
     ))
+  const resumeSourceAvailable = lifecycleStatus === "paused"
+    && pauseAutomationRows.length >= 2
+    && pauseAutomationRows.every((row) => (
+      Boolean(row.automation_id)
+      && row.state !== "unavailable"
+      && (row.owner_status === "PAUSED" || row.owner_status === "ACTIVE")
+    ))
+  const activeAutomationCount = pauseAutomationRows.filter((row) => (
+    row.owner_status === "ACTIVE"
+  )).length
+  const resumeComplete = lifecycleStatus === "resumed"
+    && pauseAutomationRows.length >= 2
+    && pauseAutomationRows.every((row) => (
+      Boolean(row.automation_id)
+      && row.owner_status === "ACTIVE"
+      && row.state === "reconciled"
+      && row.duplicate_coverage === "exact"
+    ))
   const launchBindingRepair = () => {
     if (!projectId || !missionBindingMissing) return
     runner.launch({
@@ -666,6 +880,229 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const launchResume = () => {
+    if (!projectId || !resumeSourceAvailable || resumeComplete) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-resume",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Group", targetId],
+        ["Lifecycle", "Canonical paused lifecycle"],
+        ["Automation owners", `${activeAutomationCount} active · ${pauseAutomationRows.length - activeAutomationCount} paused · ${pauseAutomationRows.length} exact configured`],
+        ["Preserved", "Implementation task and turn state · policy · mission · bindings"],
+        ["Completion", "Every exact named automation ACTIVE + canonical supervision-resume lifecycle"],
+        ["Recovery", "Partial owner state stays visible · no automatic retry or rollback"],
+      ],
+    })
+  }
+  const successorValid = Boolean(
+    projectId
+    && currentMission?.root
+    && missionSourcePattern.test(successorSource)
+    && successorFirstWork.trim() === successorFirstWork
+    && successorFirstWork.length > 0
+    && successorFirstWork.length <= 160
+    && successorReason.trim() === successorReason
+    && successorReason.length > 0
+    && successorReason.length <= 480
+  )
+  const submitSuccessor = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!projectId || !currentMission?.root || !successorValid) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-mission-successor",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {
+          mission_source_record: successorSource,
+          predecessor_disposition: successorDisposition,
+          first_eligible_work: successorFirstWork,
+          reason: successorReason,
+        },
+      },
+      suppliedFacts: [
+        ["Target / group", targetId],
+        ["Predecessor", `${currentMission.root} · ${successorDisposition}`],
+        ["Candidate source", `${successorSource} · exact bytes and direct authority require independent review`],
+        ["First eligible work", `${successorFirstWork} · pending activation, not proof of work-start`],
+        ["Preserved", "Target · supervision group · roles · automations · predecessor history"],
+        ["Excluded", "Bind overwrite · successor task · direct policy or ledger write · completion claim"],
+        ["Reason", successorReason],
+      ],
+    })
+    setSuccessorOpen(false)
+  }
+  const openSuccessorTransitions = successorTransitions.filter((transition) => transition.open)
+  const currentTransition = openSuccessorTransitions.length === 1
+    ? openSuccessorTransitions[0]
+    : null
+  const launchSuccessorTransition = () => {
+    if (!projectId || !currentTransition) return
+    runner.launch({
+      request: {
+        operation_type: "factory.successor-task-transition",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { transition_id: currentTransition.transition_id },
+      },
+      suppliedFacts: [
+        ["Transition", currentTransition.transition_id],
+        ["Current phase", currentTransition.phase ?? "Unavailable"],
+        ["Tracker / range", `${currentTransition.tracker_sha256 ?? "Unavailable"} · ${currentTransition.requested_block_range ?? "Unavailable"}`],
+        ["First eligible Block", currentTransition.first_eligible_block ?? "Unavailable"],
+        ["Successor", currentTransition.successor_thread_id ?? "Not created"],
+        ["Source posture", "In progress until exact work-started evidence"],
+        ["Recovery", "One phase only · no retry, phase leap, source stop, or completion claim"],
+      ],
+    })
+  }
+  const reportActionLabel = weeklyReportWorkflow.next_action === "prepare"
+    ? "Prepare report"
+    : weeklyReportWorkflow.next_action === "review-finalize"
+      ? "Review & finalize"
+      : weeklyReportWorkflow.next_action === "finalize-verify"
+        ? "Finalize & verify"
+      : weeklyReportWorkflow.next_action === "deliver"
+        ? "Deliver report"
+        : weeklyReportWorkflow.stage === "delivered"
+          ? "Report delivered"
+          : weeklyReportWorkflow.stage === "verified"
+            ? "Report verified"
+            : "Report unavailable"
+  const launchWeeklyReport = () => {
+    if (
+      !projectId
+      || !weeklyReportWorkflow.actionable
+      || weeklyReportWorkflow.coverage_days === null
+    ) return
+    runner.launch({
+      request: {
+        operation_type: "factory.weekly-supervision-report",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { coverage_days: weeklyReportWorkflow.coverage_days },
+      },
+      suppliedFacts: [
+        ["Report", weeklyReportWorkflow.report_id ?? "Current owner-derived report"],
+        ["Stage", `${weeklyReportWorkflow.stage} → ${weeklyReportWorkflow.next_action}`],
+        ["Period", weeklyReportWorkflow.coverage
+          ? `${weeklyReportWorkflow.coverage.start} → ${weeklyReportWorkflow.coverage.end} · ${weeklyReportWorkflow.timezone}`
+          : "Unavailable"],
+        ["Source root", weeklyReportWorkflow.source_root ?? "Unavailable"],
+        ["Writer", weeklyReportWorkflow.writer_task_id ?? "Unavailable"],
+        ["Bundle", weeklyReportWorkflow.expected_members.join(" · ")],
+        ["Delivery", `${weeklyReportWorkflow.delivery.status} · ${weeklyReportWorkflow.delivery.reason ?? "Current"}`],
+        ["Recovery", "Advance one stage only · retain every exact accepted prior stage · no automatic retry"],
+      ],
+    })
+  }
+  const terminalReportActionLabel = terminalReportWorkflow.next_action === "prepare"
+    ? "Prepare terminal report"
+    : terminalReportWorkflow.next_action === "review-finalize"
+      ? "Review terminal report"
+      : terminalReportWorkflow.next_action === "finalize-verify"
+        ? "Finalize terminal report"
+        : terminalReportWorkflow.next_action === "deliver"
+          ? "Deliver terminal report"
+          : terminalReportWorkflow.stage === "delivered"
+            ? "Terminal report delivered"
+            : terminalReportWorkflow.stage === "verified"
+              ? "Terminal report verified"
+              : "Terminal report unavailable"
+  const launchTerminalReport = () => {
+    if (!projectId || !terminalReportWorkflow.actionable) return
+    runner.launch({
+      request: {
+        operation_type: "factory.terminal-supervision-report",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Report", terminalReportWorkflow.report_set_id ?? "Current owner-derived terminal report"],
+        ["Stage", `${terminalReportWorkflow.stage} → ${terminalReportWorkflow.next_action}`],
+        ["Outcome", `${terminalReportWorkflow.completion.status} · ${terminalReportWorkflow.completion.record_id ?? "Unavailable"} · ${terminalReportWorkflow.completion.lifecycle_record_id ?? "Unavailable"}`],
+        ["Coverage", terminalReportWorkflow.coverage
+          ? `${terminalReportWorkflow.coverage.delta_start} → ${terminalReportWorkflow.coverage.end} · full since ${terminalReportWorkflow.coverage.full_start}`
+          : "Unavailable"],
+        ["Source root", terminalReportWorkflow.source_root ?? "Unavailable"],
+        ["Prior reports", `${terminalReportWorkflow.prior_reports.length} exact verified input${terminalReportWorkflow.prior_reports.length === 1 ? "" : "s"}`],
+        ["Writer", terminalReportWorkflow.writer_task_id ?? "Unavailable"],
+        ["Bundle", terminalReportWorkflow.expected_members.join(" · ")],
+        ["Delivery", `${terminalReportWorkflow.delivery.status} · ${terminalReportWorkflow.delivery.reason}`],
+        ["Boundary", "Request-stop · automation pause · terminal shutdown: separate and not performed"],
+        ["Recovery", "Advance one stage only · retain exact accepted stages · no automatic retry"],
+      ],
+    })
+  }
+  const terminalShutdownActionLabel = terminalShutdownWorkflow.stage === "shutdown"
+    ? "Supervision shut down"
+    : terminalShutdownWorkflow.stage === "request-stop"
+      ? "Request stop & shut down"
+      : terminalShutdownWorkflow.stage === "blocked"
+        ? "Shutdown blocked"
+        : "Shutdown unavailable"
+  const launchTerminalShutdown = () => {
+    if (!projectId || !terminalShutdownWorkflow.actionable) return
+    const openHeads = [
+      ...terminalShutdownWorkflow.open_heads.incident_ids,
+      ...terminalShutdownWorkflow.open_heads.decision_ids,
+      ...terminalShutdownWorkflow.open_heads.successor_transition_ids,
+      ...terminalShutdownWorkflow.open_heads.mission_activation_ids,
+    ]
+    runner.launch({
+      request: {
+        operation_type: "factory.terminal-supervision-shutdown",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Mission", terminalShutdownWorkflow.mission_root ?? "Unavailable"],
+        ["Outcome", terminalShutdownWorkflow.completion_record_id ?? "Unavailable"],
+        ["Lifecycle", terminalShutdownWorkflow.lifecycle_record_id ?? "Unavailable"],
+        ["Terminal report", `${terminalShutdownWorkflow.report_set_id ?? "Unavailable"} · ${terminalShutdownWorkflow.delivery_record_id ?? "delivery unavailable"}`],
+        ["Gmail delivery", terminalShutdownWorkflow.delivery_record_id ?? "Unavailable"],
+        ["Source-stop gate", `${terminalShutdownWorkflow.gate.status} · ${terminalShutdownWorkflow.gate.reason}`],
+        ["Open heads", openHeads.length ? openHeads.join(" · ") : "None"],
+        ["Automations", terminalShutdownWorkflow.automations.map((item) => `${item.label}: ${item.owner_status}${item.post_delivery ? " after delivery" : " → PAUSED after delivery"}`).join(" · ") || "Unavailable"],
+        ["Receipt", `${terminalShutdownWorkflow.receipt.status} · ${terminalShutdownWorkflow.receipt.reason}`],
+        ["Recovery", `${terminalShutdownWorkflow.recovery.posture} · ${terminalShutdownWorkflow.recovery.guidance}`],
+        ["Implementation task", `${targetId} · observed and preserved`],
+        ["Boundary", "One exact supervision group · no task stop or turn interrupt · no ordinary pause/resume · no automatic retry"],
+      ],
+    })
+  }
+  const evolutionActionLabel = factoryEvolutionWorkflow.next_action === "prepare"
+    ? "Prepare evolution"
+    : factoryEvolutionWorkflow.next_action === "finalize"
+      ? "Review evolution"
+      : factoryEvolutionWorkflow.next_action === "evaluate"
+        ? "Evaluate candidate"
+        : factoryEvolutionWorkflow.stage === "verified"
+          ? `${factoryEvolutionWorkflow.disposition ?? "Verified"} disposition`
+          : factoryEvolutionWorkflow.stage === "awaiting-implementation"
+            ? "Candidate evidence required"
+            : "Evolution unavailable"
+  const launchFactoryEvolution = () => {
+    if (!projectId || !factoryEvolutionWorkflow.actionable) return
+    runner.launch({
+      request: {
+        operation_type: "factory.evolution-evaluate",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Evolution", factoryEvolutionWorkflow.evolution_id ?? "Current deterministic packet"],
+        ["Stage", `${factoryEvolutionWorkflow.stage} → ${factoryEvolutionWorkflow.next_action}`],
+        ["Packet", factoryEvolutionWorkflow.packet_root ?? "Unavailable"],
+        ["Verified report", `${factoryEvolutionWorkflow.source_report_id ?? "Unavailable"} · ${factoryEvolutionWorkflow.source_report_root ?? "Unavailable"}`],
+        ["Roles", `${factoryEvolutionWorkflow.proposer.task_id ?? "Unavailable"} · ${factoryEvolutionWorkflow.implementer.task_id ?? targetId} · ${factoryEvolutionWorkflow.evaluator.task_id ?? "Unavailable"}`],
+        ["External implementation", `${factoryEvolutionWorkflow.implementer.status} · ${factoryEvolutionWorkflow.implementer.baseline_revision ?? "no baseline"} → ${factoryEvolutionWorkflow.implementer.candidate_revision ?? "no candidate"}`],
+        ["Boundary", "Disposition evidence only · no implementation, adoption, installation, routing, scheduling, deployment, rollback, or outcome mutation"],
+        ["Recovery", "Advance one maintained stage only · retain exact accepted artifacts · no automatic retry"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -694,6 +1131,65 @@ export function RunSupervisionActions({
         >
           Issue follow-up
         </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !policy || !currentMission?.root}
+          onClick={() => setSuccessorOpen(true)}
+        >
+          Successor mission
+        </Button>
+        {openSuccessorTransitions.length > 0 && (
+          <Button
+            size="compact"
+            variant="outline"
+            disabled={unavailable || currentTransition === null}
+            title={
+              openSuccessorTransitions.length > 1
+                ? "Multiple open transition heads conflict; no phase action is available."
+                : "Advance exactly one canonical successor-task continuity phase."
+            }
+            onClick={launchSuccessorTransition}
+          >
+            {openSuccessorTransitions.length > 1 ? "Continuity conflict" : "Advance continuity"}
+          </Button>
+        )}
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !weeklyReportWorkflow.actionable}
+          title={weeklyReportWorkflow.error?.message ?? weeklyReportWorkflow.delivery.reason ?? undefined}
+          onClick={launchWeeklyReport}
+        >
+          {reportActionLabel}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !terminalReportWorkflow.actionable}
+          title={terminalReportWorkflow.error?.message ?? terminalReportWorkflow.delivery.reason}
+          onClick={launchTerminalReport}
+        >
+          {terminalReportActionLabel}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !terminalShutdownWorkflow.actionable}
+          title={terminalShutdownWorkflow.error?.message ?? terminalShutdownWorkflow.gate.reason}
+          onClick={launchTerminalShutdown}
+        >
+          {terminalShutdownActionLabel}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !factoryEvolutionWorkflow.actionable}
+          title={factoryEvolutionWorkflow.error?.message ?? factoryEvolutionWorkflow.limitations[0]}
+          onClick={launchFactoryEvolution}
+        >
+          {evolutionActionLabel}
+        </Button>
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
         <Button
           size="compact"
@@ -706,11 +1202,29 @@ export function RunSupervisionActions({
         <Button
           size="compact"
           variant="outline"
-          disabled
-          title="Semantic resume requires the canonical resumed lifecycle owner in Block 23."
-          aria-label="Resume supervision unavailable until the canonical lifecycle owner is accepted"
+          disabled={unavailable || !resumeSourceAvailable || resumeComplete}
+          title={
+            resumeComplete
+              ? "Every exact automation and the canonical resume lifecycle are current."
+              : lifecycleStatus === "resumed"
+                ? "Canonical resume exists, but exact active automation-owner coverage is unavailable or incomplete."
+              : lifecycleStatus !== "paused"
+                ? "Resume is available only for a canonical paused lifecycle."
+                : !resumeSourceAvailable
+                  ? "Resume requires complete current automation-owner coverage."
+                  : undefined
+          }
+          onClick={launchResume}
         >
-          Resume unavailable
+          {resumeComplete
+            ? "Running"
+            : lifecycleStatus === "resumed"
+              ? "Resume incomplete"
+            : resumeSourceAvailable && activeAutomationCount > 0
+              ? "Finish resume"
+              : lifecycleStatus === "paused" && !resumeSourceAvailable
+                ? "Resume unavailable"
+                : "Resume"}
         </Button>
         {missionBindingMissing && (
           <Button size="compact" disabled={unavailable} onClick={launchBindingRepair}>Repair binding</Button>
@@ -807,6 +1321,27 @@ export function RunSupervisionActions({
             })}
           </div>
           <TextField label="Reason" value={adjustReason} onChange={setAdjustReason} />
+        </InputDialog>
+      )}
+      {successorOpen && currentMission?.root && (
+        <InputDialog
+          title="Successor mission"
+          submitDisabled={!successorValid}
+          onClose={() => setSuccessorOpen(false)}
+          onSubmit={submitSuccessor}
+        >
+          <div className="workflow-exact-fact"><span>Predecessor</span><Identity value={currentMission.root} /></div>
+          <TextField label="Direct mission source record" value={successorSource} onChange={setSuccessorSource} placeholder={`codex:${targetId}:turn-id:item-id`} />
+          <label className="workflow-input-field">
+            <span>Predecessor disposition</span>
+            <select value={successorDisposition} onChange={(event) => setSuccessorDisposition(event.target.value as typeof successorDisposition)}>
+              <option value="superseded">Superseded</option>
+              <option value="completed">Completed</option>
+            </select>
+          </label>
+          <TextField label="First eligible work" value={successorFirstWork} onChange={setSuccessorFirstWork} />
+          <TextField label="Reason" value={successorReason} onChange={setSuccessorReason} />
+          <div className="workflow-exact-fact"><span>Authority</span><strong>Independent direct-source review required</strong></div>
         </InputDialog>
       )}
       {runner.confirmation}

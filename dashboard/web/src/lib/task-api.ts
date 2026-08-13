@@ -92,6 +92,23 @@ const taskItemSchema = z
     type: z.string().min(1),
     status: nullableString,
     summary: nullableString,
+    summary_sha256: fingerprintSchema.nullable().optional(),
+    summary_truncated: z.boolean().nullable().optional(),
+    client_id: nullableString.optional(),
+    user_content_sha256: fingerprintSchema.nullable().optional(),
+    user_content_truncated: z.boolean().nullable().optional(),
+    user_content_envelope_sha256: fingerprintSchema.nullable().optional(),
+    user_content_part_types: z.array(z.string()).nullable().optional(),
+    user_input_classification: z
+      .enum([
+        "noncanonical-content-envelope",
+        "routed-delegation",
+        "dashboard-generated-marker",
+        "ordinary-user-message",
+      ])
+      .nullable()
+      .optional(),
+    user_authority_status: z.enum(["ineligible", "unverified"]).nullable().optional(),
   })
   .strict()
 

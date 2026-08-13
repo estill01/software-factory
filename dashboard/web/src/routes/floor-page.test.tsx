@@ -78,7 +78,12 @@ describe("Factory Floor", () => {
     expect(alphaRow).toHaveTextContent("Watcher · Reviewer")
     expect(alphaRow).toHaveTextContent("group-ta…alpha")
     expect(alphaRow).toHaveTextContent("26 Blocks")
+    expect(alphaRow).toHaveTextContent("5 done · 21 remaining")
     expect(alphaRow).toHaveTextContent("Block 6 — Factory Floor composition")
+    const gammaRow = gammaDisclosure.closest("article")
+    expect(gammaRow).not.toBeNull()
+    expect(gammaRow).toHaveTextContent("Unmonitored")
+    expect(gammaRow).toHaveTextContent("2 done · 2 remaining · partial")
     expect(alphaDisclosure).toHaveAttribute("aria-expanded", "false")
     await user.click(alphaDisclosure)
     expect(alphaDisclosure).toHaveAttribute("aria-expanded", "true")
@@ -257,5 +262,69 @@ describe("Factory Floor", () => {
     expect(await screen.findByRole("button", { name: "All: unavailable" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Active / Running: unavailable" })).toBeVisible()
     expect(screen.getByText("No rows match the current filters.")).toBeVisible()
+  })
+
+  it("makes an exactly completed tracker unmistakable in the collapsed row", async () => {
+    const envelope = makeFactoryFloorEnvelope()
+    const completed = envelope.data.rows[1]
+    const headerConflict = envelope.data.rows[0]
+    completed.implementation.status = "idle"
+    completed.implementation.status_label = "Idle"
+    completed.supervision.status = "completed"
+    completed.supervision.status_label = "Completed"
+    completed.work.block_claims.posture = "none"
+    completed.work.block_claims.tracker_progress = {
+      accepted: 8,
+      remaining: 0,
+      posture: "exact",
+      is_complete: true,
+      reason: "Maintained tracker counts for the exact canonical tracker binding.",
+    }
+    completed.work.block_claims.claims.forEach((claim) => {
+      claim.status = "none"
+      claim.blocks = []
+      claim.range = null
+      claim.reason = `${claim.label} reports no active Block.`
+    })
+    headerConflict.implementation.status = "idle"
+    headerConflict.implementation.status_label = "Idle"
+    headerConflict.supervision.status = "completed"
+    headerConflict.supervision.status_label = "Completed"
+    headerConflict.work.block_claims.posture = "none"
+    headerConflict.work.block_claims.tracker_progress = {
+      accepted: 26,
+      remaining: 0,
+      posture: "conflict",
+      is_complete: null,
+      reason: "The tracker header status conflicts with its exact Block statuses; completion is withheld.",
+    }
+    headerConflict.work.block_claims.claims.forEach((claim) => {
+      claim.status = "none"
+      claim.blocks = []
+      claim.range = null
+      claim.reason = `${claim.label} reports no active Block.`
+    })
+    envelope.data.rows = [completed, headerConflict]
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => envelope,
+    }))
+    renderFloor()
+
+    const disclosure = await screen.findByRole("button", { name: /Beta implementation/ })
+    const completedRow = disclosure.closest("article")
+    expect(completedRow).toHaveTextContent("8 Blocks")
+    expect(completedRow).toHaveTextContent("8 done · 0 remaining")
+    expect(completedRow).toHaveTextContent("Tracker complete")
+    expect(disclosure).toHaveAccessibleName(/Tracker complete/)
+    expect(disclosure).toHaveAccessibleName(/None active/)
+
+    const conflictDisclosure = screen.getByRole("button", { name: /Alpha implementation/ })
+    const conflictRow = conflictDisclosure.closest("article")
+    expect(conflictRow).toHaveTextContent("26 done · 0 remaining · conflict")
+    expect(conflictRow).not.toHaveTextContent("Tracker complete")
+    expect(conflictDisclosure).not.toHaveAccessibleName(/Tracker complete/)
   })
 })

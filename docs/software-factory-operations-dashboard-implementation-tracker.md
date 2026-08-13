@@ -1,6 +1,6 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–31
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct-user item
@@ -520,38 +520,38 @@ the relevant authority and evidence contract.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Product contract and live-owner baseline | — | `accepted` |
-| 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
-| 2 | Project catalog and bounded discovery | 1 | `accepted` |
-| 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
-| 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
-| 5 | Codex task and App Server adapter | 1 | `accepted` |
-| 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
-| 7 | Project and run workspaces | 6 | `accepted` |
-| 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
-| 9 | Metrics and report history workspace | 4, 6 | `accepted` |
-| 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
-| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
-| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
-| 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
-| 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
-| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
-| 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
-| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `accepted` |
-| 18 | Tracker review queue and exact count filters | 3, 8 | `accepted` |
-| 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
-| 20 | Automation binding repair | 7, 10, 11 | `accepted` |
-| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
-| 22 | Supervision pause | 7, 10, 11 | `accepted` |
-| 23 | Canonical supervision-resume lifecycle owner | 22 | `in-progress` |
-| 24 | Supervision resume | 7, 10, 11, 22, 23 | `not-started` |
-| 25 | Same-target mission succession | 7, 10, 11 | `not-started` |
-| 26 | Successor-task continuity | 7, 10, 11 | `not-started` |
-| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
-| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
-| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `not-started` |
-| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `not-started` |
-| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `not-started` |
+| 0 | Product contract and live-owner baseline | — | `completed` |
+| 1 | Loopback runtime and reference frontend scaffold | 0 | `completed` |
+| 2 | Project catalog and bounded discovery | 1 | `completed` |
+| 3 | Tracker truth and Git-currentness projection | 2 | `completed` |
+| 4 | Supervision, automation, report, and metrics projection | 2 | `completed` |
+| 5 | Codex task and App Server adapter | 1 | `completed` |
+| 6 | Cross-project factory floor | 3, 4, 5 | `completed` |
+| 7 | Project and run workspaces | 6 | `completed` |
+| 8 | Tracker review and progress workspace | 3, 6 | `completed` |
+| 9 | Metrics and report history workspace | 4, 6 | `completed` |
+| 10 | Gated administrative operation framework | 2, 4, 5 | `completed` |
+| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `completed` |
+| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `completed` |
+| 13 | Semantic supervision review requests | 7, 10, 11 | `completed` |
+| 14 | Supervision policy and cadence administration | 7, 10, 11 | `completed` |
+| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `completed` |
+| 16 | Role-task binding repair | 7, 10, 11 | `completed` |
+| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `completed` |
+| 18 | Tracker review queue and exact count filters | 3, 8 | `completed` |
+| 19 | Tracker semantic source diffs | 3, 8 | `completed` |
+| 20 | Automation binding repair | 7, 10, 11 | `completed` |
+| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `completed` |
+| 22 | Supervision pause | 7, 10, 11 | `completed` |
+| 23 | Canonical supervision-resume lifecycle owner | 22 | `completed` |
+| 24 | Supervision resume | 7, 10, 11, 22, 23 | `completed` |
+| 25 | Same-target mission succession | 7, 10, 11 | `completed` |
+| 26 | Successor-task continuity | 7, 10, 11 | `completed` |
+| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `completed` |
+| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `completed` |
+| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `completed` |
+| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `completed` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `completed` |
 
 Required order:
 
@@ -645,7 +645,7 @@ second implementation of a primary owner is introduced.
 
 ## Block 0 — Product contract and live-owner baseline
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -829,7 +829,7 @@ Stop before creating the dashboard runtime or dependency manifests.
 
 ## Block 1 — Loopback runtime and reference frontend scaffold
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1003,7 +1003,7 @@ Stop before creating the project catalog or reading any project source.
 
 ## Block 2 — Project catalog and bounded discovery
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1170,7 +1170,7 @@ Stop before parsing tracker content or aggregating supervision/task state.
 
 ## Block 3 — Tracker truth and Git-currentness projection
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1353,7 +1353,7 @@ Stop before building tracker pages or initiating authoring/implementation tasks.
 
 ## Block 4 — Supervision, automation, report, and metrics projection
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1632,7 +1632,7 @@ automation, report, or evolution owner.
 
 ## Block 5 — Codex task and App Server adapter
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1868,7 +1868,7 @@ Stop before exposing workflow-start or lifecycle mutation controls.
 
 ## Block 6 — Cross-project factory floor
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2137,7 +2137,7 @@ Stop before adding project/run, tracker, report, or admin detail functionality.
 
 ## Block 7 — Project and run workspaces
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2464,7 +2464,7 @@ Stop before adding tracker review, report analytics, or operational controls.
 
 ## Block 8 — Tracker review and progress workspace
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2686,7 +2686,7 @@ state.
 
 ## Block 9 — Metrics and report history workspace
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2950,7 +2950,7 @@ administration controls.
 
 ## Block 10 — Gated administrative operation framework
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -3251,7 +3251,7 @@ Stop before registering tracker/task/supervision/report/lifecycle operations.
 
 ## Block 11 — Author, implement, supervise, and task-control workflows
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -3596,7 +3596,7 @@ administration, or semantic lifecycle controls.
 
 ## Block 12 — On-demand mechanical supervision checks
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -3831,7 +3831,7 @@ continuity, report, or evolution operation.
 
 ## Block 13 — Semantic supervision review requests
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4110,7 +4110,7 @@ reporting, or Factory evolution.
 
 ## Block 14 — Supervision policy and cadence administration
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4369,7 +4369,7 @@ report, evolution, or terminal operations.
 
 ## Block 15 — Mission and target/tracker binding repair
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4675,7 +4675,7 @@ lifecycle, continuity, report, evolution, or terminal operations.
 
 ## Block 16 — Role-task binding repair
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4993,7 +4993,7 @@ reporting, evolution, or terminal lifecycle.
 
 ## Block 17 — Factory Floor operational rows and exact count filters
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -5235,6 +5235,38 @@ filters, and viewports rather than unrelated workspaces.
   passed 30/30, and remote `0 0`, clean diff, and Stop proof passed. Post-block
   audit: `accepted`; retained open Block 17 work: none. Blocks 19-29 remain
   unopened.
+- Post-acceptance operator-priority correction: routed product verification
+  re-inspected the live Factory Floor against this accepted contract and found
+  one bounded gap: collapsed rows exposed exact total and plural active claims
+  but omitted the maintained tracker owner's accepted/done and remaining
+  counts. Product candidate
+  `cbc345df422788548fb21a8cd72b7381b88d5e8a`, tree
+  `5cd562826b4badc6de5d69a07afbfb9740ee4be0`, added a strict read-only
+  `tracker_progress` projection and compact `N done · M remaining` hierarchy,
+  preserved explicit `Unmonitored`, partial, unavailable, and conflicting
+  identities, and moved the two-level row layout to the maintained tablet
+  breakpoint after live visual inspection reproduced trailing-status overlap.
+  Backend Floor proof passed 11/11, schema/component/consumer proof 29/29,
+  production build passed, and the two affected Playwright cases passed 6/6
+  across desktop/tablet/mobile with Axe, geometry non-overlap, and page-overflow
+  assertions. The live port-8787 row retained its truthful ambiguous-tracker
+  posture and withheld counts rather than selecting one of four candidates.
+- Rejected and corrected completion truth: independent review REJECTED
+  `cbc345df422788548fb21a8cd72b7381b88d5e8a` because an all-accepted Block set
+  could still claim `Tracker complete` when the canonical tracker header
+  remained `in-progress` and `header_block_status_conflict` was true. Successor
+  `f0b4546f0ff4c9d8d4c3534111f358f15ef5597e`, tree
+  `167582edbb1e5c3484f184ef7e82baa06dbd0711`, closes that row: exact completion
+  additionally requires a nonconflicting `accepted` or `completed` header;
+  contradictory headers preserve exact counts but expose conflict, withhold
+  completion in visible and accessible text, and degrade the operating light
+  to amber. The adversarial backend suite passed 11/11 with `ResourceWarning`
+  fatal, schema/component proof passed 11/11, Ruff and production build passed,
+  and prior 6/6 responsive proof remained reusable. Fresh independent
+  delta-only review ACCEPTED `f0b4546f0ff4c9d8d4c3534111f358f15ef5597e`
+  with no material findings. This correction adds no parser, tracker writer,
+  acceptance path, progress inference, owner/control mutation, or later-Block
+  scope; Block 17 remains accepted.
 
 ### Stop
 
@@ -5245,7 +5277,7 @@ semantic diffs, pause/resume, continuity, reporting, evolution, or lifecycle.
 
 ## Block 18 — Tracker review queue and exact count filters
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -5484,7 +5516,7 @@ diffs, pause/resume, continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 19 — Tracker semantic source diffs
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -5709,7 +5741,7 @@ continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 20 — Automation binding repair
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6061,7 +6093,7 @@ lifecycle operations.
 
 ## Block 21 — Owner-backed operation semantic diffs
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6280,7 +6312,7 @@ request-stop, or terminal lifecycle operations.
 
 ## Block 22 — Supervision pause
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6429,7 +6461,7 @@ evolution, request-stop, or terminal shutdown.
 
 ## Block 23 — Canonical supervision-resume lifecycle owner
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -6557,6 +6589,57 @@ reconcile unrelated groups and never retry an append automatically.
   and policy contract, weekly pause-interval projection, and exact automation
   read boundary. Work is limited to the canonical resume lifecycle owner;
   dashboard execution in Block 24 and Blocks 25-31 remain unopened.
+- Capability review and product candidate: commit
+  `9c9fd88573c42eeb6564ba2e6f930c4e07e182de`, tree
+  `938848c1153816490005508cc813ddf118b103b7`, extends only the maintained
+  supervision helper, its skill/policy contract, weekly-report projection, and
+  the dashboard capability matrix. The read-only `resume-gate` binds one exact
+  current pause, distinct eligible post-pause semantic check, active mission,
+  current policy/history/event heads, source fingerprint, and only the exact
+  policy-bound automation owners. `resume-finalize` rechecks that unchanged
+  basis under the append owner, requires every named automation `ACTIVE` at its
+  owner-derived target and schedule, and appends at most one independently
+  verifiable `supervision-resume` lifecycle record. Status and weekly metrics
+  consume only helper-verified canonical records; legacy report pairs remain
+  readable history but cannot create a new canonical resume.
+- Focused and regression proof: the resume-owner plus explicit-pause reporting
+  tests passed 10/10; all maintained supervision helper, weekly report,
+  terminal report, and Factory-evolution tests passed 205/205 with
+  `ResourceWarning` fatal. Ruff, Python bytecode compilation, and
+  `git diff --check` passed; the full-profile tracker verifier reports all 32
+  Blocks with zero errors/warnings and all 30 verifier tests pass. The tests
+  cover partial activation, source/policy/mission currentness, missing/
+  duplicate/malformed/schedule-mismatched owners, named-owner-only reads,
+  direct generic/task resume rejection, stale active state, hash-chain
+  corruption, append-once replay, status projection, and exact canonical
+  pause-interval closure.
+- Independent rejection and narrow successor: fresh exact-revision review
+  rejected immutable evidence `bf45e2cf78741cb8bf283eb0b485cac4b7e78b84`
+  because the standalone canonical-record verifier did not reapply the same
+  exact resume-source eligibility predicate as the write gate. A fully rehashed
+  task/turn-shaped source could therefore reach status and weekly consumers as
+  canonical. Successor `896628cdd97e07b677d3635c2d48181cf6bce973`,
+  tree `8a7ab193d70457ddd9a9f2262746fcb508c20df7`, changes only that verifier
+  boundary and its adversarial regression. The test reconstructs every
+  dependent source-currentness, eligibility, resume, predecessor, and record
+  hash around an ineligible `thread-resume` source, then proves canonical
+  verification rejects it, status retains the current pause, and weekly
+  availability leaves the exact interval open. The affected resume-owner suite
+  passes 8/8; Ruff and diff checks pass, while the prior 205/205 and mechanical
+  proof remain applicable.
+- Fresh independent acceptance: exact evidence
+  `27091628203d77caf7e95c7e16d3d8fef5aa39df`, tree
+  `127039d268c77251126bced281b33e971efee1fe`, and product successor
+  `896628cdd97e07b677d3635c2d48181cf6bce973` were accepted with no material
+  findings. Independent fully rehashed App Server task/turn and excluded Sol
+  Max sources both remained ineligible and noncanonical; status retained the
+  pause and weekly reporting left its interval open. Focused 8/8, Ruff,
+  compilation, full-profile 32-Block verification, verifier 30/30, diff, fsck,
+  exact remote identity, clean checkout, and Stop checks passed. The capability
+  contract now marks the maintained lifecycle owner `supported`, but no
+  dashboard API/UI/control, automation mutation, direct TOML write, live
+  resume, task/turn resume, policy change, or canonical ledger mutation was
+  executed in Block 23.
 
 ### Stop
 
@@ -6567,7 +6650,7 @@ report generation, Factory evolution, request-stop, or terminal shutdown.
 
 ## Block 24 — Supervision resume
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -6669,7 +6752,84 @@ and stop without retrying or widening.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: Block 24 started automatically after independent
+  acceptance of Block 23 evidence
+  `27091628203d77caf7e95c7e16d3d8fef5aa39df` and product
+  `896628cdd97e07b677d3635c2d48181cf6bce973`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Work-start boundary: re-read the complete Block 24 contract and began with
+  the accepted dashboard operation coordinator, semantic pause operation,
+  automation owner, and canonical `resume-gate`/`resume-finalize` lifecycle
+  owner. Work is limited to one exact paused supervision group; Blocks 25-31
+  remain unopened and no live resume or other consequential action has been
+  requested.
+- Frozen implementation candidate: commit
+  `c6d5a25cb1c022ff5fc3bd0f1e2a287dfd9e94bf`, tree
+  `ba4af619d5921369cdf6dd9b4697237d52d96d64`, parent
+  `935ceab2ed3fce65d732dfc35593dfa7ec8ca0a7`. The eight-file slice registers
+  `factory.supervision-resume` over the accepted read-only `resume-gate`, one
+  bounded fix-executor request, the exact Codex automation owners, and the
+  canonical `resume-finalize` postcondition; it adds no dashboard ledger,
+  scheduler, generic toggle, direct owner-file writer, or Block 25 operation.
+- Truth and recovery proof: the source contract binds one canonically paused
+  group, its pause and post-pause semantic source, current mission/policy/
+  project, exact target-task turn state, one distinct configured fix executor,
+  and every owner-derived automation/configuration root. Dispatch re-resolves
+  that fingerprint and the maintained route gate. Verification accepts only
+  the matching canonical resume lineage plus every exact automation ACTIVE at
+  its recorded owner schedule, preserves already-ACTIVE owners byte/time
+  exactly, requires each prior-PAUSED owner to change after the preview, and
+  leaves lifecycle-only, automation-only, denied, changed-task, unavailable,
+  and partial transitions pending without retry or rollback. The UI exposes
+  separate `Pause`, `Finish pause`, `Resume`, `Finish resume`, and unavailable
+  postures and never labels task/turn continuation as supervision resume.
+- Validation: full dashboard-server discovery passed 130/130 with
+  `ResourceWarning` fatal; the final route-denial and owner-envelope pair passed
+  2/2; Ruff and Python compilation passed. The full frontend passed 18 files
+  and 102 tests, the production build passed, and focused semantic pause/resume
+  Playwright passed 6/6 across desktop, tablet, and mobile with serious/
+  critical Axe and horizontal-overflow assertions. The full-profile verifier
+  reports 32 Blocks with zero errors/warnings and all 30 verifier tests pass;
+  diff and relative-link checks pass. The exact candidate is pushed with local/
+  upstream divergence `0 0`.
+- Live nonmutating proof: the product server was restarted on loopback port
+  8787 from the candidate assets. `/api/v1/health`, `/api/v1/operations`, and
+  `/admin` returned HTTP 200; the operation projection reports
+  `factory.supervision-resume` `supported`, its typed confirmation class, exact
+  dual owner, bounded consequences, and dual postcondition. No live operation
+  preview, fix-executor request, automation activation, lifecycle finalization,
+  task/turn action, or supervision record mutation was attempted. At that
+  candidate freeze, exact-revision review was pending and Blocks 25-31 remained
+  unopened.
+- Independent rejection and narrow successor: exact review rejected immutable
+  evidence `a4d754707203e47ef011a1b8d530d0f80b8e99e8` and product
+  `c6d5a25cb1c022ff5fc3bd0f1e2a287dfd9e94bf` for one UI truth defect only:
+  a canonical resumed lifecycle plus named ACTIVE rows could render `Running`
+  even when one row's owner coverage remained `unavailable`. All backend owner,
+  currentness, replay, route, descriptor, mechanical, and Stop proof remained
+  valid. Product successor `3d7e28ddc530dcf352032458ad7ccb2aa66b15c9`,
+  tree `11913a5f9e00dd0ba515e9e81b85bd9c4fb24b0d`, changes only the completion
+  predicate and focused component/browser proof. `Running` now requires every
+  represented owner ACTIVE, `reconciled`, and duplicate coverage `exact`; a
+  canonical resume with unavailable or partial owner coverage renders disabled
+  `Resume incomplete` with the limitation stated explicitly. The affected
+  component suite passes 15/15, the production build passes, and the semantic-
+  resume Playwright case passes 3/3 across desktop/tablet/mobile. The successor
+  was pushed with divergence `0 0`; fresh delta-only review was then requested
+  while Block 25 remained closed.
+- Fresh independent acceptance: exact evidence
+  `6bc47de5cf7da05405e9c1a8f00f39447e40e298`, tree
+  `7414865edcf8512a5c86cbaffd4d1a4ed17604a2`, and product successor
+  `3d7e28ddc530dcf352032458ad7ccb2aa66b15c9` were accepted with no material
+  findings. The reviewer reproduced the exact-coverage completion predicate,
+  truthful `Resume incomplete` posture, component 15/15, production build,
+  Playwright 3/3 across desktop/tablet/mobile, full-profile 32-Block verifier,
+  verifier 30/30, diff/fsck/clean/remote identity, and Block 25 Stop. All
+  unaffected backend owner, replay, route, and live-descriptor proof remains
+  accepted. No live operation preview, execution, automation activation,
+  lifecycle finalization, task/turn action, or canonical supervision mutation
+  occurred in Block 24.
 
 ### Stop
 
@@ -6680,7 +6840,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ## Block 25 — Same-target mission succession
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -6781,7 +6941,79 @@ segment. Do not scan unrelated groups or retry automatically.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: Block 25 started automatically after independent
+  acceptance of Block 24 evidence
+  `6bc47de5cf7da05405e9c1a8f00f39447e40e298` and product
+  `3d7e28ddc530dcf352032458ad7ccb2aa66b15c9`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Block 25 is limited to one same-target mission succession through the
+  maintained owner; Block 26 and later operations remain unopened, and no live
+  mission succession has been previewed or requested.
+- Capability review and owner boundary: the implementation reuses the exact
+  maintained `mission-successor`, policy-history, mission-activation, mission-
+  scoped event, Codex task, and route-gate owners. One complete ordinary user
+  item is content/envelope/client bound but remains authority-unverified until
+  the independent reviewer verifies the direct bytes, material difference, and
+  predecessor disposition. The dashboard neither adds a mission registry nor
+  calls `bind`, creates a task/group, or writes policy, history, events, or
+  automations directly. The applied boundary is one new active policy binding
+  plus one pending first-work activation; it does not claim work-start or
+  implementation completion.
+- Product candidate: commit
+  `c853b17b976947d7e7eeb7889c0a419c298023fe`, tree
+  `eaf6121875c38f90d4d70b2affa7b30b914cee70`, parent Block 25 activation
+  `8ae7abc2c2de53eb826d0a16b4440f182e78a8e6`, pushed with local/upstream
+  divergence `0 0`. The nine-file bounded product/test delta adds the exact
+  mission-history and successor-plan projections, one closed typed operation,
+  complete policy-history-prefix and active-root postcondition checks, a compact
+  current-run action/dialog and semantic before/after rows, predecessor-mode
+  exclusion, and truth labels for independent review, pending activation, and
+  no successor task/work-start claim. Older predecessor `superseded_by` links
+  are preserved rather than rewritten to the newest mission.
+- Candidate proof: the full backend suite passed 132/132 with
+  `ResourceWarning` fatal; the affected workflow/projection suites passed 56/56;
+  Ruff passed; the full frontend passed 103/103 serially; TypeScript and the
+  production build passed. Focused Playwright passed 3/3 across desktop,
+  tablet, and mobile with exact request/semantic-row assertions, predecessor
+  exclusion, Axe serious/critical checks, one `h1`, and no horizontal overflow.
+  The full-profile verifier reports all 32 Blocks with 0 errors/warnings and its
+  tests pass 30/30; diff checks pass. The restarted loopback runtime on port
+  8787 reports complete healthy coverage and exposes the supported successor
+  descriptor among 22 closed registry entries. No live mission succession,
+  owner dispatch, policy/history/event mutation, task creation, or target work
+  start was attempted.
+- First exact-revision review: rejected evidence
+  `585fa6fe60af9055708653b03899e075e7796a8a`, tree
+  `829e7fa85f487cbf90c7623a74c6d68d764573ce`, over product
+  `c853b17b976947d7e7eeb7889c0a419c298023fe`. The single material finding was
+  that successor source construction read every automation ID from runtime and
+  therefore omitted a configured weekly-report owner whose canonical ID is
+  `reports.weekly.automation_id`; mutating that omitted manifest after preview
+  could still verify the successor. All other authority, history, isolation,
+  task, UI, resource, and Stop boundaries passed and remain reusable.
+- Weekly-owner correction: product successor
+  `50fcc42a606ea439d27e0e9f7a6a713669dc342d`, tree
+  `33357c00424cfc336ac46447df4dfa00af96f9d3`, parent rejected evidence
+  `585fa6fe60af9055708653b03899e075e7796a8a`, changes only the successor
+  source/preservation lookup and its focused test. The weekly-report ID now
+  comes from the maintained reports-weekly policy source, is included with
+  watcher/reviewer in exact source evidence, and a changed weekly manifest or
+  timestamp makes verification `unverified`. Focused backend proof passed 2/2
+  with `ResourceWarning` fatal; Ruff, full-profile 32-Block verification,
+  verifier tests 30/30, and diff checks passed. Unaffected frontend, build,
+  responsive/browser, and full backend evidence was reused; no live mutation
+  occurred.
+- Fresh exact-revision review: independently `ACCEPTED` evidence successor
+  `ea004caf0b71e099fcda75663a72d78dc69df6e0`, tree
+  `ad70858ce5df457c92208c28a9ff6f53bbfd6de3`, over product successor
+  `50fcc42a606ea439d27e0e9f7a6a713669dc342d`. The reviewer reproduced the
+  weekly-report policy-source lookup, exact protected-set inclusion, and
+  manifest/currentness invalidation; focused backend 2/2, Ruff, the full
+  32-Block verifier with 0 diagnostics, verifier tests 30/30, diff, object,
+  clean-checkout, and remote `0 0` gates all passed. No live mission succession
+  or canonical mutation occurred. Block 25 is accepted only at this exact
+  revision.
 
 ### Stop
 
@@ -6792,7 +7024,7 @@ evolution, or changing terminal lifecycle.
 
 ## Block 26 — Successor-task continuity
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -6892,7 +7124,94 @@ widening.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 26 started automatically after independent acceptance of
+  Block 25 evidence `ea004caf0b71e099fcda75663a72d78dc69df6e0` and product
+  `50fcc42a606ea439d27e0e9f7a6a713669dc342d`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the accepted successor-task continuity contract; Block 27
+  and later operations remain closed, and no live successor transition or task
+  creation has been attempted.
+- Product candidate: commit
+  `05ec47134453ef173735c6a34bff46d9c0f73061`, tree
+  `e7085a92de93056c11a0ef7b082e1b5ec7353ff4`, parent Block 26 activation
+  `7237897e532fe64c734ce428b7a614b38a06d036`, pushed with local/upstream
+  divergence `0 0`. The ten-file product/test delta projects complete canonical
+  transition identity and maintained-gate currentness, registers one typed
+  `factory.successor-task-transition` operation, dispatches at most one exact
+  fix-executor turn for the immediate next phase, independently verifies the
+  phase-specific task/group/route evidence, and keeps effective source-stop
+  permission false until the `work-started` head also has current first-Block
+  task evidence. The current-run workspace shows the exact phase, range,
+  successor, mission/group, handoff/acknowledgement, source-stop posture, and a
+  single conflict-aware `Advance continuity` control; predecessor missions
+  receive only their mission-scoped historical records and no current control.
+  The dashboard writes no task, policy, event ledger, supervision group, or
+  transition record directly.
+- Candidate proof: affected backend owner/projection suites passed 58/58 with
+  `ResourceWarning` fatal; focused adversarial coverage rejects malformed or
+  discontinuous range claims, wrong-role handoff and acknowledgement markers,
+  narrative-only first-work claims, stale phase/source identity, and a
+  maintained gate stop claim without current concrete task evidence. Ruff,
+  Python compilation, all 104 frontend tests, TypeScript, and the production
+  build passed. Focused Playwright passed 3/3 across desktop, tablet, and mobile
+  with exact preview/semantic-row assertions, predecessor exclusion, Axe
+  serious/critical checks, and no horizontal overflow. The full-profile
+  verifier reports all 32 Blocks with 0 errors/warnings, all 30 verifier tests
+  pass, and `git diff --check` passes. The restarted loopback runtime on port
+  8787 reports complete healthy coverage and exposes the supported continuity
+  descriptor among 23 closed registry entries. No live owner dispatch,
+  successor creation/binding, route, work-start, policy/history/event mutation,
+  or source-stop action was attempted. Independent exact-revision review is
+  pending.
+- First exact-revision review: independently `REJECTED` evidence
+  `1218642a9f9b4a9faba474e656f6c450bbeb6428`, tree
+  `63560fa00730ab5a14b31c2d1b4a0e73d001f10e`, over product
+  `05ec47134453ef173735c6a34bff46d9c0f73061`. The single material finding was
+  that the operation unconditionally supplied `task_creation_authority` as
+  available after checking only the canonical head's authority-class enum and
+  nonempty source-record string. A fabricated safe record labeled
+  `direct-user` could therefore enable the task-creation phase without an exact
+  direct-source read. All ordered-phase, one-action, task/group/route/
+  acknowledgement/work-start, effective source-stop, UI history-boundary,
+  resource, and Stop checks passed and remain reusable. The reviewer also
+  identified the arbitrary bootstrap `source_fingerprint` as an affected
+  currentness question to close in the same correction.
+- Authority/currentness correction: product successor
+  `db9f1703634871c8462efb6ed066b979a5f9db05`, tree
+  `93bccb8e6b2bfa8d0bc1e5259e0c35e53743a616`, parent rejected evidence
+  `1218642a9f9b4a9faba474e656f6c450bbeb6428`, changes only four backend/test
+  files. Before passing `available` to the maintained gate, the operation now
+  resolves the canonical `codex:<task>:<turn>:<item>` governing record from the
+  exact complete current source task; requires one ordinary text-only direct
+  user item with matching full-content and envelope hashes, client identity,
+  and no routed/generated/truncated posture; binds those identities into the
+  preview fingerprint and semantic source revision; and rechecks the item after
+  owner dispatch. Unsupported source classes or fabricated, absent, changed,
+  partial, routed, or generated records disable the operation. The projection
+  also retains the exact transition record sequence, and every successor
+  bootstrap marker must match the canonical `successor-created` state
+  fingerprint; first-work markers preserve the same governing source record.
+  Focused fabricated-source and mismatched-bootstrap probes passed 2/2, the
+  full affected backend suites passed 58/58 with `ResourceWarning` fatal, Ruff
+  and compilation passed, and the full-profile 32-Block verifier plus all 30
+  verifier tests and diff checks passed. Prior 104/104 frontend, production
+  build, and responsive browser 3/3 evidence is unaffected and reused. No live
+  transition, task creation, route, policy/event mutation, work start, or stop
+  occurred. Fresh focused exact-revision review is pending.
+- Fresh exact-revision review: independently `ACCEPTED` evidence successor
+  `beeddf676b261145a3e70ecc222d9b159ec70e78`, tree
+  `83ecf88ec3e6b4b87bdcd1d8969bd20105b161ac`, over corrected product
+  `db9f1703634871c8462efb6ed066b979a5f9db05`. The reviewer reproduced complete
+  direct-source resolution and post-dispatch currentness, fabricated/routed/
+  generated/mixed/truncated/partial-source rejection, canonical
+  `successor-created` fingerprint binding, first-work governing-source
+  preservation, and concrete work evidence. Focused proof passed 3/3 with
+  `ResourceWarning` fatal; Ruff, compilation, full-profile 32-Block
+  verification with 0 diagnostics, diff/object/clean/remote `0 0`, and Stop
+  checks passed. No live transition, task creation, route, canonical mutation,
+  work-start, or source-stop action occurred. Block 26 is accepted only at this
+  exact revision.
 
 ### Stop
 
@@ -6903,7 +7222,7 @@ or terminal shutdown.
 
 ## Block 27 — Weekly supervision report workflow
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -7005,7 +7324,130 @@ unverified stage.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 27 started automatically after independent acceptance of
+  Block 26 evidence `beeddf676b261145a3e70ecc222d9b159ec70e78` and product
+  `db9f1703634871c8462efb6ed066b979a5f9db05`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the accepted weekly-report workflow contract; Blocks
+  28–31 remain closed, and no live report preparation, cognitive review,
+  finalization, delivery, or Gmail action has been attempted.
+- Product candidate: commit
+  `becca0646d1b3d64c88ba2110e3bb3c4c9c1c28e`, tree
+  `c920a3a38c7ad162001970ef9c114e813ff34960`, parent Block 27 activation
+  `fd8f3e40108bedc0c46bf7e098b18e4c54088068`, pushed with local/upstream
+  divergence `0 0`. The 17-file product/test delta registers typed
+  `factory.weekly-supervision-report`, derives one current period and source
+  root through the maintained metrics owner, projects seven distinct stages,
+  and dispatches at most one configured Sol XHigh roundup-writer turn for the
+  first incomplete stage. Prepare inputs are reproduced byte-for-byte;
+  cognitive review and the manifest/Markdown/PDF/JSON bundle remain separately
+  owned and verified; a configured Gmail delivery counts only after exact
+  seed/sent raw-MIME and attachment-owner read-back proves the verified
+  `report.pdf` in the bound reply thread and the maintained ledger owner appends
+  the receipt. The dashboard never reads Gmail, sends mail, writes report
+  artifacts or the ledger, schedules work, or treats reporting as
+  implementation acceptance.
+- Truth, recovery, and resource posture: current policy SHA is part of the
+  report source root, changed policy replans to a new report without overwriting
+  the prior verified bundle, and partial/corrupt or extra-member bundles fail
+  closed. Report projection reads at most 16 members and 64 MiB total, while
+  every member remains individually capped. Verification, display, and
+  delivery failures retain exact earlier stages and expose only the next
+  bounded recovery; exact replay returns the prior result rather than
+  regenerating it. Missing Gmail leaves a locally verified report with
+  delivery unavailable/retryable. Missing or non-distinct roundup-writer
+  configuration leaves the current report plan and stage visible but disables
+  the operation with `weekly_report_writer_unavailable`; the live current run
+  on port 8787 proves that fail-closed posture.
+- Product and UI proof: the maintained weekly-report suite passed 12/12 with
+  `ResourceWarning` fatal, including prepare/finalize/verify replay, exact
+  directory membership, missing delivery, Gmail raw-MIME/attachment/currentness
+  rejection, and receipt replay. The exact backend operations, workflow,
+  server, and operation-framework suites passed 89/89 with `ResourceWarning`
+  fatal; focused adversarial cases cover changed policy, retained prior bundle,
+  member bounds, wrong writer execution identity, changed supervision group,
+  one-stage postconditions, route currentness, and no direct writes. Ruff and
+  Python compilation passed. All 105 frontend tests, TypeScript, and the
+  production build passed. Focused Playwright passed 3/3 across desktop,
+  tablet, and mobile with seven-stage/source/writer/period/delivery rendering,
+  one exact captured stage request, Axe serious/critical checks, and no
+  horizontal overflow. The full-profile verifier reports all 32 Blocks with 0
+  errors/warnings, all 30 verifier tests pass, and `git diff --check` passes.
+  The restarted loopback runtime on port 8787 reports complete health and 22
+  supported operations among 24 closed registry entries. No live prepare,
+  cognitive review, finalize, delivery, Gmail, policy, event, or report write
+  was attempted. Independent exact-revision review is pending.
+- Product-capability review selected the existing deterministic weekly-report
+  artifact owner, configured roundup-writer task, canonical event/policy
+  sources, typed operation coordinator, and Gmail delivery receipt owner. A
+  dashboard-local report generator/delivery registry and a generalized workflow
+  engine were rejected because they would duplicate stronger maintained owners
+  and broaden this Block beyond one report workflow.
+- First exact-revision review: independently `REJECTED` evidence
+  `b9fb8c2ec9754512becc296a0d0537dc5e60fb3b`, tree
+  `997af28ae3558c6e281f572cb19a263fdb5ba097`, over product
+  `becca0646d1b3d64c88ba2110e3bb3c4c9c1c28e`. The sole material finding was
+  the restart/recovery state where an exact valid `review.json` survived a
+  finalize failure: projection truthfully marked cognitive review complete but
+  still exposed `review-finalize`, whose prompt asked Sol XHigh to synthesize
+  the review again. That contradicted stage reuse and could strand recovery
+  when the second valid synthesis differed byte-for-byte. All other report
+  owner, currentness, delivery, bounds, route, UI, mechanical, and Stop proof
+  passed and remains reusable; Block 28 stayed closed.
+- Retained-review recovery correction: product successor
+  `328131782aaa9cb48c85f7cac9b5b34009cf2783`, tree
+  `bdc885f2f03ed21b544489b0f2cc5ea3db9af0ee`, parent rejected evidence
+  `b9fb8c2ec9754512becc296a0d0537dc5e60fb3b`, changes only eight affected
+  projection/operation/schema/UI/test files. A source-valid retained review now
+  produces the distinct `finalize-verify` stage/action: cognitive review remains
+  complete, finalize is current, the UI says `Finalize & verify`, and the owner
+  prompt explicitly forbids producing, regenerating, editing, or reinterpreting
+  the review. It reads and base64-encodes the exact retained JSON for the
+  maintained replay-safe finalizer, then invokes verification; an absent or
+  changed review stops rather than rerunning cognition.
+- Correction proof: an exact maintained prepare plus retained canonical review
+  restarted into `finalize-verify` with cognitive review `complete` and
+  finalize `current`; the operation source and prompt preserved that action and
+  contained no synthesis instruction. Focused backend passed 2/2 with
+  `ResourceWarning` fatal, focused frontend/schema passed 22/22, production
+  TypeScript/Vite build passed, Ruff and Python compilation passed, and focused
+  Playwright passed 3/3 across desktop/tablet/mobile with the retained-review
+  stage, `Finalize & verify`, exact one-stage request, Axe serious/critical, and
+  no-overflow proof. The full-profile verifier remained 32 Blocks with 0
+  errors/warnings, all 30 verifier tests and diff checks passed, and remote
+  divergence was `0 0`. Prior unaffected report/backend/frontend/delivery proof
+  is reused. No live report or Gmail action occurred; fresh focused exact review
+  is pending.
+- Second exact-revision review: independently `REJECTED` evidence
+  `03c7725ce652750620cde0b55354ee624f778caf`, tree
+  `e18151c8240d1de3c5b3dd7a0666d3218f655626`, over product
+  `328131782aaa9cb48c85f7cac9b5b34009cf2783`. The product recovery was sound,
+  but the new browser fixture borrowed the live run's unassigned project
+  posture, so `Finalize & verify` was disabled and the claimed three-viewport
+  proof was not reproducible. All backend, frontend, build, mechanical,
+  currentness, owner, and Stop proof remained valid and reusable.
+- Browser-fixture correction: product successor
+  `4fcfd7ccc3eccab608cb8b4a14a3b5b127ef2d40`, tree
+  `3443c05a0064cbb129ba18b66115b7acdd654585`, parent rejected evidence
+  `03c7725ce652750620cde0b55354ee624f778caf`, changes only the focused
+  Playwright fixture. The fixture now owns a consistent exact
+  `software-factory` project binding matching the asserted operation target
+  instead of borrowing mutable live binding posture. The exact rejected test
+  reran serially against port 8787 and passed 3/3 across desktop, tablet, and
+  mobile, including the captured `finalize-verify` request, Axe checks, and
+  no-overflow assertions. No owner dispatch, report artifact, Gmail action, or
+  canonical mutation occurred; fresh delta-only exact review is pending.
+- Fresh delta-only exact-revision review: independently `ACCEPTED` evidence
+  `d1c9ab83471e428450e3f52fd80d809ab31ffc71`, tree
+  `b7cb5a7a8e5d0dd5495e741ffae533f33465472c`, over product/test correction
+  `4fcfd7ccc3eccab608cb8b4a14a3b5b127ef2d40`, tree
+  `3443c05a0064cbb129ba18b66115b7acdd654585`, with no material finding. The
+  exact rejected browser case passed 3/3 at desktop, tablet, and mobile with a
+  consistent source-owned project binding, enabled `Finalize & verify`, exact
+  captured operation target, zero serious/critical Axe findings, and no
+  horizontal overflow. Full-profile verification, diff, object, clean-checkout,
+  remote `0 0`, and Stop gates passed. Block 27 is accepted at this revision.
 
 ### Stop
 
@@ -7015,7 +7457,7 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ## Block 28 — Factory evolution evaluation and disposition
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -7133,7 +7575,153 @@ and stop at the first unavailable, stale, rejected, or unverified stage.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 28 started automatically after independent acceptance of
+  Block 27 evidence `d1c9ab83471e428450e3f52fd80d809ab31ffc71` and
+  product/test correction `4fcfd7ccc3eccab608cb8b4a14a3b5b127ef2d40`.
+  Governing implementation authority remains direct-user item 44 under mission
+  root `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the maintained Factory-evolution derived-artifact and
+  disposition owner. Blocks 29–31 remain closed; no evolution artifact,
+  external candidate implementation, adoption, deployment, routing,
+  scheduling, or outcome mutation has been attempted.
+- Frozen implementation candidate: commit
+  `e34d92a9c98e4cc8a4ca5e50c1e0beb1a5e71c1e`, tree
+  `b7af97cc132fbccb88f1934826e59ba262b10141`, parent
+  `65b462994e2a71b46261bff2f246ed9b87f31a7d`. The 17-file slice registers
+  `factory.evolution-evaluate`, projects one deterministic packet/current
+  stage through the run and report APIs, and adds compact source-backed run,
+  Reports, and Admin displays. It invokes only the installed maintained
+  `factory-evolution prepare/finalize/evaluate/verify` owner through one
+  configured proposer or evaluator turn. External implementation remains an
+  exact Block 11 task/Git input and the operation exposes no candidate writer,
+  adoption, installation, routing, scheduling, deployment, rollback, or
+  outcome owner.
+- Truth, authority, and recovery proof: the projection requires one current
+  verified weekly report, its exact `report.json`, the canonical event ledger
+  head, a deterministically rebuilt packet/evolution identity, immutable
+  owner-verified artifact inventory, and three distinct configured proposer,
+  implementer, and evaluator identities. Preview binds report/event/packet/
+  policy/project/role roots and, for evaluation only, a clean exact baseline
+  ancestor/candidate revision pair attributable to the separate current
+  implementation task. Dispatch re-resolves that fingerprint and the route
+  gate, starts one stage owner once, and verification re-reads both independent
+  role contracts, external candidate evidence when applicable, the exact stage
+  postcondition, and the route. Missing, changed, aliased, partial, or invalid
+  sources remain unavailable or pending; accepted earlier artifacts are reused
+  and there is no automatic retry.
+- Validation: dashboard-server discovery passed 137/137 with
+  `ResourceWarning` fatal before the final role-currentness hardening, whose
+  affected projection/coordinator regressions then passed 2/2. The maintained
+  Factory-evolution owner suite passed 30/30 across all four dispositions and
+  invalid/stale/role/resource cases. Ruff and Python compilation passed. The
+  full frontend passed 19 files and 108 tests, TypeScript/Vite production build
+  passed, and the focused evolution browser case passed 3/3 across desktop,
+  tablet, and mobile while exercising run, Reports, and Admin projections,
+  the exact preview request, serious/critical Axe checks, no horizontal
+  overflow, and absence of adoption/deployment controls. `git diff --check`
+  passed.
+- Live nonmutating proof: the exact candidate server was restarted on
+  loopback port 8787. Health, Reports, operations, and Admin returned HTTP 200;
+  the operation registry reports `factory.evolution-evaluate` supported with
+  confirmation class `factory-evolution`, the maintained multi-owner contract,
+  and disposition-only postcondition. Six current run-local evolution
+  projections are truthfully `unavailable` because their exact prerequisites
+  are not all current; no zero, synthetic candidate, or apparent success is
+  substituted. No live preview, role request, artifact creation, external
+  implementation, disposition, adoption, deployment, or canonical mutation
+  was attempted. Exact-revision review is pending and Blocks 29–31 remain
+  unopened.
+- Rejected exact review retained: independent review rejected evidence
+  `d27ceaaa2b4350ea516aa87de65b0dd2d2f4b27c` and product
+  `e34d92a9c98e4cc8a4ca5e50c1e0beb1a5e71c1e` only because the verified
+  evaluation was validated and then omitted from the dashboard read model.
+  Stage, root, disposition, owner, currentness, mutation, and Stop proof remains
+  reusable. The correction is limited to a bounded verified comparison summary
+  and its Run/Reports/Admin rendering.
+- Pre-broad execution brief boundary, recorded after focused correction proof
+  and before any broad mapped replay:
+  - Maintained owner: complete. The projection consumes only normalized output
+    from the existing `verify_evolution_review` and
+    `verify_candidate_evaluation` owners; no helper, owner command, operation
+    registry, preview, dispatch, verification, or postcondition code changed.
+  - Source/currentness: complete. Plan and result fields come only after exact
+    owner verification; report/event/packet/review/evaluation/manifest roots,
+    the directory tree key, and the existing workflow fingerprint remain the
+    currentness boundary. Missing review produces no plan; missing evaluation
+    produces no results; invalid owner material still fails unavailable.
+  - Authority: source-backed not applicable to this read-only correction. No
+    confirmation, route gate, task start, owner request, candidate writer, or
+    mutation authority was added or changed.
+  - External implementation: source-backed not applicable. Existing Block 11
+    task/Git proof remains the sole candidate input; the summary cannot launch,
+    accept, retry, or modify that work.
+  - Recovery/resource bounds: complete. Recovery is stage-derived read-only
+    guidance with preserved exact roots; it performs no retry. Displayed prose,
+    lists, candidates, cases, and evidence are already bounded by the maintained
+    evolution validator and the existing bounded artifact reader.
+  - Security/UI truth: complete. React renders text without raw HTML; exact
+    result records preserve condition revision, evidence root, and canonical
+    event links. Planned, missing, verified, advisory, revise, reject,
+    regression, contrary-evidence, and no-adoption postures have focused proof.
+  - Stop: complete. No implementation, adoption, installation, routing,
+    scheduling, deployment, rollback, outcome, terminal-report, request-stop,
+    or shutdown owner is introduced; Block 29 remains `not-started`.
+  - Focused proof before the one broad run: backend comparison/projection tests
+    passed 2/2 with `ResourceWarning` fatal; affected frontend schema,
+    component, Reports, Run, and Admin tests passed 20/20; production build,
+    Python compilation, and Ruff passed. The first focused browser assertion
+    incorrectly expected an unshortened identity even though the identity
+    control retained it; after narrowing that test-only assertion to the visible
+    rejected-path effect, the affected desktop/tablet/mobile exercise passed
+    3/3 with planned and verified states, exact source links, regressions,
+    contrary evidence, Axe checks, and no horizontal overflow. All
+    likely-mutating review is therefore complete or source-backed not applicable
+    before the single broad matrix.
+- Frozen comparison-workspace successor: product commit
+  `5d1e51d408992545fe5465c77cd6d0bc40b2d863`, tree
+  `a66361eae8157a4a613758357d1ccc81abb7d876`, parent rejected evidence
+  `d27ceaaa2b4350ea516aa87de65b0dd2d2f4b27c`. The 16-file correction retains
+  the existing owner and operation coordinator and adds only the bounded
+  owner-verified comparison plan/results projection, strict Zod contract,
+  compact shared Run/Reports/Admin evidence component, responsive styling, and
+  focused proof. Planned state exposes selection rationale, selected and
+  compared-not-selected candidates, tradeoffs, uncertainty, resource and Stop
+  bounds, explicit unavailable results, and stage recovery. Evaluated state
+  separately exposes baseline/candidate case outcomes, evidence class, exact
+  condition revision and evidence root, canonical event links, observed effect,
+  cost, per-case and aggregate regressions, contrary evidence, evaluation
+  rationale, disposition, limitations, and preserved roots. It adds no owner,
+  editor, retry, preview, dispatch, acceptance, adoption, or deployment path.
+- Single broad mapped run after the pre-broad boundary: dashboard backend
+  passed 138/138 with `ResourceWarning` fatal, the maintained evolution owner
+  passed 30/30, Ruff passed, frontend passed 20 files/113 tests, and the
+  TypeScript/Vite production build passed. The one serial Playwright matrix
+  completed 72/78; the corrected Factory-evolution case passed 3/3. Its six
+  failures were preserved as unaffected diagnostics rather than hidden by a
+  replay: three live drill-down assertions expected issue follow-up unavailable
+  after the canonical run made it eligible; two dark-theme report-link checks
+  exposed a pre-existing color-only distinction; and one mobile Factory Floor
+  inspector fixture raced. No second broad matrix was run and none of those
+  unrelated rows was folded into this successor. After an indentation-focused
+  review preserved `awaiting-implementation` without requiring a disposition,
+  the affected backend 2/2, Ruff, full-profile verifier (32 Blocks, 0 errors,
+  0 warnings), verifier tests 30/30, and diff check all passed. The exact server
+  is running on loopback port 8787 with the new plan/results/recovery keys and
+  truthful unavailable values for all six current source projections. Fresh
+  exact-revision review is pending; Block 29 remains closed and no live
+  evolution action or canonical mutation occurred.
+- Independent exact-revision acceptance: evidence
+  `bab551b74ca561dd0053e8c2b2158b321afc52e4`, tree
+  `9e58855a6a354ffcb684d4d026c455e91aa9ed33`; product
+  `5d1e51d408992545fe5465c77cd6d0bc40b2d863`, tree
+  `a66361eae8157a4a613758357d1ccc81abb7d876`. The reviewer found no material
+  issue and independently reproduced backend 2/2, affected frontend 40/40,
+  build, Ruff, Python compilation, focused browser 3/3, full-profile 32-Block
+  verification with 0 diagnostics, verifier tests 30/30, diff/fsck/remote/
+  clean gates, and the Block 29 Stop. The pre-broad brief preceded the one
+  documented 72/78 matrix; Block 28 passed 3/3, all six unrelated diagnostics
+  remain truthful, and no replay, harness mutation, live evolution action, or
+  canonical mutation occurred.
 
 ### Stop
 
@@ -7146,7 +7734,7 @@ acceptance.
 
 ## Block 29 — Terminal report workflow
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -7248,7 +7836,177 @@ unverified output.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 29 started automatically after independent acceptance of
+  Block 28 evidence `bab551b74ca561dd0053e8c2b2158b321afc52e4` and product
+  `5d1e51d408992545fe5465c77cd6d0bc40b2d863`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the maintained terminal-report artifact and configured
+  delivery owners. Blocks 30–31 remain closed; no completion decision,
+  request-stop, lifecycle transition, automation pause, shutdown, Gmail read,
+  or Gmail send has been attempted.
+- Pre-broad execution brief — `2026-08-12T11:51:51Z`, focused proof complete,
+  broad validation not started. The bounded product/test worktree contains 15
+  files and has binary-diff SHA-256
+  `517bb9026f69f4a2941bf236c6f0ba6d69bc2f0e55bc1e106f35dfa83beef060`.
+  Before any broad matrix, every likely-mutating boundary was classified and
+  checked as follows:
+  - **Complete — authority and range:** direct-user item 44 and mission root
+    `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+    remain the implementation authority; only Block 29 is active and Blocks
+    30–31 remain closed.
+  - **Complete — exact outcome source:** projection requires one current mission,
+    the latest current-mission `completed` lifecycle, its exact state
+    fingerprint, one maintained outcome-completion record accepted by
+    `assess_outcome_completion_record`, and the lifecycle's exact binding to
+    that record. Missing, failed, stale, or unreconciled evidence is
+    unavailable, never actionable.
+  - **Complete — report owner/currentness:** the maintained supervision,
+    terminal-report, and policy-owner SHA-256 values are respectively
+    `46d225ae949e332b0a6718fb400c8f05818d8ac8462a5aac8bce86fe6e532e78`,
+    `800c2ff04bc3dcefaf124aa57d37ad85b42b5732db6825b8225cbf11a437c138`,
+    and `31cbe227f1fa91a184f022bfc1ff3ca49c0feac086e20d7bb621adccdcf24a0a`.
+    Projection rebuilds the maintained packet, binds the source root/report
+    tree/owner revision, verifies every prior weekly report through its
+    maintained owner, rejects a changed retained packet, and rechecks owner
+    revisions after composition.
+  - **Complete — independent writer/reviewer owner:** the terminal contract's
+    exact `base_reviewer` role and `base_reviewer_thread_id` are used, with
+    `changed-state-review` route purpose. The configured task must be distinct
+    from the target, fully read, idle/not-loaded, projectless-capable, and bound
+    to the complete Sol XHigh execution contract and exact cwd identity.
+    Focused negatives reject a roundup-writer substitution or a terminal
+    projection that claims the wrong role.
+  - **Complete — consequential action/currentness:** one typed confirmation
+    consumes one preview, re-resolves project/group/policy/workflow/task/cwd and
+    route-gate state before dispatch, starts at most one exact base-reviewer
+    turn, re-reads its exact marker and completed turn, re-runs the route gate,
+    and verifies the named postcondition. No automatic retry exists.
+  - **Complete — stage and recovery bounds:** prepare, source currentness,
+    cognitive review, finalize, JSON/Markdown/PDF/manifest verification,
+    display, and delivery remain distinct truth-labeled stages. An exact
+    retained review is reused after a later-stage failure; only the first
+    incomplete stage is offered and accepted earlier stages must remain
+    present.
+  - **Complete — delivery ownership:** the dashboard projects only the
+    configured primary Gmail lane and canonical delivery/read-back record. The
+    base-reviewer prompt routes the verified two-PDF reply and raw-MIME plus
+    attachment read-back through the configured Gmail and maintained terminal
+    owners; dashboard server/UI code performs no Gmail read, attachment read,
+    send, or delivery-ledger write.
+  - **Source-backed not-applicable — live delivery mutation:** the current live
+    run has no reconciled completed lifecycle, so its workflow correctly
+    projects `terminal_report_completion_unavailable`. No live terminal report,
+    Gmail reply/read-back, or delivery record is authorized or needed for this
+    implementation proof; maintained owner tests supply disposable artifact
+    coverage and the browser intercept stops before dispatch.
+  - **Complete — lifecycle and Stop:** operation evidence hard-codes direct
+    lifecycle/report/Gmail writes, request-stop, automation pause, terminal
+    shutdown, and automatic retry as false. The semantic diff preserves those
+    actions as not performed, the workflow always projects shutdown through a
+    separate owner with `permitted=false`, and no Block 30/31 owner is called.
+  - **Complete — UI/history boundary:** only the current run receives the action
+    and current terminal workflow; predecessor mode suppresses all current
+    report/action state. Run and Reports expose exact stage, completion,
+    coverage, prior-report count, source/manifest identity, delivery posture,
+    limitations, and the explicit shutdown separation without a second editor
+    or direct-write path.
+  - **Complete — focused proof:** maintained terminal-report owner passed 11/11;
+    focused backend projection/workflow/registry/live-API proof passed 4/4 plus
+    the role/currentness test 1/1; focused frontend schema/action/Run/Reports
+    proof passed 35/35 and the final affected display pass was 11/11; Ruff,
+    Python compilation, TypeScript, production build,
+    and diff check passed. The exact restarted loopback runtime on port 8787
+    reports complete health coverage, exposes 26 closed registry descriptors
+    including the supported terminal operation, and focused Playwright passed
+    3/3 at desktop/tablet/mobile with Axe and no-overflow checks. No broad suite
+    or broad browser matrix had started when this brief was written.
+- Single broad mapped run after the pre-broad checkpoint
+  `23e8f43d7281d86ff90ea7c6c863335185ce7169` — `2026-08-12T12:03:00Z`:
+  dashboard backend passed 140/140 with `ResourceWarning` fatal, frontend
+  passed 20 files/114 tests, and the TypeScript/Vite production build passed.
+  The one serial Playwright matrix completed 76/81; the new Block 29 terminal-
+  report case passed 3/3 at desktop/tablet/mobile. Its five failures are the two
+  already-recorded unaffected Block 28 diagnostic families: three live drill-
+  down assertions expected `Issue follow-up` disabled after the canonical run
+  made it eligible, and two tablet/mobile Reports checks exposed the existing
+  dark-theme link-within-text contrast/style defect. The formerly observed
+  mobile Factory Floor fixture race did not recur. No second broad matrix was
+  run, no harness/configuration was changed, and neither unrelated diagnostic
+  family was folded into Block 29. The loopback health envelope remained
+  complete immediately before the browser run; no terminal report, Gmail,
+  lifecycle, automation, request-stop, or shutdown mutation occurred.
+- Independent exact-revision review rejected evidence
+  `c8199876018c7840725287db5dd743f2bd13469b` on two bounded rows: a stale
+  append-once delivery was labeled retryable despite having no supported owner
+  action, and this consequential Block lacked its compact product-capability
+  decision. All other owner, currentness, staged recovery, UI, pre-broad-order,
+  single-broad-run, remote, and Stop evidence was accepted as reusable.
+- Product-capability decision — `2026-08-12T12:17:45Z`, consequential frame
+  3,511 bytes, SHA-256
+  `736124301d439cf6f143bb8013d53f085e9f3f4748df35451ef1bce5df0d8857`:
+  - Rejected a local dashboard/registry implementation that would generate or
+    validate terminal artifacts, read or send Gmail, or write delivery state;
+    that path would create duplicate owners and grant the UI report and mail
+    authority it does not have.
+  - Rejected a generalized weekly/terminal workflow abstraction because the
+    terminal family has distinct completed-outcome, prior-report, base-reviewer,
+    two-PDF, delivery/read-back, and no-shutdown contracts; a shared action
+    would erase independently recoverable stages and owner postconditions.
+  - Selected the narrow composition of the maintained terminal prepare/
+    finalize/verify owner, current policy and `base_reviewer` task owner,
+    changed-state-review route gate, configured Gmail read/send owners, and
+    canonical append-once delivery verifier behind the existing typed preview/
+    confirmation coordinator and read-only Run/Reports projection.
+  - Protected effects are exact outcome and mission currentness, retained-review
+    reuse, prior-report verification, independent cognitive review, immutable
+    artifact and delivery evidence, predecessor suppression, and the absence of
+    direct Gmail, lifecycle, automation, request-stop, or shutdown effects.
+    The selected path costs more configuration, owner round trips, and explicit
+    unavailable/stale states, but preserves authority and makes partial recovery
+    truthful instead of substituting a lower-power local workflow.
+- Narrow product successor
+  `bf03d8e9e825f6b695670b5e4e9b4ea89ce4bc40`, tree
+  `4502e2c7e8f471141f1d9218ecbae2be839c40df`, changes only projection and its
+  focused backend/component proof. `delivery-stale` now has no next action,
+  `actionable=false`, `retryable=false`, and a structured non-retryable
+  `terminal_report_delivery_stale` error explaining that the append-once owner
+  cannot replace the receipt. The exact backend regression passed 1/1 with
+  `ResourceWarning` fatal; the first invocation named a nonexistent test class
+  and executed no product test, after which the corrected invocation passed.
+  The affected action component passed 22/22, Ruff, Python compilation, and the
+  TypeScript/Vite production build passed. No broad matrix was replayed and no
+  live owner action occurred; fresh exact-revision review is pending.
+- Exact delta review accepted the capability decision but rejected evidence
+  `601d82c90f3aa52ef3bcbffb13385ddc4cf46fed` because delivery lookup was scoped
+  only to the lifecycle. A historical receipt for a different report set could
+  therefore be mislabeled as an append-once conflict for the current set.
+- Exact-set successor `f180e60411c27f8314de83a96e1789a3b91a5a1f`, tree
+  `aabf4faad8da84c573880df5761f57d999d8b3ce`, changes only projection and its
+  focused backend proof. The dashboard now filters canonical delivery events
+  to the exact current `report_set_id` before invoking the maintained latest-
+  delivery owner. A different-set historical receipt yields no current-set
+  receipt and preserves the supported `delivery` action; an exact same-set
+  stale receipt remains `delivery-stale`, non-actionable, and non-retryable.
+  The focused case proves an old-only set selects nothing, mixed old/current
+  sets select the exact current receipt, no receipt remains pending/deliverable,
+  and same-set stale remains closed; it passed 1/1 with `ResourceWarning` fatal,
+  Ruff, Python compilation, and diff check. No broad or browser matrix was
+  replayed and no live owner action occurred; fresh exact review is pending.
+- Independent exact-set acceptance: evidence
+  `81b5891980691a2e3e773dd1dfcb8cc3bd9ba85c`, tree
+  `c2a2698033380e30cb9562d5b06df97f6fdb5f15`; product
+  `f180e60411c27f8314de83a96e1789a3b91a5a1f`, tree
+  `aabf4faad8da84c573880df5761f57d999d8b3ce`. The reviewer found no material
+  issue and independently reproduced different-set history as ignored/current
+  delivery as actionable, mixed history as exact-current selection, no receipt
+  as pending, and same-set stale as non-actionable/non-retryable. Focused
+  backend 1/1 with `ResourceWarning` fatal, Ruff, Python compilation,
+  full-profile 32-Block verification with 0 diagnostics, verifier tests 30/30,
+  diff/fsck/clean/remote `0/0`, and the Block 30 Stop passed. The accepted
+  capability decision and all unaffected owner/UI/broad proof remain reusable;
+  no broad/browser replay or live report, Gmail, lifecycle, automation, stop,
+  or shutdown action occurred.
 
 ### Stop
 
@@ -7259,7 +8017,7 @@ cross-project acceptance.
 
 ## Block 30 — Request-stop and terminal shutdown
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -7366,7 +8124,302 @@ and stop at denial, partial, or unverified state without retrying or widening.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 30 started automatically after independent acceptance of
+  Block 29 evidence `81b5891980691a2e3e773dd1dfcb8cc3bd9ba85c` and product
+  `f180e60411c27f8314de83a96e1789a3b91a5a1f`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the existing maintained request-stop, terminal lifecycle,
+  exact automation, and shutdown-receipt owners. Block 31 remains closed. The
+  current real target is not an authorized disposable shutdown target; no live
+  request-stop, lifecycle, automation, task, report, Gmail, or shutdown action
+  will be executed for implementation proof.
+- Pre-broad execution brief — `2026-08-12T13:22:57Z`, focused proof complete,
+  broad validation not started. The bounded 13-file product/test worktree has
+  binary-diff SHA-256
+  `bc523c965133418ce715f2de02f5b617697e06fdcb33237651af138c5b61d2e2`.
+  Before the one broad matrix, every likely-mutating owner, authority,
+  currentness, recovery, and Stop boundary was classified and checked:
+  - **Complete — authority and range:** direct-user item 44 and mission root
+    `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+    remain the implementation authority. Only Block 30 is active; Block 31 is
+    closed, and no routed correction is treated as user authority.
+  - **Complete — exact target, project, group, and mission:** source resolution
+    requires one registered canonical project, one exact current supervision
+    group for the selected target, its current mission and policy binding, and
+    one complete current target-task projection. Project, target, group,
+    mission, policy, task, cwd, catalog, and source fingerprints enter preview
+    currentness and are re-read after dispatch; disagreement or truncation is
+    unavailable rather than coalesced.
+  - **Complete — outcome, retained-work, and continuity gates:** the workflow
+    consumes the maintained lifecycle/source-stop gate for the exact completed
+    lifecycle and terminal report set. Observable-outcome completion,
+    notification, retained open work, same-target successor, successor-task,
+    and activation postures remain independent booleans. Every false gate,
+    open incident or decision, pending successor transition, or pending
+    activation blocks source stop; focused proof varies each gate separately
+    and exercises combined denial.
+  - **Complete — terminal report and Gmail delivery:** only the accepted Block
+    29 maintained terminal-report packet, verified report root, exact current
+    report-set delivery/read-back receipt, and configured Gmail-owner evidence
+    are consumed. Missing, different-set, stale, or unverified delivery is
+    unavailable. Dashboard code neither generates the report nor reads/sends
+    Gmail, and the shutdown action cannot substitute for report delivery.
+  - **Complete — lifecycle and source-stop ownership:** the ordinary completed
+    lifecycle remains immutable. The operation reruns the maintained
+    `lifecycle-gate` with the exact lifecycle and terminal report-set identity;
+    only its current `source_stop_permitted` result can authorize the terminal
+    owner. Task terminality, tracker status, a green light, or local UI state is
+    never accepted as source-stop authority.
+  - **Complete — exact named automation ownership:** the policy/gate-selected
+    automation IDs must be safe, nonempty, unique, and cover every configured
+    role. The workflow reads and verifies only those exact manifests; it does
+    not enumerate, index, pause, or reconcile unrelated automations. Every
+    initially ACTIVE owner must become PAUSED after the delivery boundary;
+    already-PAUSED post-delivery owners must remain byte- and time-identical.
+    Missing, malformed, wrong-target, partial, or duplicate-role coverage is
+    unavailable or unverified.
+  - **Complete — maintained writer and target-task separation:** the configured
+    fix executor is distinct from the selected target and validated through the
+    maintained role-task contract, including the supported projectless Codex
+    workspace case. Its task, complete turn history, cwd, model/reasoning, role,
+    and current status are bound. The selected target task/turn/cwd/status must
+    remain unchanged through verification; no task Stop, turn interrupt, or
+    target steer is dispatched.
+  - **Complete — route authority and dispatch currentness:** one
+    `fix-execution` route gate binds the exact recipient, purpose, source, policy
+    and action. The gate is checked before dispatch and again before acceptance.
+    One typed phrase consumes one preview and can start at most one exact fix-
+    executor turn. Replay, stale preview, route denial/drift, task drift, or
+    duplicate execute produces no second dispatch and no automatic retry.
+  - **Complete — append-once receipt and event-head currentness:** verification
+    requires one canonical `terminal-shutdown` receipt for the exact target,
+    mission, lifecycle, report set, policy, delivery, gate currentness, and
+    automation state map. Its `previous_record_sha256` must equal the exact
+    preview event head, so an intervening canonical event prevents acceptance.
+    Receipt time must follow delivery and each newly paused automation owner
+    must update strictly after that boundary.
+  - **Complete — partial state and bounded recovery:** denial, unavailable
+    source, partial automation state, missing receipt, route failure, or
+    unverifiable postcondition is retained as a structured non-applied result.
+    The UI exposes the exact limitation and only the separately authorized
+    re-preview path; the coordinator performs no rollback, retry, broad scan,
+    fallback write, or generalized shutdown.
+  - **Source-backed not-applicable — live terminal mutation:** the current real
+    target is not a disposable validation run and has no direct authorization
+    for terminal shutdown. A live request-stop, lifecycle write, automation
+    pause, task action, report/Gmail action, or receipt append is therefore
+    outside this proof. Maintained owner tests provide disposable filesystem
+    coverage, while browser proof intercepts before preview dispatch.
+  - **Complete — UI and mission-history boundary:** only the current run renders
+    the compact terminal-shutdown control and its outcome, continuity, report,
+    delivery, lifecycle, automation, task-preservation, receipt, limitation,
+    and recovery facts. A predecessor mission renders none of the current
+    operation. Typed confirmation remains disabled in read-only browser proof;
+    there is no generic red Stop, bulk target control, marketing banner, second
+    editor, or direct-write path.
+  - **Complete — Block 30 Stop:** semantic changes explicitly separate this
+    workflow from turn interrupt, ordinary pause/resume, terminal-report
+    production/delivery, issue or decision resolution, successor work, and
+    Block 31 release acceptance. No later owner or final-ready claim is present.
+  - **Complete — focused proof:** current backend projection/registry/workflow
+    passed 3/3 with `ResourceWarning` fatal; the maintained terminal-report and
+    shutdown owner suite passed 11/11; focused frontend schema/action/Run proof
+    passed 29/29; Ruff, Python compilation, TypeScript, production build, and
+    diff check passed. The exact loopback build on port 8787 reports healthy,
+    and focused Playwright passed 3/3 at desktop/tablet/mobile with exact gate/
+    owner facts, predecessor suppression, Axe serious/critical checks, and no
+    horizontal overflow. No live mutation occurred.
+  - **Complete — validation envelope correction:** an earlier combined focused
+    unittest command used incorrect module/class addressing and executed three
+    loader errors, not product tests. The repository-root command with
+    `PYTHONPATH=dashboard/server/tests` then ran the exact three named tests and
+    passed. An earlier combined lint/build invocation from `dashboard/web` also
+    resolved neither repository-root Ruff nor Python paths; the corrected
+    repository-root Python/lint commands and web-root npm commands passed. Both
+    are command-envelope diagnostics, not product failures, and neither broad
+    suite started.
+- Product-capability decision — `2026-08-12T13:22:57Z`, consequential frame
+  from this tracker, 3,511 bytes, SHA-256
+  `736124301d439cf6f143bb8013d53f085e9f3f4748df35451ef1bce5df0d8857`:
+  - Rejected a local dashboard/registry Stop implementation because it would
+    duplicate or bypass lifecycle, automation, ledger, report, and continuity
+    owners and could mistake a process or UI state for outcome authority.
+  - Rejected a generalized shutdown framework because no maintained generic
+    orchestration owner exists and it would widen one exact terminal action
+    into bulk target, retry, task-stop, or lower-power fallback behavior.
+  - Selected the existing maintained lifecycle/source-stop gate, exact policy-
+    named Codex automation owner, and append-once terminal-shutdown receipt owner
+    behind the current typed preview, route gate, and configured fix-executor
+    operation. The dashboard remains a bounded coordinator and read model.
+  - Protected effects are observable-outcome completion, open incident/decision
+    and successor gates, exact report/Gmail delivery, lifecycle history, exact
+    named automations, selected target-task preservation, append-only event-head
+    currentness, and the absence of retry or bulk stop. The selected path costs
+    an explicit task-mediated owner round trip and more unavailable/partial
+    states, but preserves authority and truthful recovery.
+- Single broad mapped validation after immutable pre-broad checkpoint
+  `bcc800ac57bc564c1bccaebd9de74f6faec4f9d2` —
+  `2026-08-12T13:25:00Z`: dashboard backend passed 142/142 with
+  `ResourceWarning` fatal, frontend passed 20 files/116 tests, and the
+  TypeScript/Vite production build passed. The one serial Playwright matrix
+  completed 47/84; the new Block 30 terminal-shutdown case passed 3/3 at
+  desktop/tablet/mobile with its exact owner/gate, Axe, no-overflow, and
+  predecessor-suppression assertions. Thirty-six failures were the same 12
+  older live-state/report/operation fixture families at each viewport: metrics
+  source-anchor navigation, retained weekly review, terminal report, Factory
+  evolution, live drill-down check, mission-binding repair, role-binding
+  repair, automation-binding repair, pause, resume, same-target mission
+  succession, and successor-task continuity. One additional mobile tracker
+  failure reproduced the pre-existing active-navigation contrast diagnostic.
+  These are preserved for Block 31 integrated validation; no second broad run,
+  harness/configuration change, or unrelated correction was made. No live
+  preview, dispatch, request-stop, lifecycle, automation, task, report, Gmail,
+  receipt, or shutdown mutation occurred.
+- Routed correction `INC-20260812-132913-E4C8DA` identified one consequential
+  owner-invocation defect in the frozen checkpoint: the delegated prompt used
+  raw `python3` for the maintained terminal-shutdown helper even though this
+  bound host requires `uv run --python 3.14 python`. Because automation pause
+  precedes receipt append, the raw invocation could leave an avoidable partial
+  shutdown. The raw-interpreter path is rejected; the correction provenance is
+  not implementation authority, Block 31 remains closed, and the broad matrix
+  is not replayed.
+- Narrow invocation successor — `2026-08-12T13:41:33Z`, two-file product/test
+  binary diff from
+  `bcc800ac57bc564c1bccaebd9de74f6faec4f9d2` SHA-256
+  `7bdfb8437ee25fed573db5b936bce097c65a8c9e67d4da9fa087e78d7625d51f`:
+  the terminal-shutdown prompt now invokes exactly
+  `uv run --python 3.14 python <absolute-helper> ... terminal-shutdown` and no
+  longer contains raw `invoke python3`. The focused workflow/currentness test
+  asserts both the maintained invocation and raw-interpreter exclusion and
+  passed 1/1 with `ResourceWarning` fatal; Ruff, Python compilation, diff check,
+  and the exact source scan passed. Full-profile verification reports 32 Blocks
+  with 0 errors/warnings and the verifier suite passes 30/30. No other product,
+  owner, prompt family, or browser fixture changed; fresh exact-revision review
+  is pending.
+- Independent exact-revision review rejected evidence
+  `83194d893e45c599c641dc96bcfe7e54baaf87e4`, tree
+  `c348625c03769a9187f5202cf560069b25216624`, on one owner/currentness row.
+  The preview rejected open incident and decision heads, but the delegated
+  prompt and maintained lifecycle/receipt owners did not recheck those heads
+  before automation pause and receipt append. The reviewer reproduced a late
+  current incident that appeared in canonical status while lifecycle-gate still
+  returned every terminal boolean true and terminal-shutdown appended a
+  verified receipt. All other owner, runtime, pre-broad, single-broad,
+  mechanical, remote, and Stop evidence remains reusable; Block 31 stays closed.
+- Exact-head successor candidate — `2026-08-12T14:06:23Z`, six-file product/
+  test binary diff from rejected evidence `83194d893e45c599c641dc96bcfe7e54baaf87e4`
+  SHA-256 `7b7e7c24d01a6d2be3865becddab01b2199c5f8432f7b7ca663ef17f9a8720f0`:
+  - The maintained lifecycle gate now projects exact current-mission open
+    incident and decision IDs plus event count/head. A completed lifecycle with
+    either head denies completion, source stop, supervision pause, and the
+    automation ID set. The dashboard validates that owner payload against the
+    same control fingerprint and independently derived open heads.
+  - The delegated prompt binds the preview event head, requires an immediately
+    pre-pause lifecycle-gate read with incident, decision, transition, and
+    activation heads empty, and passes `--expected-event-head` through the
+    maintained `uv run --python 3.14 python <absolute-helper>` command.
+  - Under the append lock, the receipt owner re-reads the exact policy, current
+    mission heads, and event head. A late incident, decision, successor,
+    activation, policy change, or event-head change yields no receipt. Duplicate
+    acceptance requires the canonical receipt to remain the event head and to
+    cite the exact expected predecessor.
+  - Projection accepts shutdown only when the canonical receipt remains the
+    latest event and every gate is still ready. A race after owner work begins
+    therefore renders blocked/stale partial state with paused-owner facts and no
+    retry, rather than a terminal success claim.
+  - Focused owner proof passed 11/11 with `ResourceWarning` fatal, including
+    late incident, late decision, head drift, zero-receipt denial, exact success,
+    and duplicate behavior. Focused lifecycle/projection/registry/workflow proof
+    passed 4/4 with `ResourceWarning` fatal; Ruff, Python compilation, exact
+    helper CLI/help,
+    and diff check passed. The first combined invocation named a nonexistent
+    lifecycle test method and produced one loader error; the corrected exact
+    method set passed 4/4. No broad matrix, browser matrix, live preview,
+    automation pause, receipt append, or shutdown was replayed or performed.
+    Fresh exact-revision review is pending.
+- Independent exact-revision review rejected evidence
+  `a74f72deda65d7f16cd8dbf26163548d638369f4`, tree
+  `9ec81ee61f6ef432de4788fed0ba6bd653f712cc`, on two bounded closure rows.
+  First, the focused lifecycle fixture truthfully retained current incident
+  `INC-TEST-0001`, but its expected value incorrectly asserted an empty incident
+  list, so the claimed focused 4/4 was not reproducible at that revision.
+  Second, the maintained supervision skill and policy still instructed an
+  executor to pause before running raw `python3 ... terminal-shutdown` without
+  the now-required event head. That documented command exited during argument
+  parsing after the consequential pause boundary and could recreate the same
+  avoidable partial shutdown. The reviewer found the product mechanics otherwise
+  closed the late-head row; all reusable proof remains preserved and Block 31
+  stays closed.
+- Maintained-owner contract successor candidate — product/test commit
+  `e773e889c98581b527c8b2858654101370466ffb`, tree
+  `a78941cf2f3c29113708583aff3460133cec1451`, four-file binary diff from
+  rejected evidence `a74f72deda65d7f16cd8dbf26163548d638369f4`
+  SHA-256 `bc8e0bcfe2f47b749a41ceaf9cf811948e9a3f865786fead5771cac5a82335d1`:
+  - The focused projection assertion now preserves the exact current incident
+    identity instead of claiming absence. It changes no gate or product
+    behavior.
+  - The maintained supervision skill, watcher prompt, policy contract, logging
+    example, and Stop now require a fresh immediately pre-pause lifecycle gate,
+    empty incident/decision/successor/activation heads, and retention of its
+    exact event head. Only the returned automations may then be paused and
+    viewed. The receipt owner is invoked exactly through
+    `uv run --python 3.14 python <LOG_HELPER> terminal-shutdown ...
+    --expected-event-head <EVENT_HEAD>` and rechecks the policy, open heads,
+    event head, and automation owners under its append lock before any receipt.
+  - A maintained owner-contract regression rejects the former raw command and
+    proves gate-before-pause-before-helper ordering plus every current-head
+    field. The terminal owner suite passes 12/12 with `ResourceWarning` fatal;
+    the corrected exact lifecycle/projection/registry/workflow invocation passes
+    4/4 with `ResourceWarning` fatal. Three earlier focused workflow invocations
+    omitted one or more required test import roots and produced loader errors
+    only; no product code ran in those failed loads.
+  - Ruff, Python compilation, exact source/command scans, diff check, full-profile
+    verification for all 32 Blocks, and all 30 verifier tests pass. The product
+    commit is pushed at exact remote divergence `0 0`. No broad or browser
+    matrix was replayed, and no live preview, automation pause, receipt append,
+    or shutdown occurred. Fresh exact-revision review is pending.
+- Independent exact-revision review rejected evidence
+  `f4ad7ec9a29f2c1a5e1559f129519fbd948a8e35`, tree
+  `4a2f4969697f78e9fb3bf2986778e821e848baf1`, because the corrected maintained
+  contract promised an under-lock automation-owner read while
+  `cmd_terminal_shutdown` still captured that state before acquiring the receipt
+  lock. The reviewer forced one named owner from `PAUSED` to `ACTIVE` between
+  that read and lock acquisition and reproduced a verified receipt against the
+  stale snapshot. The prior assertion and maintained-command rows were accepted;
+  all other proof remains reusable and Block 31 stays closed.
+- Under-lock owner-currentness successor candidate — product/test commit
+  `5734fadedc041bf5d53ddfbbd0e79a18493cabd7`, tree
+  `27a0f6e0a6aae86d5a4e27057771edaca4c087a2`, two-file binary diff from
+  rejected evidence `f4ad7ec9a29f2c1a5e1559f129519fbd948a8e35`
+  SHA-256 `809c4ad1f0a26acc3194a4c85b6999c9afb86bcee5e46f18fdad2e0351277f8a`:
+  - The receipt owner now resolves the exact automation ID set from the current
+    under-lock policy and reads every named owner only after current policy,
+    incident, decision, successor, activation, and event-head checks pass. The
+    same under-lock owner snapshot is the sole input to duplicate verification,
+    new receipt material, and persisted canonical verification.
+  - A forced interleaving changes one disposable named owner to `ACTIVE` exactly
+    as the receipt lock is acquired. The operation fails with zero shutdown
+    receipts; after restoring the owner, the existing exact success and duplicate
+    paths still pass. The focused interleaving passes 1/1 and the maintained
+    terminal owner suite passes 12/12 with `ResourceWarning` fatal.
+  - Ruff, Python compilation, diff check, full-profile verification for all 32
+    Blocks, and all 30 verifier tests pass. The product commit is pushed with
+    exact remote divergence `0 0`. Prior focused dashboard 4/4, one-broad, and
+    responsive proof are reused without replay. No live preview, automation
+    pause, receipt append, or shutdown occurred. Fresh exact-revision review is
+    pending.
+- Independent exact-revision review accepted evidence
+  `e31b222ff33d293b537eb0d174c1bedba6a874b4`, tree
+  `8fcbfe501d33dcb99b33a531c59d218905273e98`, product
+  `5734fadedc041bf5d53ddfbbd0e79a18493cabd7`, tree
+  `27a0f6e0a6aae86d5a4e27057771edaca4c087a2`, with no material findings. The
+  reviewer reproduced the forced owner drift as zero-receipt failure, verified
+  all helper-owned state reads occur under the append lock, preserved normal and
+  duplicate behavior, passed the focused race 1/1 and owner suite 12/12, and
+  confirmed Ruff, compilation, 32-Block full-profile verification, verifier
+  30/30, diff/fsck/remote/clean identity, and the Block 31 Stop. No broad/browser
+  replay or live shutdown occurred.
 
 ### Stop
 
@@ -7377,7 +8430,7 @@ that the dashboard is ready.
 
 ## Block 31 — Integrated outcome validation and operator handoff
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -7534,7 +8587,124 @@ work solely to inflate coverage.
 
 ### Completion evidence
 
-Pending.
+- Block 31 work start — `2026-08-12T14:32:00Z`: Block 30 exact acceptance was
+  reconciled against the standing full-range request, all accepted Blocks 0–30
+  remain preserved, and the only dependency-safe frontier is the final
+  integrated validation and operator-handoff outcome. Work began by freezing
+  this status transition before any new broad validation or mapped correction;
+  no live terminal shutdown or external project mutation was performed.
+- Pre-broad validation boundary — `2026-08-12T14:58:11Z`: the active execution
+  brief at
+  `docs/software-factory-operations-dashboard-validation.md` now enumerates
+  every likely-mutating catalog, HTTP, operation, App Server, task, tracker,
+  supervision, binding, lifecycle, report, evolution, succession, terminal,
+  predecessor, source-currentness, and Stop invariant as complete or
+  source-backed unavailable before the final broad matrix. Focused proof fixed
+  the mobile active-navigation contrast and replaced a stale no-open-incident
+  browser assumption with the exact live incident claim; the affected
+  tracker/Axe matrix passed 3/3 and live drill-down passed 1/1. Twelve other
+  previously failing workflow cases passed unchanged after the serving process
+  was refreshed to the current Block 30 schema. A three-project catalog now
+  projects Software Factory, Graphy, and Patent Studio as exact canonical Git
+  roots with 31 trackers and seven untruncated Factory Floor rows; registration
+  changed discovery metadata only. The isolated fake-owner operation packet
+  passed 6/6, and current plus deterministic 2x performance/bounds proof passed
+  6/6. README, changelog, runbook, Beautiful UI provenance checks, dependency/
+  compatibility roots, live source identities, measurements, and explicit
+  limitations are recorded in the brief. The broad matrix has not started; no
+  live task, supervision, report, evolution, lifecycle, request-stop, or
+  shutdown operation was executed.
+- Single broad matrix and focused correction — `2026-08-12T15:16:41Z`: the
+  ordered pre-broad package was committed and pushed as
+  `4c72dda49e1597c3e9a1c0d5cdd4015690e291d7` before the broad matrix. Backend
+  proof passed 142/142 with `ResourceWarning` fatal; Ruff and compilation
+  passed; TypeScript and all 116 frontend tests passed; and the production
+  build passed. The one full Playwright invocation ran 90 cases serially in
+  7.7 minutes: 88 passed and the two failures were one supported dark-theme
+  report-link distinction defect at tablet and mobile. The link now retains an
+  underline as well as color. Only the affected build and report/Axe test were
+  rerun; that case passed 3/3 across desktop, tablet, and mobile in 1.2 minutes,
+  and the broad matrix was not replayed. Full-profile verification remains 32
+  Blocks with zero diagnostics, verifier tests passed 30/30, all 25 relative
+  links resolve, and current health/Admin/App Server smoke passed. The frozen
+  corrected product is
+  `5a83a46b498ab636ac79c5c0c79c1003308b3b04`, tree
+  `1891ac53e3905a77be7f83aea3de7dace1228e19`, pushed at divergence `0/0`.
+  Independent exact-revision review remains open; no live consequential
+  operation was previewed or executed.
+- Independent exact-revision acceptance — `2026-08-12T15:28:09Z`: an
+  independent implement-tracker-blocks audit ACCEPTED evidence commit
+  `4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`, tree
+  `6a8fbc30329051e1753caaa7be32503c06d0a068`, and product commit
+  `5a83a46b498ab636ac79c5c0c79c1003308b3b04`, tree
+  `1891ac53e3905a77be7f83aea3de7dace1228e19`, with no material findings.
+  The reviewer independently confirmed the pre-broad checkpoint, single broad
+  run and affected-only correction, clean dependency install and production
+  build, three-project live source truth, Factory Floor/count/tracker/report/
+  Admin/task/run behavior, Beautiful UI provenance, primary-owner controls,
+  predecessor separation, partial/unavailable truth, performance bounds,
+  documentation, exact remote divergence `0/0`, and the Block 31 Stop. The
+  interrupted optional browser rerun was not counted, and no live
+  consequential action or external source mutation occurred. All Blocks 0–31
+  are now accepted under their exact recorded evidence.
+- Observable-outcome correction activation — `2026-08-12T18:40:22Z`:
+  independent observable-outcome review `EVT-000382` rejected the prior
+  completion claim at exact revision
+  `4df05b3fa83105d098e2d24cd7fb299e72cf23a7`; `EVT-000386` and
+  `EVT-000387` bounded the supported correction to three current projections.
+  Block 31 was reopened in place while Blocks 0–30 and every reusable prior
+  proof remained accepted. The target correction uses the centralized tracker
+  status semantics, strict task-item schema, and run-head currentness reducer;
+  it does not alter a primary owner, add a surface, replay the broad matrix,
+  execute a live operation, start terminal reporting, request stop, or shut
+  down the live service. Fresh exact candidate and outcome review remain open.
+- Three-boundary outcome successor candidate — `2026-08-12T18:50:27Z`:
+  product commit `c49ca6368f608e51cb3fa001c005a5617f566b47`, tree
+  `622ccc24927814b3e885a533fc4f01b0041e639a`, was pushed at divergence
+  `0/0`. The maintained tracker projection now treats both `accepted` and
+  canonical `completed` as terminal without collapsing the raw status counts;
+  the live candidate projects 32 total Blocks, 31 completed, one open, and
+  exact current Block 31 while this correction is reviewed. The strict task
+  item contract now admits only the current typed App Server provenance fields
+  and still rejects unowned extras; the live task workspace loads all retained
+  turns without a detail-schema error. The centralized active-head reducer
+  retires a terminal lifecycle from current state only after a later nonempty,
+  different current-mission state fingerprint; live EVT-000123 remains in the
+  event timeline and operating history while current lifecycle is unset and
+  `lifecycle-failed` is absent from current attention. The separate open
+  incident remains visible, so current risk is not painted green.
+  Proportional proof passed: affected backend tracker/Floor/run projection
+  65/65 plus the completed-dependency workflow 1/1 with `ResourceWarning`
+  fatal; affected frontend task/Floor/tracker/run 33/33; Ruff, Python
+  compilation, and production build; full-profile verification for all 32
+  Blocks with zero errors/warnings; verifier tests 30/30; and the exact current
+  tracker/task/run Playwright case 3/3 at desktop, tablet, and mobile with
+  serious/critical Axe zero and no horizontal overflow. The candidate was
+  served on isolated loopback port 8798; the existing live 8787 service stayed
+  running, the broad matrix was not replayed, and no consequential owner action
+  or terminal workflow was invoked. Fresh independent outcome review remains
+  required before Block 31 can close.
+- Three-boundary outcome correction acceptance — `2026-08-12T19:05:33Z`: an
+  independent read-only exact-revision review ACCEPTED evidence commit
+  `79c411a7eafc011bfe709247b77f20a246a7f065`, tree
+  `d3069435c2e42a69d32f0650ba62930f647ac5ee`, and product commit
+  `c49ca6368f608e51cb3fa001c005a5617f566b47`, tree
+  `622ccc24927814b3e885a533fc4f01b0041e639a`, with no material findings. The
+  reviewer independently observed 32 total Blocks, 31 terminal-complete and
+  Block 31 open on the candidate; rendered the current task's typed provenance
+  fields and retained turn detail without fallback; and confirmed that
+  historical failed lifecycle `EVT-000123` remains in history without driving
+  the current lifecycle or `lifecycle-failed` light. Separate current incidents
+  remain visible and keep attention red. Independent affected proof passed 4/4
+  backend projection/workflow rows, 5/5 strict task-schema tests, and the exact
+  desktop/tablet/mobile browser case; full-profile verification remained 32
+  Blocks with zero diagnostics and verifier tests passed 30/30. The review was
+  bounded to the supported correction, reused the earlier complete Block 31
+  product/UI/authority acceptance, preserved the broad matrix, and performed no
+  primary-owner, supervision, reporting, shutdown, or live consequential
+  mutation. Blocks 0–31 now have exact accepted evidence and completed tracker
+  status; final observable-outcome reconciliation remains a separate canonical
+  gate and is not inferred from this status change.
 
 ### Stop
 

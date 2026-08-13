@@ -308,6 +308,626 @@ class FactoryEvolutionCliTests(unittest.TestCase):
             self.run_action("verify")
 
 
+class ResumeLifecycleOwnerTests(unittest.TestCase):
+    target = "target-resume-1234"
+    pause_record = "EVT-000001"
+    source_record = "EVT-000002"
+    fingerprint = "state-resume-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        temporary = Path(self.temporary.name)
+        self.root = temporary / "supervision"
+        self.automations_root = temporary / "automations"
+        self.directory = self.root / self.target
+        self.directory.mkdir(parents=True)
+        self.pause_at = "2026-08-11T12:00:00+00:00"
+        self.pause_ms = int(
+            supervision_log.parse_time(self.pause_at).timestamp() * 1000
+        )
+        init_args = argparse.Namespace(
+            target_thread=self.target,
+            target_label="resume fixture",
+            watcher_thread="watcher-resume-1234",
+            reviewer_thread="reviewer-resume-1234",
+            base_reviewer_thread="base-resume-1234",
+            notice_reviewer_thread=None,
+            fix_executor_thread="fixer-resume-1234",
+            mission_root="a" * 64,
+            mission_source_record="direct-item-0044",
+        )
+        self.policy = supervision_log.default_policy(init_args)
+        self.policy["runtime"]["routine_automation_id"] = "automation-watcher-1234"
+        self.policy["runtime"]["meta_automation_id"] = "automation-reviewer-1234"
+        self.policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(self.policy)
+        )
+        self.write_policy_genesis()
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": self.pause_record,
+                "timestamp": self.pause_at,
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "state_fingerprint": self.fingerprint,
+                "status": "paused",
+                "severity": "info",
+                "category": supervision_log.SUPERVISION_PAUSE_CATEGORY,
+                "summary": "Exact supervision pause.",
+                "evidence": ["source-pause-1234"],
+                "policy_sha256": self.policy["policy_sha256"],
+            },
+        )
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": self.source_record,
+                "timestamp": "2026-08-11T12:01:00+00:00",
+                "target_thread_id": self.target,
+                "kind": "check",
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "state_fingerprint": self.fingerprint,
+                "status": "no-intervention",
+                "severity": "info",
+                "category": "resume-source-currentness",
+                "summary": "Current paused source evidence.",
+                "evidence": [self.pause_record],
+                "policy_sha256": self.policy["policy_sha256"],
+            },
+        )
+        self.write_automation("watcher", "PAUSED", self.pause_ms + 2_000)
+        self.write_automation("reviewer", "PAUSED", self.pause_ms + 3_000)
+
+    def test_skill_and_policy_document_the_canonical_two_phase_owner(self) -> None:
+        skill_root = HELPER_PATH.parent.parent
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        policy = (skill_root / "references" / "supervision-policy.md").read_text(
+            encoding="utf-8"
+        )
+
+        for text in (skill, policy):
+            self.assertIn("resume-gate", text)
+            self.assertIn("resume-finalize", text)
+            self.assertIn("supervision-resume", text)
+            self.assertIn("automation.toml", text)
+        self.assertIn("not semantic supervision resume", skill)
+        self.assertIn("is not the lifecycle postcondition", policy)
+
+    def write_policy_genesis(self) -> None:
+        supervision_log.atomic_json(self.directory / "policy.json", self.policy)
+        history = self.directory / "policy-history.jsonl"
+        if history.exists():
+            history.unlink()
+        supervision_log.append_raw(
+            history,
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-1",
+                "timestamp": "2026-08-11T11:00:00+00:00",
+                "kind": "policy-init",
+                "policy": self.policy,
+            },
+        )
+
+    def automation_spec(self, role: str) -> tuple[str, str, str]:
+        if role == "watcher":
+            return (
+                "automation-watcher-1234",
+                "watcher-resume-1234",
+                "RRULE:FREQ=MINUTELY;INTERVAL=20",
+            )
+        return (
+            "automation-reviewer-1234",
+            "reviewer-resume-1234",
+            "RRULE:FREQ=HOURLY;INTERVAL=4",
+        )
+
+    def write_automation(
+        self,
+        role: str,
+        status: str,
+        updated_at: int,
+        *,
+        rrule: str | None = None,
+        target_thread_id: str | None = None,
+    ) -> Path:
+        automation_id, target, expected_rrule = self.automation_spec(role)
+        directory = self.automations_root / automation_id
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "automation.toml"
+        path.write_text(
+            "\n".join(
+                (
+                    "version = 1",
+                    f'id = "{automation_id}"',
+                    'kind = "heartbeat"',
+                    f'name = "Resume {role}"',
+                    f'prompt = "Exact {role} prompt"',
+                    f'status = "{status}"',
+                    f'rrule = "{rrule or expected_rrule}"',
+                    f'target_thread_id = "{target_thread_id or target}"',
+                    f"created_at = {self.pause_ms - 60_000}",
+                    f"updated_at = {updated_at}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def gate_args(self) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "resume-gate",
+                "--target-thread",
+                self.target,
+                "--pause-record",
+                self.pause_record,
+                "--source-record",
+                self.source_record,
+                "--state-fingerprint",
+                self.fingerprint,
+            ]
+        )
+
+    def finalize_args(self, eligibility_root: str) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "resume-finalize",
+                "--target-thread",
+                self.target,
+                "--pause-record",
+                self.pause_record,
+                "--source-record",
+                self.source_record,
+                "--state-fingerprint",
+                self.fingerprint,
+                "--eligibility-root",
+                eligibility_root,
+            ]
+        )
+
+    def run_gate(self) -> dict[str, object]:
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", self.automations_root
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_resume_gate(self.gate_args())
+        return json.loads(output.getvalue())
+
+    def run_finalize(self, eligibility_root: str) -> dict[str, object]:
+        output = io.StringIO()
+        base_datetime = supervision_log.dt.datetime
+
+        class FixedDateTime(base_datetime):
+            @classmethod
+            def now(cls, tz: object = None) -> "FixedDateTime":
+                return cls(
+                    2026,
+                    8,
+                    11,
+                    13,
+                    0,
+                    0,
+                    tzinfo=tz or supervision_log.dt.timezone.utc,
+                )
+
+        with (
+            mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", self.automations_root
+            ),
+            mock.patch.object(supervision_log.dt, "datetime", FixedDateTime),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_resume_finalize(self.finalize_args(eligibility_root))
+        return json.loads(output.getvalue())
+
+    def activate(self, *roles: str) -> None:
+        for offset, role in enumerate(roles, start=10):
+            self.write_automation(role, "ACTIVE", self.pause_ms + offset * 1_000)
+
+    def test_gate_finalize_status_and_replay_are_exact(self) -> None:
+        with mock.patch.object(
+            supervision_log,
+            "append_lock",
+            side_effect=AssertionError("read-only resume gate acquired append lock"),
+        ):
+            gate = self.run_gate()
+
+        self.assertEqual(gate["status"], "pending-activation")
+        self.assertEqual(
+            gate["activate_automation_ids"],
+            ["automation-reviewer-1234", "automation-watcher-1234"],
+        )
+        self.activate("watcher", "reviewer")
+        finalized = self.run_finalize(str(gate["eligibility_root"]))
+
+        self.assertFalse(finalized["duplicate"])
+        record = finalized["record"]
+        self.assertEqual(record["status"], "resumed")
+        self.assertEqual(record["pause_record_id"], self.pause_record)
+        self.assertEqual(
+            set(record["automation_states"]),
+            {
+                "automation-watcher-1234",
+                "automation-reviewer-1234",
+            },
+        )
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        history = supervision_log.events(self.directory / "policy-history.jsonl")
+        self.assertTrue(
+            supervision_log.supervision_resume_record_is_canonical(
+                all_events[-1], all_events, history
+            )
+        )
+
+        status_output = io.StringIO()
+        status_args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), "status", "--target-thread", self.target]
+        )
+        with redirect_stdout(status_output):
+            supervision_log.cmd_status(status_args)
+        status = json.loads(status_output.getvalue())
+        self.assertEqual(
+            status["last_supervision_resume"]["record_id"],
+            record["record_id"],
+        )
+        self.assertIsNone(status["current_supervision_pause"])
+
+        report_output = io.StringIO()
+        report_args = argparse.Namespace(
+            root=str(self.root),
+            target_thread=self.target,
+            start="2026-08-11T11:00:00+00:00",
+            end="2026-08-12T06:00:00+00:00",
+            days=7,
+            since_inception=False,
+        )
+        with redirect_stdout(report_output):
+            supervision_log.cmd_weekly_report_prepare(report_args)
+        prepared = json.loads(report_output.getvalue())
+        metrics = json.loads(Path(prepared["metrics_path"]).read_text())
+        interval = metrics["availability"]["explicit_pause_intervals"][0]
+        self.assertEqual(interval["pause_record_id"], self.pause_record)
+        self.assertEqual(interval["resume_record_id"], record["record_id"])
+        self.assertEqual(interval["evidence_posture"], "canonical-lifecycle")
+
+        replay = self.run_finalize(str(gate["eligibility_root"]))
+        self.assertTrue(replay["duplicate"])
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 3
+        )
+
+    def test_partial_activation_and_automation_only_state_cannot_finalize(self) -> None:
+        gate = self.run_gate()
+        self.activate("watcher")
+
+        partial = self.run_gate()
+        self.assertFalse(partial["ready_to_finalize"])
+        self.assertEqual(
+            partial["activate_automation_ids"], ["automation-reviewer-1234"]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "every exact bound automation"
+        ):
+            self.run_finalize(str(gate["eligibility_root"]))
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 2
+        )
+
+    def test_source_policy_mission_and_owner_currentness_fail_closed(self) -> None:
+        gate = self.run_gate()
+        self.activate("watcher", "reviewer")
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-000003",
+                "timestamp": "2026-08-11T12:02:00+00:00",
+                "target_thread_id": self.target,
+                "kind": "check",
+                "state_fingerprint": "state-newer-1234",
+                "status": "verified",
+                "category": "changed-state-review",
+                "policy_sha256": self.policy["policy_sha256"],
+            },
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "source record is stale"
+        ):
+            self.run_finalize(str(gate["eligibility_root"]))
+
+        # Restore the source as latest, then change policy through its owner.
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-000004",
+                "timestamp": "2026-08-11T12:03:00+00:00",
+                "target_thread_id": self.target,
+                "kind": "check",
+                "state_fingerprint": self.fingerprint,
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "status": "no-intervention",
+                "category": "resume-source-currentness",
+                "evidence": [self.pause_record],
+                "policy_sha256": self.policy["policy_sha256"],
+            },
+        )
+        self.source_record = "EVT-000004"
+        refreshed = self.run_gate()
+        supervision_log.write_policy_version(
+            self.directory,
+            self.policy,
+            kind="policy-adjustment",
+            reason="Test currentness change.",
+            evidence_values=["test-policy-change"],
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "source policy is stale"
+        ):
+            self.run_finalize(str(refreshed["eligibility_root"]))
+
+        current = supervision_log.read_json(self.directory / "policy.json")
+        current["policy_version"] = 3
+        current["mission_binding"] = supervision_log.mission_binding_contract(
+            "b" * 64, "direct-item-successor"
+        )
+        current["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(current)
+        )
+        supervision_log.atomic_json(self.directory / "policy.json", current)
+        history = self.directory / "policy-history.jsonl"
+        supervision_log.append_raw(
+            history,
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-3",
+                "timestamp": "2026-08-11T12:04:00+00:00",
+                "kind": "mission-successor",
+                "policy": current,
+            },
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "paused lifecycle"
+        ):
+            self.run_gate()
+
+    def test_schedule_missing_duplicate_malformed_and_unrelated_owners(self) -> None:
+        unrelated = self.automations_root / "unrelated-owner-1234"
+        unrelated.mkdir(parents=True)
+        (unrelated / "automation.toml").write_bytes(b"\xffnot toml")
+        self.assertEqual(self.run_gate()["status"], "pending-activation")
+
+        self.write_automation(
+            "reviewer",
+            "PAUSED",
+            self.pause_ms + 3_000,
+            rrule="RRULE:FREQ=HOURLY;INTERVAL=9",
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "schedule differs"
+        ):
+            self.run_gate()
+
+        self.write_automation("reviewer", "PAUSED", self.pause_ms + 3_000)
+        (
+            self.automations_root / "automation-reviewer-1234" / "automation.toml"
+        ).unlink()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "owner is missing"
+        ):
+            self.run_gate()
+        malformed_path = (
+            self.automations_root / "automation-reviewer-1234" / "automation.toml"
+        )
+        malformed_path.write_bytes(b"\xffnot toml")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "owner is invalid"
+        ):
+            self.run_gate()
+
+        policy = json.loads(json.dumps(self.policy))
+        policy["runtime"]["meta_automation_id"] = policy["runtime"][
+            "routine_automation_id"
+        ]
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "multiple roles"
+        ):
+            supervision_log.expected_resume_automation_specs(
+                policy, [], now=supervision_log.parse_time(self.pause_at)
+            )
+        policy["runtime"]["meta_automation_id"] = None
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "reviewer automation"
+        ):
+            supervision_log.expected_resume_automation_specs(
+                policy, [], now=supervision_log.parse_time(self.pause_at)
+            )
+
+    def test_generic_or_task_resume_cannot_create_semantic_resume(self) -> None:
+        record_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "resumed",
+                "--category",
+                "supervision-resume",
+                "--summary",
+                "Caller claims resume.",
+            ]
+        )
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "resume-gate"):
+            supervision_log.cmd_record(record_args)
+
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-000003",
+                "timestamp": "2026-08-11T12:02:00+00:00",
+                "target_thread_id": self.target,
+                "kind": "check",
+                "state_fingerprint": "task-resumed-state",
+                "status": "resumed",
+                "category": "thread-resume",
+                "policy_sha256": self.policy["policy_sha256"],
+            },
+        )
+        self.source_record = "EVT-000003"
+        self.fingerprint = "task-resumed-state"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "eligible watcher or semantic check"
+        ):
+            self.run_gate()
+
+    def test_rehashed_ineligible_source_is_not_canonical_or_projected(self) -> None:
+        self.activate("watcher", "reviewer")
+        gate = self.run_gate()
+        self.run_finalize(str(gate["eligibility_root"]))
+
+        ledger = self.directory / "events.jsonl"
+        pause, source, resume = (
+            dict(item) for item in supervision_log.events(ledger)
+        )
+        source.update(
+            {
+                "status": "resumed",
+                "category": "thread-resume",
+                "model": "codex-app-server",
+                "reasoning": "deterministic",
+            }
+        )
+        source.pop("record_sha256")
+        source["record_sha256"] = supervision_log.digest(source)
+        self.assertFalse(supervision_log.is_eligible_resume_source(source))
+
+        source_material = supervision_log.resume_source_currentness_material(
+            target_thread_id=str(resume["target_thread_id"]),
+            group_id=str(resume["group_id"]),
+            mission_root=str(resume["mission_root"]),
+            mission_source_record=str(resume["mission_source_record"]),
+            policy_version=int(resume["policy_version"]),
+            policy_sha256=str(resume["policy_sha256"]),
+            policy_history_head=str(resume["policy_history_head"]),
+            policy_history_count=int(resume["policy_history_count"]),
+            event_head=str(source["record_sha256"]),
+            event_count=2,
+            pause_record=pause,
+            source_record=source,
+        )
+        source_currentness_root = supervision_log.digest(source_material)
+        eligibility_root = supervision_log.digest(
+            {
+                "kind": "supervision-resume-eligibility",
+                "contract_version": resume["resume_contract_version"],
+                "source_currentness_root": source_currentness_root,
+                "automation_expectations": resume["automation_expectations"],
+                "automation_configuration_roots": resume[
+                    "automation_configuration_roots"
+                ],
+            }
+        )
+        resume.update(
+            {
+                "source_record_sha256": source["record_sha256"],
+                "source_currentness_root": source_currentness_root,
+                "eligibility_root": eligibility_root,
+                "resume_id": "resume-"
+                + supervision_log.digest(
+                    {
+                        "target_thread_id": resume["target_thread_id"],
+                        "pause_record_id": resume["pause_record_id"],
+                        "eligibility_root": eligibility_root,
+                    }
+                ),
+                "previous_record_sha256": source["record_sha256"],
+            }
+        )
+        resume.pop("record_sha256")
+        resume["record_sha256"] = supervision_log.digest(resume)
+        ledger.write_bytes(
+            b"\n".join(supervision_log.canonical(item) for item in (pause, source, resume))
+            + b"\n"
+        )
+
+        all_events = supervision_log.events(ledger)
+        history = supervision_log.events(self.directory / "policy-history.jsonl")
+        self.assertFalse(
+            supervision_log.supervision_resume_record_is_canonical(
+                all_events[-1], all_events, history
+            )
+        )
+
+        status_output = io.StringIO()
+        status_args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), "status", "--target-thread", self.target]
+        )
+        with redirect_stdout(status_output):
+            supervision_log.cmd_status(status_args)
+        status = json.loads(status_output.getvalue())
+        self.assertIsNone(status["last_supervision_resume"])
+        self.assertEqual(
+            status["current_supervision_pause"]["record_id"], self.pause_record
+        )
+
+        report_output = io.StringIO()
+        report_args = argparse.Namespace(
+            root=str(self.root),
+            target_thread=self.target,
+            start="2026-08-11T11:00:00+00:00",
+            end="2026-08-12T06:00:00+00:00",
+            days=7,
+            since_inception=False,
+        )
+        with redirect_stdout(report_output):
+            supervision_log.cmd_weekly_report_prepare(report_args)
+        prepared = json.loads(report_output.getvalue())
+        metrics = json.loads(Path(prepared["metrics_path"]).read_text())
+        interval = metrics["availability"]["explicit_pause_intervals"][0]
+        self.assertEqual(interval["pause_record_id"], self.pause_record)
+        self.assertIsNone(interval["resume_record_id"])
+
+    def test_stale_active_owner_and_hash_chain_corruption_are_rejected(self) -> None:
+        self.write_automation("watcher", "ACTIVE", self.pause_ms - 1_000)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "does not postdate"
+        ):
+            self.run_gate()
+
+        ledger = self.directory / "events.jsonl"
+        lines = ledger.read_text(encoding="utf-8").splitlines()
+        value = json.loads(lines[-1])
+        value["state_fingerprint"] = "tampered-state"
+        lines[-1] = json.dumps(value, sort_keys=True, separators=(",", ":"))
+        ledger.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "stale record hash"
+        ):
+            self.run_gate()
+
+
 class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
     def test_skill_requires_self_contained_block_purpose(self) -> None:
         skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(

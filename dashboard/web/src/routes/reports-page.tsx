@@ -13,6 +13,7 @@ import { Link, useSearchParams } from "react-router"
 import { SafeMarkdown } from "@/components/safe-markdown"
 import { Button } from "@/components/ui/button"
 import { Identity, QueryState, StatusMark, TimeValue } from "@/components/workspace-ui"
+import { FactoryEvolutionEvidence } from "@/features/admin/factory-evolution-evidence"
 import {
   MetricHistoryChart,
   type MetricTrendPoint,
@@ -426,6 +427,16 @@ export function Component() {
     .sort((left, right) => (projectLabels.get(left) ?? left).localeCompare(projectLabels.get(right) ?? right))
 
   const reportRunProject = new Map(metricRuns.map((run) => [run.target_thread_id, run.project_binding.project_id]))
+  const visibleTerminalWorkflows = (reportsQuery.data?.data.terminal_workflows ?? []).filter((item) => {
+    if (projectFilter !== "all" && item.project_binding.project_id !== projectFilter) return false
+    if (runFilter !== "all" && item.target_thread_id !== runFilter) return false
+    return true
+  })
+  const visibleEvolutionWorkflows = (reportsQuery.data?.data.evolution_workflows ?? []).filter((item) => {
+    if (projectFilter !== "all" && item.project_binding.project_id !== projectFilter) return false
+    if (runFilter !== "all" && item.target_thread_id !== runFilter) return false
+    return true
+  })
   const visibleReports = allReports.filter((report) => {
     if (projectFilter !== "all" && reportRunProject.get(report.target_thread_id) !== projectFilter) return false
     if (runFilter !== "all" && report.target_thread_id !== runFilter) return false
@@ -534,9 +545,49 @@ export function Component() {
           <div className="workspace-warning-list">{metricsQuery.data.data.factory_history.unsupported.map((item) => <span key={item}><AlertTriangle aria-hidden="true" />{item}</span>)}</div>
         </section>
       </> : reportsQuery.isPending ? <QueryState kind="loading" message="Loading report history" /> : reportsQuery.isError ? <QueryState kind="error" message={reportsQuery.error.message} retry={() => void reportsQuery.refetch()} /> : <>
+        <section className="workspace-panel terminal-workflow-inventory" aria-labelledby="terminal-workflow-heading">
+          <div className="workspace-panel-heading"><h2 id="terminal-workflow-heading">Terminal</h2><span>{visibleTerminalWorkflows.length} current source projection{visibleTerminalWorkflows.length === 1 ? "" : "s"}</span></div>
+          {visibleTerminalWorkflows.length ? <div className="workspace-record-list">{visibleTerminalWorkflows.map(({ target_thread_id: targetId, target_label: targetLabel, project_binding: projectBinding, workflow }) => (
+            <article className="workspace-record terminal-workflow-row" key={targetId}>
+              <div><Link to={`/runs/${encodeURIComponent(targetId)}`}>{targetLabel}</Link><Identity value={targetId} /><strong>{workflow.report_set_id ?? "Terminal report"}</strong></div>
+              <StatusMark status={workflow.stage} />
+              <span>{projectBinding.project_id ?? "Unassigned"} · {workflow.next_action ?? "No next stage"}</span>
+              <span>{workflow.stages.map((stage) => `${stage.label}: ${stage.status}`).join(" · ") || workflow.error?.message || "Stage source unavailable"}</span>
+              <span>{workflow.completion.reconciled ? `Outcome ${workflow.completion.record_id} · lifecycle ${workflow.completion.lifecycle_record_id}` : "Completion reconciliation unavailable"}</span>
+              <span>{workflow.coverage ? `Delta ${workflow.coverage.delta_start} → ${workflow.coverage.end} · full since ${workflow.coverage.full_start}` : "Coverage unavailable"}</span>
+              <span>{workflow.prior_reports.length} verified prior report{workflow.prior_reports.length === 1 ? "" : "s"} · delivery {workflow.delivery.status}</span>
+              <Identity value={workflow.source_root} />
+              <Identity value={workflow.manifest_root} />
+              <span>{workflow.members.length}/{workflow.expected_members.length} bundle members · {workflow.expected_members.join(" · ") || "bundle contract unavailable"}</span>
+              {workflow.limitations.map((item) => <small key={item}>{item}</small>)}
+              {workflow.error ? <small>{workflow.error.message}</small> : null}
+              <small>Request-stop, automation pause, and shutdown remain separate and are not performed by terminal reporting.</small>
+            </article>
+          ))}</div> : <QueryState kind="empty" message="No current terminal-report projection matches the filters" />}
+        </section>
+
+        <section className="workspace-panel evolution-workflow-inventory" aria-labelledby="evolution-workflow-heading">
+          <div className="workspace-panel-heading"><h2 id="evolution-workflow-heading">Evolution</h2><span>{visibleEvolutionWorkflows.length} current source projection{visibleEvolutionWorkflows.length === 1 ? "" : "s"}</span></div>
+          {visibleEvolutionWorkflows.length ? <div className="workspace-record-list">{visibleEvolutionWorkflows.map(({ target_thread_id: targetId, target_label: targetLabel, project_binding: projectBinding, workflow }) => (
+            <article className="workspace-record evolution-workflow-row" key={targetId}>
+              <div><Link to={`/runs/${encodeURIComponent(targetId)}`}>{targetLabel}</Link><Identity value={targetId} /></div>
+              <StatusMark status={workflow.stage} />
+              <span>{projectBinding.project_id ?? "Unassigned"} · {workflow.next_action ?? "No next stage"}</span>
+              <span>{workflow.stages.map((stage) => `${stage.label}: ${stage.status}`).join(" · ") || workflow.error?.message || "Stage source unavailable"}</span>
+              <span>External implementation: {workflow.implementer.status}{workflow.implementer.candidate_revision ? ` · ${workflow.implementer.baseline_revision} → ${workflow.implementer.candidate_revision}` : ""}</span>
+              <span>{workflow.disposition ? `Disposition: ${workflow.disposition}` : "Disposition unavailable"}</span>
+              <Identity value={workflow.packet_root} />
+              <Identity value={workflow.review_root} />
+              <Identity value={workflow.evaluation_root} />
+              <small>Adoption, installation, routing, scheduling, deployment, rollback, and outcome: not performed by evolution.</small>
+              <FactoryEvolutionEvidence workflow={workflow} targetId={targetId} />
+            </article>
+          ))}</div> : <QueryState kind="empty" message="No current Factory-evolution projection matches the filters" />}
+        </section>
+
         <section className="workspace-panel report-inventory" aria-labelledby="report-inventory-heading">
           <div className="workspace-panel-heading"><h2 id="report-inventory-heading">History</h2><span>{visibleReports.length} of {allReports.length}</span></div>
-          {visibleReports.length ? <div className="table-scroll"><table className="report-data-table"><thead><tr><th>Report</th><th>Project / run</th><th>Posture</th><th>Period</th><th>Compare</th></tr></thead><tbody>{visibleReports.map((report) => { const key = reportKey(report); const run = runByTarget.get(report.target_thread_id); return <tr key={key} className={selectedIdentity && reportKey(report) === searchParams.get("report") ? "report-row-selected" : undefined}><th><button type="button" className="report-row-button" onClick={() => selectReport(report)}><span>{report.family}</span><strong>{report.id}</strong></button></th><td><span>{reportRunProject.get(report.target_thread_id) ? projectLabels.get(reportRunProject.get(report.target_thread_id)!) ?? reportRunProject.get(report.target_thread_id) : "Unassigned"}</span><Link to={`/runs/${encodeURIComponent(report.target_thread_id)}`}>{run?.target_label ?? "Run source"}</Link><Identity value={report.target_thread_id} /></td><td><StatusMark status={report.status === "available" ? report.stage : "invalid"} /><small>{report.disposition ?? report.error?.message ?? "No disposition"}</small></td><td>{report.coverage ? <><TimeValue value={report.coverage.start} /> → <TimeValue value={report.coverage.end} /></> : "Unavailable"}</td><td><label className="report-compare-check"><input type="checkbox" checked={comparedKeys.includes(key)} disabled={report.status !== "available"} onChange={() => toggleComparison(report)} />Select</label></td></tr>})}</tbody></table></div> : <QueryState kind="empty" message="No reports match the current filters" />}
+          {visibleReports.length ? <div className="table-scroll"><table className="report-data-table"><thead><tr><th>Report</th><th>Project / run</th><th>Posture</th><th>Delivery</th><th>Period</th><th>Compare</th></tr></thead><tbody>{visibleReports.map((report) => { const key = reportKey(report); const run = runByTarget.get(report.target_thread_id); return <tr key={key} className={selectedIdentity && reportKey(report) === searchParams.get("report") ? "report-row-selected" : undefined}><th><button type="button" className="report-row-button" onClick={() => selectReport(report)}><span>{report.family}</span><strong>{report.id}</strong></button></th><td><span>{reportRunProject.get(report.target_thread_id) ? projectLabels.get(reportRunProject.get(report.target_thread_id)!) ?? reportRunProject.get(report.target_thread_id) : "Unassigned"}</span><Link to={`/runs/${encodeURIComponent(report.target_thread_id)}`}>{run?.target_label ?? "Run source"}</Link><Identity value={report.target_thread_id} /></td><td><StatusMark status={report.status === "available" ? report.stage : "invalid"} /><small>{report.disposition ?? report.error?.message ?? "No disposition"}</small></td><td>{report.delivery ? <><StatusMark status={report.delivery.status} /><small>{report.delivery.reason ?? report.delivery.record_id ?? "Current"}</small></> : "Not applicable"}</td><td>{report.coverage ? <><TimeValue value={report.coverage.start} /> → <TimeValue value={report.coverage.end} /></> : "Unavailable"}</td><td><label className="report-compare-check"><input type="checkbox" checked={comparedKeys.includes(key)} disabled={report.status !== "available"} onChange={() => toggleComparison(report)} />Select</label></td></tr>})}</tbody></table></div> : <QueryState kind="empty" message="No reports match the current filters" />}
         </section>
 
         {comparedKeys.length > 0 && <section className="workspace-panel report-compare-selection" aria-label="Comparison selection"><span>{comparedKeys.length}/2 selected</span>{comparisonQueries.some((query) => query.isPending) ? <span>Loading exact contracts</span> : comparisonQueries.some((query) => query.isError) ? <span className="workspace-error-text">A selected report is unavailable</span> : <span>Exact report details loaded</span>}</section>}
@@ -545,6 +596,7 @@ export function Component() {
         {selectedIdentity && (selectedQuery.isPending ? <QueryState kind="loading" message="Loading report detail" /> : selectedQuery.isError ? <QueryState kind="error" message={selectedQuery.error.message} /> : <section className="workspace-panel report-detail" aria-labelledby="report-detail-heading">
           <div className="workspace-panel-heading"><h2 id="report-detail-heading">Detail</h2><StatusMark status={selectedQuery.data.data.report.status === "available" ? selectedQuery.data.data.report.stage : "invalid"} /></div>
           <div className="report-detail-identity"><div><strong>{selectedQuery.data.data.report.id}</strong><span>{selectedQuery.data.data.report.family} · {selectedQuery.data.data.report.disposition ?? "No disposition"}</span><Identity value={selectedQuery.data.data.report.target_thread_id} /></div><div><span>Source root</span><Identity value={selectedQuery.data.data.report.source_root} /><span>Manifest root</span><Identity value={selectedQuery.data.data.report.manifest_root} /></div></div>
+          {selectedQuery.data.data.report.delivery && <div className="workspace-partial" role="status"><StatusMark status={selectedQuery.data.data.report.delivery.status} />Delivery · {selectedQuery.data.data.report.delivery.reason ?? selectedQuery.data.data.report.delivery.record_id ?? "Current owner receipt"}</div>}
           {selectedQuery.data.data.report.review_summary && <div className="report-review-summary"><strong>{selectedQuery.data.data.report.review_summary.headline}</strong><p>{selectedQuery.data.data.report.review_summary.assessment}</p></div>}
           {selectedQuery.data.data.report.error && <div className="workspace-partial" role="alert"><AlertTriangle aria-hidden="true" />{selectedQuery.data.data.report.error.message}. Artifacts remain metadata-only.</div>}
           <div className="report-artifact-list">{selectedQuery.data.data.report.artifacts.map((artifact) => <div key={artifact.name}><span>{artifact.media_type === "application/json" ? <FileJson aria-hidden="true" /> : <FileText aria-hidden="true" />}{artifact.name}<small>{numberFormatter.format(artifact.bytes)} bytes · {artifact.sha256.slice(0, 12)}</small></span><div>{artifact.preview_url && <Button variant="ghost" size="compact" onClick={() => updateParam("artifact", artifact.name)}>Preview</Button>}{artifact.media_type === "application/pdf" && artifact.preview_url && <a href={artifact.preview_url} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" />Open</a>}{artifact.download_url && <a href={artifact.download_url}><Download aria-hidden="true" />Download</a>}</div></div>)}</div>

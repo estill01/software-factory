@@ -939,7 +939,20 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(listed["data"]["runs"][0]["current_event_count"], 1)
         self.assertEqual(detail["data"]["run"]["target_thread_id"], target)
         self.assertEqual(detail["data"]["run"]["metrics"]["status"], "available")
+        self.assertEqual(
+            detail["data"]["run"]["terminal_report_workflow"]["status"],
+            "unavailable",
+        )
+        self.assertEqual(
+            detail["data"]["run"]["terminal_report_workflow"]["error"]["code"],
+            "terminal_report_completion_unavailable",
+        )
         self.assertEqual(reports["data"]["reports"], [])
+        self.assertEqual(len(reports["data"]["terminal_workflows"]), 1)
+        self.assertEqual(
+            reports["data"]["terminal_workflows"][0]["workflow"]["status"],
+            "unavailable",
+        )
         self.assertEqual(metrics["data"]["aggregate"]["status"], "available")
         self.assertEqual(metrics["data"]["aggregate"]["contract_count"], 1)
         self.assertEqual(metrics["data"]["aggregate"]["headline"]["recorded_events"], 1)
