@@ -628,7 +628,9 @@ reserved deferrals, safe frontier, and application posture.
   retired acceptance invoke the owner. Serialize that
   requirement, owner effect, currentness recheck, and result against later
   acceptance/policy events; an interrupted retry rehydrates the one owner
-  transition from live status. The release owner must run exact-commit checks, retain the
+  transition from live status. A changed predecessor or activation-history
+  count after the effect is retained as a canonical currentness rejection and
+  cannot trigger another promotion. The release owner must run exact-commit checks, retain the
   prior release, atomically swap the active pointer, verify it in a fresh
   process, and restore the prior pointer on failure. The signed acceptance is
   the independent acceptance itself, not a second promotion or quiescence

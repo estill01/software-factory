@@ -1181,7 +1181,9 @@ invoke the owner. Keep the event-owner lock through the
 bounded owner effect, source/acceptance currentness recheck, and result append.
 An interrupted retry rehydrates an already completed one-transition effect
 from live owner status; changed currentness is retained as a rejection, never a
-successful promotion. The release owner retains the previous release, validates the exact commit, atomically changes only the
+successful promotion. A changed predecessor or activation-history count after
+the effect is also retained as a currentness rejection and cannot trigger a
+second owner call. The release owner retains the previous release, validates the exact commit, atomically changes only the
 stable `current` pointer, verifies the installed roots in a fresh process, and
 restores the prior pointer on failure. Existing scheduled automations must refer
 to the stable `current` skill, policy, and helper paths. A legacy prompt that

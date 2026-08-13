@@ -4676,6 +4676,71 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             )
         )
 
+    def test_changed_prior_during_owner_effect_is_retained_once(self) -> None:
+        accepted = self.acceptance()
+        changed_promotion = copy.deepcopy(self.promotion)
+        changed_promotion["activation"]["previous_release_id"] = (
+            f"{'7' * 12}-{'8' * 12}"
+        )
+        changed_status = copy.deepcopy(self.status)
+        changed_status["activation_history_records"] = 3
+
+        def owner(
+            _repository: Path, *, source_commit: str, action: str
+        ) -> dict[str, object]:
+            self.assertEqual(source_commit, self.source)
+            self.owner_actions.append(action)
+            if action == "promote":
+                return copy.deepcopy(changed_promotion)
+            return copy.deepcopy(
+                changed_status
+                if "promote" in self.owner_actions
+                else self.prior_status
+            )
+
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "effect was retained"
+            ):
+                self.promote(accepted)
+            actions_after_rejection = list(self.owner_actions)
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "previously retained with changed currentness",
+            ):
+                self.promote(accepted)
+
+        self.assertEqual(
+            self.owner_actions,
+            ["status", "promote", "status"],
+        )
+        self.assertEqual(self.owner_actions, actions_after_rejection)
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_RELEASE_REJECTED_KIND
+                ]
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+                for item in records
+            )
+        )
+
     def test_interrupted_effect_with_later_dirty_source_is_retained_once(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(

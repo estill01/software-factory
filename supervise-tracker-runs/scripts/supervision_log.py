@@ -11755,10 +11755,10 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
             expected_history = int(required["prior_activation_history_records"])
             if verified["action"] == "activate":
                 expected_history += 1
-            if live["activation_history_records"] != expected_history:
-                raise SupervisionLogError(
-                    "Software Factory activation history differs from the one authorized transition"
-                )
+            owner_transition_current = (
+                verified["previous_release_id"] == required["prior_release_id"]
+                and live["activation_history_records"] == expected_history
+            )
             verified["activation_history_records"] = live[
                 "activation_history_records"
             ]
@@ -11794,7 +11794,11 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                 "target_thread_id": args.target_thread,
                 "kind": (
                     SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
-                    if source_current and acceptance_current
+                    if (
+                        source_current
+                        and acceptance_current
+                        and owner_transition_current
+                    )
                     else SOFTWARE_FACTORY_RELEASE_REJECTED_KIND
                 ),
                 "policy_sha256": policy["policy_sha256"],

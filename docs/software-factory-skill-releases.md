@@ -136,7 +136,9 @@ effect, the lock may append one linear successor requirement only while all of
 that prior state remains exact; the retired acceptance never invokes the
 owner. The event-owner lock serializes the bounded owner effect and result;
 an interrupted retry rehydrates the one completed transition from live owner
-status. The atomic `current` swap updates the
+status. A changed predecessor or activation-history count observed after the
+effect is retained as a canonical currentness rejection, so retry never performs
+a second promotion. The atomic `current` swap updates the
 next scheduled monitor wake while preserving its automation ID, target thread,
 schedule, model, reasoning, status, and notification posture. An already-running
 turn may finish with the instruction bytes loaded before the swap. Legacy

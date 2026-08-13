@@ -51,7 +51,7 @@ the completed program materially changes Software Factory.
   newer acceptance only after exact prior release, installed-root,
   verification-root, and history currentness is revalidated. Missing, stale,
   changed-policy, changed-byte, unverified or caller-asserted review,
-  divergent-result, and
+  divergent-result, changed-predecessor, and
   caller-selected release identity cases reject before they can become
   canonical promotion evidence.
 
