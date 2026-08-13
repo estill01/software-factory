@@ -103,10 +103,15 @@ supplied digest.
    policy history, and creates one derived pending mission activation in the
    canonical event ledger. Immediately route the same target to that first work,
    keep it `in-progress`, and use `mission-activation-start` only after a later
-   current-mission source record contains the exact work-start evidence. Do not
-   create a successor task, request a manual Resume, use `bind` to overwrite a
-   mission, or synthesize this obligation for initial or already-current
-   missions.
+   current-mission source record contains the exact work-start evidence. The
+   only non-work closure is `mission-activation-direct-stop`, under the same
+   owner lock, after one exact current decision head has acknowledged a
+   user-supplied, direct-user `reserved-authority` stop with an empty safe
+   frontier and independent mission review. That disposition remains
+   `in-progress` until an exact stopped lifecycle cites the same decision; it
+   grants no completion, pause, successor, or other effect. Do not create a
+   successor task, request a manual Resume, use `bind` to overwrite a mission,
+   or synthesize this obligation for initial or already-current missions.
 7. Create a thread heartbeat on the watcher every 20 minutes. Create a second
    heartbeat on the reviewer every 4 hours for supervisor-effectiveness review.
    Attach both to their existing threads rather than creating a new chat per run.
@@ -222,8 +227,12 @@ Repeat independently for additional targets.
   to the exact first eligible work, and close the activation only from exact
   later target evidence through `mission-activation-start`. While pending,
   `completed`, `paused`, and `stopped` fail closed with target posture
-  `in-progress`. This is not the distinct successor-task transition workflow
-  and never creates a task or manual Resume requirement.
+  `in-progress`. If an exact current acknowledged user-supplied direct-user
+  reserved-authority decision instead ends the mission before first work, use
+  `mission-activation-direct-stop` with the exact pending activation and
+  decision records; keep `in-progress` until the matching stopped lifecycle is
+  canonical. This is not the distinct successor-task transition workflow and
+  never creates a task or manual Resume requirement.
 - Apply the maintained generic completion meta-charter before project-specific
   review: observable outcome outranks process proxies; authorized ordinary
   effects needed for completion are expected; safe in-scope continuation is the
@@ -839,10 +848,13 @@ hidden reasoning into the review.
   transcript, or proof that later adaptive/evolution Blocks are implemented.
 - Before accepting `completed`, `paused`, or `stopped` after a same-target
   mission succession, require its derived mission activation to reach
-  `work-started`. Use only exact later target evidence bound to the active
-  mission and first-work identity; keep the current target `in-progress` while
-  pending. Do not substitute the separate successor-task transition, create a
-  new task, or request manual Resume.
+  `work-started`, except that `stopped` may use the locked `direct-stopped`
+  disposition bound to the exact current acknowledged user-supplied direct-user
+  reserved-authority decision. Use only exact later target evidence bound to
+  the active mission and first-work identity; keep the current target
+  `in-progress` while either closure remains pending. Do not substitute the
+  separate successor-task transition, create a new task, or request manual
+  Resume.
 - Characterize a material recurrence with the record command's
   `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
   observed effect, detection rule, bounded correction, recurrence invariant,

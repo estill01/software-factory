@@ -402,8 +402,10 @@ SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "replaces_transition_id",
 )
 MAX_GOVERNING_OUTCOME_MEMBERS = 8
-MISSION_ACTIVATION_PHASES = ("pending", "work-started")
+MISSION_ACTIVATION_PHASES = ("pending", "work-started", "direct-stopped")
+MISSION_ACTIVATION_CLOSED_PHASES = {"work-started", "direct-stopped"}
 MISSION_ACTIVATION_START_ACTION = "start-current-mission-first-eligible-work"
+MISSION_ACTIVATION_DIRECT_STOP_ACTION = "record-pending-mission-direct-stop"
 FAILURE_MODE_LAYERS = {
     "authority",
     "control-plane",
@@ -3842,7 +3844,9 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
         ]
         open_transitions = successor_transition_heads(all_events, open_only=True)
         open_activations = mission_activation_heads(
-            mission_scoped_events(directory, policy, all_events), open_only=True
+            mission_scoped_events(directory, policy, all_events),
+            open_only=True,
+            policy=policy,
         )
         if open_incidents or open_decisions or open_transitions or open_activations:
             raise SupervisionLogError(
@@ -5573,7 +5577,9 @@ def cmd_record(args: argparse.Namespace) -> None:
                     "has not reached work-started"
                 )
             active_events = mission_scoped_events(directory, policy, current_events)
-            if mission_activation_heads(active_events, open_only=True):
+            if mission_activation_heads(
+                active_events, open_only=True, policy=policy
+            ):
                 raise SupervisionLogError(
                     "Completed lifecycle rejected: current mission first work "
                     "has not started"
@@ -6126,7 +6132,9 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         and lifecycle_state in {"completed", "paused", "stopped"}
     )
     active_events = mission_scoped_events(directory, policy, all_events)
-    open_activations = mission_activation_heads(active_events, open_only=True)
+    open_activations = mission_activation_heads(
+        active_events, open_only=True, policy=policy
+    )
     activation_stop_conflict = bool(
         open_activations
         and lifecycle_state in {"completed", "paused", "stopped"}
@@ -6289,6 +6297,11 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         owner_event_snapshot=event_snapshot,
         owner_directory_snapshot=directory_snapshot,
     )
+    if activation_stop_conflict and lifecycle_state == "stopped":
+        reason = (
+            "The stopped lifecycle cannot control the governing outcome until "
+            "the exact pending mission direct-stop disposition is recorded."
+        )
     supervision_pause_permitted = bool(
         supervision_pause_permitted
         and control_posture["required_target_posture"] == "completed"
@@ -6309,6 +6322,11 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     and range_state["eligible_blocks"]
                     else "reconcile-unmet-dependencies-without-final-response"
                     if range_completion_conflict
+                    else MISSION_ACTIVATION_DIRECT_STOP_ACTION
+                    if activation_stop_conflict
+                    and lifecycle_state == "stopped"
+                    and control_posture.get("next_action")
+                    == MISSION_ACTIVATION_DIRECT_STOP_ACTION
                     else MISSION_ACTIVATION_START_ACTION
                     if activation_stop_conflict
                     else "resume-successor-transition"
@@ -6465,8 +6483,148 @@ def mission_activation_events(
     ]
 
 
+def decision_authorizes_pending_activation_direct_stop(
+    head: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    *,
+    require_current_policy: bool = False,
+) -> bool:
+    mission = bound_mission(dict(policy))
+    policy_sha256 = str(head.get("policy_sha256", ""))
+    return bool(
+        mission is not None
+        and head.get("phase") == "target-acknowledged"
+        and head.get("classification") == "reserved-authority"
+        and head.get("outcome") == "user-supplied"
+        and head.get("safe_frontier") == "empty"
+        and head.get("mission_root") == mission.get("mission_root")
+        and head.get("authority_source_class") == "direct-user"
+        and bool(head.get("authority_source_record"))
+        and head.get("independent_mission_review") is True
+        and head.get("impact_class") in {"goal-blocking", "goal-reversing"}
+        and head.get("ordinary_means_disabled") is True
+        and bool(head.get("state_fingerprint"))
+        and SHA256.fullmatch(policy_sha256) is not None
+        and (
+            not require_current_policy
+            or policy_sha256 == policy.get("policy_sha256")
+        )
+    )
+
+
+def pending_activation_direct_stop_decision(
+    pending: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    policy: Mapping[str, Any],
+    *,
+    require_current_policy: bool = False,
+) -> dict[str, Any] | None:
+    pending_record_id = pending.get("record_id")
+    try:
+        pending_index = next(
+            index
+            for index, item in enumerate(all_events)
+            if item.get("record_id") == pending_record_id
+        )
+    except StopIteration:
+        return None
+    heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        decision_id = item.get("decision_id")
+        if item.get("kind") == "decision" and isinstance(decision_id, str):
+            heads[decision_id] = item
+    candidates = []
+    for head in heads.values():
+        try:
+            head_index = next(
+                index
+                for index, item in enumerate(all_events)
+                if item.get("record_id") == head.get("record_id")
+            )
+        except StopIteration:
+            continue
+        if (
+            pending_index < head_index
+            and head.get("target_thread_id") == pending.get("target_thread_id")
+            and decision_authorizes_pending_activation_direct_stop(
+                head,
+                policy,
+                require_current_policy=require_current_policy,
+            )
+        ):
+            candidates.append(head)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def mission_activation_direct_stop_is_current(
+    head: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    policy: Mapping[str, Any],
+) -> bool:
+    if head.get("phase") != "direct-stopped":
+        return False
+    activation_id = head.get("activation_id")
+    if not isinstance(activation_id, str):
+        return False
+    lineage = mission_activation_events(all_events, activation_id)
+    if not lineage or lineage[-1].get("record_id") != head.get("record_id"):
+        return False
+    pending = lineage[0]
+    if pending.get("phase") != "pending":
+        return False
+    decision = pending_activation_direct_stop_decision(
+        pending, all_events, policy
+    )
+    if decision is None or decision.get("record_id") != head.get(
+        "decision_record_id"
+    ):
+        return False
+    try:
+        decision_index = next(
+            index
+            for index, item in enumerate(all_events)
+            if item.get("record_id") == decision.get("record_id")
+        )
+        disposition_index = next(
+            index
+            for index, item in enumerate(all_events)
+            if item.get("record_id") == head.get("record_id")
+        )
+    except StopIteration:
+        return False
+    if decision_index >= disposition_index:
+        return False
+    immutable_fields = (
+        "activation_id",
+        "mission_root",
+        "mission_source_record",
+        "activation_policy_sha256",
+        "first_eligible_work",
+    )
+    expected_evidence = [
+        pending.get("record_id"),
+        decision.get("record_id"),
+        decision.get("authority_source_record"),
+    ]
+    return bool(
+        all(head.get(field) == pending.get(field) for field in immutable_fields)
+        and head.get("source_record") == decision.get("record_id")
+        and head.get("decision_id") == decision.get("decision_id")
+        and head.get("decision_record_id") == decision.get("record_id")
+        and head.get("state_fingerprint") == decision.get("state_fingerprint")
+        and head.get("authority_source_class") == "direct-user"
+        and head.get("authority_source_record")
+        == decision.get("authority_source_record")
+        and head.get("policy_sha256") == decision.get("policy_sha256")
+        and head.get("evidence") == expected_evidence
+    )
+
+
 def mission_activation_heads(
-    all_events: list[dict[str, Any]], *, open_only: bool = False
+    all_events: list[dict[str, Any]],
+    *,
+    open_only: bool = False,
+    policy: Mapping[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     heads: dict[str, dict[str, Any]] = {}
     for item in all_events:
@@ -6480,8 +6638,133 @@ def mission_activation_heads(
     return {
         activation_id: item
         for activation_id, item in heads.items()
-        if item.get("phase") != "work-started"
+        if item.get("phase") not in MISSION_ACTIVATION_CLOSED_PHASES
+        or (
+            item.get("phase") == "direct-stopped"
+            and policy is not None
+            and not mission_activation_direct_stop_is_current(
+                item, all_events, policy
+            )
+        )
     }
+
+
+def cmd_mission_activation_direct_stop(args: argparse.Namespace) -> None:
+    directory, _ = load_policy(args)
+    activation_record_id = safe_id(
+        args.activation_record, label="pending mission activation record"
+    )
+    decision_record_id = safe_id(
+        args.decision_record, label="direct-stop decision record"
+    )
+
+    with append_lock(directory):
+        policy = read_json(directory / "policy.json")
+        validate_policy(policy)
+        if policy.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError("Policy belongs to a different target")
+        mission = bound_mission(policy)
+        if mission is None:
+            raise SupervisionLogError(
+                "Pending mission direct stop requires a current mission binding"
+            )
+        all_events = events(directory / "events.jsonl")
+        active_events = mission_scoped_events(directory, policy, all_events)
+        pending = next(
+            (
+                item
+                for item in active_events
+                if item.get("record_id") == activation_record_id
+                and item.get("kind") == "mission-activation"
+            ),
+            None,
+        )
+        if pending is None:
+            raise SupervisionLogError(
+                "Pending mission activation record does not exist in the current mission"
+            )
+        activation_id = str(pending.get("activation_id", ""))
+        heads = mission_activation_heads(active_events)
+        head = heads.get(activation_id)
+        if head is None:
+            raise SupervisionLogError("Pending mission activation identity is absent")
+        if head.get("phase") == "direct-stopped":
+            if (
+                head.get("decision_record_id") == decision_record_id
+                and mission_activation_direct_stop_is_current(
+                    head, active_events, policy
+                )
+            ):
+                print(
+                    json.dumps(
+                        {"duplicate": True, "record_id": head["record_id"]},
+                        sort_keys=True,
+                    )
+                )
+                return
+            raise SupervisionLogError(
+                "Mission activation already closed with different direct-stop authority"
+            )
+        if head.get("phase") != "pending" or head.get("record_id") != activation_record_id:
+            raise SupervisionLogError(
+                "Mission activation is not the exact current pending obligation"
+            )
+        if (
+            head.get("mission_root") != mission.get("mission_root")
+            or head.get("mission_source_record")
+            != mission.get("mission_source_record")
+        ):
+            raise SupervisionLogError(
+                "Pending mission activation belongs to another mission"
+            )
+        decision = pending_activation_direct_stop_decision(
+            head,
+            active_events,
+            policy,
+            require_current_policy=True,
+        )
+        if decision is None or decision.get("record_id") != decision_record_id:
+            raise SupervisionLogError(
+                "Pending mission direct stop requires one exact current acknowledged "
+                "user-supplied reserved-authority decision"
+            )
+        record = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(all_events) + 1:06d}",
+            "timestamp": utc_now(),
+            "target_thread_id": args.target_thread,
+            "kind": "mission-activation",
+            "activation_id": head["activation_id"],
+            "phase": "direct-stopped",
+            "mission_root": head["mission_root"],
+            "mission_source_record": head["mission_source_record"],
+            "activation_policy_sha256": head["activation_policy_sha256"],
+            "first_eligible_work": head["first_eligible_work"],
+            "source_record": decision_record_id,
+            "decision_id": decision["decision_id"],
+            "decision_record_id": decision_record_id,
+            "state_fingerprint": decision["state_fingerprint"],
+            "authority_source_class": "direct-user",
+            "authority_source_record": decision["authority_source_record"],
+            "evidence": [
+                activation_record_id,
+                decision_record_id,
+                decision["authority_source_record"],
+            ],
+            "policy_sha256": policy["policy_sha256"],
+        }
+        append_event_locked(args, directory, record)
+    print(
+        json.dumps(
+            {
+                "duplicate": False,
+                "record": record,
+                "required_target_posture": "in-progress",
+                "next_action": "record-stopped-lifecycle",
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def cmd_mission_activation_start(args: argparse.Namespace) -> None:
@@ -6536,6 +6819,10 @@ def cmd_mission_activation_start(args: argparse.Namespace) -> None:
         head = candidates[0]
         if head.get("phase") not in MISSION_ACTIVATION_PHASES:
             raise SupervisionLogError("Mission activation phase is invalid")
+        if head.get("phase") == "direct-stopped":
+            raise SupervisionLogError(
+                "Mission activation already closed by exact direct-stop authority"
+            )
         if head.get("activation_policy_sha256") != activation_policy_sha256:
             raise SupervisionLogError("Mission activation policy identity differs")
         if head.get("first_eligible_work") != first_eligible_work:
@@ -9633,7 +9920,9 @@ def validate_predecessor_range_completion(
         )
     candidates = [
         item
-        for item in mission_activation_heads(all_events, open_only=True).values()
+        for item in mission_activation_heads(
+            all_events, open_only=True, policy=policy
+        ).values()
         if item.get("mission_root") == current_mission.get("mission_root")
         and item.get("mission_source_record")
         == current_mission.get("mission_source_record")
@@ -12034,6 +12323,7 @@ def reduce_control_posture(
     reconciled_decisions: list[dict[str, Any]] = []
     completion_candidates: list[dict[str, Any]] = []
     subordinate_completion_candidates: list[dict[str, Any]] = []
+    pending_activation_direct_stop_candidates: list[dict[str, Any]] = []
     direct_stop_candidates: list[dict[str, Any]] = []
     subordinate_stop_records: list[str] = []
     for member in members:
@@ -12090,6 +12380,17 @@ def reduce_control_posture(
             ),
             None,
         )
+        member_mission = bound_mission(member_policy)
+        current_open_activations = [
+            item
+            for item in mission_activation_heads(
+                member_events, open_only=True, policy=member_policy
+            ).values()
+            if member_mission is not None
+            and item.get("mission_root") == member_mission.get("mission_root")
+            and item.get("mission_source_record")
+            == member_mission.get("mission_source_record")
+        ]
         if lifecycle is not None and lifecycle.get("status") == "completed":
             state_fingerprint = str(lifecycle.get("state_fingerprint", ""))
             completion = latest_outcome_completion_record(
@@ -12145,6 +12446,43 @@ def reduce_control_posture(
             )
             if member["target_thread_id"] != owner_target:
                 subordinate_stop_records.append(str(lifecycle.get("record_id")))
+            elif current_open_activations:
+                pending = (
+                    current_open_activations[0]
+                    if len(current_open_activations) == 1
+                    else None
+                )
+                eligible = (
+                    pending_activation_direct_stop_decision(
+                        pending, member_events, member_policy
+                    )
+                    if pending is not None
+                    else None
+                )
+                if (
+                    stop_decision is not None
+                    and eligible is not None
+                    and stop_decision.get("record_id")
+                    == eligible.get("record_id")
+                ):
+                    pending_activation_direct_stop_candidates.append(
+                        {
+                            "activation_record_id": pending.get("record_id"),
+                            "decision_record_id": eligible.get("record_id"),
+                            "lifecycle_record_id": lifecycle.get("record_id"),
+                            "target_thread_id": owner_target,
+                        }
+                    )
+                else:
+                    issues.append(
+                        {
+                            "kind": (
+                                "pending-mission-activation-direct-stop-"
+                                "authority-missing-or-invalid"
+                            ),
+                            "target_thread_id": owner_target,
+                        }
+                    )
             elif stop_decision is not None:
                 direct_stop_candidates.append(
                     {
@@ -12189,6 +12527,9 @@ def reduce_control_posture(
     elif issues:
         required_posture = "in-progress"
         next_action = "reconcile-control-membership-or-evidence"
+    elif pending_activation_direct_stop_candidates:
+        required_posture = "in-progress"
+        next_action = MISSION_ACTIVATION_DIRECT_STOP_ACTION
     elif direct_stop_candidates:
         required_posture = "stopped"
         next_action = "close-governing-outcome-at-direct-stop"
@@ -12234,6 +12575,9 @@ def reduce_control_posture(
         "reconciled_decisions": reconciled_decisions,
         "completion_candidates": completion_candidates,
         "subordinate_completion_candidates": subordinate_completion_candidates,
+        "pending_activation_direct_stop_candidates": (
+            pending_activation_direct_stop_candidates
+        ),
         "direct_stop_candidates": direct_stop_candidates,
         "subordinate_stop_records": subordinate_stop_records,
     }
@@ -17453,9 +17797,22 @@ def cmd_status(args: argparse.Namespace) -> None:
         if decision_head_is_open(item, active_events, policy)
     ]
     activation_heads = mission_activation_heads(active_events)
-    open_activations = mission_activation_heads(active_events, open_only=True)
+    open_activations = mission_activation_heads(
+        active_events, open_only=True, policy=policy
+    )
     current_activation = (
         list(activation_heads.values())[-1] if activation_heads else None
+    )
+    activation_direct_stop_decision = (
+        pending_activation_direct_stop_decision(
+            list(open_activations.values())[0],
+            active_events,
+            policy,
+            require_current_policy=True,
+        )
+        if len(open_activations) == 1
+        and list(open_activations.values())[0].get("phase") == "pending"
+        else None
     )
     transition_heads = successor_transition_heads(all_events)
     open_transitions = successor_transition_heads(all_events, open_only=True)
@@ -17515,9 +17872,16 @@ def cmd_status(args: argparse.Namespace) -> None:
                 "current_mission_activation": current_activation,
                 "open_mission_activations": list(open_activations.values()),
                 "mission_activation_action": (
-                    MISSION_ACTIVATION_START_ACTION
+                    MISSION_ACTIVATION_DIRECT_STOP_ACTION
+                    if activation_direct_stop_decision is not None
+                    else MISSION_ACTIVATION_START_ACTION
                     if open_activations
                     else "none"
+                ),
+                "mission_activation_direct_stop_decision_record": (
+                    activation_direct_stop_decision.get("record_id")
+                    if activation_direct_stop_decision is not None
+                    else None
                 ),
                 "mission_activation_required_target_posture": (
                     "in-progress" if open_activations else None
@@ -17633,6 +17997,18 @@ def parser() -> argparse.ArgumentParser:
         "--evidence", action="append", required=True
     )
     mission_activation_start.set_defaults(func=cmd_mission_activation_start)
+
+    mission_activation_direct_stop = subparsers.add_parser(
+        "mission-activation-direct-stop"
+    )
+    mission_activation_direct_stop.add_argument("--target-thread", required=True)
+    mission_activation_direct_stop.add_argument(
+        "--activation-record", required=True
+    )
+    mission_activation_direct_stop.add_argument("--decision-record", required=True)
+    mission_activation_direct_stop.set_defaults(
+        func=cmd_mission_activation_direct_stop
+    )
 
     gate = subparsers.add_parser("gate")
     gate.add_argument("--target-thread", required=True)

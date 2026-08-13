@@ -8856,6 +8856,145 @@ class MissionActivationContractTests(unittest.TestCase):
             supervision_log.cmd_status(args)
         return json.loads(output.getvalue())
 
+    def record_stop_decision(
+        self,
+        phase: str,
+        *,
+        outcome: str = "",
+        decision_id: str = "DEC-MISSION-STOP-B",
+        authority_source_class: str = "direct-user",
+    ) -> dict[str, object]:
+        policy = self.policy()
+        arguments = [
+            "--root",
+            str(self.root),
+            "decision-record",
+            "--target-thread",
+            self.target,
+            "--decision-id",
+            decision_id,
+            "--classification",
+            "reserved-authority",
+            "--phase",
+            phase,
+            "--safe-frontier",
+            "empty",
+            "--attempt",
+            "0",
+            "--decision-packet-hash",
+            "d" * 64,
+            "--blocked-scope-hash",
+            "e" * 64,
+            "--safe-frontier-hash",
+            "f" * 64,
+            "--state-fingerprint",
+            "state-direct-stop-b",
+            "--evidence",
+            f"evidence-{decision_id}-{phase}",
+            "--mission-root",
+            str(policy["mission_binding"]["mission_root"]),
+            "--authority-source-class",
+            authority_source_class,
+            "--authority-source-record",
+            "item-direct-stop-b",
+            "--impact-class",
+            "goal-reversing",
+            "--affected-width",
+            "current-mission",
+            "--duration",
+            "terminal",
+            "--reversibility",
+            "reversible",
+            "--ordinary-means-disabled",
+            "yes",
+            "--independent-mission-review",
+            "yes",
+        ]
+        if outcome:
+            arguments.extend(["--outcome", outcome])
+        args = supervision_log.parser().parse_args(arguments)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def acknowledged_stop_decision(
+        self,
+        *,
+        decision_id: str = "DEC-MISSION-STOP-B",
+        authority_source_class: str = "direct-user",
+    ) -> dict[str, object]:
+        self.record_stop_decision(
+            "decision-ready",
+            decision_id=decision_id,
+            authority_source_class=authority_source_class,
+        )
+        self.record_stop_decision(
+            "user-responded",
+            decision_id=decision_id,
+            authority_source_class=authority_source_class,
+        )
+        self.record_stop_decision(
+            "resolved",
+            outcome="user-supplied",
+            decision_id=decision_id,
+            authority_source_class=authority_source_class,
+        )
+        self.record_stop_decision(
+            "handoff-sent",
+            outcome="user-supplied",
+            decision_id=decision_id,
+            authority_source_class=authority_source_class,
+        )
+        return self.record_stop_decision(
+            "target-acknowledged",
+            outcome="user-supplied",
+            decision_id=decision_id,
+            authority_source_class=authority_source_class,
+        )["record"]
+
+    def direct_stop_args(
+        self,
+        activation: dict[str, object],
+        decision: dict[str, object],
+    ) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-activation-direct-stop",
+                "--target-thread",
+                self.target,
+                "--activation-record",
+                str(activation["record_id"]),
+                "--decision-record",
+                str(decision["record_id"]),
+            ]
+        )
+
+    def lifecycle_gate(
+        self, lifecycle_record: str
+    ) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "lifecycle-gate",
+                "--target-thread",
+                self.target,
+                "--lifecycle-state",
+                "stopped",
+                "--source-record",
+                lifecycle_record,
+                "--state-fingerprint",
+                "state-direct-stop-b",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
     def test_successor_creates_pending_activation_and_terminal_gate_fails_closed(
         self,
     ) -> None:
@@ -8981,6 +9120,197 @@ class MissionActivationContractTests(unittest.TestCase):
                     supervision_log.MISSION_ACTIVATION_START_ACTION,
                 )
 
+    def test_acknowledged_direct_user_stop_closes_pending_activation_idempotently(
+        self,
+    ) -> None:
+        activation = self.successor()["mission_activation"]
+        decision = self.acknowledged_stop_decision()
+        lifecycle_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "stopped",
+                "--state-fingerprint",
+                "state-direct-stop-b",
+                "--evidence",
+                str(decision["record_id"]),
+                "--summary",
+                "Recorded the exact direct-user mission stop.",
+            ]
+        )
+        lifecycle_output = io.StringIO()
+        with redirect_stdout(lifecycle_output):
+            lifecycle_args.func(lifecycle_args)
+        lifecycle_record = json.loads(lifecycle_output.getvalue())["record"][
+            "record_id"
+        ]
+
+        before = self.lifecycle_gate(lifecycle_record)
+        before_status = self.status()
+        self.assertFalse(before["source_stop_permitted"])
+        self.assertEqual(before["required_target_posture"], "in-progress")
+        self.assertEqual(
+            before["completion_action"],
+            supervision_log.MISSION_ACTIVATION_DIRECT_STOP_ACTION,
+        )
+        self.assertEqual(
+            before["control_posture"][
+                "pending_activation_direct_stop_candidates"
+            ][0]["decision_record_id"],
+            decision["record_id"],
+        )
+        self.assertEqual(
+            before_status["mission_activation_action"],
+            supervision_log.MISSION_ACTIVATION_DIRECT_STOP_ACTION,
+        )
+        self.assertEqual(
+            before_status["mission_activation_direct_stop_decision_record"],
+            decision["record_id"],
+        )
+
+        stop_args = self.direct_stop_args(activation, decision)
+        stop_output = io.StringIO()
+        with redirect_stdout(stop_output):
+            stop_args.func(stop_args)
+        stopped = json.loads(stop_output.getvalue())
+        duplicate_output = io.StringIO()
+        with redirect_stdout(duplicate_output):
+            stop_args.func(stop_args)
+        duplicate = json.loads(duplicate_output.getvalue())
+
+        after = self.lifecycle_gate(lifecycle_record)
+        after_status = self.status()
+        self.assertEqual(stopped["record"]["phase"], "direct-stopped")
+        self.assertEqual(stopped["next_action"], "record-stopped-lifecycle")
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(after_status["open_mission_activations"], [])
+        self.assertEqual(
+            after_status["current_mission_activation"]["phase"],
+            "direct-stopped",
+        )
+        self.assertTrue(after["source_stop_permitted"])
+        self.assertEqual(after["required_target_posture"], "stopped")
+        self.assertEqual(
+            after["control_posture"]["direct_stop_candidates"][0][
+                "decision_record_id"
+            ],
+            decision["record_id"],
+        )
+        self.append_source("EVT-WORK-AFTER-STOP", "item-work-after-stop")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "already closed by exact direct-stop authority",
+        ):
+            args = self.start_args(
+                activation,
+                source_record="EVT-WORK-AFTER-STOP",
+                evidence="item-work-after-stop",
+            )
+            args.func(args)
+
+    def test_pending_direct_stop_rejects_indirect_ambiguous_and_missing_authority(
+        self,
+    ) -> None:
+        activation = self.successor()["mission_activation"]
+        indirect = self.acknowledged_stop_decision(
+            authority_source_class="system"
+        )
+        before = (self.directory / "events.jsonl").read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "one exact current acknowledged",
+        ):
+            self.direct_stop_args(activation, indirect).func(
+                self.direct_stop_args(activation, indirect)
+            )
+        self.assertEqual((self.directory / "events.jsonl").read_bytes(), before)
+
+        direct_a = self.acknowledged_stop_decision(
+            decision_id="DEC-MISSION-STOP-DIRECT-A"
+        )
+        self.acknowledged_stop_decision(
+            decision_id="DEC-MISSION-STOP-DIRECT-B"
+        )
+        before_ambiguous = (self.directory / "events.jsonl").read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "one exact current acknowledged",
+        ):
+            args = self.direct_stop_args(activation, direct_a)
+            args.func(args)
+        self.assertEqual(
+            (self.directory / "events.jsonl").read_bytes(), before_ambiguous
+        )
+
+        missing = dict(direct_a)
+        missing["record_id"] = "EVT-MISSING-DIRECT-STOP"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "one exact current acknowledged",
+        ):
+            args = self.direct_stop_args(activation, missing)
+            args.func(args)
+        self.assertEqual(
+            (self.directory / "events.jsonl").read_bytes(), before_ambiguous
+        )
+
+    def test_pending_direct_stop_rejects_policy_drift_and_work_started(self) -> None:
+        activation = self.successor()["mission_activation"]
+        decision = self.acknowledged_stop_decision()
+        adjust = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "adjust",
+                "--target-thread",
+                self.target,
+                "--routine-minutes",
+                "21",
+                "--reason",
+                "Exercise locked pending-stop currentness.",
+                "--evidence",
+                "test-policy-drift",
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            adjust.func(adjust)
+        before_events = (self.directory / "events.jsonl").read_bytes()
+        before_policy = (self.directory / "policy.json").read_bytes()
+        before_history = (self.directory / "policy-history.jsonl").read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "one exact current acknowledged",
+        ):
+            args = self.direct_stop_args(activation, decision)
+            args.func(args)
+        self.assertEqual((self.directory / "events.jsonl").read_bytes(), before_events)
+        self.assertEqual((self.directory / "policy.json").read_bytes(), before_policy)
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(), before_history
+        )
+
+        current_decision = self.acknowledged_stop_decision(
+            decision_id="DEC-MISSION-STOP-AFTER-DRIFT"
+        )
+        self.append_source("EVT-WORK-B", "item-work-b")
+        self.start(activation)
+        before_started = (self.directory / "events.jsonl").read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not the exact current pending obligation",
+        ):
+            args = self.direct_stop_args(activation, current_decision)
+            args.func(args)
+        self.assertEqual(
+            (self.directory / "events.jsonl").read_bytes(), before_started
+        )
+
     def test_exact_later_work_start_closes_activation_idempotently(self) -> None:
         activation = self.successor()["mission_activation"]
         self.append_source("EVT-WORK-B", "item-work-b")
@@ -9101,12 +9431,17 @@ class MissionActivationContractTests(unittest.TestCase):
 
         for text in (skill, policy):
             self.assertIn("mission-activation-start", text)
+            self.assertIn("mission-activation-direct-stop", text)
             self.assertIn("first eligible work", text)
             self.assertIn("in-progress", text)
             self.assertIn("manual Resume", text)
             self.assertIn("successor-task transition", text)
         self.assertIn(
             supervision_log.MISSION_ACTIVATION_START_ACTION,
+            policy,
+        )
+        self.assertIn(
+            supervision_log.MISSION_ACTIVATION_DIRECT_STOP_ACTION,
             policy,
         )
 

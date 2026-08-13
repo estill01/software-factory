@@ -599,8 +599,9 @@ The reducer applies one precedence order:
 2. an owner-locus `stopped` lifecycle may return `stopped` and control
    subordinate implementation/wait postures only when it cites the exact
    acknowledged direct reserved-authority decision that supplied the stop,
-   binds the governing mission and same nonempty fingerprint, and has no safe
-   frontier;
+   binds the governing mission and same nonempty fingerprint, has no safe
+   frontier, and, when same-target activation is still pending, follows its
+   exact locked `direct-stopped` disposition;
 3. any open implementation/topology transition remains `in-progress`;
 4. any nonempty safe frontier or unresolved nonblocking decision remains
    `in-progress`;
@@ -649,10 +650,32 @@ changed first-work identity, pre-binding source records, missing/dangling
 evidence, and a divergent second closure. Exact duplicate closure is
 idempotent.
 
+There is one terminal-only exception before first work. After the public
+decision owner has produced one unique current head whose phase is
+`target-acknowledged`, classification is `reserved-authority`, outcome is
+`user-supplied`, safe frontier is empty, authority source is exact direct-user,
+mission is current, state fingerprint is nonempty, consequential mission review
+is independent, and policy is current, call `mission-activation-direct-stop`
+with the exact pending activation and decision records. Under the owner lock it
+re-reads policy and the canonical event chain, requires the decision to follow
+the pending activation, and appends phase `direct-stopped` without changing
+policy or mission state. Exact duplicate disposition is idempotent; missing,
+indirect, stale, ambiguous, pre-activation, already-started, or divergent
+authority rejects with zero mutation.
+
+The `direct-stopped` disposition is not itself a lifecycle stop. Until a
+canonical `stopped` lifecycle cites that same decision and matching fingerprint,
+the required posture remains `in-progress`. Before the disposition,
+`lifecycle-gate` and `control-posture-gate` return action
+`record-pending-mission-direct-stop`; afterward the existing exact direct-stop
+reducer may return `stopped`. The exception never authorizes `completed`,
+`paused`, successor creation, user scheduling, manual Resume, or any effect
+beyond retiring that exact pending activation.
+
 `status` exposes the current and open activation, required `in-progress`
 posture, and action `start-current-mission-first-eligible-work`.
 `lifecycle-gate` returns `source_stop_permitted=false` and that same action for
-`completed`, `paused`, or `stopped` while the activation remains pending.
+`completed`, `paused`, or an unowned `stopped` while activation remains pending.
 `failed` and `blocked` retain their existing decision/authority handling. Never
 create a successor task, parallel ledger, mission root, user scheduling step, or
 manual Resume requirement from this same-target activation. The distinct
@@ -2276,9 +2299,12 @@ require the current target to remain `in-progress` and begin its exact first
 eligible work immediately. Accept `mission-activation-start` only from exact
 later target evidence bound by a post-activation current-mission source record.
 Repair a terminal `completed`, `paused`, or `stopped` posture through the
-helper's exact `start-current-mission-first-eligible-work` action. Do not create
-a successor task, reuse the distinct successor-transition workflow, or request
-manual Resume.
+helper's exact `start-current-mission-first-eligible-work` action. Only when the
+current decision head is the exact acknowledged user-supplied direct-user
+reserved-authority stop may `status` instead return
+`record-pending-mission-direct-stop`; record that locked disposition before
+accepting the matching stopped lifecycle. Do not create a successor task, reuse
+the distinct successor-transition workflow, or request manual Resume.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
@@ -2365,6 +2391,11 @@ python3 <LOG_HELPER> mission-activation-start --target-thread <TARGET> \
   --first-eligible-work <EXACT_FIRST_WORK_IDENTITY> \
   --source-record <POST_BINDING_CURRENT_MISSION_RECORD> \
   --evidence <EXACT_LATER_TARGET_WORK_START_EVIDENCE>
+
+python3 <LOG_HELPER> mission-activation-direct-stop \
+  --target-thread <TARGET> \
+  --activation-record <EXACT_PENDING_ACTIVATION_RECORD> \
+  --decision-record <EXACT_ACKNOWLEDGED_DIRECT_STOP_DECISION_RECORD>
 ```
 
 Upgrade a readable legacy policy only with an exact mission binding:
@@ -2788,4 +2819,6 @@ priority phase delivery, safe-frontier verification, and target acknowledgement.
 Do not pause or accept `completed`, `paused`, or `stopped` while a prospective
 same-target mission activation is pending. Keep the target `in-progress`, start
 the exact current mission first work, and close the activation only from exact
-later target evidence. This never requires a successor task or manual Resume.
+later target evidence, or use the locked terminal-only direct-stop disposition
+after the exact acknowledged user-supplied direct-user authority decision.
+This never requires a successor task or manual Resume.
