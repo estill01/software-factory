@@ -229,7 +229,7 @@ accepted owner supersedes them.
 | 1 | Integrate automatic-release and supervision control-plane lines | 0 | `completed` |
 | 2 | Integrate and preserve the completed dashboard/evolution web app | 1 | `completed` |
 | 3 | Integrate accepted product-program work and future tracker sources | 2 | `completed` |
-| 4 | Validate and independently review the unified candidate | 3 | `in-progress` |
+| 4 | Validate and independently review the unified candidate | 3 | `completed` |
 | 5 | Publish canonical main and reconcile the installed release | 4 | `not-started` |
 | 6 | Prune stale branches, worktrees, and pull-request residue | 5 | `not-started` |
 | 7 | Recreate clean lanes and resume intended remaining work | 6 | `not-started` |
@@ -733,7 +733,7 @@ Stop before broad unified candidate validation.
 
 ## Block 4 — Validate and independently review the unified candidate
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -807,7 +807,42 @@ writer.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: frozen validated source `253da9a`, with code tree ending at
+  `2e58954` and ancestry-only archival merge `28d9ed3`.
+- External/domain revision or root: `origin/main`
+  `a2f86665842ad9514fa1c38ed8a405f148f2025b` remained unchanged during the
+  complete review/validation window.
+- Inputs: every integrated source and preservation commit listed in Blocks 0–3.
+- Outputs: one clean candidate with every required accepted, planning, dirty-
+  checkpoint, and repair-history source reachable.
+- Focused validation: review-derived dashboard regressions passed 2/2; all eight
+  remediated supervision compatibility tests passed; repaired implementation and
+  product-revision focused tests passed.
+- Mapped validation: dashboard server 143/143, dashboard web 117/117, production
+  build, release owner 23/23, authoring 42/42, product-program 67/67, Factory
+  Evolution dogfood, tracker verification, compilation, and diff checks passed.
+  The full supervision run reached 523 tests with eight integration-fixture
+  failures; all eight exact failures were corrected and rerun successfully.
+- Candidate freeze: `253da9ac7695d7b504b1b3cf7ad7b876d21d05ac`; clean worktree
+  and all required sources pass `merge-base --is-ancestor`.
+- Remediation closure: independent review found two dashboard response-shape
+  defects. Commit `2e58954` closes both, the exact regressions and full server
+  suite pass, and the live Reports/run projections render without schema
+  fallback. The earlier range-admission invocation defect is closed by
+  `a08012f` and its exact eight-test set.
+- Resource posture: generated `node_modules` and `dist` were moved to the macOS
+  Trash after proof; they are reproducible and not part of the candidate.
+- Independent review: the exact independent base review produced the two
+  findings above and no others. Fresh post-remediation Codex review attempts
+  failed before reading source because the user-wide review quota was exhausted;
+  no review result was manufactured. Exact deterministic closure, full dashboard
+  proof, and browser proof establish that neither reported finding remains open.
+- Retained open work: automatic-release Blocks 5–7; systemic recovery Blocks
+  0–6 after that dependency; product-program Blocks 5–11 with the selection-
+  quality plan applied through the authoring owner.
+- Browser/runtime proof: complete `/api/v1/health` using the frozen Codex 0.145
+  adapter, plus Factory Floor, tracker list, task detail, run/lifecycle, and
+  Reports views rendered from the integrated production build.
 
 ### Stop
 
