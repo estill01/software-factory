@@ -1575,6 +1575,82 @@ class ImplementationRangeControlTests(unittest.TestCase):
             response_kind,
         )
 
+    def admit(self, *, include_binding_inputs: bool = False) -> dict[str, object]:
+        arguments = [
+            "implementation-range-admit",
+            "--target-thread",
+            self.target,
+        ]
+        if include_binding_inputs:
+            arguments.extend(
+                [
+                    "--range-id",
+                    "RANGE-ADMISSION-1234",
+                    "--tracker",
+                    str(self.tracker),
+                    "--request-text",
+                    self.initial_request,
+                    "--authority-source-record",
+                    self.initial_source,
+                    "--authority-source-sha256",
+                    self.initial_sha,
+                ]
+            )
+        return self.call(*arguments)
+
+    def test_admission_binds_once_from_canonical_direct_request(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+
+        first = self.admit(include_binding_inputs=True)
+        second = self.admit()
+
+        self.assertEqual(first["binding"]["range_intent"], "full-tracker")
+        self.assertTrue(second["admitted"])
+        self.assertTrue(second["duplicate"])
+        self.assertTrue(second["implementation_start_permitted"])
+        self.assertTrue(second["final_response_gate_required"])
+        self.assertEqual(second["range_state"]["remaining_blocks"], [1])
+
+    def test_admission_rejects_missing_canonical_binding_inputs(self) -> None:
+        self.write_tracker(["not-started"])
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "cannot start without canonical range binding inputs",
+        ):
+            self.admit()
+
+    def test_admission_advances_status_only_tracker_currentness(self) -> None:
+        self.write_tracker(["not-started", "not-started"])
+        self.bind()
+        self.write_tracker(["completed", "not-started"])
+
+        amended = self.admit()
+        current = self.admit()
+
+        self.assertFalse(amended["contraction"])
+        self.assertEqual(amended["binding"]["history"][-1]["operation"], "tracker-amended")
+        self.assertTrue(current["range_binding_current"])
+        self.assertEqual(current["range_state"]["accepted_blocks"], [0])
+
+    def test_admission_fails_closed_on_unaccepted_structural_change(self) -> None:
+        self.write_tracker(["not-started", "not-started"])
+        self.bind()
+        self.tracker.write_text(
+            self.tracker.read_text(encoding="utf-8").replace(
+                "Stop at this Block boundary.",
+                "Stop after exact acceptance.",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an accepted structural amendment",
+        ):
+            self.admit()
+
     def test_absent_range_returns_structured_nonterminal_repair(self) -> None:
         result = self.gate("final-response")
 

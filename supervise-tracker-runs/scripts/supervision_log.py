@@ -1845,7 +1845,11 @@ def validate_policy(policy: dict[str, Any]) -> None:
         identity_values = [
             gmail.get(key) for key in ("project_key", "reply_message_id", "subject")
         ]
-        if any(identity_values) and not all(identity_values):
+        # Policies written before terminal delivery became a default may carry
+        # a partial legacy alert binding.  Preserve those immutable history
+        # entries; the current policy becomes strict when bind enables the
+        # terminal lane.
+        if terminal_enabled is True and any(identity_values) and not all(identity_values):
             raise SupervisionLogError("Primary Gmail binding is incomplete")
         if (gmail.get("enabled") is True or terminal_enabled is True) and policy.get(
             "permissions", {}
@@ -8521,6 +8525,88 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         evidence_values=[tracker_sha256, entry["entry_sha256"], *( [amendment_map] if amendment_map else [])],
     )
     print(json.dumps({"binding": contract, "contraction": contraction}, sort_keys=True))
+
+
+def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
+    """Make the existing range owner an admission prerequisite.
+
+    A new implementation run is bound from its already-canonical direct-user
+    source.  Existing runs are rehydrated without mutation; status/evidence-only
+    tracker drift is advanced through the existing append-only amendment path.
+    Structural drift still requires the canonical tracker-amendment owner.
+    """
+
+    _directory, policy = load_policy(args)
+    contract = implementation_range_contract(policy)
+    if contract is None:
+        required = {
+            "range_id": args.range_id,
+            "tracker": args.tracker,
+            "request_text": args.request_text,
+            "authority_source_record": args.authority_source_record,
+            "authority_source_sha256": args.authority_source_sha256,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise SupervisionLogError(
+                "Implementation admission cannot start without canonical range "
+                "binding inputs: " + ", ".join(sorted(missing))
+            )
+        cmd_implementation_range_bind(args)
+        return
+
+    validate_implementation_range_contract(contract)
+    if args.tracker:
+        supplied = Path(args.tracker).expanduser().resolve(strict=True)
+        if str(supplied) != contract["tracker_path"]:
+            raise SupervisionLogError(
+                "Implementation admission tracker differs from the canonical range"
+            )
+    try:
+        state = implementation_range_state(policy)
+    except SupervisionLogError as exc:
+        repairable = str(exc).startswith(
+            "Implementation tracker changed without an accepted range amendment"
+        )
+        if not repairable:
+            raise SupervisionLogError(
+                "Implementation admission rejected noncurrent range: " + str(exc)
+            ) from exc
+        (
+            tracker_path,
+            _tracker_sha256,
+            tracker_structure_sha256,
+            tracker_blocks,
+        ) = implementation_tracker_snapshot(str(contract["tracker_path"]))
+        if (
+            str(tracker_path) != contract["tracker_path"]
+            or tracker_structure_sha256 != contract["tracker_structure_sha256"]
+            or sorted(tracker_blocks) != contract["tracker_blocks"]
+        ):
+            raise SupervisionLogError(
+                "Implementation admission requires an accepted structural amendment"
+            ) from exc
+        args.tracker = str(tracker_path)
+        args.request_text = ""
+        args.authority_source_record = ""
+        args.authority_source_sha256 = ""
+        args.amendment_event_record = ""
+        cmd_implementation_range_amend(args)
+        return
+    print(
+        json.dumps(
+            {
+                "admitted": True,
+                "duplicate": True,
+                "range_binding_current": True,
+                "binding": contract,
+                "range_state": state,
+                "implementation_start_permitted": True,
+                "final_response_gate_required": True,
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def implementation_range_repair_result(
@@ -16263,6 +16349,16 @@ def parser() -> argparse.ArgumentParser:
     range_bind.add_argument("--authority-source-record", required=True)
     range_bind.add_argument("--authority-source-sha256", required=True)
     range_bind.set_defaults(func=cmd_implementation_range_bind)
+
+    range_admit = subparsers.add_parser("implementation-range-admit")
+    range_admit.add_argument("--target-thread", required=True)
+    range_admit.add_argument("--range-id", default="")
+    range_admit.add_argument("--tracker", default="")
+    range_admit.add_argument("--request-text", default="")
+    range_admit.add_argument("--authority-source-record", default="")
+    range_admit.add_argument("--authority-source-sha256", default="")
+    range_admit.add_argument("--amendment-event-record", default="")
+    range_admit.set_defaults(func=cmd_implementation_range_admit)
 
     range_amend = subparsers.add_parser("implementation-range-amend")
     range_amend.add_argument("--target-thread", required=True)
