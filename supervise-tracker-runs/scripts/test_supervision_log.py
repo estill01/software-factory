@@ -4295,9 +4295,15 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         )
 
     def fake_owner(
-        self, _repository: Path, *, source_commit: str, action: str
+        self,
+        _repository: Path,
+        *,
+        source_commit: str,
+        action: str,
+        release_id: str | None = None,
     ) -> dict[str, object]:
         self.assertEqual(source_commit, self.source)
+        self.assertIsNone(release_id)
         self.owner_actions.append(action)
         return copy.deepcopy(self.promotion if action == "promote" else self.status)
 
@@ -4391,6 +4397,63 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 "--promotion-record",
                 promotion_record,
             )
+
+    def refresh_health(
+        self,
+        promotion_record: str,
+        automation_root: Path,
+        *,
+        owner: object | None = None,
+    ) -> dict[str, object]:
+        with (
+            mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+            ),
+            mock.patch.object(
+                supervision_log,
+                "run_software_factory_release_owner",
+                side_effect=owner or self.fake_owner,
+            ),
+        ):
+            return self.call(
+                "software-factory-supervisor-refresh-health",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--promotion-record",
+                promotion_record,
+            )
+
+    def status_for_release(
+        self, release_id: str, *, source_commit: str
+    ) -> dict[str, object]:
+        roots = {
+            name: hashlib.sha256(f"prior:{name}".encode("utf-8")).hexdigest()
+            for name in supervision_log.SOFTWARE_FACTORY_RELEASE_SKILLS
+        }
+        installed_material: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-post-swap-resolution",
+            "release_id": release_id,
+            "installed_roots": roots,
+        }
+        installed = {
+            **installed_material,
+            "verification_root_sha256": supervision_log.digest(installed_material),
+        }
+        return {
+            "active_release_id": release_id,
+            "source_commit": source_commit,
+            "skills": {
+                name: {"content_root_sha256": root, "file_count": 1}
+                for name, root in roots.items()
+            },
+            "installed_links": {name: {"stable": True} for name in roots},
+            "installed_complete": True,
+            "activation_history_records": 2,
+            "current_verification": installed,
+        }
 
     def test_exact_acceptance_invokes_flagless_owner_and_deduplicates(self) -> None:
         accepted = self.acceptance()
@@ -4836,6 +4899,175 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             self.refresh_plan(
                 str(promoted["promotion"]["record_id"]),
                 Path(self.temporary.name) / "automations",
+            )
+
+    def test_refresh_health_waits_for_automation_owner_update(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        self.write_automation(self.pinned_automation_prompt())
+        result = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            Path(self.temporary.name) / "automations",
+        )
+        self.assertEqual(result["outcome"], "refresh-pending")
+        self.assertEqual(result["next_action"], "apply-automation-owner-updates-at-next-wake")
+        self.assertEqual(self.owner_actions, ["status", "status"])
+        records = supervision_log.events(self.root / self.target / "events.jsonl")
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+                for item in records
+            )
+        )
+
+    def test_refresh_health_records_verified_result_once(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        promotion_record = str(promoted["promotion"]["record_id"])
+        automation_root = Path(self.temporary.name) / "automations"
+        first = self.refresh_health(promotion_record, automation_root)
+        second = self.refresh_health(promotion_record, automation_root)
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(first["health"]["outcome"], "verified")
+        self.assertEqual(first["health"]["record_id"], second["health"]["record_id"])
+        records = supervision_log.events(self.root / self.target / "events.jsonl")
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+                ]
+            ),
+            1,
+        )
+
+    def test_refresh_health_uses_owner_rollback_and_rehydrates_retry(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        self.write_automation(
+            self.pinned_automation_prompt(),
+            target_thread_id="foreign-role-thread-1234",
+        )
+        prior_release = str(self.promotion["activation"]["previous_release_id"])
+        prior_status = self.status_for_release(
+            prior_release, source_commit="7" * 40
+        )
+        rolled_back = False
+
+        def owner(
+            _repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+        ) -> dict[str, object]:
+            nonlocal rolled_back
+            self.assertEqual(source_commit, self.source)
+            self.owner_actions.append(action)
+            if action == "status":
+                return copy.deepcopy(prior_status if rolled_back else self.status)
+            self.assertEqual(action, "rollback")
+            self.assertEqual(release_id, prior_release)
+            rolled_back = True
+            return {
+                "action": "rollback",
+                "active_release_id": prior_release,
+                "previous_release_id": self.promotion["release_id"],
+                "installed": copy.deepcopy(prior_status["current_verification"]),
+                "activation_record": {"record_id": "rollback-owner-record-1234"},
+            }
+
+        promotion_record = str(promoted["promotion"]["record_id"])
+        automation_root = Path(self.temporary.name) / "automations"
+        first = self.refresh_health(
+            promotion_record, automation_root, owner=owner
+        )
+        second = self.refresh_health(
+            promotion_record, automation_root, owner=owner
+        )
+        self.assertEqual(
+            self.owner_actions,
+            ["status", "status", "rollback", "status", "status"],
+        )
+        self.assertEqual(first["health"]["outcome"], "rolled-back")
+        self.assertEqual(
+            first["next_action"],
+            "route-role-refresh-for-restored-stable-release",
+        )
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(first["health"]["record_id"], second["health"]["record_id"])
+
+    def test_refresh_health_rejects_divergent_rollback_owner_result(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(
+            self.pinned_automation_prompt(),
+            target_thread_id="foreign-role-thread-1234",
+        )
+        prior_release = str(self.promotion["activation"]["previous_release_id"])
+        prior_status = self.status_for_release(
+            prior_release, source_commit="7" * 40
+        )
+
+        def owner(
+            _repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+        ) -> dict[str, object]:
+            self.assertEqual(source_commit, self.source)
+            if action == "status":
+                return copy.deepcopy(
+                    self.status if release_id is None else prior_status
+                )
+            self.assertEqual(action, "rollback")
+            return {
+                "action": "rollback",
+                "active_release_id": prior_release,
+                "previous_release_id": "8" * 12 + "-" + "9" * 12,
+                "installed": copy.deepcopy(prior_status["current_verification"]),
+                "activation_record": {"record_id": "rollback-owner-record-1234"},
+            }
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "rollback owner result"
+        ):
+            self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                Path(self.temporary.name) / "automations",
+                owner=owner,
             )
 
 
