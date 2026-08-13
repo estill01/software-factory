@@ -575,6 +575,10 @@ def dependency_closure(blocks: Mapping[int, Mapping[str, Any]], seeds: set[int])
     return closure
 
 
+def status_is_accepted(status: Any) -> bool:
+    return status in {"accepted", "completed"}
+
+
 def _accepted_history(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [
         {
@@ -583,7 +587,7 @@ def _accepted_history(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
             "contract_sha256": block["contract_sha256"],
         }
         for number, block in sorted(snapshot["blocks"].items())
-        if block["status"] == "completed"
+        if status_is_accepted(block["status"])
     ]
 
 
@@ -713,7 +717,7 @@ def build_revision_packet(
         if (
             successor_predecessors.get(targets[0]) != {old}
             or
-            new_block["status"] != "completed"
+            not status_is_accepted(new_block["status"])
             or new_block["scope"] != old_block["scope"]
             or new_block["history_sha256"] != item["history_sha256"]
             or new_block["mapped_contract_sha256"]
@@ -722,17 +726,17 @@ def build_revision_packet(
         ):
             raise ProgramRevisionError("Accepted Block history was rewritten")
     for old, old_block in previous["blocks"].items():
-        if old_block["status"] == "completed":
+        if status_is_accepted(old_block["status"]):
             continue
         if any(
-            proposed["blocks"][target]["status"] == "completed"
+            status_is_accepted(proposed["blocks"][target]["status"])
             for target in block_map[str(old)]
         ):
             raise ProgramRevisionError("Open Block cannot map to completed work")
     completed_new = {
         number
         for number, block in proposed["blocks"].items()
-        if block["status"] == "completed"
+        if status_is_accepted(block["status"])
     }
     safe_frontier = sorted(
         number
