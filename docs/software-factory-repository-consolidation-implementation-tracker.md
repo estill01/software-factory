@@ -225,8 +225,8 @@ accepted owner supersedes them.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze writers and source-disposition ledger | — | `in-progress` |
-| 1 | Integrate automatic-release and supervision control-plane lines | 0 | `not-started` |
+| 0 | Freeze writers and source-disposition ledger | — | `completed` |
+| 1 | Integrate automatic-release and supervision control-plane lines | 0 | `in-progress` |
 | 2 | Integrate and preserve the completed dashboard/evolution web app | 1 | `not-started` |
 | 3 | Integrate accepted product-program work and future tracker sources | 2 | `not-started` |
 | 4 | Validate and independently review the unified candidate | 3 | `not-started` |
@@ -241,7 +241,7 @@ Required order:
 
 ## Block 0 — Freeze writers and source-disposition ledger
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -296,10 +296,10 @@ exact candidate.
 | Task or owner | Current boundary | Writer posture | Consolidation disposition |
 |---|---|---|---|
 | `019ffc82-86de-74e2-bdfb-a23403da5c2f` | repository consolidation, this Block 0 | sole integration writer in `codex/repository-consolidation` | owns inventory and later merge/publish/cleanup; does not edit active implementation worktrees |
-| `019ffc0a-7946-76e0-9164-d70ddbe7a492` | automatic-release Block 5 correction after accepted Block 2 | active source writer in `/private/tmp/sf-delegated-integration-review.31b8`; current pushed checkpoint `4b2f9fec67b0c62023ea3db1ac79411ac56b0edc` plus an uncommitted terminal-lifecycle delta | wait for focused and mapped proof, exact review, commit, and push; freeze that result for Block 1 |
-| `019fdfe4-dabe-7130-ac93-f8fa8e3bce12` | automatic-release Block 3 selected from accepted Blocks 0–2 | active only on the disjoint release/role-refresh frontier; it detected and avoided the Block 5 worktree overlap | freeze its exact pushed result separately, then reconcile with the Block 5 candidate in Block 1 |
-| `019ffa13-a3d8-78a2-a3cb-f187ca333e8f` | accepted product-program Blocks 0–4 at `423ae8de74f5fd57d2d8a653e769cda1d8eedd7b` | idle by routed instruction; Blocks 5–11 remain untouched | port the accepted `4ae6a61..423ae8d` capability delta in Block 3, preserve dirty evidence, and resume only from published main in Block 7 |
-| `019fe547-e054-7ca0-9940-ec4aa146df78` | completed dashboard Blocks 0–31; implementation close `29b357d8465c9c5607da93d69fab392b8418ad45`, combined branch `fff1809716d75f4360fa052c540cfdc38eb91d4c` | no implementation writer | merge the post-PR dashboard/evolution delta in Block 2 and re-establish build, API, browser, and runtime proof |
+| `019ffc0a-7946-76e0-9164-d70ddbe7a492` | stopped during the shared automatic-release Block 5 correction | idle/interrupted; no further writer authority | its exact combined five-file delta is preserved on `codex/block5-shared-candidate` at `ba9d80171bd21397b970977267c192ae101d994f` for Block 1 validation and integration |
+| `019fdfe4-dabe-7130-ac93-f8fa8e3bce12` | stopped after detecting the same shared Block 5 candidate | idle/interrupted; no further writer authority | no independent source commit was produced; its useful corrections are included in `ba9d80171bd21397b970977267c192ae101d994f` |
+| `019ffa13-a3d8-78a2-a3cb-f187ca333e8f` | accepted product-program Blocks 0–4 at `423ae8de74f5fd57d2d8a653e769cda1d8eedd7b` | idle/stopped; Blocks 5–11 remain untouched | port the accepted `4ae6a61..423ae8d` capability delta in Block 3, preserve dirty evidence, and resume only from published main in Block 7 |
+| `019fe547-e054-7ca0-9940-ec4aa146df78` | completed dashboard Blocks 0–31; implementation close `29b357d8465c9c5607da93d69fab392b8418ad45`, combined branch `fff1809716d75f4360fa052c540cfdc38eb91d4c` | idle/stopped; no implementation writer | merge the post-PR dashboard/evolution delta in Block 2 and re-establish build, API, browser, and runtime proof |
 | Automatic-release reviewers and watcher | current target `019fdfe4-dabe-7130-ac93-f8fa8e3bce12` | read-only; the Sol Max reviewer issued one correction steer and returned idle | retain for exact target review until Block 1 is frozen; do not treat review activity as an implementation writer |
 | Product-program reviewers and watcher | current target `019ffa13-a3d8-78a2-a3cb-f187ca333e8f` | idle/read-only | retain until the clean Block 7 successor lane is bound |
 | Dashboard reviewers and watcher | completed target `019fe547-e054-7ca0-9940-ec4aa146df78` | idle/read-only, but two heartbeat prompts still reference obsolete release `35186f522fb6-0eddf09b3ae6` and a historical Block 20 snapshot | preserve until terminal/current-release reconciliation in Blocks 5–7; they are stale automation configuration, not source writers |
@@ -313,8 +313,9 @@ Current repository and external-owner freeze:
   release-owner 21, tracker-authoring 30, tracker-execution 69, and
   tracker-supervision 376 tests.
 - Worktree count: 35 before this tracker, 36 with the clean consolidation
-  worktree. Only the active Block 5 worktree, this tracker worktree, and the
-  product-program evidence worktree are dirty.
+  worktree. The former Block 5 worktree is now clean at pushed checkpoint
+  `ba9d801`; only this tracker worktree and the product-program evidence
+  worktree are dirty.
 - The product worktree's `.program-revision/` has exactly three untracked
   files and remains untouched: proposal SHA-256
   `f79b10685096d6105710afa5169fa927220f8af821319cf879ab2f2e53068e0f`,
@@ -360,7 +361,37 @@ Block 6.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: inventory checkpoint
+  `4d2843fba782690f26ccf1f411c19e45e4760e6d`; Block 0 closure is this
+  tracker-only successor.
+- External/domain revision or root: `origin/main`
+  `a2f86665842ad9514fa1c38ed8a405f148f2025b`; installed release
+  `9c143e486bdd-95aa08de7014`; no open pull requests.
+- Inputs: 36 worktrees, all local and remote branches, four named primary
+  tasks, their reviewer/watcher roles, six active heartbeat automations,
+  installed release manifest, and three dirty-state sets.
+- Outputs: all four former implementation tasks are quiescent; the shared
+  dirty Block 5 candidate is clean, committed, and pushed at
+  `ba9d80171bd21397b970977267c192ae101d994f`; exact dispositions and dirty
+  evidence hashes are recorded above.
+- Focused validation: combined terminal/supervision run 330/330, Python 3.14
+  compile, supervision skill validation, and diff check passed for the shared
+  candidate.
+- Mapped validation: deferred to frozen integrated candidate in Block 4.
+- Candidate freeze: `ba9d80171bd21397b970977267c192ae101d994f`, tree
+  `8601baddf200cb96553824b7207d3cdd6ad6105e`; clean and exact with upstream.
+- Remediation closure: prior Block 5 findings are preserved as candidate
+  inputs; acceptance remains owned by Block 1 and Block 4 review.
+- Resource posture: only one integration writer remains; stopped tasks will
+  not be restarted during consolidation.
+- Independent review: deletion review remains required in Block 6; no deletion
+  occurred in this Block.
+- Retained open work: integration Blocks 1–8 and all tracker-owned future work
+  recorded for Block 7.
+- Decision/continuation posture: proceed to Block 1 from the exact frozen refs.
+- Post-block audit: accepted; no moving source remains.
+- Git durability: inventory and shared candidate checkpoints are pushed
+  non-force to their configured upstream branches.
 
 ### Stop
 
@@ -370,7 +401,7 @@ Stop before merging an implementation branch into the consolidation branch.
 
 ## Block 1 — Integrate automatic-release and supervision control-plane lines
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
