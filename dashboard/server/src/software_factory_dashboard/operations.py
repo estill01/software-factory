@@ -6466,6 +6466,24 @@ class OperationsProjectionService:
                         "Maintained weekly report status output is incomplete.",
                         status=503,
                     )
+                # The maintained owner receipt also carries Factory Evolution
+                # inputs. They remain available from the owner and report
+                # artifact, but are not members of the dashboard's strict
+                # weekly verification envelope.
+                verification = {
+                    key: verification.get(key)
+                    for key in (
+                        "valid",
+                        "report_id",
+                        "source_root",
+                        "manifest_root",
+                        "page_count",
+                        "pdf_path",
+                        "report_sha256",
+                        "review_sha256",
+                        "pdf_sha256",
+                    )
+                }
                 report_path = directory / "report.json"
                 report = json.loads(_read_bounded(report_path, MAX_REPORT_ARTIFACT_BYTES))
                 review = report.get("cognitive_review") if isinstance(report, Mapping) else None
@@ -7286,6 +7304,8 @@ class OperationsProjectionService:
                 "evaluation_id": None,
                 "evaluation_root": None,
                 "disposition": None,
+                "comparison_plan": None,
+                "comparison_results": None,
                 "source_report_id": None,
                 "source_report_root": None,
                 "event_head_sha256": None,
@@ -7303,6 +7323,11 @@ class OperationsProjectionService:
                 "members": [],
                 "stages": [],
                 "limitations": [],
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": "Repair the run source before continuing Factory Evolution.",
+                    "preserved_roots": [],
+                },
                 "error": {
                     "code": error.code,
                     "message": str(error),

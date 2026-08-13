@@ -1567,6 +1567,22 @@ class OperationsProjectionTests(unittest.TestCase):
             ["complete"] * 6,
         )
 
+        projected = self.service.snapshot(self.projects)
+        projected_run = next(
+            run for run in projected["runs"] if run["target_thread_id"] == TARGET
+        )
+        projected_report = next(
+            report
+            for report in projected_run["reports"]
+            if report["id"] == planned["report_id"]
+        )
+        self.assertNotIn(
+            "factory_evolution_eligibility", projected_report["verification"]
+        )
+        self.assertNotIn(
+            "factory_evolution_outcomes", projected_report["verification"]
+        )
+
         evolution = self.service.factory_evolution_workflow_snapshot(TARGET)
         self.assertEqual(evolution["stage"], "prepare", evolution)
         self.assertEqual(evolution["next_action"], "prepare")
@@ -2394,6 +2410,11 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(broken["error"]["code"], "supervision_source_symlink_rejected")
         self.assertEqual(linked["status"], "unavailable")
         self.assertEqual(linked["error"]["code"], "report_set_invalid")
+        workflow = broken["factory_evolution_workflow"]
+        self.assertIsNone(workflow["comparison_plan"])
+        self.assertIsNone(workflow["comparison_results"])
+        self.assertEqual(workflow["recovery"]["posture"], "unavailable")
+        self.assertEqual(workflow["recovery"]["preserved_roots"], [])
 
     def test_cache_reuses_unchanged_sources_and_invalidates_changed_ledger(self) -> None:
         first = self.service.snapshot(self.projects)
