@@ -196,7 +196,7 @@ Required order:
 
 ## Block 0 — Freeze integrated baseline and ownership contract
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -678,7 +678,7 @@ Stop before updating a running supervisor.
 
 ## Block 3 — Implement stable-channel safe-boundary supervisor refresh
 
-Status: `completed`
+Status: `in-progress`
 
 ### Objective
 
