@@ -54,17 +54,19 @@ prepares one successor packet; it does not itself start reflection.
 ## Generate divergent reflection
 
 Read `references/program-reflection.md` completely. Before the one bounded
-high-resolution generation pass, ensure the packet's exact product sources cover
-current observable behavior, the feature/capability inventory, and relevant
-planned, active, completed, accepted, rejected, retired, or superseded tracker
-inventory.
-Use their retained IDs; do not copy the inventories into the output.
+high-resolution generation pass, provide one canonical product-program inventory
+manifest whose bytes are hash-bound to a retained packet product source. Its
+source roles must cover current observable behavior, feature/capability inventory,
+and planned, active, completed, accepted, rejected, retired, and superseded tracker
+inventory. Use its retained capability and user IDs; do not copy source content
+into the output.
 
 Generate one semantic submission, then validate and root it:
 
 ```bash
 /usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  build --packet <packet.json> --submission <reflection-submission.json>
+  build --packet <packet.json> --inventory <inventory.json> \
+  --submission <reflection-submission.json>
 ```
 
 The generator must expose evidence-linked observations, lessons, meta-patterns,
@@ -77,9 +79,11 @@ Verify or cheaply reuse an exact artifact:
 
 ```bash
 /usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  verify --packet <packet.json> --reflection <reflection.json>
+  verify --packet <packet.json> --inventory <inventory.json> \
+  --reflection <reflection.json>
 /usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  reuse --packet <packet.json> --reflection <reflection.json>
+  reuse --packet <packet.json> --inventory <inventory.json> \
+  --reflection <reflection.json>
 ```
 
 ## Authority boundary

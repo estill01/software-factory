@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -52,6 +54,21 @@ ARCHITECTURE_LEVELS = {
     "no-change",
     "program-structural",
 }
+REQUIRED_INVENTORY_ROLES = {
+    "current-observable-behavior",
+    "feature-capability-inventory",
+    "tracker-accepted",
+    "tracker-active",
+    "tracker-completed",
+    "tracker-planned",
+    "tracker-rejected",
+    "tracker-retired",
+    "tracker-superseded",
+}
+SELECTION_LANGUAGE = re.compile(
+    r"\b(?:adopt(?:ed|ion)?|rank(?:ed|ing)?|select(?:ed|ion)?|winner)\b",
+    re.IGNORECASE,
+)
 FORBIDDEN_KEYS = {
     "adopted",
     "body",
@@ -89,6 +106,13 @@ def semantic_text(value: Any, label: str) -> str:
     return value
 
 
+def divergent_text(value: Any, label: str) -> str:
+    result = semantic_text(value, label)
+    if SELECTION_LANGUAGE.search(result):
+        raise ProductProgramError(f"{label} asserts selection or adoption")
+    return result
+
+
 def semantic_ids(
     value: Any,
     label: str,
@@ -119,6 +143,17 @@ def semantic_strings(value: Any, label: str, *, allow_empty: bool = False) -> li
     return result
 
 
+def divergent_strings(value: Any, label: str, *, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, list) or len(value) > MAX_LIST:
+        raise ProductProgramError(f"{label} must be a bounded text array")
+    result = [divergent_text(item, f"{label} item") for item in value]
+    if not result and not allow_empty:
+        raise ProductProgramError(f"{label} must not be empty")
+    if result != sorted(set(result)):
+        raise ProductProgramError(f"{label} must be sorted and unique")
+    return result
+
+
 def reject_forbidden(value: Any) -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
@@ -137,6 +172,31 @@ def evidence_sets(packet: Mapping[str, Any]) -> tuple[set[str], set[str]]:
         adjudicating.update(item["source_id"] for item in packet[field])
     reports = {item["source_id"] for item in packet["reports"]}
     return adjudicating, adjudicating | reports
+
+
+def normalize_inventory(packet: Mapping[str, Any], value: Any) -> dict[str, Any]:
+    item = exact_keys(
+        value,
+        {"capability_ids", "kind", "product_source_id", "schema_version", "source_roles", "user_ids"},
+        "product inventory manifest",
+    )
+    if item["schema_version"] != SCHEMA_VERSION or item["kind"] != "product-program-inventory-manifest":
+        raise ProductProgramError("product inventory manifest identity differs")
+    source_id = exact_id(item["product_source_id"], "inventory product source ID")
+    product_sources = {entry["source_id"]: entry for entry in packet["product_sources"]}
+    if source_id not in product_sources:
+        raise ProductProgramError("inventory manifest is not bound to a packet product source")
+    if hashlib.sha256(canonical(value)).hexdigest() != product_sources[source_id]["sha256"]:
+        raise ProductProgramError("inventory manifest content differs from its packet source")
+    roles = semantic_ids(item["source_roles"], "inventory source roles")
+    if set(roles) != REQUIRED_INVENTORY_ROLES:
+        raise ProductProgramError("inventory manifest does not cover every required product/tracker role")
+    return {
+        "capability_ids": semantic_ids(item["capability_ids"], "inventory capability IDs"),
+        "product_source_id": source_id,
+        "source_roles": roles,
+        "user_ids": semantic_ids(item["user_ids"], "inventory user IDs"),
+    }
 
 
 def evidence_ids(
@@ -173,7 +233,7 @@ def normalize_observations(
                     adjudicating=adjudicating,
                 ),
                 "observation_id": exact_id(item["observation_id"], "observation ID"),
-                "summary": semantic_text(item["summary"], "observation summary"),
+                "summary": divergent_text(item["summary"], "observation summary"),
                 "valence": valence,
             }
         )
@@ -216,17 +276,17 @@ def normalize_lessons(value: Any, *, observation_ids: set[str]) -> list[dict[str
             raise ProductProgramError("lesson counterexample posture contradicts its observations")
         result.append(
             {
-                "applicability": semantic_text(item["applicability"], "lesson applicability"),
-                "confidence": semantic_text(item["confidence"], "lesson confidence"),
+                "applicability": divergent_text(item["applicability"], "lesson applicability"),
+                "confidence": divergent_text(item["confidence"], "lesson confidence"),
                 "counterexample_observation_ids": contrary,
                 "counterexample_posture": posture,
-                "counterexample_search": semantic_text(item["counterexample_search"], "lesson counterexample search"),
+                "counterexample_search": divergent_text(item["counterexample_search"], "lesson counterexample search"),
                 "lesson_id": exact_id(item["lesson_id"], "lesson ID"),
                 "observation_ids": semantic_ids(
                     item["observation_ids"], "lesson observation IDs", allowed=observation_ids
                 ),
-                "statement": semantic_text(item["statement"], "lesson statement"),
-                "uncertainty": semantic_text(item["uncertainty"], "lesson uncertainty"),
+                "statement": divergent_text(item["statement"], "lesson statement"),
+                "uncertainty": divergent_text(item["uncertainty"], "lesson uncertainty"),
             }
         )
     result.sort(key=lambda item: item["lesson_id"])
@@ -257,7 +317,7 @@ def normalize_meta_patterns(value: Any, *, lesson_ids: set[str]) -> list[dict[st
             raise ProductProgramError("meta-pattern must relate at least two lessons")
         result.append(
             {
-                "applicability": semantic_text(item["applicability"], "meta-pattern applicability"),
+                "applicability": divergent_text(item["applicability"], "meta-pattern applicability"),
                 "counterexample_lesson_ids": semantic_ids(
                     item["counterexample_lesson_ids"],
                     "meta-pattern counterexample lessons",
@@ -266,8 +326,8 @@ def normalize_meta_patterns(value: Any, *, lesson_ids: set[str]) -> list[dict[st
                 ),
                 "lesson_ids": linked,
                 "meta_pattern_id": exact_id(item["meta_pattern_id"], "meta-pattern ID"),
-                "statement": semantic_text(item["statement"], "meta-pattern statement"),
-                "uncertainty": semantic_text(item["uncertainty"], "meta-pattern uncertainty"),
+                "statement": divergent_text(item["statement"], "meta-pattern statement"),
+                "uncertainty": divergent_text(item["uncertainty"], "meta-pattern uncertainty"),
             }
         )
     result.sort(key=lambda item: item["meta_pattern_id"])
@@ -295,12 +355,17 @@ def normalize_category_search(
             adjudicating=adjudicating,
             allow_empty=disposition != "supported",
         )
+        rationale = divergent_text(item["rationale"], "category-search rationale")
+        if disposition != "supported" and re.search(r"\bsupports?\b", rationale, re.IGNORECASE):
+            raise ProductProgramError("unsupported category rationale contradicts its disposition")
+        if disposition == "supported" and re.search(r"\bno evidence\b", rationale, re.IGNORECASE):
+            raise ProductProgramError("supported category rationale contradicts its disposition")
         result.append(
             {
                 "candidate_type": candidate_type,
                 "disposition": disposition,
                 "evidence_ids": refs,
-                "rationale": semantic_text(item["rationale"], "category-search rationale"),
+                "rationale": rationale,
             }
         )
     result.sort(key=lambda item: item["candidate_type"])
@@ -314,6 +379,7 @@ def normalize_gaps(
     *,
     observation_ids: set[str],
     lesson_ids: set[str],
+    meta_pattern_ids: set[str],
     allowed_evidence: set[str],
     adjudicating: set[str],
 ) -> list[dict[str, Any]]:
@@ -329,6 +395,7 @@ def normalize_gaps(
                 "evidence_ids",
                 "gap_id",
                 "lesson_ids",
+                "meta_pattern_ids",
                 "mission_boundary",
                 "observation_ids",
                 "statement",
@@ -343,7 +410,7 @@ def normalize_gaps(
                     allowed_evidence=allowed_evidence,
                     adjudicating=adjudicating,
                 ),
-                "desired_capability": semantic_text(item["desired_capability"], "desired capability"),
+                "desired_capability": divergent_text(item["desired_capability"], "desired capability"),
                 "evidence_ids": evidence_ids(
                     item["evidence_ids"],
                     "capability-gap evidence IDs",
@@ -352,12 +419,15 @@ def normalize_gaps(
                 ),
                 "gap_id": exact_id(item["gap_id"], "capability-gap ID"),
                 "lesson_ids": semantic_ids(item["lesson_ids"], "capability-gap lesson IDs", allowed=lesson_ids),
-                "mission_boundary": semantic_text(item["mission_boundary"], "capability-gap mission boundary"),
+                "meta_pattern_ids": semantic_ids(
+                    item["meta_pattern_ids"], "capability-gap meta-pattern IDs", allowed=meta_pattern_ids
+                ),
+                "mission_boundary": divergent_text(item["mission_boundary"], "capability-gap mission boundary"),
                 "observation_ids": semantic_ids(
                     item["observation_ids"], "capability-gap observation IDs", allowed=observation_ids
                 ),
-                "statement": semantic_text(item["statement"], "capability-gap statement"),
-                "uncertainty": semantic_text(item["uncertainty"], "capability-gap uncertainty"),
+                "statement": divergent_text(item["statement"], "capability-gap statement"),
+                "uncertainty": divergent_text(item["uncertainty"], "capability-gap uncertainty"),
             }
         )
     result.sort(key=lambda item: item["gap_id"])
@@ -374,6 +444,7 @@ def normalize_candidates(
     allowed_evidence: set[str],
     adjudicating: set[str],
     capability_ids: set[str],
+    user_ids: set[str],
     candidate_ceiling: int,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not value or len(value) > candidate_ceiling:
@@ -397,9 +468,11 @@ def normalize_candidates(
         "evidence_ids",
         "falsifiable_outcome",
         "gap_ids",
+        "generator_posture",
         "implementation_owner",
         "protected_behavior",
         "selector_id",
+        "selection_claim",
         "smallest_sufficient_change",
         "uncertainty",
     }
@@ -408,6 +481,8 @@ def normalize_candidates(
         candidate_type = item["candidate_type"]
         if candidate_type not in ALL_CANDIDATE_TYPES:
             raise ProductProgramError("candidate type is unsupported")
+        if item["generator_posture"] != "divergent-only" or item["selection_claim"] != "none":
+            raise ProductProgramError("candidate generator asserts selection authority")
         linked_gaps = semantic_ids(
             item["gap_ids"],
             "candidate gap IDs",
@@ -459,19 +534,21 @@ def normalize_candidates(
                     item["affected_capability_ids"],
                     "candidate affected capability IDs",
                     allowed=capability_ids,
-                    allow_empty=True,
+                    allow_empty=candidate_type == "continue-unchanged",
                 ),
-                "affected_user_ids": semantic_ids(item["affected_user_ids"], "candidate affected user IDs"),
+                "affected_user_ids": semantic_ids(
+                    item["affected_user_ids"], "candidate affected user IDs", allowed=user_ids
+                ),
                 "architecture_evidence_ids": architecture_refs,
                 "architecture_level": architecture_level,
-                "architecture_rationale": semantic_text(item["architecture_rationale"], "candidate architecture rationale"),
+                "architecture_rationale": divergent_text(item["architecture_rationale"], "candidate architecture rationale"),
                 "author_owner": exact_id(item["author_owner"], "candidate author owner"),
                 "candidate_id": exact_id(item["candidate_id"], "candidate ID"),
                 "candidate_type": candidate_type,
                 "counterexample_evidence_ids": counterexamples,
                 "counterexample_posture": posture,
-                "counterexample_search": semantic_text(item["counterexample_search"], "candidate counterexample search"),
-                "desired_effect": semantic_text(item["desired_effect"], "candidate desired effect"),
+                "counterexample_search": divergent_text(item["counterexample_search"], "candidate counterexample search"),
+                "desired_effect": divergent_text(item["desired_effect"], "candidate desired effect"),
                 "evaluation_owner": exact_id(item["evaluation_owner"], "candidate evaluation owner"),
                 "evidence_ids": evidence_ids(
                     item["evidence_ids"],
@@ -479,15 +556,17 @@ def normalize_candidates(
                     allowed=allowed_evidence,
                     adjudicating=adjudicating,
                 ),
-                "falsifiable_outcome": semantic_text(item["falsifiable_outcome"], "candidate falsifiable outcome"),
+                "falsifiable_outcome": divergent_text(item["falsifiable_outcome"], "candidate falsifiable outcome"),
                 "gap_ids": linked_gaps,
+                "generator_posture": "divergent-only",
                 "implementation_owner": exact_id(item["implementation_owner"], "candidate implementation owner"),
-                "protected_behavior": semantic_strings(item["protected_behavior"], "candidate protected behavior"),
+                "protected_behavior": divergent_strings(item["protected_behavior"], "candidate protected behavior"),
                 "selector_id": exact_id(item["selector_id"], "candidate selector ID"),
-                "smallest_sufficient_change": semantic_text(
+                "selection_claim": "none",
+                "smallest_sufficient_change": divergent_text(
                     item["smallest_sufficient_change"], "candidate smallest sufficient change"
                 ),
-                "uncertainty": semantic_text(item["uncertainty"], "candidate uncertainty"),
+                "uncertainty": divergent_text(item["uncertainty"], "candidate uncertainty"),
             }
         )
     result.sort(key=lambda item: item["candidate_id"])
@@ -520,9 +599,12 @@ def reflection_fields() -> set[str]:
     return set(contract["artifact_schemas"]["product-program-reflection"])
 
 
-def normalize_submission(packet: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
+def normalize_submission(
+    packet: Mapping[str, Any], submission: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
     verify_packet(packet)
     reject_forbidden(submission)
+    inventory = normalize_inventory(packet, inventory_manifest)
     item = exact_keys(
         submission,
         {
@@ -562,14 +644,18 @@ def normalize_submission(packet: Mapping[str, Any], submission: Mapping[str, Any
     lessons = normalize_lessons(item["lessons"], observation_ids=observation_ids)
     lesson_ids = {entry["lesson_id"] for entry in lessons}
     meta_patterns = normalize_meta_patterns(item["meta_patterns"], lesson_ids=lesson_ids)
+    meta_pattern_ids = {entry["meta_pattern_id"] for entry in meta_patterns}
     gaps = normalize_gaps(
         item["capability_gaps"],
         observation_ids=observation_ids,
         lesson_ids=lesson_ids,
+        meta_pattern_ids=meta_pattern_ids,
         allowed_evidence=allowed_evidence,
         adjudicating=adjudicating,
     )
-    capability_ids = {entry["capability_id"] for entry in packet["protected_capabilities"]}
+    capability_ids = set(inventory["capability_ids"])
+    if not {entry["capability_id"] for entry in packet["protected_capabilities"]} <= capability_ids:
+        raise ProductProgramError("inventory omits a protected capability")
     candidates = normalize_candidates(
         item["candidates"],
         generator_id=generator_id,
@@ -577,8 +663,27 @@ def normalize_submission(packet: Mapping[str, Any], submission: Mapping[str, Any
         allowed_evidence=allowed_evidence,
         adjudicating=adjudicating,
         capability_ids=capability_ids,
+        user_ids=set(inventory["user_ids"]),
         candidate_ceiling=candidate_ceiling,
     )
+    used_observations = {ref for lesson in lessons for ref in lesson["observation_ids"]}
+    if used_observations != observation_ids:
+        raise ProductProgramError("reflection ladder contains an orphaned observation")
+    if gaps:
+        used_lessons = {ref for pattern in meta_patterns for ref in pattern["lesson_ids"]}
+        used_patterns = {ref for gap in gaps for ref in gap["meta_pattern_ids"]}
+        if used_lessons != lesson_ids or used_patterns != meta_pattern_ids:
+            raise ProductProgramError("reflection ladder contains an orphaned semantic record")
+    elif meta_patterns:
+        raise ProductProgramError("no-gap reflection cannot assert a meta-pattern")
+    contrary_ids = {
+        entry["observation_id"] for entry in observations if entry["valence"] in {"contrary", "exception"}
+    }
+    carried_contrary = {
+        ref for lesson in lessons for ref in lesson["counterexample_observation_ids"]
+    }
+    if not contrary_ids <= carried_contrary:
+        raise ProductProgramError("contrary observations must remain visible through the ladder")
     return {
         "candidate_ceiling": candidate_ceiling,
         "candidates": candidates,
@@ -591,13 +696,17 @@ def normalize_submission(packet: Mapping[str, Any], submission: Mapping[str, Any
     }
 
 
-def build_reflection(packet: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
-    material = normalize_submission(packet, submission)
+def build_reflection(
+    packet: Mapping[str, Any], submission: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    material = normalize_submission(packet, submission, inventory_manifest)
+    inventory = normalize_inventory(packet, inventory_manifest)
     currentness_root = digest(
         {
             "kind": "product-program-reflection-currentness",
             "packet_currentness_root": packet["currentness_root"],
             "packet_root": packet["artifact_root"],
+            "product_inventory_root": digest(inventory),
         }
     )
     reflection: dict[str, Any] = {
@@ -617,12 +726,15 @@ def build_reflection(packet: Mapping[str, Any], submission: Mapping[str, Any]) -
     if set(reflection) != reflection_fields():
         raise ProductProgramError("reflection implementation differs from the frozen schema")
     reflection["artifact_root"] = digest({key: reflection[key] for key in reflection if key != "artifact_root"})
-    verify_reflection(packet, reflection)
+    verify_reflection(packet, reflection, inventory_manifest)
     return reflection
 
 
-def verify_reflection(packet: Mapping[str, Any], reflection: Mapping[str, Any]) -> dict[str, Any]:
+def verify_reflection(
+    packet: Mapping[str, Any], reflection: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
     verify_packet(packet)
+    inventory = normalize_inventory(packet, inventory_manifest)
     reject_forbidden(reflection)
     exact_keys(reflection, reflection_fields(), "reflection")
     if reflection["schema_version"] != SCHEMA_VERSION or reflection["kind"] != "product-program-reflection":
@@ -657,6 +769,7 @@ def verify_reflection(packet: Mapping[str, Any], reflection: Mapping[str, Any]) 
             "packet_root": reflection["packet_root"],
             "schema_version": reflection["schema_version"],
         },
+        inventory_manifest,
     )
     for key, value in normalized.items():
         if reflection[key] != value:
@@ -666,6 +779,7 @@ def verify_reflection(packet: Mapping[str, Any], reflection: Mapping[str, Any]) 
             "kind": "product-program-reflection-currentness",
             "packet_currentness_root": packet["currentness_root"],
             "packet_root": packet["artifact_root"],
+            "product_inventory_root": digest(inventory),
         }
     )
     if reflection["currentness_root"] != expected_currentness:
@@ -676,8 +790,10 @@ def verify_reflection(packet: Mapping[str, Any], reflection: Mapping[str, Any]) 
     return {"artifact_root": expected_root, "currentness_root": expected_currentness, "verified": True}
 
 
-def reuse_reflection(packet: Mapping[str, Any], reflection: Mapping[str, Any]) -> dict[str, Any]:
-    verified = verify_reflection(packet, reflection)
+def reuse_reflection(
+    packet: Mapping[str, Any], reflection: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    verified = verify_reflection(packet, reflection, inventory_manifest)
     return {
         "action": "reflection-reused",
         "artifact_root": verified["artifact_root"],
@@ -696,12 +812,15 @@ def parser() -> argparse.ArgumentParser:
     commands = result.add_subparsers(dest="command", required=True)
     build = commands.add_parser("build")
     build.add_argument("--packet", required=True)
+    build.add_argument("--inventory", required=True)
     build.add_argument("--submission", required=True)
     verify = commands.add_parser("verify")
     verify.add_argument("--packet", required=True)
+    verify.add_argument("--inventory", required=True)
     verify.add_argument("--reflection", required=True)
     reuse = commands.add_parser("reuse")
     reuse.add_argument("--packet", required=True)
+    reuse.add_argument("--inventory", required=True)
     reuse.add_argument("--reflection", required=True)
     return result
 
@@ -710,15 +829,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         packet = read_json(args.packet, "packet")
+        inventory = read_json(args.inventory, "product inventory manifest")
         if args.command == "build":
             output = {
                 "action": "reflection-prepared",
                 "cognitive_work_started": True,
-                "reflection": build_reflection(packet, read_json(args.submission, "reflection submission")),
+                "reflection": build_reflection(
+                    packet, read_json(args.submission, "reflection submission"), inventory
+                ),
             }
         else:
             reflection = read_json(args.reflection, "reflection")
-            output = verify_reflection(packet, reflection) if args.command == "verify" else reuse_reflection(packet, reflection)
+            output = (
+                verify_reflection(packet, reflection, inventory)
+                if args.command == "verify"
+                else reuse_reflection(packet, reflection, inventory)
+            )
     except (OSError, ProductProgramError) as exc:
         print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)
         return 2

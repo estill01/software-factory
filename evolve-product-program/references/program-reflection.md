@@ -8,12 +8,14 @@ authority.
 
 ## Evidence and inventory boundary
 
-Before generation, the packet must identify current observable product behavior,
-the existing feature/capability inventory, and relevant planned, active,
-completed, accepted, rejected, retired, and superseded tracker inventory as exact product
-sources. The reflection cites retained source/evidence IDs; it never copies those
-inventories, repository content, transcripts, prompts, hidden reasoning, or
-report prose.
+Before generation, one canonical product-program inventory manifest must be
+hash-bound to a retained packet product source. Its exact roles cover current
+observable behavior, the existing feature/capability inventory, and relevant
+planned, active, completed, accepted, rejected, retired, and superseded tracker
+inventory. Its user and capability IDs are the only IDs candidates may affect,
+and it must include every protected capability. The reflection cites retained
+source/evidence IDs; it never copies those inventories, repository content,
+transcripts, prompts, hidden reasoning, or report prose.
 
 Product sources, decisions, incidents, observed outcome evidence, and protected
 capability IDs are adjudicating references. A report source may nominate a
@@ -34,14 +36,19 @@ The ladder remains explicit:
 2. A lesson links observations and records applicability, confidence,
    uncertainty, counterexample posture, and the search performed.
 3. A meta-pattern relates at least two lessons without hiding contrary lessons.
-4. A capability gap links observations, lessons, mission boundary, uncertainty,
-   desired capability, and category search.
+4. A capability gap links observations, lessons, meta-patterns, mission boundary,
+   uncertainty, desired capability, and category search.
 5. A candidate links the gap, desired effect, affected users/capabilities,
    evidence and counterexamples, protected behavior, architecture level and
    support, smallest sufficient change, uncertainty, falsifiable outcome, and
    distinct future owners.
 
-Every gap searches at least two supported candidate categories. Each searched
+For a changed reflection, every observation is used by a lesson, every lesson is
+used by a meta-pattern, and every meta-pattern is used by a gap. Every contrary
+or exception observation is also retained explicitly as a lesson counterexample.
+The no-gap path records no meta-pattern and only the no-change candidate.
+
+Every gap searches at least two candidate categories. Each searched
 category is `supported`, `searched-no-support`, or `out-of-mission`; emitted
 change candidates exactly match supported categories. This creates visible
 alternatives without a novelty quota or pressure to populate unsupported types.
@@ -58,7 +65,9 @@ review must still challenge proportionality.
 ## Role and authority boundary
 
 For every candidate, the reflection generator, future selector, tracker author,
-implementation owner, and evaluator identities are distinct. The artifact states
+implementation owner, and evaluator identities are distinct. Each candidate
+declares `generator_posture: divergent-only` and `selection_claim: none`; prose
+that asserts selection, winning, ranking, or adoption rejects. The artifact states
 `derived-nonauthorizing`, `direct_effects_allowed: false`, and
 `selection_allowed: false`. Fields that imply a winner, rank, score, budget,
 schedule, placement, or adoption reject.
