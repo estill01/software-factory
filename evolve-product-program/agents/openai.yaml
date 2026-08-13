@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evolve Product Program"
+  short_description: "Reflect on evidence and propose a bounded program portfolio"
+  default_prompt: "Use $evolve-product-program to prepare and inspect a current product-program evolution cycle without applying downstream effects."
