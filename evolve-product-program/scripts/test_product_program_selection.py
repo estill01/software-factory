@@ -71,7 +71,7 @@ class ProductProgramSelectionTests(unittest.TestCase):
     def base_submission(self) -> dict[str, object]:
         no_review = {"adjudicator_id":"none","decision":"not-required","finding_ids":[],"required":False,"reviewed_input_root":"none","tradeoff_ids":[]}
         no_review["review_root"] = MODULE.digest(no_review)
-        return {"adjudication":no_review,"authority_premise":{"evidence_ids":[],"kind":"none"},"dimensions":[self.dimension("candidate-feature",favorable=True),self.dimension("candidate-no-change"),self.dimension("candidate-simplify")],"disposition":"revise-current-program","early_stop_rules":["outcome-disconfirmed","resource-ceiling-reached","stale-currentness"],"kind":"product-program-selection-submission","lanes":[self.lane("lane-current-program","candidate-feature")],"packet_root":self.packet["artifact_root"],"reflection_root":self.reflection["artifact_root"],"rejected_candidates":[{"candidate_id":"candidate-no-change","evidence_ids":["outcome-1"],"reason_id":"no-material-gain"},{"candidate_id":"candidate-simplify","evidence_ids":["outcome-1"],"reason_id":"evidence-weaker-than-selected"}],"resource_evidence_root":self.resource["artifact_root"],"schema_version":1,"scheduling_groups":[{"group_id":"group-current","lane_ids":["lane-current-program"],"mode":"sequential"}],"selected_candidate_ids":["candidate-feature"],"selector_id":"portfolio-selector"}
+        return {"adjudication":no_review,"authority_premise":{"evidence_ids":[],"kind":"none"},"defer_revisit_id":"none","dimensions":[self.dimension("candidate-feature",favorable=True),self.dimension("candidate-no-change"),self.dimension("candidate-simplify")],"disposition":"revise-current-program","early_stop_rules":["outcome-disconfirmed","resource-ceiling-reached","stale-currentness"],"kind":"product-program-selection-submission","lanes":[self.lane("lane-current-program","candidate-feature")],"packet_root":self.packet["artifact_root"],"reflection_root":self.reflection["artifact_root"],"rejected_candidates":[{"candidate_id":"candidate-no-change","evidence_ids":["outcome-1"],"reason_id":"no-material-gain"},{"candidate_id":"candidate-simplify","evidence_ids":["outcome-1"],"reason_id":"evidence-weaker-than-selected"}],"resource_evidence_root":self.resource["artifact_root"],"schema_version":1,"scheduling_groups":[{"group_id":"group-current","lane_ids":["lane-current-program"],"mode":"sequential"}],"selected_candidate_ids":["candidate-feature"],"selector_id":"portfolio-selector"}
 
     def build(self, submission=None, capacity_source=None):
         return MODULE.build_artifacts(self.packet,self.inventory,self.reflection,self.resource_source,self.resource,capacity_source or self.capacity_source,submission or self.submission)
@@ -185,6 +185,12 @@ class ProductProgramSelectionTests(unittest.TestCase):
         self.reject(request,"lacks a qualifying")
         request["authority_premise"]={"evidence_ids":["inventory-1"],"kind":"product-purpose-change"}
         bundle=self.build(request); self.assertEqual("direct-user",bundle["handoff"]["owner"]); self.assertFalse(bundle["handoff"]["authority"]["application_allowed"])
+
+    def test_safe_defer_preserves_one_candidate_and_exact_revisit_trigger(self):
+        defer=deepcopy(self.submission); defer["disposition"]="safe-defer-open-fact-or-authority"; defer["lanes"]=[]; defer["scheduling_groups"]=[]; defer["defer_revisit_id"]="new-direct-authority"
+        bundle=self.build(defer); self.assertEqual(["candidate-feature"],bundle["handoff"]["expected_effect"]["candidate_ids"]); self.assertEqual("new-direct-authority",bundle["handoff"]["expected_effect"]["revisit_id"])
+        missing=deepcopy(defer); missing["selected_candidate_ids"]=[]; missing["rejected_candidates"].insert(0,{"candidate_id":"candidate-feature","evidence_ids":["outcome-1"],"reason_id":"current-range-risk"}); self.reject(missing,"must not be empty")
+        no_trigger=deepcopy(defer); no_trigger["defer_revisit_id"]="none"; self.reject(no_trigger,"must preserve exactly one candidate")
 
     def test_unchanged_disposition_emits_no_lane_and_fixed_placement(self):
         unchanged=deepcopy(self.submission); unchanged["disposition"]="continue-program-unchanged"; unchanged["selected_candidate_ids"]=["candidate-no-change"]; unchanged["lanes"]=[]; unchanged["scheduling_groups"]=[]

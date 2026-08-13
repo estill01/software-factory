@@ -11,14 +11,15 @@
       "candidate_ids": [
         "candidate-feature"
       ],
-      "evidence_posture": "falsifiable-derived-projection"
+      "evidence_posture": "falsifiable-derived-projection",
+      "revisit_id": "none"
     },
-    "handoff_root": "ad2e68881aea3a94da75ebda70f6acefe8267ed15e5e4679102f6310a8d98615",
+    "handoff_root": "6a94546a2e78053478f2d7d89f6bb8f771101bc3bf5ccbd7c118b8417139645d",
     "kind": "product-program-placement-handoff",
     "nonauthorization": "receiving-owner-must-revalidate",
     "owner": "tracker-author",
     "placement": "current-program-author",
-    "portfolio_root": "a4ddfb4e59460d2b37eb7ae820e50f4a021725766ee85b40657e0b8d189187d7",
+    "portfolio_root": "900b88aac92c70199fcda4dddba2ebbea927bd84c53479b58f3ae2bea9b8462d",
     "preconditions": {
       "accepted_blocks": [
         0
@@ -100,7 +101,7 @@
       }
     ],
     "placement": "current-program-author",
-    "portfolio_root": "a4ddfb4e59460d2b37eb7ae820e50f4a021725766ee85b40657e0b8d189187d7",
+    "portfolio_root": "900b88aac92c70199fcda4dddba2ebbea927bd84c53479b58f3ae2bea9b8462d",
     "scheduling_groups": [
       {
         "group_id": "group-current",
@@ -111,7 +112,7 @@
       }
     ],
     "schema_version": 1,
-    "selection_root": "40fd6cad7884f24d306dc3b8564c8bb36776735d55ee3871a74ef643ed8f659d",
+    "selection_root": "bb47e809b47a510f2f96d7bea209192c58bb4e702adbd49b496b1c8aae40be11",
     "unused_capacity": {
       "execution_units": 5,
       "exploration_units": 3,
@@ -205,6 +206,7 @@
         "evidence_ids": [],
         "kind": "none"
       },
+      "defer_revisit_id": "none",
       "selected_candidate_ids": [
         "candidate-feature"
       ]
@@ -228,7 +230,7 @@
     ],
     "resource_evidence_root": "4605b64c1d308e47ef16f10c0db8d3caa87f4f396343b0c18a5f0388e5166f1b",
     "schema_version": 1,
-    "selection_root": "40fd6cad7884f24d306dc3b8564c8bb36776735d55ee3871a74ef643ed8f659d",
+    "selection_root": "bb47e809b47a510f2f96d7bea209192c58bb4e702adbd49b496b1c8aae40be11",
     "selector_id": "portfolio-selector"
   }
 }

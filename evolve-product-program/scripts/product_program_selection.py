@@ -256,6 +256,7 @@ def normalize_submission(
         {
             "adjudication",
             "authority_premise",
+            "defer_revisit_id",
             "dimensions",
             "disposition",
             "early_stop_rules",
@@ -281,12 +282,18 @@ def normalize_submission(
         raise ProductProgramError("selection disposition is unsupported")
     candidates = {entry["candidate_id"]: entry for entry in reflection["candidates"]}
     candidate_ids = set(candidates)
-    selected = id_list(item["selected_candidate_ids"], "selected candidate IDs", allowed=candidate_ids, empty=disposition in {"safe-defer-open-fact-or-authority", "request-material-goal-authority"})
+    selected = id_list(item["selected_candidate_ids"], "selected candidate IDs", allowed=candidate_ids, empty=disposition == "request-material-goal-authority")
     no_change = next(entry["candidate_id"] for entry in reflection["candidates"] if entry["candidate_type"] == "continue-unchanged")
     if disposition == "continue-program-unchanged" and selected != [no_change]:
         raise ProductProgramError("unchanged disposition must select only the no-change comparison")
     if disposition != "continue-program-unchanged" and no_change in selected:
         raise ProductProgramError("change disposition cannot select the no-change comparison")
+    defer_revisit_id = exact_id(item["defer_revisit_id"], "defer revisit ID")
+    if disposition == "safe-defer-open-fact-or-authority":
+        if len(selected) != 1 or defer_revisit_id not in REVISIT_IDS:
+            raise ProductProgramError("safe deferral must preserve exactly one candidate and an exact revisit trigger")
+    elif defer_revisit_id != "none":
+        raise ProductProgramError("non-deferral disposition must have an exact no-op defer revisit ID")
     selector_id = exact_id(item["selector_id"], "selector ID")
     prohibited_roles = {reflection["generator_id"]}
     semantic_review = reflection["authority"]["semantic_review"]
@@ -381,7 +388,7 @@ def normalize_submission(
         })
     lanes.sort(key=lambda entry: entry["lane_id"])
     lane_ids = {entry["lane_id"] for entry in lanes}
-    lane_selected = set(selected) - ({no_change} if disposition == "continue-program-unchanged" else set())
+    lane_selected = set() if disposition in {"continue-program-unchanged", "safe-defer-open-fact-or-authority", "request-material-goal-authority"} else set(selected)
     flattened_candidates = [candidate_id for entry in lanes for candidate_id in entry["candidate_ids"]]
     if len(lane_ids) != len(lanes) or set(flattened_candidates) != lane_selected or len(flattened_candidates) != len(set(flattened_candidates)):
         raise ProductProgramError("portfolio lanes repeat IDs or omit selected candidates")
@@ -445,6 +452,8 @@ def normalize_submission(
                 raise ProductProgramError("portfolio schedule places a dependency after or alongside its dependent")
     if disposition == "continue-program-unchanged" and lanes:
         raise ProductProgramError("unchanged disposition cannot create a work lane")
+    if disposition in {"safe-defer-open-fact-or-authority", "request-material-goal-authority"} and lanes:
+        raise ProductProgramError("defer or authority-request disposition cannot create a work lane")
     if disposition not in {"continue-program-unchanged", "safe-defer-open-fact-or-authority", "request-material-goal-authority"} and not lanes:
         raise ProductProgramError("active change disposition requires a portfolio lane")
 
@@ -489,6 +498,7 @@ def normalize_submission(
         "adjudication": {**adjudication_without_root, "review_root": review_root},
         "authority_premise": authority_premise,
         "dimensions": dimensions,
+        "defer_revisit_id": defer_revisit_id,
         "disposition": disposition,
         "early_stop_rules": early,
         "lanes": lanes,
@@ -513,7 +523,7 @@ def build_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], ref
     selection: dict[str, Any] = {
         "adjudicator_id": normalized["adjudication"]["adjudicator_id"], "authority": authority(), "currentness_root": currentness_root,
         "dimensions": normalized["dimensions"], "disposition": normalized["disposition"], "kind": "product-program-selection",
-        "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "authority_premise": normalized["authority_premise"], "selected_candidate_ids": normalized["selected_candidate_ids"]},
+        "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "authority_premise": normalized["authority_premise"], "defer_revisit_id": normalized["defer_revisit_id"], "selected_candidate_ids": normalized["selected_candidate_ids"]},
         "reflection_root": reflection["artifact_root"], "rejected_candidates": normalized["rejected_candidates"], "resource_evidence_root": resource["artifact_root"],
         "schema_version": 1, "selection_root": "", "selector_id": normalized["selector_id"],
     }
@@ -533,7 +543,7 @@ def build_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], ref
     portfolio["portfolio_root"] = digest({key: portfolio[key] for key in portfolio if key != "portfolio_root"})
     handoff: dict[str, Any] = {
         "authority": authority(), "currentness_root": currentness_root, "disposition": normalized["disposition"],
-        "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection"},
+        "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection", "revisit_id": normalized["defer_revisit_id"]},
         "handoff_root": "", "kind": "product-program-placement-handoff", "nonauthorization": "receiving-owner-must-revalidate",
         "owner": OWNER_BY_PLACEMENT[placement], "placement": placement, "portfolio_root": portfolio["portfolio_root"],
         "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"], normalized["operator_ceiling"]["source_root"]]},
@@ -565,7 +575,7 @@ def verify_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], re
         raise ProductProgramError("handoff root or portfolio binding is stale")
     rebuilt_submission = {
         "adjudication": selection["rationale"]["adjudication"], "dimensions": selection["dimensions"], "disposition": selection["disposition"],
-        "early_stop_rules": portfolio["early_stop_rules"], "kind": "product-program-selection-submission", "lanes": portfolio["lanes"],
+        "defer_revisit_id": selection["rationale"]["defer_revisit_id"], "early_stop_rules": portfolio["early_stop_rules"], "kind": "product-program-selection-submission", "lanes": portfolio["lanes"],
         "authority_premise": selection["rationale"]["authority_premise"], "packet_root": selection["packet_root"], "reflection_root": selection["reflection_root"],
         "rejected_candidates": selection["rejected_candidates"], "resource_evidence_root": selection["resource_evidence_root"], "schema_version": 1,
         "scheduling_groups": portfolio["scheduling_groups"], "selected_candidate_ids": selection["rationale"]["selected_candidate_ids"], "selector_id": selection["selector_id"],
@@ -579,12 +589,12 @@ def verify_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], re
 def build_artifacts_unverified(packet: Mapping[str, Any], reflection: Mapping[str, Any], resource: Mapping[str, Any], capacity_source: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
     normalized = normalize_submission(packet, reflection, resource, capacity_source, submission)
     currentness_root = digest({"kind": "product-program-selection-currentness", "packet_currentness_root": packet["currentness_root"], "packet_root": packet["artifact_root"], "reflection_root": reflection["artifact_root"], "resource_evidence_root": resource["artifact_root"]})
-    selection = {"adjudicator_id": normalized["adjudication"]["adjudicator_id"], "authority": authority(), "currentness_root": currentness_root, "dimensions": normalized["dimensions"], "disposition": normalized["disposition"], "kind": "product-program-selection", "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "authority_premise": normalized["authority_premise"], "selected_candidate_ids": normalized["selected_candidate_ids"]}, "reflection_root": reflection["artifact_root"], "rejected_candidates": normalized["rejected_candidates"], "resource_evidence_root": resource["artifact_root"], "schema_version": 1, "selection_root": "", "selector_id": normalized["selector_id"]}
+    selection = {"adjudicator_id": normalized["adjudication"]["adjudicator_id"], "authority": authority(), "currentness_root": currentness_root, "dimensions": normalized["dimensions"], "disposition": normalized["disposition"], "kind": "product-program-selection", "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "authority_premise": normalized["authority_premise"], "defer_revisit_id": normalized["defer_revisit_id"], "selected_candidate_ids": normalized["selected_candidate_ids"]}, "reflection_root": reflection["artifact_root"], "rejected_candidates": normalized["rejected_candidates"], "resource_evidence_root": resource["artifact_root"], "schema_version": 1, "selection_root": "", "selector_id": normalized["selector_id"]}
     selection["selection_root"] = digest({key: selection[key] for key in selection if key != "selection_root"})
     placement = DISPOSITION_PLACEMENTS[normalized["disposition"]]
     portfolio = {"aggregate_budget": normalized["aggregate_budget"], "authority": authority(), "currentness_root": currentness_root, "dependency_edges": sorted([[dependency, lane["lane_id"]] for lane in normalized["lanes"] for dependency in lane["dependency_lane_ids"]]), "disposition": normalized["disposition"], "early_stop_rules": normalized["early_stop_rules"], "kind": "product-program-portfolio", "lanes": normalized["lanes"], "placement": placement, "portfolio_root": "", "scheduling_groups": normalized["scheduling_groups"], "schema_version": 1, "selection_root": selection["selection_root"], "unused_capacity": normalized["unused_capacity"]}
     portfolio["portfolio_root"] = digest({key: portfolio[key] for key in portfolio if key != "portfolio_root"})
-    handoff = {"authority": authority(), "currentness_root": currentness_root, "disposition": normalized["disposition"], "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection"}, "handoff_root": "", "kind": "product-program-placement-handoff", "nonauthorization": "receiving-owner-must-revalidate", "owner": OWNER_BY_PLACEMENT[placement], "placement": placement, "portfolio_root": portfolio["portfolio_root"], "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"], normalized["operator_ceiling"]["source_root"]]}, "schema_version": 1, "stop": "before-tracker-task-source-or-external-effect"}
+    handoff = {"authority": authority(), "currentness_root": currentness_root, "disposition": normalized["disposition"], "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection", "revisit_id": normalized["defer_revisit_id"]}, "handoff_root": "", "kind": "product-program-placement-handoff", "nonauthorization": "receiving-owner-must-revalidate", "owner": OWNER_BY_PLACEMENT[placement], "placement": placement, "portfolio_root": portfolio["portfolio_root"], "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"], normalized["operator_ceiling"]["source_root"]]}, "schema_version": 1, "stop": "before-tracker-task-source-or-external-effect"}
     handoff["handoff_root"] = digest({key: handoff[key] for key in handoff if key != "handoff_root"})
     return {"handoff": handoff, "portfolio": portfolio, "selection": selection}
 

@@ -39,6 +39,11 @@ that cites retained direct-authority evidence. The output remains nonauthorizing
 and routes the exact premise to the direct user. Other dispositions require an
 exact no-op premise.
 
+`safe-defer-open-fact-or-authority` preserves exactly one selected candidate and
+one closed revisit trigger in the nonauthorizing handoff, emits no work lane,
+and continues unaffected work. All other dispositions carry an exact no-op defer
+trigger.
+
 ## Resource, DAG, and scheduling boundary
 
 Operator ceilings come from a separate canonical capacity manifest whose exact
