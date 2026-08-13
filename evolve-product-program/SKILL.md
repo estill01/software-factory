@@ -129,6 +129,44 @@ Verify or cheaply reuse an exact projection:
   --resource-evidence <resource-evidence.json>
 ```
 
+## Select and place one bounded portfolio
+
+Read `references/program-selection-and-portfolio.md` completely. The independent
+selector supplies one exact structured submission over the reviewed reflection
+and typed resource evidence:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
+  build --packet <packet.json> --inventory <inventory.json> \
+  --reflection <reviewed-reflection.json> \
+  --resource-source <resource-source.json> \
+  --resource-evidence <resource-evidence.json> \
+  --submission <selection-submission.json>
+```
+
+The result compares every candidate across separate product, evidence,
+architecture, protected-capability, risk, resource, uncertainty, reversibility,
+integration, opportunity, coordination, and expected-benefit dimensions. It
+retains rejected alternatives, one disposition, operator ceilings, unused
+capacity, a bounded acyclic lane DAG, sequential/parallel groups, exact writers
+and scopes, Stops, rollback/revisit posture, and one fixed downstream owner.
+Consequential unresolved tradeoffs require a distinct accepted adjudicator.
+
+Verify or cheaply reuse the rooted selection/portfolio/handoff bundle:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
+  verify --packet <packet.json> --inventory <inventory.json> \
+  --reflection <reviewed-reflection.json> \
+  --resource-source <resource-source.json> \
+  --resource-evidence <resource-evidence.json> --bundle <bundle.json>
+/usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
+  reuse --packet <packet.json> --inventory <inventory.json> \
+  --reflection <reviewed-reflection.json> \
+  --resource-source <resource-source.json> \
+  --resource-evidence <resource-evidence.json> --bundle <bundle.json>
+```
+
 ## Authority boundary
 
 Every output is derived and nonauthorizing. This skill does not write trackers,
@@ -142,5 +180,6 @@ placement handoff before any canonical application.
 For packet preparation, stop after a verified packet or deterministic unchanged
 result. For reflection, stop after an independently accepted verified reflection
 or exact reuse result. For resource projection, stop after verified evidence or
-exact reuse. Do not rank/select work, allocate a portfolio, edit a tracker,
-create a task, authorize spend, or perform an external effect.
+exact reuse. For selection, stop after the verified nonauthorizing handoff or
+exact reuse. Do not edit a tracker, create a task, start a lane, write source,
+authorize spend, or perform an external effect.
