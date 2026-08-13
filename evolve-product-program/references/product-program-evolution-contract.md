@@ -194,4 +194,3 @@ source content beyond the contract; changes product intent; hides a conflicting
 observation; omits the unchanged option; permits self-selection/self-evaluation;
 overlaps parallel writers; loses accepted history; starves current requested
 work; or lacks a deterministic Stop.
-
