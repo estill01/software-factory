@@ -7895,18 +7895,6 @@ def validate_direct_authority_provenance(
         raise SupervisionLogError(
             "Direct-authority source does not belong to the current mission"
         )
-    controlling = current_mission.get("mission_derivation", {}).get(
-        "controlling_source", {}
-    )
-    if not delegated and (
-        provenance.get("source_item_id")
-        == current_mission.get("mission_source_record")
-        or provenance.get("source_item_id") == controlling.get("record")
-        or source_sha256 == controlling.get("sha256")
-    ):
-        raise SupervisionLogError(
-            "Mission controlling source is identity only, not range authority"
-        )
     intent, _requested = classify_implementation_request(
         source_text, {0}, allow_unknown_blocks=True
     )
@@ -8825,7 +8813,11 @@ def classify_implementation_request(
         if (
             (
                 markdown_invocation_present
-                and lowered_clause == "the implementation tracker"
+                and lowered_clause
+                in {
+                    "the implementation tracker",
+                    "the newly created implementation tracker",
+                }
             )
             or lowered_clause in {"all", "full"}
             or re.fullmatch(
@@ -9651,20 +9643,18 @@ def retained_full_tracker_authority(
         and item.get("provenance_status") == "verified-delegated-before-entry"
         for item in all_events
     )
-    if (
-        current_mission is None
-        or (
-            not delegated
-            and (
-                source_record == current_mission.get("mission_source_record")
-                or source_record == controlling.get("record")
-                or source_sha256 == controlling.get("sha256")
-            )
-        )
-    ):
+    if current_mission is None:
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
         )
+    same_direct_mission_source = bool(
+        not delegated
+        and (
+            source_record == current_mission.get("mission_source_record")
+            or source_record == controlling.get("record")
+            or source_sha256 == controlling.get("sha256")
+        )
+    )
     receipts = [
         item
         for item in policy.get("direct_authority_receipts", [])
@@ -9675,6 +9665,10 @@ def retained_full_tracker_authority(
         and item.get("source_sha256") == source_sha256
     ]
     if len(receipts) != 1:
+        if same_direct_mission_source and not receipts:
+            raise SupervisionLogError(
+                "Mission controlling source is identity only, not range authority"
+            )
         raise SupervisionLogError(
             "Fresh implementation range requires one exact retained authority receipt"
         )
@@ -9808,14 +9802,6 @@ def retained_full_tracker_authority(
         or source_mission is None
         or mission_binding_identity(current_mission)
         != mission_binding_identity(source_mission)
-        or (
-            not delegated
-            and (
-                source_record == current_mission.get("mission_source_record")
-                or source_record == controlling.get("record")
-                or source_sha256 == controlling.get("sha256")
-            )
-        )
         or (
             not delegated
             and source_event.get("source_task_id")
@@ -11169,9 +11155,16 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
         raise SupervisionLogError(
             "Cross-mission tracker is not at one exact pre-work frontier"
         )
+    first_work_identity = str(activation.get("first_eligible_work", ""))
     first_work_match = re.match(
-        r"^Block[- ](\d+)(?:\b|-)", str(activation.get("first_eligible_work", ""))
+        r"^Block[- ](\d+)(?:\b|-)", first_work_identity
     )
+    if first_work_match is None:
+        first_work_match = re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*"
+            r"(?::[A-Za-z0-9][A-Za-z0-9._-]*)*:block-(\d+)",
+            first_work_identity,
+        )
     if first_work_match is None or int(first_work_match.group(1)) != eligible[0]:
         raise SupervisionLogError(
             "Mission activation first work differs from the tracker frontier"

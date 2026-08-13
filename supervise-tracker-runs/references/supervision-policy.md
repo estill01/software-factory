@@ -841,6 +841,17 @@ belongs to the same mission, admission may only rehydrate that exact range or
 advance status-only tracker bytes through the existing amendment owner. It
 must never replace a same-mission range.
 
+The exact current same-thread direct source may serve both as mission identity
+and as the separate range-authority source only when its retained raw UTF-8
+bytes independently classify as full-tracker authority and the ordinary
+independent review, canonical ingest, receipt, current-policy, and
+current-mission checks all succeed. This dual use does not let mission identity
+stand in for range semantics or skip any range-authority owner. An exact
+app-authored `[$implement-tracker-blocks](...) for the newly created
+implementation tracker` invocation is full-tracker authority; a generic local
+path, altered link or bytes, unrelated prose, ambiguous or narrowing clause,
+or mission source without the accepted review and receipt remains ineligible.
+
 A pending same-target mission successor may replace one completed predecessor
 range only through the same policy owner. Under the policy-owner lock,
 admission must revalidate the predecessor's independently verified observable
@@ -865,7 +876,9 @@ provenance, stale policy/event/tracker state, wrong or nonpending activation,
 structural drift, or historical range/genesis reuse rejects before policy
 mutation. A range owned by any mission other than the current policy is
 noncurrent at `implementation-range-gate` and can never yield
-`range_binding_current=true`.
+`range_binding_current=true`. The pending activation's exact first-work
+identity may use the retained `Block <n>` form or a hash-bound namespaced form
+ending `:block-<n>`; either must name the one exact eligible numeric frontier.
 
 ```bash
 python3 <LOG_HELPER> implementation-range-admit \

@@ -1592,6 +1592,15 @@ class ImplementationRangeControlTests(unittest.TestCase):
     successor_range_sha = hashlib.sha256(
         successor_range_request.encode("utf-8")
     ).hexdigest()
+    successor_dual_use_request = (
+        "[$implement-tracker-blocks]"
+        "(/Users/example/.codex/software-factory-releases/current/"
+        "implement-tracker-blocks/SKILL.md) for the newly created "
+        "implementation tracker\n"
+    )
+    successor_dual_use_sha = hashlib.sha256(
+        successor_dual_use_request.encode("utf-8")
+    ).hexdigest()
     later_source = "direct-item-200"
     later_request = "Block 0"
     later_sha = hashlib.sha256(later_request.encode("utf-8")).hexdigest()
@@ -2377,6 +2386,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         retain_range_authority: bool = True,
         mission_source_record: str | None = None,
         mission_source_sha256: str | None = None,
+        first_work: str = "Block-0-freeze-current-baseline",
     ) -> tuple[str, str, str, dict[str, object]]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -2440,7 +2450,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "--predecessor-disposition",
                 "completed",
                 "--first-eligible-work",
-                "Block-0-freeze-current-baseline",
+                first_work,
                 "--reason",
                 "The completed predecessor is followed by a new direct mission.",
                 "--evidence",
@@ -2638,6 +2648,245 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(gate["accepted_blocks"], [])
         self.assertEqual(gate["eligible_blocks"], [0])
         self.assertFalse(gate["final_response_permitted"])
+
+    def test_reviewed_dual_use_mission_source_binds_namespaced_successor_range(
+        self,
+    ) -> None:
+        self.write_tracker(["completed", "completed"])
+        predecessor = self.bind()["binding"]
+        outcome, lifecycle, activation, _successor = (
+            self.complete_predecessor_and_start_successor(
+                retain_range_authority=False,
+                mission_source_record=self.successor_source,
+                mission_source_sha256=self.successor_dual_use_sha,
+                first_work="decision-surface-tracker:block-0",
+            )
+        )
+        directory = self.root / self.target
+        provenance = self.append_successor_range_authority_review(
+            source_record=self.successor_source,
+            request_text=self.successor_dual_use_request,
+        )
+        encoded = base64.b64encode(
+            supervision_log.canonical(provenance)
+        ).decode("ascii")
+        ingested = self.call(
+            "direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            encoded,
+        )
+        receipt = self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record_id"]),
+        )
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        events_before = (directory / "events.jsonl").read_bytes()
+        self.tracker = self.root / "decision-surface-tracker.md"
+        self.write_tracker(["not-started"] * 9)
+
+        result = self.admit(
+            include_binding_inputs=True,
+            range_id="RANGE-DECISION-SURFACE-1678",
+            rollover_records=(outcome, lifecycle, activation),
+            source_record=self.successor_source,
+            source_sha256=self.successor_dual_use_sha,
+            request_text=self.successor_dual_use_request,
+        )
+        gate = self.gate("final-response")
+        history_after_raw = (directory / "policy-history.jsonl").read_bytes()
+        history_after = supervision_log.events(
+            directory / "policy-history.jsonl"
+        )
+
+        self.assertEqual(ingested["source_record"], self.successor_source)
+        self.assertEqual(
+            receipt["receipt"]["source_record"], self.successor_source
+        )
+        self.assertEqual(result["binding"]["tracker_blocks"], list(range(9)))
+        self.assertEqual(
+            result["binding"]["authority"]["source_record"],
+            self.successor_source,
+        )
+        self.assertTrue(result["implementation_start_permitted"])
+        self.assertTrue(gate["range_binding_current"])
+        self.assertEqual(gate["requested_blocks"], list(range(9)))
+        self.assertEqual(gate["eligible_blocks"], [0])
+        self.assertEqual(gate["required_target_posture"], "in-progress")
+        self.assertEqual(gate["next_action"], "continue-next-eligible-block")
+        self.assertFalse(gate["final_response_permitted"])
+        self.assertEqual((directory / "events.jsonl").read_bytes(), events_before)
+        self.assertTrue(history_after_raw.startswith(history_before))
+        self.assertEqual(
+            history_after[-2]["policy"]["implementation_range"], predecessor
+        )
+
+    def test_dual_use_mission_source_requires_review_ingest_and_receipt(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record=self.successor_source,
+            mission_source_sha256=self.successor_dual_use_sha,
+            first_work="decision-surface-tracker:block-0",
+        )[:3]
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        source_bytes = self.successor_dual_use_request.encode("utf-8")
+        unreviewed_provenance = {
+            "schema_version": 1,
+            "kind": supervision_log.DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": self.target,
+            "source_task_id": self.target,
+            "source_turn_id": "direct-dual-use-turn-1678",
+            "source_item_id": self.successor_source,
+            "source_kind": supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+            "source_text": self.successor_dual_use_request,
+            "source_byte_count": len(source_bytes),
+            "source_sha256": self.successor_dual_use_sha,
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": self.reviewer,
+            "authorization_record_id": f"EVT-{len(current_events) + 1:06d}",
+        }
+        before_unreviewed = (directory / "events.jsonl").read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "review is not in the canonical event ledger",
+        ):
+            self.call(
+                "direct-authority-ingest",
+                "--target-thread",
+                self.target,
+                "--provenance-base64",
+                base64.b64encode(
+                    supervision_log.canonical(unreviewed_provenance)
+                ).decode("ascii"),
+            )
+        self.assertEqual(
+            (directory / "events.jsonl").read_bytes(), before_unreviewed
+        )
+        self.append_successor_range_authority_review(
+            source_record=self.successor_source,
+            request_text=self.successor_dual_use_request,
+        )
+        before = {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json",
+                "policy-history.jsonl",
+                "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            )
+        }
+        self.tracker = self.root / "decision-surface-tracker.md"
+        self.write_tracker(["not-started"] * 9)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "identity only, not range authority",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id="RANGE-DUAL-USE-UNREVIEWED",
+                rollover_records=records,
+                source_record=self.successor_source,
+                source_sha256=self.successor_dual_use_sha,
+                request_text=self.successor_dual_use_request,
+            )
+
+        for name, raw in before.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
+
+    def test_dual_use_mission_source_rejects_changed_bytes_before_ingest(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record=self.successor_source,
+            mission_source_sha256=self.successor_dual_use_sha,
+            first_work="decision-surface-tracker:block-0",
+        )
+        directory = self.root / self.target
+        provenance = self.append_successor_range_authority_review(
+            source_record=self.successor_source,
+            request_text=self.successor_dual_use_request,
+        )
+        before = {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json",
+                "policy-history.jsonl",
+                "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            )
+        }
+        changed = copy.deepcopy(provenance)
+        changed["source_text"] = str(changed["source_text"]) + " "
+        changed_bytes = str(changed["source_text"]).encode("utf-8")
+        changed["source_byte_count"] = len(changed_bytes)
+        changed["source_sha256"] = hashlib.sha256(changed_bytes).hexdigest()
+        encoded = base64.b64encode(
+            supervision_log.canonical(changed)
+        ).decode("ascii")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "review does not bind independent exact provenance",
+        ):
+            self.call(
+                "direct-authority-ingest",
+                "--target-thread",
+                self.target,
+                "--provenance-base64",
+                encoded,
+            )
+
+        for name, raw in before.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
+
+    def test_namespaced_first_work_must_match_numeric_frontier_without_mutation(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor(
+            first_work="decision-surface-tracker:block-1"
+        )[:3]
+        directory = self.root / self.target
+        before = {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json",
+                "policy-history.jsonl",
+                "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            )
+        }
+        self.tracker = self.root / "decision-surface-tracker.md"
+        self.write_tracker(["not-started"] * 9)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "first work differs from the tracker frontier",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id="RANGE-NAMESPACED-FRONTIER-MISMATCH",
+                rollover_records=records,
+            )
+
+        for name, raw in before.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
 
     def test_mission_source_digest_cannot_substitute_for_range_authority(
         self,
@@ -3674,6 +3923,44 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(
             binding["history"][0]["request_text_sha256"], source_sha256
         )
+
+    def test_exact_new_tracker_skill_invocation_is_narrow_full_tracker_authority(
+        self,
+    ) -> None:
+        request_text = self.successor_dual_use_request
+
+        intent, requested = supervision_log.classify_implementation_request(
+            request_text, set(range(9))
+        )
+
+        self.assertEqual(intent, "full-tracker")
+        self.assertEqual(requested, list(range(9)))
+        rejected = (
+            request_text.replace(
+                "$implement-tracker-blocks", "$implement-tracker-block"
+            ),
+            request_text.replace(
+                "newly created implementation tracker",
+                "newly created tracker",
+            ),
+            request_text.rstrip("\n") + " with unrelated follow-up work\n",
+            "/Users/example/newly-created-implementation-tracker.md",
+        )
+        for changed in rejected:
+            with self.subTest(changed=changed), self.assertRaises(
+                supervision_log.SupervisionLogError
+            ):
+                supervision_log.classify_implementation_request(
+                    changed, set(range(9))
+                )
+        narrowed = request_text.rstrip("\n") + ", but only Block 0."
+        narrowed_intent, narrowed_blocks = (
+            supervision_log.classify_implementation_request(
+                narrowed, set(range(9))
+            )
+        )
+        self.assertEqual(narrowed_intent, "explicit-blocks")
+        self.assertEqual(narrowed_blocks, [0])
 
     def test_skill_invocation_masks_no_path_outside_its_exact_target(self) -> None:
         invocation = (
