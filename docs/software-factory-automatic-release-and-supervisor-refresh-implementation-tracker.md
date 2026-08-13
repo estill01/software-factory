@@ -1,6 +1,6 @@
 # Software Factory Automatic Release and Supervisor Refresh Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–7
 - Repository: `/Users/ethanstillman/code/software_factory-control-plane-candidate`
 - Governing objective: Direct-user request to make exact-accepted Software Factory releases automatically promote through the existing release owner and refresh compatible running supervisors without losing range, mission, cursor, reporting, or shutdown invariants.
@@ -182,8 +182,8 @@ make their composition automatic and fail closed.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
-| 1 | Make existing range admission and runtime gates unavoidable | 0 | `in-progress` |
-| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `not-started` |
+| 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
+| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `in-progress` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
@@ -310,7 +310,7 @@ Stop before changing admission/runtime behavior.
 
 ## Block 1 — Make existing range admission and runtime gates unavoidable
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -387,7 +387,35 @@ Focused range suite, real tracker cases, full supervision mapping, exact review.
 
 ### Completion evidence
 
-Pending.
+- Accepted implementation source: `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`,
+  tree `25d8e4160a53af405e8494618b3fda1a45c63b73`, independently
+  reviewed with no material findings; candidate root
+  `41381b8f4d02f4f91fc433d6966f7f118a078791f2b67722e80130c44cb0d192`.
+  The Block 0 dashboard-restoration and tracker-evidence children do not modify
+  the range owner, its tests, either executing skill, or supervision policy.
+- Canonical current-mission evidence: owner route `EVT-000515`, independent
+  accepted review `EVT-000516`, delegated ingestion `EVT-000517`, authority
+  receipt in policy version 17, fresh full-range admission in policy version 18,
+  actual Block 0 work-start `EVT-000519`, and mission activation start
+  `EVT-000520`. The predecessor range remains immutable history.
+- Live range identity:
+  `RANGE-DIRECT-USER-AUTO-RELEASE-BLOCKS-0-7`, requested Blocks 0–7. After the
+  accepted Block 0 status-only amendment, the gate resolved accepted `[0]`,
+  eligible `[1]`, remaining `[1,2,3,4,5,6,7]`, posture `current`, and action
+  `continue-next-eligible-block`; manual resume and human input were both false.
+- Focused proof: `ImplementationRangeControlTests` passed `55/55`, including
+  exact current tracker shapes, canonical direct and delegated source admission,
+  idempotent current binding, status-only currentness, fresh cross-mission
+  rollover, owner-lock revalidation, structural-drift rejection, range
+  non-contraction, and every Block/commit/review/handoff/push/final/terminal
+  boundary. Exact-source mapped supervision passed `369/369`; all three skill
+  validators, Python compilation, diff checks, and the eight-Block tracker
+  verifier passed.
+- Acceptance: missing, noncurrent, stale-receipt, wrong-mission, ambiguous,
+  replaced-owner, or structurally changed evidence fails closed without
+  mutation. Current admission reuses one bounded tracker snapshot and the
+  existing policy/range history; no second schema, ledger, parser, or lifecycle
+  owner was added.
 
 ### Stop
 
@@ -397,7 +425,7 @@ Stop before invoking the release primitive.
 
 ## Block 2 — Implement exact-acceptance-triggered release orchestration
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
