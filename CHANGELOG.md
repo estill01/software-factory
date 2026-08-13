@@ -42,10 +42,14 @@ the completed program materially changes Software Factory.
 - **Exact-acceptance-triggered release orchestration.** The supervision owner
   now consumes one reviewer-signed canonical acceptance for the exact
   clean source HEAD/tree, invokes only the flagless `skill_release.py promote`
-  owner, revalidates its returned active release and three installed roots
+  owner in a fixed canonical-account/Python/Git environment, revalidates its
+  returned active release and three installed roots
   through live status, and retains one deduplicated result. A durable
   requirement binds the prior live identity before the effect so interruption
-  recovery cannot lose or repeat the one activation. Missing, stale,
+  recovery cannot lose or repeat the one activation. When independent review
+  advances before any effect, an immutable successor requirement may bind the
+  newer acceptance only after exact prior release, installed-root,
+  verification-root, and history currentness is revalidated. Missing, stale,
   changed-byte, unverified or caller-asserted review, divergent-result, and
   caller-selected release identity cases reject before they can become
   canonical promotion evidence.

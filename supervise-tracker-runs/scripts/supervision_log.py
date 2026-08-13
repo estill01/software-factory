@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import os
+import pwd
 import re
 import secrets
 import stat
@@ -10699,6 +10700,7 @@ def software_factory_release_acceptance(
     source_commit: str,
     source_tree: str,
     committed_at: dt.datetime,
+    current_policy_sha256: str,
     require_current: bool = True,
 ) -> dict[str, Any]:
     record_id = safe_id(
@@ -10724,6 +10726,10 @@ def software_factory_release_acceptance(
     ):
         raise SupervisionLogError(
             "Software Factory release acceptance is not the current exact review"
+        )
+    if require_current and record.get("policy_sha256") != current_policy_sha256:
+        raise SupervisionLogError(
+            "Software Factory release acceptance is stale for the current policy"
         )
     if (
         record.get("kind") != SOFTWARE_FACTORY_RELEASE_ACCEPTANCE_KIND
@@ -11066,19 +11072,23 @@ def run_software_factory_release_owner(
         command.append("status")
     else:
         raise SupervisionLogError("Unsupported Software Factory release owner action")
+    try:
+        owner_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+    except (KeyError, OSError) as exc:
+        raise SupervisionLogError(
+            "Software Factory release owner home is unavailable"
+        ) from exc
+    if owner_home == Path("/") or not owner_home.is_dir():
+        raise SupervisionLogError(
+            "Software Factory release owner home is invalid"
+        )
     owner_environment = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("GIT_")
+        "HOME": str(owner_home),
+        "PATH": "/usr/bin:/bin",
+        "LC_ALL": "C",
+        "LANG": "C",
+        "PYTHONNOUSERSITE": "1",
     }
-    owner_environment.update(
-        {
-            "PATH": "/usr/bin:/bin",
-            "LC_ALL": "C",
-            "LANG": "C",
-            "PYTHONNOUSERSITE": "1",
-        }
-    )
     result = subprocess.run(
         command,
         cwd=repository,
@@ -11189,12 +11199,16 @@ def software_factory_release_prior_status(status: Any) -> dict[str, Any]:
         raise SupervisionLogError(
             "Software Factory prior release status is inconsistent"
         )
-    validate_software_factory_release_live_status(
+    live = validate_software_factory_release_live_status(
         status, source_commit=source_commit
     )
     return {
         "prior_release_id": release_id,
         "prior_source_commit": source_commit,
+        "prior_installed_roots": live["installed_roots"],
+        "prior_verification_root_sha256": live[
+            "verification_root_sha256"
+        ],
         "prior_activation_history_records": history_count,
     }
 
@@ -11237,10 +11251,13 @@ def software_factory_release_required_material(
         "policy_sha256",
         "acceptance_record_id",
         "acceptance_record_sha256",
+        "supersedes_required_record_id",
         "source_commit",
         "source_tree",
         "prior_release_id",
         "prior_source_commit",
+        "prior_installed_roots",
+        "prior_verification_root_sha256",
         "prior_activation_history_records",
     )
     return {key: value.get(key) for key in keys}
@@ -11256,6 +11273,8 @@ def validate_software_factory_release_required_record(
         "previous_record_sha256",
         "record_sha256",
     }
+    roots = value.get("prior_installed_roots")
+    supersedes = value.get("supersedes_required_record_id")
     if (
         frozenset(value) not in {frozenset(core_fields), frozenset(retained_fields)}
         or type(value.get("schema_version")) is not int
@@ -11263,6 +11282,10 @@ def validate_software_factory_release_required_record(
         or value.get("kind") != SOFTWARE_FACTORY_RELEASE_REQUIRED_KIND
         or not isinstance(value.get("record_id"), str)
         or not isinstance(value.get("target_thread_id"), str)
+        or (
+            supersedes is not None
+            and not isinstance(supersedes, str)
+        )
         or re.fullmatch(r"[0-9a-f]{40}", str(value.get("source_commit", ""))) is None
         or re.fullmatch(r"[0-9a-f]{40}", str(value.get("source_tree", ""))) is None
         or re.fullmatch(
@@ -11276,6 +11299,8 @@ def validate_software_factory_release_required_record(
         is None
         or type(value.get("prior_activation_history_records")) is not int
         or value["prior_activation_history_records"] < 1
+        or not isinstance(roots, Mapping)
+        or set(roots) != set(SOFTWARE_FACTORY_RELEASE_SKILLS)
         or value.get("required_root_sha256") != digest(material)
     ):
         raise SupervisionLogError(
@@ -11285,7 +11310,46 @@ def validate_software_factory_release_required_record(
         str(value.get("acceptance_record_sha256", "")),
         label="Software Factory acceptance record root",
     )
+    exact_sha256(
+        str(value.get("prior_verification_root_sha256", "")),
+        label="Software Factory prior verification root",
+    )
+    for name in SOFTWARE_FACTORY_RELEASE_SKILLS:
+        exact_sha256(
+            str(roots[name]), label=f"prior installed {name} root"
+        )
     return dict(value)
+
+
+def software_factory_release_required_head(
+    records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not records:
+        return None
+    baseline_fields = (
+        "target_thread_id",
+        "source_commit",
+        "source_tree",
+        "prior_release_id",
+        "prior_source_commit",
+        "prior_installed_roots",
+        "prior_verification_root_sha256",
+        "prior_activation_history_records",
+    )
+    first = records[0]
+    for index, record in enumerate(records):
+        expected_predecessor = (
+            None if index == 0 else records[index - 1]["record_id"]
+        )
+        if (
+            record.get("supersedes_required_record_id")
+            != expected_predecessor
+            or any(record.get(field) != first.get(field) for field in baseline_fields)
+        ):
+            raise SupervisionLogError(
+                "Canonical Software Factory promotion requirement lineage differs"
+            )
+    return records[-1]
 
 
 def validate_software_factory_release_promotion_record(
@@ -11397,10 +11461,7 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                 if item.get("kind") == SOFTWARE_FACTORY_RELEASE_REQUIRED_KIND
                 and item.get("source_commit") == args.source_commit
             ]
-            if len(required_records) > 1:
-                raise SupervisionLogError(
-                    "Canonical Software Factory promotion requirement is duplicated"
-                )
+            required = software_factory_release_required_head(required_records)
             if promotions:
                 stored = promotions[0]
                 with software_factory_release_exact_checkout(
@@ -11433,27 +11494,144 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                 print(json.dumps({"duplicate": True, "promotion": stored}, sort_keys=True))
                 return
 
-            recovering = bool(required_records)
-            acceptance = software_factory_release_acceptance(
+            recovering = required is not None
+            requested_acceptance = software_factory_release_acceptance(
                 all_events=all_events,
                 policy_history=policy_history,
                 acceptance_record_id=args.acceptance_record,
                 source_commit=args.source_commit,
                 source_tree=source_tree,
                 committed_at=committed_at,
+                current_policy_sha256=str(policy["policy_sha256"]),
                 require_current=not recovering,
             )
-            if required_records:
-                required = required_records[0]
+            status_before: dict[str, Any] | None = None
+            effect_acceptance = requested_acceptance
+            if required is not None:
+                required_acceptance = software_factory_release_acceptance(
+                    all_events=all_events,
+                    policy_history=policy_history,
+                    acceptance_record_id=str(required["acceptance_record_id"]),
+                    source_commit=args.source_commit,
+                    source_tree=source_tree,
+                    committed_at=committed_at,
+                    current_policy_sha256=str(policy["policy_sha256"]),
+                    require_current=False,
+                )
                 if (
                     required.get("source_tree") != source_tree
-                    or required.get("acceptance_record_id") != acceptance["record_id"]
+                    or required.get("acceptance_record_id")
+                    != required_acceptance["record_id"]
                     or required.get("acceptance_record_sha256")
-                    != acceptance["record_sha256"]
+                    != required_acceptance["record_sha256"]
                 ):
                     raise SupervisionLogError(
                         "Canonical Software Factory promotion requirement differs"
                     )
+                with software_factory_release_exact_checkout(
+                    repository, args.source_commit
+                ) as owner_repository:
+                    status_before = run_software_factory_release_owner(
+                        owner_repository,
+                        source_commit=args.source_commit,
+                        action="status",
+                    )
+                effect_already_observed = False
+                try:
+                    validate_software_factory_release_live_status(
+                        status_before, source_commit=args.source_commit
+                    )
+                    effect_already_observed = True
+                except SupervisionLogError:
+                    observed_prior = software_factory_release_prior_status(
+                        status_before
+                    )
+                    expected_prior = {
+                        key: required[key]
+                        for key in observed_prior
+                    }
+                    if observed_prior != expected_prior:
+                        raise SupervisionLogError(
+                            "Software Factory promotion requirement prior state differs"
+                        )
+                if (
+                    required["acceptance_record_id"]
+                    != requested_acceptance["record_id"]
+                ):
+                    if effect_already_observed:
+                        effect_acceptance = required_acceptance
+                    else:
+                        requested_acceptance = software_factory_release_acceptance(
+                            all_events=all_events,
+                            policy_history=policy_history,
+                            acceptance_record_id=args.acceptance_record,
+                            source_commit=args.source_commit,
+                            source_tree=source_tree,
+                            committed_at=committed_at,
+                            current_policy_sha256=str(policy["policy_sha256"]),
+                        )
+                        repository, current_tree, current_committed_at = (
+                            software_factory_release_source(
+                            args.repo, args.source_commit
+                        )
+                        )
+                        if (
+                            current_tree != source_tree
+                            or current_committed_at != committed_at
+                        ):
+                            raise SupervisionLogError(
+                                "Software Factory release source changed before requirement supersession"
+                            )
+                        successor: dict[str, Any] = {
+                            "schema_version": 1,
+                            "record_id": f"EVT-{len(all_events) + 1:06d}",
+                            "timestamp": utc_now(),
+                            "target_thread_id": args.target_thread,
+                            "kind": SOFTWARE_FACTORY_RELEASE_REQUIRED_KIND,
+                            "policy_sha256": policy["policy_sha256"],
+                            "acceptance_record_id": requested_acceptance[
+                                "record_id"
+                            ],
+                            "acceptance_record_sha256": requested_acceptance[
+                                "record_sha256"
+                            ],
+                            "supersedes_required_record_id": required[
+                                "record_id"
+                            ],
+                            "source_commit": args.source_commit,
+                            "source_tree": source_tree,
+                            **{
+                                key: required[key]
+                                for key in (
+                                    "prior_release_id",
+                                    "prior_source_commit",
+                                    "prior_installed_roots",
+                                    "prior_verification_root_sha256",
+                                    "prior_activation_history_records",
+                                )
+                            },
+                        }
+                        successor["required_root_sha256"] = digest(
+                            software_factory_release_required_material(successor)
+                        )
+                        validate_software_factory_release_required_record(successor)
+                        append_event_locked(args, directory, successor)
+                        all_events = events(directory / "events.jsonl")
+                        required_records.append(
+                            validate_software_factory_release_required_record(
+                                all_events[-1]
+                            )
+                        )
+                        required = software_factory_release_required_head(
+                            required_records
+                        )
+                        if required is None:
+                            raise SupervisionLogError(
+                                "Software Factory promotion requirement is missing"
+                            )
+                        recovering = False
+                        status_before = None
+                        effect_acceptance = requested_acceptance
             else:
                 repository, source_tree, committed_at = software_factory_release_source(
                     args.repo, args.source_commit
@@ -11474,8 +11652,11 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                     "target_thread_id": args.target_thread,
                     "kind": SOFTWARE_FACTORY_RELEASE_REQUIRED_KIND,
                     "policy_sha256": policy["policy_sha256"],
-                    "acceptance_record_id": acceptance["record_id"],
-                    "acceptance_record_sha256": acceptance["record_sha256"],
+                    "acceptance_record_id": requested_acceptance["record_id"],
+                    "acceptance_record_sha256": requested_acceptance[
+                        "record_sha256"
+                    ],
+                    "supersedes_required_record_id": None,
                     "source_commit": args.source_commit,
                     "source_tree": source_tree,
                     **prior,
@@ -11497,10 +11678,11 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                 software_factory_release_acceptance(
                     all_events=all_events,
                     policy_history=policy_history,
-                    acceptance_record_id=args.acceptance_record,
+                    acceptance_record_id=str(effect_acceptance["record_id"]),
                     source_commit=args.source_commit,
                     source_tree=source_tree,
                     committed_at=committed_at,
+                    current_policy_sha256=str(policy["policy_sha256"]),
                 )
             except SupervisionLogError:
                 source_current = False
@@ -11511,8 +11693,7 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
             with software_factory_release_exact_checkout(
                 repository, args.source_commit
             ) as owner_repository:
-                status_before = None
-                if recovering:
+                if recovering and status_before is None:
                     status_before = run_software_factory_release_owner(
                         owner_repository,
                         source_commit=args.source_commit,
@@ -11597,10 +11778,11 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                 software_factory_release_acceptance(
                     all_events=current_events,
                     policy_history=events(directory / "policy-history.jsonl"),
-                    acceptance_record_id=args.acceptance_record,
+                    acceptance_record_id=str(effect_acceptance["record_id"]),
                     source_commit=args.source_commit,
                     source_tree=source_tree,
                     committed_at=committed_at,
+                    current_policy_sha256=str(policy["policy_sha256"]),
                 )
                 acceptance_current = True
             except SupervisionLogError:
@@ -11616,8 +11798,10 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                     else SOFTWARE_FACTORY_RELEASE_REJECTED_KIND
                 ),
                 "policy_sha256": policy["policy_sha256"],
-                "acceptance_record_id": acceptance["record_id"],
-                "acceptance_record_sha256": acceptance["record_sha256"],
+                "acceptance_record_id": effect_acceptance["record_id"],
+                "acceptance_record_sha256": effect_acceptance[
+                    "record_sha256"
+                ],
                 "required_record_id": required["record_id"],
                 "required_record_sha256": required["record_sha256"],
                 "source_commit": args.source_commit,

@@ -9,6 +9,7 @@ import importlib.util
 import io
 import json
 import os
+import pwd
 import subprocess
 import sys
 import tempfile
@@ -4368,6 +4369,17 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             ),
             1,
         )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+                ]
+            ),
+            1,
+        )
 
     def test_later_review_waits_until_promotion_result_is_retained(self) -> None:
         accepted = self.acceptance()
@@ -4520,6 +4532,148 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 ]
             ),
             1,
+        )
+
+    def test_new_acceptance_supersedes_no_effect_requirement(self) -> None:
+        acceptance_a = self.acceptance()
+        promotion_attempts = 0
+        effect_performed = False
+
+        def owner(
+            _repository: Path, *, source_commit: str, action: str
+        ) -> dict[str, object]:
+            nonlocal effect_performed, promotion_attempts
+            self.assertEqual(source_commit, self.source)
+            self.owner_actions.append(action)
+            if action == "status":
+                return copy.deepcopy(
+                    self.status if effect_performed else self.prior_status
+                )
+            promotion_attempts += 1
+            if promotion_attempts == 1:
+                raise supervision_log.SupervisionLogError(
+                    "injected interruption before owner effect"
+                )
+            effect_performed = True
+            return copy.deepcopy(self.promotion)
+
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "before owner effect",
+            ):
+                self.promote(acceptance_a)
+            acceptance_b = self.acceptance()
+            recovered = self.promote(acceptance_b)
+            actions_after_recovery = list(self.owner_actions)
+            duplicate = self.promote(acceptance_a)
+
+        self.assertFalse(recovered["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(
+            actions_after_recovery,
+            ["status", "promote", "status", "promote", "status"],
+        )
+        self.assertEqual(
+            self.owner_actions,
+            ["status", "promote", "status", "promote", "status", "status"],
+        )
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        requirements = [
+            item
+            for item in records
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_RELEASE_REQUIRED_KIND
+        ]
+        promotions = [
+            item
+            for item in records
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+        ]
+        self.assertEqual(len(requirements), 2)
+        self.assertIsNone(requirements[0]["supersedes_required_record_id"])
+        self.assertEqual(
+            requirements[1]["supersedes_required_record_id"],
+            requirements[0]["record_id"],
+        )
+        self.assertEqual(
+            requirements[1]["acceptance_record_id"], acceptance_b
+        )
+        self.assertEqual(len(promotions), 1)
+        self.assertEqual(
+            promotions[0]["required_record_id"],
+            requirements[1]["record_id"],
+        )
+        self.assertEqual(promotions[0]["acceptance_record_id"], acceptance_b)
+
+    def test_requirement_supersession_rejects_changed_prior_state(self) -> None:
+        acceptance_a = self.acceptance()
+
+        def interrupting_owner(
+            _repository: Path, *, source_commit: str, action: str
+        ) -> dict[str, object]:
+            self.assertEqual(source_commit, self.source)
+            self.owner_actions.append(action)
+            if action == "promote":
+                raise supervision_log.SupervisionLogError(
+                    "injected interruption before owner effect"
+                )
+            return copy.deepcopy(self.prior_status)
+
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=interrupting_owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "before owner effect",
+            ):
+                self.promote(acceptance_a)
+
+        acceptance_b = self.acceptance()
+        changed_prior = copy.deepcopy(self.prior_status)
+        changed_prior["activation_history_records"] = 2
+        actions_before = list(self.owner_actions)
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            return_value=changed_prior,
+        ) as owner:
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "prior state differs",
+            ):
+                self.promote(acceptance_b)
+        self.assertEqual(owner.call_count, 1)
+        self.assertEqual(self.owner_actions, actions_before)
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_RELEASE_REQUIRED_KIND
+                ]
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+                for item in records
+            )
         )
 
     def test_interrupted_effect_with_later_dirty_source_is_retained_once(self) -> None:
@@ -4942,7 +5096,15 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         completed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout=b"{}", stderr=b""
         )
-        with mock.patch.object(
+        with mock.patch.dict(
+            os.environ,
+            {
+                "HOME": "/tmp/synthetic-release-home",
+                "PYTHONPATH": "/tmp/synthetic-python-path",
+                "GIT_CONFIG_GLOBAL": "/tmp/synthetic-git-config",
+            },
+            clear=False,
+        ), mock.patch.object(
             supervision_log.subprocess, "run", return_value=completed
         ) as run:
             supervision_log.run_software_factory_release_owner(
@@ -4961,11 +5123,18 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             ],
         )
         owner_environment = run.call_args.kwargs["env"]
-        self.assertEqual(owner_environment["PATH"], "/usr/bin:/bin")
-        self.assertEqual(owner_environment["LC_ALL"], "C")
-        self.assertEqual(owner_environment["LANG"], "C")
-        self.assertEqual(owner_environment["PYTHONNOUSERSITE"], "1")
-        self.assertFalse(any(key.startswith("GIT_") for key in owner_environment))
+        self.assertEqual(
+            owner_environment,
+            {
+                "HOME": str(
+                    Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+                ),
+                "PATH": "/usr/bin:/bin",
+                "LC_ALL": "C",
+                "LANG": "C",
+                "PYTHONNOUSERSITE": "1",
+            },
+        )
 
     def test_divergent_owner_status_never_becomes_canonical(self) -> None:
         accepted = self.acceptance()

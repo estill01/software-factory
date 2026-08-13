@@ -613,11 +613,18 @@ reserved deferrals, safe frontier, and application posture.
   maintained release owner's exact flagless `promote --repo <repo>
   --source-commit <commit>` operation, revalidates its returned active release
   and three installed roots through live owner status, and records one
-  deduplicated canonical result. It accepts no caller-selected active identity,
+  deduplicated canonical result. Invoke that owner with the canonical
+  operating-system account home and a minimal fixed Python/Git environment;
+  ambient `HOME`, `PYTHONPATH`, and Git overrides must not select release or
+  installation roots. It accepts no caller-selected active identity,
   pointer, stage, quiescence, or manual-pin input. An explicit manual pin is a
   separate policy-owned exception and is never selected by this promotion
   command. Before the owner call, retain one canonical promotion requirement
-  binding the exact acceptance and prior live release identity. Serialize that
+  binding the exact acceptance and prior live release identity, three installed
+  roots, verification root, and history count. If review advances for the same
+  exact source before any effect, append one linear successor requirement only
+  after proving that complete prior state remains unchanged; never let the
+  retired acceptance invoke the owner. Serialize that
   requirement, owner effect, currentness recheck, and result against later
   acceptance/policy events; an interrupted retry rehydrates the one owner
   transition from live status. The release owner must run exact-commit checks, retain the

@@ -1164,13 +1164,20 @@ python3 <LOG_HELPER> software-factory-release-promote \
 The command rejects dirty/non-HEAD source, changed tree, unbound or nonaccepted
 review, and caller-selected activated identity. It invokes exactly
 `scripts/skill_release.py promote --repo <repo> --source-commit <commit>` without
-asking for another user confirmation, parses the bounded owner result, reopens live owner
+asking for another user confirmation. The owner subprocess uses the canonical
+operating-system account home and a minimal fixed Python/Git environment;
+caller `HOME`, `PYTHONPATH`, and Git overrides cannot redirect the release or
+installation roots. It parses the bounded owner result, reopens live owner
 status, compares the active source/release/three installed roots, and appends one
 deduplicated promotion record. It accepts no caller-selected active identity,
 pointer, staging, quiescence, or manual-pin input. An explicit manual pin is a
 separate policy-owned exception, not a promotion-command choice. Promotion
 first retains one canonical requirement binding the acceptance, source/tree,
-and prior live release/history identity. Keep the event-owner lock through the
+and prior live release, installed roots, verification root, and history
+identity. If a newer signed acceptance for the same exact source becomes
+current before any effect, append one immutable successor requirement only
+after revalidating that complete prior state; the retired acceptance cannot
+invoke the owner. Keep the event-owner lock through the
 bounded owner effect, source/acceptance currentness recheck, and result append.
 An interrupted retry rehydrates an already completed one-transition effect
 from live owner status; changed currentness is retained as a rejection, never a

@@ -121,12 +121,19 @@ caller-authored checkpoint is nonauthorizing. Supervision then runs
 the exact clean HEAD and canonical acceptance record, invokes the ordinary
 owner's flagless `skill_release.py promote --repo ... --source-commit ...`, and
 revalidates the returned active identity and three installed roots through live
-owner status. Identical accepted revisions reuse the one retained promotion;
+owner status. The owner subprocess uses the canonical operating-system account
+home and a minimal fixed Python/Git environment; caller `HOME`, `PYTHONPATH`,
+and Git overrides cannot redirect the release or installation roots. Identical
+accepted revisions reuse the one retained promotion;
 there is no caller active-release, pointer, or manual-pin input. An explicit
 manual pin is a separate policy-owned exception, not a promotion-command
 choice. Before invoking the owner, orchestration retains one canonical
 promotion requirement with the exact acceptance and prior live release
-identity. The event-owner lock serializes the bounded owner effect and result;
+identity, three installed roots, verification root, and history count. If a
+newer signed acceptance for the same source becomes current before any owner
+effect, the lock may append one linear successor requirement only while all of
+that prior state remains exact; the retired acceptance never invokes the
+owner. The event-owner lock serializes the bounded owner effect and result;
 an interrupted retry rehydrates the one completed transition from live owner
 status. The atomic `current` swap updates the
 next scheduled monitor wake while preserving its automation ID, target thread,
