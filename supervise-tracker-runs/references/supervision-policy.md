@@ -898,6 +898,17 @@ ordinary work-started evidence cannot use recovery. A successful admission
 keeps the truthful activation history and requires neither another activation
 nor manual Resume.
 
+The split `target-turn:<id>` and `target-item:<id>` activation-boundary evidence
+remains the preferred and ordinary form. For an already-canonical activation
+source that instead retained exactly one combined `turn <SAFE_ID> items
+<comma-separated numeric item IDs>:` evidence string, recovery may parse only
+that strict compatibility form. The review's exact target turn must match and
+its exact numeric target item must be a member of the retained item set; the
+work-started activation must cite the same combined string byte-for-byte.
+Malformed, ambiguous, duplicate-item, changed, uncited, nonnumeric, or
+review-mismatched combined evidence rejects before mutation. Arbitrary prose
+and newly authored combined evidence are not substitutes for the split form.
+
 ```bash
 python3 <LOG_HELPER> implementation-range-admit \
   --target-thread <TARGET> --range-id <FRESH_RANGE_ID> \

@@ -39,6 +39,11 @@ MISSION_META_CHARTER_PATH = (
     / "mission-meta-charter-v1.json"
 )
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$")
+ACTIVATION_RECOVERY_COMBINED_BOUNDARY = re.compile(
+    r"^turn (?P<turn>[A-Za-z0-9][A-Za-z0-9._:-]{3,127}) "
+    r"items (?P<items>(?:0|[1-9][0-9]*)(?:,(?:0|[1-9][0-9]*))*): "
+    r"[^\r\n]+$"
+)
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 KINDS = {
     "check",
@@ -10823,6 +10828,40 @@ def activation_recovery_evidence_value(
     return matches[0]
 
 
+def activation_recovery_combined_boundary(
+    evidence: Any, *, label: str
+) -> tuple[str, frozenset[str], str]:
+    candidates = (
+        [
+            item
+            for item in evidence
+            if isinstance(item, str) and item.startswith("turn ")
+        ]
+        if isinstance(evidence, list)
+        else []
+    )
+    if len(candidates) != 1:
+        raise SupervisionLogError(
+            f"Activation recovery {label} lacks one exact combined target boundary"
+        )
+    combined = candidates[0]
+    match = ACTIVATION_RECOVERY_COMBINED_BOUNDARY.fullmatch(combined)
+    if match is None:
+        raise SupervisionLogError(
+            f"Activation recovery {label} combined target boundary is malformed"
+        )
+    turn = safe_id(
+        match.group("turn"),
+        label=f"activation recovery {label} combined target turn",
+    )
+    items = match.group("items").split(",")
+    if len(items) != len(set(items)):
+        raise SupervisionLogError(
+            f"Activation recovery {label} combined target items are ambiguous"
+        )
+    return turn, frozenset(items), combined
+
+
 def canonical_activation_recovery_review(
     *,
     all_events: list[dict[str, Any]],
@@ -10997,15 +11036,37 @@ def canonical_activation_recovery_review(
         label="activation recovery target item",
     )
     target_source_evidence = target_source.get("evidence")
-    if (
-        target_source.get("target_thread_id") != policy.get("target_thread_id")
-        or not isinstance(target_source_evidence, list)
-        or f"target-turn:{target_turn}" not in target_source_evidence
-        or f"target-item:{target_item}" not in target_source_evidence
-    ):
+    if target_source.get("target_thread_id") != policy.get("target_thread_id"):
         raise SupervisionLogError(
             "Activation recovery target turn/item boundary is not canonical"
         )
+    split_boundary = (
+        isinstance(target_source_evidence, list)
+        and f"target-turn:{target_turn}" in target_source_evidence
+        and f"target-item:{target_item}" in target_source_evidence
+    )
+    if not split_boundary:
+        source_turn, source_items, combined_boundary = (
+            activation_recovery_combined_boundary(
+                target_source_evidence, label="target source"
+            )
+        )
+        head_turn, head_items, head_boundary = (
+            activation_recovery_combined_boundary(
+                head.get("evidence"), label="work-started head"
+            )
+        )
+        if (
+            source_turn != target_turn
+            or target_item not in source_items
+            or head_turn != source_turn
+            or head_items != source_items
+            or head_boundary != combined_boundary
+        ):
+            raise SupervisionLogError(
+                "Activation recovery combined target boundary differs from its "
+                "review or work-started head"
+            )
     expected_evidence = {
         f"reviewer:{reviewer_id}",
         "incident-head:"

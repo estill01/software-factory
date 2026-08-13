@@ -1609,6 +1609,13 @@ class ImplementationRangeControlTests(unittest.TestCase):
     recovery_state_fingerprint = "d" * 64
     recovery_turn = "target-turn-1678"
     recovery_item = "target-item-1683"
+    combined_recovery_turn = "019ffcc1-10e5-7521-a948-79059f155cf9"
+    combined_recovery_item = "1683"
+    combined_recovery_evidence = (
+        "turn 019ffcc1-10e5-7521-a948-79059f155cf9 items "
+        "1680,1682,1683: full Blocks 0-8 bound; Block 0 baseline and "
+        "browser runtime underway"
+    )
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -2134,7 +2141,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         return dict(result["record"])
 
-    def append_activation_target_boundary_source(self) -> dict[str, object]:
+    def append_activation_target_boundary_source(
+        self, *, evidence: list[str] | None = None
+    ) -> dict[str, object]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
         all_events = supervision_log.events(directory / "events.jsonl")
@@ -2151,7 +2160,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "reasoning": "max",
                 "state_fingerprint": self.recovery_state_fingerprint,
                 "status": "changed-state-review",
-                "evidence": [
+                "evidence": evidence or [
                     f"target-turn:{self.recovery_turn}",
                     f"target-item:{self.recovery_item}",
                 ],
@@ -2166,6 +2175,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
 
     def start_current_activation_with_target_boundary(
         self,
+        *,
+        source_evidence: list[str] | None = None,
+        head_evidence: list[str] | None = None,
+        bind_head_to_source: bool = True,
     ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -2178,24 +2191,55 @@ class ImplementationRangeControlTests(unittest.TestCase):
             if item.get("mission_root")
             == policy["mission_binding"]["mission_root"]
         )
-        source = self.append_activation_target_boundary_source()
-        result = self.call(
-            "mission-activation-start",
-            "--target-thread",
-            self.target,
-            "--mission-root",
-            str(pending["mission_root"]),
-            "--activation-policy-sha256",
-            str(pending["activation_policy_sha256"]),
-            "--first-eligible-work",
-            str(pending["first_eligible_work"]),
-            "--source-record",
-            str(source["record_id"]),
-            "--evidence",
+        source_values = source_evidence or [
             f"target-turn:{self.recovery_turn}",
-            "--evidence",
             f"target-item:{self.recovery_item}",
+        ]
+        head_values = head_evidence or source_values
+        source = self.append_activation_target_boundary_source(
+            evidence=source_values
         )
+        if bind_head_to_source:
+            arguments = [
+                "mission-activation-start",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                str(pending["mission_root"]),
+                "--activation-policy-sha256",
+                str(pending["activation_policy_sha256"]),
+                "--first-eligible-work",
+                str(pending["first_eligible_work"]),
+                "--source-record",
+                str(source["record_id"]),
+            ]
+            for value in head_values:
+                arguments.extend(("--evidence", value))
+            result = self.call(*arguments)
+        else:
+            record = {
+                "schema_version": 1,
+                "record_id": (
+                    "EVT-"
+                    f"{len(supervision_log.events(directory / 'events.jsonl')) + 1:06d}"
+                ),
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "mission-activation",
+                "activation_id": pending["activation_id"],
+                "phase": "work-started",
+                "mission_root": pending["mission_root"],
+                "mission_source_record": pending["mission_source_record"],
+                "activation_policy_sha256": pending[
+                    "activation_policy_sha256"
+                ],
+                "first_eligible_work": pending["first_eligible_work"],
+                "source_record": source["record_id"],
+                "evidence": head_values,
+                "policy_sha256": policy["policy_sha256"],
+            }
+            supervision_log.append_raw(directory / "events.jsonl", record)
+            result = {"record": record}
         current_events = supervision_log.events(directory / "events.jsonl")
         work_started = next(
             item
@@ -2253,6 +2297,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
         state_fingerprint: str | None = None,
         policy_sha256: str | None = None,
         omit_no_mutation_finding: bool = False,
+        target_turn: str | None = None,
+        target_item: str | None = None,
     ) -> dict[str, object]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -2267,8 +2313,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
             f"{work_started['record_id']}:{work_started['record_sha256']}",
             "target-source:"
             f"{target_source['record_id']}:{target_source['record_sha256']}",
-            f"target-turn:{self.recovery_turn}",
-            f"target-item:{self.recovery_item}",
+            f"target-turn:{target_turn or self.recovery_turn}",
+            f"target-item:{target_item or self.recovery_item}",
             f"direct-source:{self.successor_source}:{self.successor_dual_use_sha}",
         ]
         if not omit_no_mutation_finding:
@@ -2315,6 +2361,11 @@ class ImplementationRangeControlTests(unittest.TestCase):
         *,
         activation_variant: str = "",
         use_predecessor_policy: bool = False,
+        source_evidence: list[str] | None = None,
+        head_evidence: list[str] | None = None,
+        bind_head_to_source: bool = True,
+        review_turn: str | None = None,
+        review_item: str | None = None,
         **review_overrides: object,
     ) -> dict[str, object]:
         self.write_tracker(["completed", "completed"])
@@ -2328,7 +2379,11 @@ class ImplementationRangeControlTests(unittest.TestCase):
             )
         )
         pending, work_started, target_source = (
-            self.start_current_activation_with_target_boundary()
+            self.start_current_activation_with_target_boundary(
+                source_evidence=source_evidence,
+                head_evidence=head_evidence,
+                bind_head_to_source=bind_head_to_source,
+            )
         )
         self.assertEqual(pending["record_id"], activation)
         if activation_variant:
@@ -2384,6 +2439,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
             work_started=work_started,
             target_source=target_source,
             incident_head=incident_head,
+            target_turn=review_turn,
+            target_item=review_item,
             **review_overrides,
         )
         ingested, receipt = self.retain_successor_range_authority(
@@ -3101,6 +3158,174 @@ class ImplementationRangeControlTests(unittest.TestCase):
             current["implementation_range"]["range_id"],
             "RANGE-DECISION-SURFACE-RECOVERY-1678",
         )
+
+    def test_combined_activation_boundary_recovers_exact_live_shape(
+        self,
+    ) -> None:
+        recovery = self.prepare_activation_recovery(
+            source_evidence=[self.combined_recovery_evidence],
+            head_evidence=[self.combined_recovery_evidence],
+            review_turn=self.combined_recovery_turn,
+            review_item=self.combined_recovery_item,
+        )
+        directory = self.root / self.target
+        events_before = (directory / "events.jsonl").read_bytes()
+        activation_before = [
+            copy.deepcopy(item)
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("kind") == "mission-activation"
+        ]
+
+        result = self.recovery_admit(
+            recovery,
+            range_id="RANGE-COMBINED-BOUNDARY-RECOVERY-1678",
+        )
+        gate = self.gate("final-response")
+        activation_after = [
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("kind") == "mission-activation"
+        ]
+
+        self.assertEqual((directory / "events.jsonl").read_bytes(), events_before)
+        self.assertEqual(activation_after, activation_before)
+        self.assertEqual(result["binding"]["tracker_blocks"], list(range(9)))
+        self.assertTrue(result["implementation_start_permitted"])
+        self.assertTrue(gate["range_binding_current"])
+        self.assertEqual(gate["requested_blocks"], list(range(9)))
+        self.assertEqual(gate["eligible_blocks"], [0])
+        self.assertEqual(gate["required_target_posture"], "in-progress")
+
+    def test_combined_activation_boundary_rejects_malformed_or_mismatched_without_mutation(
+        self,
+    ) -> None:
+        malformed = self.combined_recovery_evidence.replace(
+            "1680,1682,1683:", "1680,1682,1683"
+        )
+        nonnumeric = self.combined_recovery_evidence.replace(
+            "1680,1682,1683", "1680,item-1682,1683"
+        )
+        duplicate = self.combined_recovery_evidence.replace(
+            "1680,1682,1683", "1680,1683,1683"
+        )
+        second = self.combined_recovery_evidence.replace(
+            "1680,1682,1683", "1680,1682,1684"
+        )
+        cases: tuple[
+            tuple[str, list[str], str, str], ...
+        ] = (
+            (
+                "malformed",
+                [malformed],
+                self.combined_recovery_turn,
+                self.combined_recovery_item,
+            ),
+            (
+                "nonnumeric",
+                [nonnumeric],
+                self.combined_recovery_turn,
+                self.combined_recovery_item,
+            ),
+            (
+                "duplicate-item",
+                [duplicate],
+                self.combined_recovery_turn,
+                self.combined_recovery_item,
+            ),
+            (
+                "multiple",
+                [self.combined_recovery_evidence, second],
+                self.combined_recovery_turn,
+                self.combined_recovery_item,
+            ),
+            (
+                "review-turn-mismatch",
+                [self.combined_recovery_evidence],
+                "019ffcc1-10e5-7521-a948-79059f155cf8",
+                self.combined_recovery_item,
+            ),
+            (
+                "review-item-mismatch",
+                [self.combined_recovery_evidence],
+                self.combined_recovery_turn,
+                "1684",
+            ),
+            (
+                "arbitrary-prose",
+                ["Blocks 0-8 bound; Block 0 baseline underway"],
+                self.combined_recovery_turn,
+                self.combined_recovery_item,
+            ),
+        )
+        for index, (name, boundary, review_turn, review_item) in enumerate(cases):
+            with self.subTest(name=name):
+                if index:
+                    self.setUp()
+                recovery = self.prepare_activation_recovery(
+                    source_evidence=boundary,
+                    head_evidence=boundary,
+                    review_turn=review_turn,
+                    review_item=review_item,
+                )
+                before = self.range_owner_bytes()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "combined target boundary|combined target items|"
+                    "exact combined target boundary",
+                ):
+                    self.recovery_admit(
+                        recovery,
+                        range_id=f"RANGE-BAD-COMBINED-{index}",
+                    )
+                self.assertEqual(self.range_owner_bytes(), before)
+
+    def test_combined_activation_boundary_requires_exact_head_citation_without_mutation(
+        self,
+    ) -> None:
+        changed = self.combined_recovery_evidence.replace(
+            "1680,1682,1683", "1680,1682,1684"
+        )
+        cases = (
+            (
+                "uncited",
+                [self.combined_recovery_evidence, "block-0-baseline-started"],
+                ["block-0-baseline-started"],
+                True,
+            ),
+            (
+                "changed",
+                [self.combined_recovery_evidence],
+                [changed],
+                False,
+            ),
+            (
+                "ambiguous-head",
+                [self.combined_recovery_evidence],
+                [self.combined_recovery_evidence, changed],
+                False,
+            ),
+        )
+        for index, (name, source_evidence, head_evidence, bound) in enumerate(cases):
+            with self.subTest(name=name):
+                if index:
+                    self.setUp()
+                recovery = self.prepare_activation_recovery(
+                    source_evidence=source_evidence,
+                    head_evidence=head_evidence,
+                    bind_head_to_source=bound,
+                    review_turn=self.combined_recovery_turn,
+                    review_item=self.combined_recovery_item,
+                )
+                before = self.range_owner_bytes()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "combined target boundary|exact combined target boundary",
+                ):
+                    self.recovery_admit(
+                        recovery,
+                        range_id=f"RANGE-BAD-COMBINED-HEAD-{index}",
+                    )
+                self.assertEqual(self.range_owner_bytes(), before)
 
     def test_work_started_range_rejects_missing_recovery_review_without_mutation(
         self,
