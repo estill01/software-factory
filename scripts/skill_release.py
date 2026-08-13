@@ -1893,6 +1893,24 @@ def activate_release(
         )
         if history_active != prior:
             raise ReleaseError("Current pointer and activation history differ")
+        expected_current = getattr(args, "expected_current_release", None)
+        expected_history = getattr(args, "expected_history_records", None)
+        if bool(expected_current) != (expected_history is not None):
+            raise ReleaseError(
+                "Atomic release transition requires both expected current identity and history count"
+            )
+        if expected_current is not None and (
+            bounded_id(
+                expected_current, label="expected current release ID"
+            )
+            != prior
+            or type(expected_history) is not int
+            or expected_history < 1
+            or len(prior_history) != expected_history
+        ):
+            raise ReleaseError(
+                "Current release owner state changed before atomic transition"
+            )
         quiescent_argument = getattr(args, "quiescent_evidence", None)
         quiescent = (
             validate_quiescent_evidence(
@@ -2161,6 +2179,8 @@ def parser() -> argparse.ArgumentParser:
     rollback = subcommands.add_parser("rollback", help="restore a prior accepted release")
     rollback.add_argument("release_id", nargs="?")
     rollback.add_argument("--quiescent-evidence")
+    rollback.add_argument("--expected-current-release")
+    rollback.add_argument("--expected-history-records", type=int)
     rollback.set_defaults(func=rollback_release)
 
     promote = subcommands.add_parser(

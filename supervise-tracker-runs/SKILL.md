@@ -658,7 +658,20 @@ reserved deferrals, safe frontier, and application posture.
   afterward. Paused automations and explicit manual release pins remain held.
   Refresh already-running eligible role context only through the returned
   existing `role-refresh` routes; a current turn keeps the instruction bytes it
-  already loaded. A supervisor may never create, select among
+  already loaded. Retain the exact canonical plan bytes and run
+  `software-factory-supervisor-refresh-health --target-thread <target> --repo
+  <repo> --promotion-record <event> --refresh-plan <json>` after the automation
+  owner boundary. The health owner rejects policy/event/range drift, returns
+  `refresh-pending` while the exact pre-update automation bytes remain, and
+  records one deduplicated health receipt only after the release, three roots,
+  stable links, preserved automation fields, control posture, and owner files
+  are current. An observed installed-release or post-update automation mismatch
+  first records one durable rollback requirement, invokes only the existing
+  release owner's `rollback <prior-release>` operation, verifies the exact prior
+  source/roots/history, and returns existing `role-refresh` restoration routes.
+  Retry rehydrates a completed owner rollback from live status and never repeats
+  it. No caller health boolean, release identity, pointer, or rollback target is
+  accepted. A supervisor may never create, select among
   ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still

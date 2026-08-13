@@ -4443,10 +4443,10 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             "tracker_sha256": "7" * 64,
             "tracker_structure_sha256": "8" * 64,
             "requested_blocks": list(range(8)),
-            "accepted_blocks": [0, 1, 2, 5],
+            "accepted_blocks": [0, 1, 2, 3, 5],
             "completed_prerequisite_blocks": [],
-            "remaining_blocks": [3, 4, 6, 7],
-            "eligible_blocks": [3],
+            "remaining_blocks": [4, 6, 7],
+            "eligible_blocks": [4],
             "range_history_head_sha256": "9" * 64,
         }
         with (
@@ -4559,10 +4559,14 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         source_commit: str,
         action: str,
         release_id: str | None = None,
+        expected_current_release_id: str | None = None,
+        expected_history_records: int | None = None,
     ) -> dict[str, object]:
         self.assertEqual(source_commit, self.source)
         self.owner_actions.append(action)
         if action == "status":
+            self.assertIsNone(expected_current_release_id)
+            self.assertIsNone(expected_history_records)
             selected = (
                 self.restored_status
                 if getattr(self, "rollback_complete", False)
@@ -4572,6 +4576,13 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         if action != "rollback":
             raise AssertionError(f"unexpected owner action: {action}")
         self.assertEqual(release_id, self.prior_status["active_release_id"])
+        self.assertEqual(
+            expected_current_release_id, self.status["active_release_id"]
+        )
+        self.assertEqual(
+            expected_history_records,
+            self.status["activation_history_records"],
+        )
         self.rollback_complete = True
         return {
             "action": "rollback",
@@ -6012,6 +6023,8 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             source_commit: str,
             action: str,
             release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_history_records: int | None = None,
         ) -> dict[str, object]:
             nonlocal failed
             if action == "rollback" and not failed:
@@ -6025,6 +6038,8 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 source_commit=source_commit,
                 action=action,
                 release_id=release_id,
+                expected_current_release_id=expected_current_release_id,
+                expected_history_records=expected_history_records,
             )
 
         with self.assertRaisesRegex(
@@ -6097,13 +6112,90 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
-            "health is no longer current",
+            "automation fields differ",
         ):
             self.refresh_health(
                 str(promoted["promotion"]["record_id"]),
                 owner=self.recovery_owner,
                 plan=plan,
             )
+
+    def test_refresh_health_rejects_control_drift_before_owner_call(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.call(
+            "record",
+            "--target-thread",
+            self.target,
+            "--kind",
+            "check",
+            "--model",
+            "gpt-5.6-sol",
+            "--reasoning",
+            "xhigh",
+            "--status",
+            "observed",
+            "--evidence",
+            "post-plan-control-drift-1234",
+            "--summary",
+            "A canonical cursor event advanced after the frozen refresh plan.",
+        )
+        self.prepare_recovery_owner(unhealthy=False)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "event currentness changed",
+        ):
+            self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                owner=self.recovery_owner,
+                plan=plan,
+            )
+
+        self.assertEqual(self.owner_actions, [])
+
+    def test_refresh_health_rolls_back_preserved_automation_field_loss(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        automation_id = self.write_automation(
+            self.current_legacy_automation_prompt()
+        )
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        stable = plan["automation_updates"][0]["stable_prompt"]
+        self.write_automation(stable, bind=False, updated_at=3)
+        owner_path = self.automation_root / automation_id / "automation.toml"
+        owner_path.write_text(
+            owner_path.read_text(encoding="utf-8").replace(
+                "INTERVAL=20", "INTERVAL=21"
+            ),
+            encoding="utf-8",
+        )
+        self.prepare_recovery_owner(unhealthy=False)
+
+        recovered = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+
+        self.assertEqual(recovered["posture"], "rollback-restored")
+        self.assertEqual(self.owner_actions.count("rollback"), 1)
+        self.assertEqual(
+            recovered["restored_release"]["release_id"],
+            self.prior_status["active_release_id"],
+        )
 
     def test_refresh_prompt_rejects_mixed_release_identities(self) -> None:
         prompt = self.legacy_pinned_automation_prompt().replace(

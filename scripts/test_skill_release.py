@@ -524,6 +524,8 @@ class SkillReleaseTests(unittest.TestCase):
             operation="rollback",
             previous_release_id=str(second["release_id"]),
         )
+        rollback_args.expected_current_release = str(second["release_id"])
+        rollback_args.expected_history_records = 2
         rolled_back = skill_release.rollback_release(rollback_args)
         self.assertEqual(rolled_back["active_release_id"], first["release_id"])
         status = skill_release.status(
@@ -535,6 +537,61 @@ class SkillReleaseTests(unittest.TestCase):
         self.assertTrue(status["installed_complete"])
         self.assertEqual(status["active_release_id"], first["release_id"])
         self.assertEqual(status["activation_history_records"], 3)
+
+    def test_rollback_rejects_changed_current_release_or_history(self) -> None:
+        first_commit = self.git("rev-parse", "HEAD")
+        first = skill_release.stage_release(
+            self.stage_args(first_commit, review_evidence=self.review_evidence(first_commit))
+        )
+        skill_release.bootstrap_release(
+            self.activate_args(str(first["release_id"]))
+        )
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("2\n", encoding="utf-8")
+        second_commit = self.commit("second rollback currentness candidate")
+        second = self.stage(second_commit)
+        skill_release.activate_release(
+            self.activate_args(
+                str(second["release_id"]),
+                operation="activate",
+                previous_release_id=str(first["release_id"]),
+            )
+        )
+
+        wrong_release = self.activate_args(
+            str(first["release_id"]),
+            operation="rollback",
+            previous_release_id=str(second["release_id"]),
+        )
+        wrong_release.expected_current_release = str(first["release_id"])
+        wrong_release.expected_history_records = 2
+        with self.assertRaisesRegex(
+            skill_release.ReleaseError,
+            "owner state changed",
+        ):
+            skill_release.rollback_release(wrong_release)
+
+        wrong_history = self.activate_args(
+            str(first["release_id"]),
+            operation="rollback",
+            previous_release_id=str(second["release_id"]),
+        )
+        wrong_history.expected_current_release = str(second["release_id"])
+        wrong_history.expected_history_records = 1
+        with self.assertRaisesRegex(
+            skill_release.ReleaseError,
+            "owner state changed",
+        ):
+            skill_release.rollback_release(wrong_history)
+
+        status = skill_release.status(
+            argparse.Namespace(
+                release_root=str(self.release_root),
+                install_root=str(self.install_root),
+            )
+        )
+        self.assertEqual(status["active_release_id"], second["release_id"])
+        self.assertEqual(status["activation_history_records"], 2)
 
     def test_stage_rejects_dirty_missing_review_partial_and_symlinked_source(self) -> None:
         commit = self.git("rev-parse", "HEAD")

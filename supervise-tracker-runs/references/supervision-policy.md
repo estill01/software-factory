@@ -2944,6 +2944,21 @@ frontier as controlling prompt state. The automation reads current helper status
 at each wake. This stable-channel binding makes an atomic accepted release take
 effect on the next wake without changing the automation's identity or cadence.
 
+Retain the exact canonical `software-factory-supervisor-refresh-plan` output
+through its owner update boundary. The subsequent
+`software-factory-supervisor-refresh-health` command accepts only that exact plan,
+its canonical promotion record, and the repository. It derives health from the
+current release owner, three installed roots and stable links, canonical
+range/control state, and bounded automation-owner files; it accepts no caller
+health assertion or rollback identity. Exact unchanged pre-update owner bytes
+remain `refresh-pending`. Verified updated bytes produce one canonical health
+receipt. A release/root failure or changed preserved automation field records a
+durable rollback requirement before the unchanged release owner restores the
+promotion's exact prior accepted release. Retry recognizes the restored source,
+three roots, verification root, and one history advance and does not repeat the
+rollback; eligible roles receive only normal purpose-`role-refresh` restoration
+routes at their next message boundaries.
+
 ## Stop conditions
 
 Pause all project supervision automations when the target is complete, genuinely
