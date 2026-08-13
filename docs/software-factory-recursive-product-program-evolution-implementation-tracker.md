@@ -1,6 +1,6 @@
 # Software Factory Recursive Product-Program Evolution Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–11
 - Repository: `/Users/ethanstillman/code/software_factory-control-plane-candidate`
 - Planning baseline: `4ae6a61b15f4c21604e7b9c9912a6272a3bf2330`
@@ -370,7 +370,7 @@ the mapped dependency closure of a concrete current defect.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the recursive product-program evolution contract | — | `not-started` |
+| 0 | Freeze the recursive product-program evolution contract | — | `accepted` |
 | 1 | Build the fourth skill and deterministic program-evidence packet | 0 | `not-started` |
 | 2 | Add self-reflection and divergent future-work generation | 1 | `not-started` |
 | 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `not-started` |
@@ -390,7 +390,7 @@ Required order:
 
 ## Block 0 — Freeze the recursive product-program evolution contract
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -460,7 +460,80 @@ missing ownership.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `f09ce6f0ddabf79905a7953a146f793a62fad9cd`.
+- External/domain revision or root: not applicable; Block 0 is a source-only
+  contract and performs no release, tracker application, supervision mutation,
+  automation, or external effect.
+- Inputs: tracker planning snapshot `781a3b653e44bd8570809a8e4665b5e21d19b981`;
+  tracker frame SHA-256 `b9b1b623b07ea316b99aeaa70c5f41a36b3f5b9f2c9e6140b9be39629513275a`;
+  Factory Evolution contract SHA-256
+  `8c8748cb514a3a06bb604b7d9077ce7ed6fed9b59244ff1f79bd9792cde2225b`;
+  product-capability review SHA-256
+  `68d255c1cd7c03b61b9278e0d1a20290c7452abb661ba00ae47d15e60bfc3017`.
+- Outputs: contract SHA-256
+  `53a5a0b069c7c23e736ba9d7b8579a7b187159f4d154af2573b42ef28aa73626`;
+  exact schema/owner fixture SHA-256
+  `42aa542fcb41d269bdbaaf613379609d2db2d6ebaa011f2ead16096b4c87a9f3`;
+  immutable/live source map SHA-256
+  `4eb84ed57d9f87100ebc5f850f855d49f1bd2909700552a6f72aaddfb02f0e8f`.
+- Focused validation: `/usr/bin/python3 -m unittest -v
+  evolve-product-program/scripts/test_product_program_contract.py` — 10 tests
+  passed; source-map hashes matched; mutation cases rejected missing owners,
+  extra fields, altered interfaces, missing roles, checkpoint fields, and Stops.
+- Mapped validation: `python3
+  author-implementation-trackers/scripts/verify_tracker.py
+  docs/software-factory-recursive-product-program-evolution-implementation-tracker.md
+  --profile full` — 12 Blocks, PASS before this status-only evidence update.
+- Candidate freeze: commit `f09ce6f0ddabf79905a7953a146f793a62fad9cd`,
+  tree `628b810555e307b2efeffa892d2c4a190207f97d`; upstream matched after
+  non-force push.
+- Remediation closure: exact-review findings closed by independently comparing
+  fingerprint/currentness identities, freezing exact checkpoint/artifact/
+  interface schemas, completing role/artifact ownership, adding mutation-based
+  rejection tests, and pinning mutable tracker evidence to immutable planning
+  bytes. Rejected checkpoints remain in Git history.
+- Resource posture: six exact source-owner reads, one contract package, no
+  cognitive candidate lane, no broad history replay, focused tests before the
+  tracker verifier, and four bounded independent review passes across the
+  original, remediation, interface, and immutable-source deltas.
+- Independent review: `/root/block0_review` rejected `74e7ba2` and `b51ea9d`,
+  accepted `18ae1be`, then accepted the delta-only immutable-source correction at
+  exact revision `f09ce6f0ddabf79905a7953a146f793a62fad9cd`; final focused proof
+  was 10/10 with a clean exact HEAD.
+- Product-capability review:
+  - Trigger: consequential Block 0 operating-model contract.
+  - Frame identity: this tracker, Block 0, SHA-256
+    `b9b1b623b07ea316b99aeaa70c5f41a36b3f5b9f2c9e6140b9be39629513275a`.
+  - Capability added or preserved: one target-profiled recursive contract with
+    cold-start, current-range, owner separation, history, and no-op convergence.
+  - Paths compared: a local copied Factory contract; a bounded-general
+    target-profiled contract in the new skill; modifying the existing Factory
+    Evolution owner.
+  - Selected level and owner: bounded-general in `evolve-product-program`; it
+    reuses the accepted ladder for the named Factory and target-product profiles
+    without editing or conflating their adoption owners.
+  - Protected-capability result: preserved and mechanically covered at the
+    contract level, including negative direct-write and self-selection paths.
+  - Rejected alternatives: a local copy would drift and duplicate the ladder;
+    changing the existing supervision owner would bypass the source-only boundary
+    and conflate proposal with adoption.
+  - Tradeoffs and uncertainty: exact schemas add deliberate rigidity; later
+    Blocks may implement only these derived artifacts and must leave application
+    with existing owners.
+  - Frozen-candidate proof: commit `f09ce6f0ddabf79905a7953a146f793a62fad9cd`,
+    focused 10/10, exact independent ACCEPT.
+- Retained open work: none in Block 0; executable packet generation remains
+  deliberately owned by Block 1.
+- Decision/continuation posture: contract accepted; continue automatically to
+  Block 1. The canonical range-binding classifier incident remains separately
+  owner-routed and does not contract or stop the safe Blocks 0–4 frontier.
+- Post-block audit: accepted; every required fact/write resolves to one owner,
+  every transition has a Stop, unchanged recursion is a deterministic no-op, and
+  prohibited downstream writes reject.
+- Git durability: commits `7a659c2`, `74e7ba2`, `676448e`, `b51ea9d`,
+  `18ae1be`, and `f09ce6f` are pushed on
+  `codex/product-program-evolution-blocks-0-4` to
+  `origin/codex/product-program-evolution-blocks-0-4`.
 
 ### Stop
 
