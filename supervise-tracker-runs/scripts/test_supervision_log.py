@@ -1751,9 +1751,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.complete_predecessor_and_start_successor(
             retain_range_authority=False,
             mission_source_record=source_record,
-            mission_source_sha256=hashlib.sha256(
-                request_text.encode("utf-8")
-            ).hexdigest(),
+            mission_source_sha256=supervision_log.digest(request_text),
         )
         policy = supervision_log.read_json(directory / "policy.json")
         current_events = supervision_log.events(directory / "events.jsonl")
@@ -1787,6 +1785,12 @@ class ImplementationRangeControlTests(unittest.TestCase):
             item
             for item in supervision_log.events(directory / "events.jsonl")
             if item.get("record_id") == route_record_result["record_id"]
+        )
+        self.assertEqual(
+            route_record["route_result"]["action_sha256"],
+            policy["mission_binding"]["mission_derivation"][
+                "controlling_source"
+            ]["sha256"],
         )
         source_bytes = request_text.encode("utf-8")
         provenance: dict[str, object] = {

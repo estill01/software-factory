@@ -46,10 +46,13 @@ the completed program materially changes Software Factory.
   task/turn/item and exact bytes, current target mission and policy, the current
   pending mission-activation source through fresh range admission, and the
   owner-produced target-action route result
-  and projection. Mission identity alone remains nonauthorizing; an
-  independent base-or-Max acceptance precedes the existing authority event,
-  receipt, and range-owner consumption. The recipient starts the full-tracker
-  range automatically without a same-thread repetition or manual Resume.
+  and projection. The mission retains the route owner's canonical action
+  digest while provenance separately retains the raw UTF-8 byte count and
+  SHA-256; neither identity substitutes for the other. Mission identity alone
+  remains nonauthorizing; an independent base-or-Max acceptance precedes the
+  existing authority event, receipt, and range-owner consumption. The
+  recipient starts the full-tracker range automatically without a same-thread
+  repetition or manual Resume.
   Unbound internal packets, changed route/action/source evidence, supervisor
   language, and scope expansion remain nonauthorizing.
 

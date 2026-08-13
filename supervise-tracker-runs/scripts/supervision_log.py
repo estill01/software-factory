@@ -7150,8 +7150,10 @@ def delegated_direct_authority_route_result(
         or route_source.get("mission_source_record") != source_item_id
         or source_item_id != current_mission.get("mission_source_record")
         or source_item_id != controlling.get("record")
-        or hashlib.sha256(args.action.encode("utf-8")).hexdigest()
-        != controlling.get("sha256")
+        # Mission derivation retains the canonical route-owner action digest,
+        # while the delegated provenance below separately retains the raw
+        # UTF-8 byte count and SHA-256.  Do not conflate those two identities.
+        or route_result.get("action_sha256") != controlling.get("sha256")
         or activation_heads.get(str(route_source.get("activation_id")), {}).get(
             "record_id"
         )

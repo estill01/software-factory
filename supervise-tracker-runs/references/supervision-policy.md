@@ -911,6 +911,12 @@ identity alone, non-full scope, generic
 local-path requests, stale policy/events, replay mismatch, and ineligible review
 reject before append:
 
+The mission controlling-source SHA is the canonical route-owner action digest
+returned by `thread-route-gate`. Delegated provenance separately retains and
+revalidates the exact raw UTF-8 byte count and SHA-256. Comparing the mission
+digest to the raw byte hash is an identity mismatch and must reject; the two
+forms are never interchangeable.
+
 The retained activation source must remain the exact current head through
 ingestion, receipt, and fresh range admission. Actual first-Block work starts
 only afterward and advances that activation to `work-started`; later
