@@ -369,6 +369,13 @@ DIRECT_AUTHORITY_PROVENANCE_KIND = "direct-user-authority-provenance"
 DIRECT_AUTHORITY_REVIEW_CATEGORY = "direct-authority-ingestion"
 DIRECT_AUTHORITY_CLASSIFICATION = "full-tracker"
 DIRECT_AUTHORITY_SOURCE_KIND = "direct-user-message"
+ACTIVATION_RECOVERY_REVIEW_CATEGORY = (
+    "implementation-range-activation-recovery"
+)
+ACTIVATION_RECOVERY_REVIEW_STATUS = "accepted-pre-mutation-recovery"
+ACTIVATION_RECOVERY_NO_MUTATION_EVIDENCE = (
+    "finding:pre-mutation-no-product-or-tracker-mutation"
+)
 DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND = (
     "delegated-direct-user-authority-provenance"
 )
@@ -10801,6 +10808,246 @@ def current_mission_range_identity(
     }
 
 
+def activation_recovery_evidence_value(
+    evidence: Any, prefix: str, *, label: str
+) -> str:
+    matches = [
+        item[len(prefix):]
+        for item in evidence
+        if isinstance(item, str) and item.startswith(prefix)
+    ] if isinstance(evidence, list) else []
+    if len(matches) != 1 or not matches[0]:
+        raise SupervisionLogError(
+            f"Activation recovery review lacks one exact {label}"
+        )
+    return matches[0]
+
+
+def canonical_activation_recovery_review(
+    *,
+    all_events: list[dict[str, Any]],
+    policy: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+    pending_activation: Mapping[str, Any],
+    work_started_activation: Mapping[str, Any],
+    review_record_id: str,
+    authority_source_record: str,
+    authority_source_sha256: str,
+    authority_review: Mapping[str, Any],
+    authority_event: Mapping[str, Any],
+) -> dict[str, Any]:
+    records = {
+        str(item.get("record_id")): (index, item)
+        for index, item in enumerate(all_events)
+        if isinstance(item.get("record_id"), str)
+    }
+    try:
+        pending_index, pending = records[str(pending_activation["record_id"])]
+        head_index, head = records[str(work_started_activation["record_id"])]
+        review_index, review = records[review_record_id]
+        authority_review_index, retained_review = records[
+            str(authority_review["record_id"])
+        ]
+        authority_event_index, retained_event = records[
+            str(authority_event["record_id"])
+        ]
+        target_source_index, target_source = records[str(head["source_record"])]
+    except KeyError as exc:
+        raise SupervisionLogError(
+            "Activation recovery evidence is absent from the canonical event ledger"
+        ) from exc
+    if (
+        pending != pending_activation
+        or head != work_started_activation
+        or retained_review != authority_review
+        or retained_event != authority_event
+        or not pending_index < target_source_index < head_index < review_index
+        or authority_review_index != review_index + 1
+        or authority_event_index != authority_review_index + 1
+    ):
+        raise SupervisionLogError(
+            "Activation recovery evidence chronology or identity differs"
+        )
+    expected_review_fields = {
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "model",
+        "reasoning",
+        "state_fingerprint",
+        "status",
+        "severity",
+        "category",
+        "active_block",
+        "checkpoint",
+        "summary",
+        "evidence",
+        "estimated_risk",
+        "action",
+        "resolution",
+        "notice_disposition",
+        "resolution_owner",
+        "user_action_required",
+        "dedup_key",
+        "policy_sha256",
+        "incident_id",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    reviewer_id = safe_id(
+        str(policy.get("runtime", {}).get("reviewer_thread_id", "")),
+        label="activation recovery reviewer",
+    )
+    state_fingerprint = exact_sha256(
+        str(review.get("state_fingerprint", "")),
+        label="activation recovery state fingerprint",
+    )
+    incident_id = safe_id(
+        str(review.get("incident_id", "")),
+        label="activation recovery incident",
+    )
+    review_policy_sha256 = exact_sha256(
+        str(review.get("policy_sha256", "")),
+        label="activation recovery review policy SHA-256",
+    )
+    review_policy = policy_snapshot_by_sha256(
+        policy_history, review_policy_sha256
+    )
+    current_mission = bound_mission(dict(policy))
+    review_mission = bound_mission(review_policy)
+    if (
+        set(review) != expected_review_fields
+        or review.get("schema_version") != 1
+        or review.get("target_thread_id") != policy.get("target_thread_id")
+        or review.get("kind") not in {"meta-review", "checkpoint-review"}
+        or review.get("model") != "gpt-5.6-sol"
+        or review.get("reasoning") != "max"
+        or review.get("status") != ACTIVATION_RECOVERY_REVIEW_STATUS
+        or review.get("severity") not in {"high", "critical"}
+        or review.get("category") != ACTIVATION_RECOVERY_REVIEW_CATEGORY
+        or review.get("notice_disposition") != "intermediate"
+        or review.get("resolution_owner") != "supervisor"
+        or review.get("user_action_required") != "no"
+        or not isinstance(review.get("summary"), str)
+        or not review.get("summary")
+        or current_mission is None
+        or review_mission is None
+        or mission_binding_identity(review_mission)
+        != mission_binding_identity(current_mission)
+        or review_policy_sha256 != authority_review.get("policy_sha256")
+        or review_policy_sha256 != authority_event.get("policy_sha256")
+    ):
+        raise SupervisionLogError(
+            "Activation recovery requires the exact current Sol Max review"
+        )
+    incident_records = [
+        (index, item)
+        for index, item in enumerate(all_events)
+        if is_substantive_incident_record(item, incident_id)
+    ]
+    if (
+        len(incident_records) < 2
+        or incident_records[-1][1].get("record_id") != review_record_id
+    ):
+        raise SupervisionLogError(
+            "Activation recovery review is not the current incident head"
+        )
+    incident_heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        candidate_incident = item.get("incident_id")
+        if isinstance(candidate_incident, str) and is_substantive_incident_record(
+            item, candidate_incident
+        ):
+            incident_heads[candidate_incident] = item
+    open_incident_heads = [
+        item
+        for candidate_incident, item in incident_heads.items()
+        if not is_terminal_incident_record(item, candidate_incident)
+    ]
+    if len(open_incident_heads) != 1 or open_incident_heads[0] != review:
+        raise SupervisionLogError(
+            "Activation recovery review is not the unique current open incident"
+        )
+    prior_incident = incident_records[-2][1]
+    if (
+        incident_records[-2][0] >= review_index
+        or is_terminal_incident_record(prior_incident, incident_id)
+        or prior_incident.get("state_fingerprint") != state_fingerprint
+    ):
+        raise SupervisionLogError(
+            "Activation recovery incident or state fingerprint is stale"
+        )
+    evidence = review.get("evidence")
+    if not isinstance(evidence, list):
+        raise SupervisionLogError(
+            "Activation recovery review evidence is malformed"
+        )
+    target_turn = safe_id(
+        activation_recovery_evidence_value(
+            evidence, "target-turn:", label="target turn"
+        ),
+        label="activation recovery target turn",
+    )
+    target_item = safe_id(
+        activation_recovery_evidence_value(
+            evidence, "target-item:", label="target item"
+        ),
+        label="activation recovery target item",
+    )
+    target_source_evidence = target_source.get("evidence")
+    if (
+        target_source.get("target_thread_id") != policy.get("target_thread_id")
+        or not isinstance(target_source_evidence, list)
+        or f"target-turn:{target_turn}" not in target_source_evidence
+        or f"target-item:{target_item}" not in target_source_evidence
+    ):
+        raise SupervisionLogError(
+            "Activation recovery target turn/item boundary is not canonical"
+        )
+    expected_evidence = {
+        f"reviewer:{reviewer_id}",
+        "incident-head:"
+        + ":".join(
+            (
+                str(prior_incident["record_id"]),
+                str(prior_incident["record_sha256"]),
+            )
+        ),
+        "pending-activation:"
+        + ":".join(
+            (
+                str(pending["record_id"]),
+                str(pending["record_sha256"]),
+            )
+        ),
+        "work-started-activation:"
+        + ":".join(
+            (
+                str(head["record_id"]),
+                str(head["record_sha256"]),
+            )
+        ),
+        "target-source:"
+        + ":".join(
+            (
+                str(target_source["record_id"]),
+                str(target_source["record_sha256"]),
+            )
+        ),
+        f"target-turn:{target_turn}",
+        f"target-item:{target_item}",
+        f"direct-source:{authority_source_record}:{authority_source_sha256}",
+        ACTIVATION_RECOVERY_NO_MUTATION_EVIDENCE,
+    }
+    if len(evidence) != len(expected_evidence) or set(evidence) != expected_evidence:
+        raise SupervisionLogError(
+            "Activation recovery review does not bind the exact pre-mutation evidence"
+        )
+    return dict(review)
+
+
 def validate_predecessor_range_completion(
     *,
     policy: Mapping[str, Any],
@@ -10810,7 +11057,12 @@ def validate_predecessor_range_completion(
     outcome_record_id: str,
     lifecycle_record_id: str,
     activation_record_id: str,
-) -> dict[str, Any]:
+    activation_recovery_review_record_id: str,
+    authority_source_record: str,
+    authority_source_sha256: str,
+    authority_review: Mapping[str, Any],
+    authority_event: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     records = {
         str(record.get("record_id")): (index, record)
         for index, record in enumerate(all_events)
@@ -10901,16 +11153,66 @@ def validate_predecessor_range_completion(
         )
     candidates = [
         item
-        for item in mission_activation_heads(all_events, open_only=True).values()
+        for item in mission_activation_heads(all_events).values()
         if item.get("mission_root") == current_mission.get("mission_root")
         and item.get("mission_source_record")
         == current_mission.get("mission_source_record")
     ]
-    if len(candidates) != 1 or candidates[0].get("record_id") != activation_record_id:
+    if len(candidates) != 1:
         raise SupervisionLogError(
             "Current mission activation provenance is absent or ambiguous"
         )
-    return activation
+    head = candidates[0]
+    if (
+        head.get("record_id") == activation_record_id
+        and head.get("phase") == "pending"
+    ):
+        if activation_recovery_review_record_id:
+            raise SupervisionLogError(
+                "Pending activation admission must not cite a recovery review"
+            )
+        return activation, None
+    if not activation_recovery_review_record_id:
+        raise SupervisionLogError(
+            "Work-started activation admission requires an exact recovery review"
+        )
+    immutable_activation_fields = (
+        "activation_id",
+        "mission_root",
+        "mission_source_record",
+        "activation_policy_sha256",
+        "first_eligible_work",
+    )
+    lineage = mission_activation_events(
+        all_events, str(activation.get("activation_id", ""))
+    )
+    if (
+        head.get("phase") != "work-started"
+        or head.get("activation_id") != activation.get("activation_id")
+        or any(
+            head.get(field) != activation.get(field)
+            for field in immutable_activation_fields
+        )
+        or len(lineage) != 2
+        or lineage[0].get("record_id") != activation_record_id
+        or lineage[1].get("record_id") != head.get("record_id")
+    ):
+        raise SupervisionLogError(
+            "Activation recovery requires one direct pending-to-work-started lineage"
+        )
+    recovery_review = canonical_activation_recovery_review(
+        all_events=all_events,
+        policy=policy,
+        policy_history=policy_history,
+        pending_activation=activation,
+        work_started_activation=head,
+        review_record_id=activation_recovery_review_record_id,
+        authority_source_record=authority_source_record,
+        authority_source_sha256=authority_source_sha256,
+        authority_review=authority_review,
+        authority_event=authority_event,
+    )
+    return activation, recovery_review
 
 
 def implementation_range_identities(
@@ -10940,6 +11242,10 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     contract = implementation_range_contract(policy)
     if contract is None:
+        if args.activation_recovery_review_record:
+            raise SupervisionLogError(
+                "Initial range admission cannot cite an activation recovery review"
+            )
         required = {
             "range_id": args.range_id,
             "tracker": args.tracker,
@@ -10975,6 +11281,7 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             args.predecessor_outcome_record
             or args.predecessor_lifecycle_record
             or args.mission_activation_record
+            or args.activation_recovery_review_record
             or (
                 args.range_id
                 and args.range_id != contract["range_id"]
@@ -11100,7 +11407,15 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
         )
     )
     event_head = str(all_events[-1].get("record_sha256", "")) if all_events else ""
-    activation = validate_predecessor_range_completion(
+    activation_recovery_review_record = (
+        safe_id(
+            args.activation_recovery_review_record,
+            label="activation recovery review record",
+        )
+        if args.activation_recovery_review_record
+        else ""
+    )
+    activation, activation_recovery_review = validate_predecessor_range_completion(
         policy=policy,
         predecessor_mission=predecessor_mission,
         all_events=all_events,
@@ -11117,6 +11432,13 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             args.mission_activation_record,
             label="mission activation record",
         ),
+        activation_recovery_review_record_id=(
+            activation_recovery_review_record
+        ),
+        authority_source_record=source_record,
+        authority_source_sha256=source_sha256,
+        authority_review=authority_review,
+        authority_event=authority_event,
     )
     predecessor_state = implementation_range_state(policy)
     if predecessor_state is None or predecessor_state["remaining_blocks"]:
@@ -11151,7 +11473,17 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             for dependency in block["dependencies"]
         )
     ]
-    if accepted or len(eligible) != 1:
+    if (
+        accepted
+        or len(eligible) != 1
+        or (
+            activation_recovery_review is not None
+            and any(
+                block["status"] != "not-started"
+                for block in blocks.values()
+            )
+        )
+    ):
         raise SupervisionLogError(
             "Cross-mission tracker is not at one exact pre-work frontier"
         )
@@ -11303,7 +11635,10 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "Retained range authority changed before range rollover"
             )
-        locked_activation = validate_predecessor_range_completion(
+        (
+            locked_activation,
+            locked_activation_recovery_review,
+        ) = validate_predecessor_range_completion(
             policy=current_policy,
             predecessor_mission=predecessor_mission,
             all_events=current_events,
@@ -11311,8 +11646,19 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             outcome_record_id=args.predecessor_outcome_record,
             lifecycle_record_id=args.predecessor_lifecycle_record,
             activation_record_id=args.mission_activation_record,
+            activation_recovery_review_record_id=(
+                activation_recovery_review_record
+            ),
+            authority_source_record=source_record,
+            authority_source_sha256=source_sha256,
+            authority_review=locked_authority_review,
+            authority_event=locked_authority_event,
         )
-        if locked_activation != activation:
+        if (
+            locked_activation != activation
+            or locked_activation_recovery_review
+            != activation_recovery_review
+        ):
             raise SupervisionLogError(
                 "Mission activation changed before range rollover"
             )
@@ -11344,13 +11690,30 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
         policy,
         kind="implementation-range-mission-rollover",
         reason=(
-            "Replace one completed predecessor range with the pending current-mission "
-            "range without rewriting predecessor policy history."
+            (
+                "Replace one completed predecessor range with the reviewed "
+                "pre-mutation work-started current-mission range without "
+                "rewriting predecessor policy or activation history."
+            )
+            if activation_recovery_review is not None
+            else (
+                "Replace one completed predecessor range with the pending "
+                "current-mission range without rewriting predecessor policy "
+                "history."
+            )
         ),
         evidence_values=[
             args.predecessor_outcome_record,
             args.predecessor_lifecycle_record,
             args.mission_activation_record,
+            *(
+                [
+                    str(activation_recovery_review["record_id"]),
+                    str(activation_recovery_review["record_sha256"]),
+                ]
+                if activation_recovery_review is not None
+                else []
+            ),
             str(authority_event["record_id"]),
             str(authority_event["record_sha256"]),
             tracker_sha256,
@@ -11358,23 +11721,23 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
         ],
         pre_mutation_validator=revalidate_rollover_before_mutation,
     )
-    print(
-        json.dumps(
-            {
-                "admitted": True,
-                "duplicate": False,
-                "range_binding_current": True,
-                "binding": replacement,
-                "range_state": replacement_state,
-                "predecessor_range": predecessor_range,
-                "mission_activation_record": activation["record_id"],
-                "authority_event_record": authority_event["record_id"],
-                "implementation_start_permitted": True,
-                "final_response_gate_required": True,
-            },
-            sort_keys=True,
+    result = {
+        "admitted": True,
+        "duplicate": False,
+        "range_binding_current": True,
+        "binding": replacement,
+        "range_state": replacement_state,
+        "predecessor_range": predecessor_range,
+        "mission_activation_record": activation["record_id"],
+        "authority_event_record": authority_event["record_id"],
+        "implementation_start_permitted": True,
+        "final_response_gate_required": True,
+    }
+    if activation_recovery_review is not None:
+        result["activation_recovery_review_record"] = (
+            activation_recovery_review["record_id"]
         )
-    )
+    print(json.dumps(result, sort_keys=True))
 
 
 def implementation_range_repair_result(
@@ -19212,6 +19575,9 @@ def parser() -> argparse.ArgumentParser:
     range_admit.add_argument("--predecessor-outcome-record", default="")
     range_admit.add_argument("--predecessor-lifecycle-record", default="")
     range_admit.add_argument("--mission-activation-record", default="")
+    range_admit.add_argument(
+        "--activation-recovery-review-record", default=""
+    )
     range_admit.set_defaults(func=cmd_implementation_range_admit)
 
     range_amend = subparsers.add_parser("implementation-range-amend")

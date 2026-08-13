@@ -880,6 +880,24 @@ noncurrent at `implementation-range-gate` and can never yield
 identity may use the retained `Block <n>` form or a hash-bound namespaced form
 ending `:block-<n>`; either must name the one exact eligible numeric frontier.
 
+Ordinary cross-mission admission still requires that pending activation to be
+the unique current head. If truthful read-only baseline work already advanced
+the same activation to `work-started` before range admission, the caller may
+supply `--activation-recovery-review-record` for one exact append-only recovery
+only. The cited record must be the current incident head and a later Sol Max
+review with the dedicated pre-mutation recovery category/status, current state
+fingerprint, exact target turn/item boundary, pending and work-started record
+IDs and hashes, direct source item/hash, and an explicit finding that no product
+or tracker mutation occurred. The two activation records must be the complete
+direct pending-to-work-started lineage and preserve mission root/source,
+activation-policy identity, and first-work identity. The policy owner rechecks
+that review and lineage together with the receipt, policy/event heads, both
+tracker snapshots, pristine numeric frontier, and fresh range identity under
+its lock. Missing, stale, ambiguous, pre-work-started, changed-frontier, or
+ordinary work-started evidence cannot use recovery. A successful admission
+keeps the truthful activation history and requires neither another activation
+nor manual Resume.
+
 ```bash
 python3 <LOG_HELPER> implementation-range-admit \
   --target-thread <TARGET> --range-id <FRESH_RANGE_ID> \
@@ -888,7 +906,8 @@ python3 <LOG_HELPER> implementation-range-admit \
   --authority-source-sha256 <CURRENT_RETAINED_RANGE_SOURCE_SHA256> \
   --predecessor-outcome-record <EXACT_VERIFIED_OUTCOME> \
   --predecessor-lifecycle-record <EXACT_COMPLETED_LIFECYCLE> \
-  --mission-activation-record <EXACT_PENDING_ACTIVATION>
+  --mission-activation-record <EXACT_PENDING_ACTIVATION> \
+  [--activation-recovery-review-record <EXACT_CURRENT_REVIEW>]
 
 python3 <LOG_HELPER> implementation-range-bind \
   --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \

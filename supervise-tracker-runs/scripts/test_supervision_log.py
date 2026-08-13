@@ -1605,6 +1605,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
     later_request = "Block 0"
     later_sha = hashlib.sha256(later_request.encode("utf-8")).hexdigest()
     reviewer = "range-reviewer-1234"
+    recovery_incident_id = "INC-RANGE-RECOVERY-1234"
+    recovery_state_fingerprint = "d" * 64
+    recovery_turn = "target-turn-1678"
+    recovery_item = "target-item-1683"
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -1843,6 +1847,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_record: str | None = None,
         source_sha256: str | None = None,
         request_text: str | None = None,
+        activation_recovery_review_record: str | None = None,
     ) -> dict[str, object]:
         if (
             include_binding_inputs
@@ -1904,6 +1909,13 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     lifecycle,
                     "--mission-activation-record",
                     activation,
+                ]
+            )
+        if activation_recovery_review_record is not None:
+            arguments.extend(
+                [
+                    "--activation-recovery-review-record",
+                    activation_recovery_review_record,
                 ]
             )
         return self.call(*arguments)
@@ -2121,6 +2133,314 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "block-0-work-started",
         )
         return dict(result["record"])
+
+    def append_activation_target_boundary_source(self) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        all_events = supervision_log.events(directory / "events.jsonl")
+        source_record = f"EVT-{len(all_events) + 1:06d}"
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": source_record,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "escalation",
+                "model": "gpt-5.6-terra",
+                "reasoning": "max",
+                "state_fingerprint": self.recovery_state_fingerprint,
+                "status": "changed-state-review",
+                "evidence": [
+                    f"target-turn:{self.recovery_turn}",
+                    f"target-item:{self.recovery_item}",
+                ],
+                "policy_sha256": policy["policy_sha256"],
+            },
+        )
+        return next(
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("record_id") == source_record
+        )
+
+    def start_current_activation_with_target_boundary(
+        self,
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        all_events = supervision_log.events(directory / "events.jsonl")
+        pending = next(
+            item
+            for item in supervision_log.mission_activation_heads(
+                all_events, open_only=True
+            ).values()
+            if item.get("mission_root")
+            == policy["mission_binding"]["mission_root"]
+        )
+        source = self.append_activation_target_boundary_source()
+        result = self.call(
+            "mission-activation-start",
+            "--target-thread",
+            self.target,
+            "--mission-root",
+            str(pending["mission_root"]),
+            "--activation-policy-sha256",
+            str(pending["activation_policy_sha256"]),
+            "--first-eligible-work",
+            str(pending["first_eligible_work"]),
+            "--source-record",
+            str(source["record_id"]),
+            "--evidence",
+            f"target-turn:{self.recovery_turn}",
+            "--evidence",
+            f"target-item:{self.recovery_item}",
+        )
+        current_events = supervision_log.events(directory / "events.jsonl")
+        work_started = next(
+            item
+            for item in current_events
+            if item.get("record_id") == result["record"]["record_id"]
+        )
+        return dict(pending), dict(work_started), dict(source)
+
+    def append_recovery_incident(self) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        record: dict[str, object] = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target,
+            "kind": "meta-review",
+            "model": "gpt-5.6-sol",
+            "reasoning": "max",
+            "state_fingerprint": self.recovery_state_fingerprint,
+            "status": "candidate-rejected",
+            "severity": "high",
+            "category": "supervisor-effectiveness",
+            "active_block": "decision-surface:block-0",
+            "checkpoint": "",
+            "summary": "Range admission needs a reviewed pre-mutation recovery.",
+            "evidence": ["work-started-before-range-admission"],
+            "estimated_risk": "",
+            "action": "Issue one bounded recovery review.",
+            "resolution": "",
+            "notice_disposition": "intermediate",
+            "resolution_owner": "supervisor",
+            "user_action_required": "no",
+            "dedup_key": "",
+            "policy_sha256": policy["policy_sha256"],
+            "incident_id": self.recovery_incident_id,
+        }
+        supervision_log.append_raw(directory / "events.jsonl", record)
+        return next(
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("record_id") == record["record_id"]
+        )
+
+    def append_activation_recovery_review(
+        self,
+        *,
+        pending: dict[str, object],
+        work_started: dict[str, object],
+        target_source: dict[str, object],
+        incident_head: dict[str, object],
+        reviewer_id: str | None = None,
+        incident_id: str | None = None,
+        state_fingerprint: str | None = None,
+        policy_sha256: str | None = None,
+        omit_no_mutation_finding: bool = False,
+    ) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        evidence = [
+            f"reviewer:{reviewer_id or self.reviewer}",
+            "incident-head:"
+            f"{incident_head['record_id']}:{incident_head['record_sha256']}",
+            "pending-activation:"
+            f"{pending['record_id']}:{pending['record_sha256']}",
+            "work-started-activation:"
+            f"{work_started['record_id']}:{work_started['record_sha256']}",
+            "target-source:"
+            f"{target_source['record_id']}:{target_source['record_sha256']}",
+            f"target-turn:{self.recovery_turn}",
+            f"target-item:{self.recovery_item}",
+            f"direct-source:{self.successor_source}:{self.successor_dual_use_sha}",
+        ]
+        if not omit_no_mutation_finding:
+            evidence.append(
+                supervision_log.ACTIVATION_RECOVERY_NO_MUTATION_EVIDENCE
+            )
+        record: dict[str, object] = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target,
+            "kind": "meta-review",
+            "model": "gpt-5.6-sol",
+            "reasoning": "max",
+            "state_fingerprint": (
+                state_fingerprint or self.recovery_state_fingerprint
+            ),
+            "status": supervision_log.ACTIVATION_RECOVERY_REVIEW_STATUS,
+            "severity": "high",
+            "category": supervision_log.ACTIVATION_RECOVERY_REVIEW_CATEGORY,
+            "active_block": "decision-surface:block-0",
+            "checkpoint": "",
+            "summary": "Exact current evidence proves the range is still pre-mutation.",
+            "evidence": evidence,
+            "estimated_risk": "",
+            "action": "Allow only the reviewed pre-mutation range admission.",
+            "resolution": "",
+            "notice_disposition": "intermediate",
+            "resolution_owner": "supervisor",
+            "user_action_required": "no",
+            "dedup_key": "",
+            "policy_sha256": policy_sha256 or policy["policy_sha256"],
+            "incident_id": incident_id or self.recovery_incident_id,
+        }
+        supervision_log.append_raw(directory / "events.jsonl", record)
+        return next(
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("record_id") == record["record_id"]
+        )
+
+    def prepare_activation_recovery(
+        self,
+        *,
+        activation_variant: str = "",
+        use_predecessor_policy: bool = False,
+        **review_overrides: object,
+    ) -> dict[str, object]:
+        self.write_tracker(["completed", "completed"])
+        predecessor = self.bind()["binding"]
+        outcome, lifecycle, activation, _successor = (
+            self.complete_predecessor_and_start_successor(
+                retain_range_authority=False,
+                mission_source_record=self.successor_source,
+                mission_source_sha256=self.successor_dual_use_sha,
+                first_work="decision-surface-tracker:block-0",
+            )
+        )
+        pending, work_started, target_source = (
+            self.start_current_activation_with_target_boundary()
+        )
+        self.assertEqual(pending["record_id"], activation)
+        if activation_variant:
+            directory = self.root / self.target
+            policy = supervision_log.read_json(directory / "policy.json")
+            variant = copy.deepcopy(
+                pending if activation_variant == "ambiguous" else work_started
+            )
+            for key in (
+                "record_id",
+                "timestamp",
+                "previous_record_sha256",
+                "record_sha256",
+            ):
+                variant.pop(key, None)
+            variant["record_id"] = (
+                "EVT-RANGE-RECOVERY-ACTIVATION-" + activation_variant.upper()
+            )
+            variant["timestamp"] = supervision_log.utc_now()
+            variant["policy_sha256"] = policy["policy_sha256"]
+            if activation_variant == "ambiguous":
+                variant["activation_id"] = "f" * 64
+                variant["phase"] = "pending"
+            elif activation_variant == "changed-first-work":
+                variant["first_eligible_work"] = (
+                    "decision-surface-tracker:block-1"
+                )
+            elif activation_variant != "non-direct-lineage":
+                self.fail(f"unsupported activation test variant: {activation_variant}")
+            supervision_log.append_raw(directory / "events.jsonl", variant)
+            if activation_variant != "ambiguous":
+                work_started = next(
+                    item
+                    for item in supervision_log.events(
+                        directory / "events.jsonl"
+                    )
+                    if item.get("record_id") == variant["record_id"]
+                )
+        incident_head = self.append_recovery_incident()
+        if use_predecessor_policy:
+            directory = self.root / self.target
+            current_policy = supervision_log.read_json(directory / "policy.json")
+            history = supervision_log.events(directory / "policy-history.jsonl")
+            stale_policy = next(
+                item["policy"]
+                for item in history
+                if item["policy"].get("mission_binding", {}).get("mission_root")
+                != current_policy["mission_binding"]["mission_root"]
+            )
+            review_overrides["policy_sha256"] = stale_policy["policy_sha256"]
+        recovery_review = self.append_activation_recovery_review(
+            pending=pending,
+            work_started=work_started,
+            target_source=target_source,
+            incident_head=incident_head,
+            **review_overrides,
+        )
+        ingested, receipt = self.retain_successor_range_authority(
+            source_record=self.successor_source,
+            request_text=self.successor_dual_use_request,
+        )
+        self.tracker = self.root / "decision-surface-tracker.md"
+        self.write_tracker(["not-started"] * 9)
+        return {
+            "predecessor": predecessor,
+            "rollover_records": (outcome, lifecycle, activation),
+            "pending": pending,
+            "work_started": work_started,
+            "target_source": target_source,
+            "incident_head": incident_head,
+            "recovery_review": recovery_review,
+            "authority_event": ingested,
+            "authority_receipt": receipt,
+        }
+
+    def recovery_admit(
+        self,
+        recovery: dict[str, object],
+        *,
+        recovery_record_id: str | None = None,
+        range_id: str = "RANGE-DECISION-SURFACE-RECOVERY-1678",
+    ) -> dict[str, object]:
+        review = recovery["recovery_review"]
+        assert isinstance(review, dict)
+        rollover = recovery["rollover_records"]
+        assert isinstance(rollover, tuple)
+        return self.admit(
+            include_binding_inputs=True,
+            range_id=range_id,
+            rollover_records=rollover,
+            source_record=self.successor_source,
+            source_sha256=self.successor_dual_use_sha,
+            request_text=self.successor_dual_use_request,
+            activation_recovery_review_record=(
+                recovery_record_id
+                if recovery_record_id is not None
+                else str(review["record_id"])
+            ),
+        )
+
+    def range_owner_bytes(self) -> dict[str, bytes]:
+        directory = self.root / self.target
+        return {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json",
+                "policy-history.jsonl",
+                "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+                supervision_log.OWNER_ROOT_HISTORY_NAME,
+            )
+        }
 
     def retain_successor_range_authority(
         self,
@@ -2634,6 +2954,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             predecessor["range_id"],
         )
         self.assertEqual(result["mission_activation_record"], records[2])
+        self.assertNotIn("activation_recovery_review_record", result)
         duplicate = self.admit(
             include_binding_inputs=True,
             range_id="RANGE-SUCCESSOR-5678",
@@ -2713,6 +3034,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             self.successor_source,
         )
         self.assertTrue(result["implementation_start_permitted"])
+        self.assertNotIn("activation_recovery_review_record", result)
         self.assertTrue(gate["range_binding_current"])
         self.assertEqual(gate["requested_blocks"], list(range(9)))
         self.assertEqual(gate["eligible_blocks"], [0])
@@ -2724,6 +3046,354 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(
             history_after[-2]["policy"]["implementation_range"], predecessor
         )
+
+    def test_work_started_pre_mutation_review_recovers_current_successor_range(
+        self,
+    ) -> None:
+        recovery = self.prepare_activation_recovery()
+        directory = self.root / self.target
+        events_before = (directory / "events.jsonl").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        activation_before = [
+            copy.deepcopy(item)
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("kind") == "mission-activation"
+        ]
+
+        result = self.recovery_admit(recovery)
+        gate = self.gate("final-response")
+        current = supervision_log.read_json(directory / "policy.json")
+        history_after = supervision_log.events(
+            directory / "policy-history.jsonl"
+        )
+        activation_after = [
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("kind") == "mission-activation"
+        ]
+        recovery_review = recovery["recovery_review"]
+        assert isinstance(recovery_review, dict)
+
+        self.assertEqual((directory / "events.jsonl").read_bytes(), events_before)
+        self.assertTrue(
+            (directory / "policy-history.jsonl").read_bytes().startswith(
+                history_before
+            )
+        )
+        self.assertEqual(activation_after, activation_before)
+        self.assertEqual(
+            result["activation_recovery_review_record"],
+            recovery_review["record_id"],
+        )
+        self.assertEqual(result["binding"]["tracker_blocks"], list(range(9)))
+        self.assertTrue(result["implementation_start_permitted"])
+        self.assertTrue(gate["range_binding_current"])
+        self.assertEqual(gate["requested_blocks"], list(range(9)))
+        self.assertEqual(gate["eligible_blocks"], [0])
+        self.assertEqual(gate["required_target_posture"], "in-progress")
+        self.assertEqual(gate["next_action"], "continue-next-eligible-block")
+        self.assertFalse(gate["final_response_permitted"])
+        self.assertEqual(
+            history_after[-2]["policy"]["implementation_range"],
+            recovery["predecessor"],
+        )
+        self.assertEqual(
+            current["implementation_range"]["range_id"],
+            "RANGE-DECISION-SURFACE-RECOVERY-1678",
+        )
+
+    def test_work_started_range_rejects_missing_recovery_review_without_mutation(
+        self,
+    ) -> None:
+        recovery = self.prepare_activation_recovery()
+        before = self.range_owner_bytes()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an exact recovery review",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id="RANGE-MISSING-RECOVERY-1678",
+                rollover_records=recovery["rollover_records"],
+                source_record=self.successor_source,
+                source_sha256=self.successor_dual_use_sha,
+                request_text=self.successor_dual_use_request,
+            )
+
+        self.assertEqual(self.range_owner_bytes(), before)
+
+    def test_activation_recovery_rejects_nonmax_review_owners_without_mutation(
+        self,
+    ) -> None:
+        for index, reviewer_id in enumerate(
+            (self.target, "range-watcher-1234", "range-base-reviewer-1234")
+        ):
+            with self.subTest(reviewer_id=reviewer_id):
+                if index:
+                    self.setUp()
+                recovery = self.prepare_activation_recovery(
+                    reviewer_id=reviewer_id
+                )
+                before = self.range_owner_bytes()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "exact pre-mutation evidence",
+                ):
+                    self.recovery_admit(
+                        recovery,
+                        range_id=f"RANGE-WRONG-REVIEWER-{index}",
+                    )
+                self.assertEqual(self.range_owner_bytes(), before)
+
+    def test_activation_recovery_rejects_stale_or_incomplete_review_without_mutation(
+        self,
+    ) -> None:
+        cases: tuple[tuple[str, dict[str, object], str], ...] = (
+            (
+                "stale-fingerprint",
+                {"state_fingerprint": "e" * 64},
+                "incident or state fingerprint is stale",
+            ),
+            (
+                "wrong-incident",
+                {"incident_id": "INC-WRONG-RECOVERY-1234"},
+                "current incident head",
+            ),
+            (
+                "missing-no-mutation",
+                {"omit_no_mutation_finding": True},
+                "exact pre-mutation evidence",
+            ),
+        )
+        for index, (name, overrides, message) in enumerate(cases):
+            with self.subTest(name=name):
+                if index:
+                    self.setUp()
+                recovery = self.prepare_activation_recovery(**overrides)
+                before = self.range_owner_bytes()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, message
+                ):
+                    self.recovery_admit(
+                        recovery,
+                        range_id=f"RANGE-BAD-RECOVERY-{index}",
+                    )
+                self.assertEqual(self.range_owner_bytes(), before)
+
+        self.setUp()
+        recovery = self.prepare_activation_recovery(
+            use_predecessor_policy=True
+        )
+        before = self.range_owner_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "exact current Sol Max review",
+        ):
+            self.recovery_admit(
+                recovery,
+                range_id="RANGE-STALE-POLICY-RECOVERY",
+            )
+        self.assertEqual(self.range_owner_bytes(), before)
+
+    def test_activation_recovery_rejects_changed_or_ambiguous_lineage_without_mutation(
+        self,
+    ) -> None:
+        cases = (
+            ("non-direct-lineage", "direct pending-to-work-started lineage"),
+            ("changed-first-work", "direct pending-to-work-started lineage"),
+            ("ambiguous", "absent or ambiguous"),
+        )
+        for index, (variant, message) in enumerate(cases):
+            with self.subTest(variant=variant):
+                if index:
+                    self.setUp()
+                recovery = self.prepare_activation_recovery(
+                    activation_variant=variant
+                )
+                before = self.range_owner_bytes()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, message
+                ):
+                    self.recovery_admit(
+                        recovery,
+                        range_id=f"RANGE-BAD-LINEAGE-{index}",
+                    )
+                self.assertEqual(self.range_owner_bytes(), before)
+
+    def test_activation_recovery_rejects_nonpristine_tracker_without_mutation(
+        self,
+    ) -> None:
+        recovery = self.prepare_activation_recovery()
+        self.write_tracker(["in-progress"] + ["not-started"] * 8)
+        before = self.range_owner_bytes()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not at one exact pre-work frontier",
+        ):
+            self.recovery_admit(
+                recovery,
+                range_id="RANGE-NONPRISTINE-RECOVERY",
+            )
+
+        self.assertEqual(self.range_owner_bytes(), before)
+
+    def test_activation_recovery_revalidates_policy_event_and_trackers_under_lock(
+        self,
+    ) -> None:
+        recovery = self.prepare_activation_recovery()
+        directory = self.root / self.target
+        predecessor_tracker = Path(
+            str(recovery["predecessor"]["tracker_path"])
+        )
+        predecessor_tracker_bytes = predecessor_tracker.read_bytes()
+        current_tracker_bytes = self.tracker.read_bytes()
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+
+        with mock.patch.object(
+            supervision_log, "write_policy_version"
+        ) as write_policy:
+            self.recovery_admit(recovery)
+        validator = write_policy.call_args.kwargs["pre_mutation_validator"]
+        current_policy = supervision_log.read_json(directory / "policy.json")
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            changed_policy = copy.deepcopy(current_policy)
+            changed_policy["implementation_range"]["range_id"] = (
+                "RANGE-CONCURRENT-POLICY-CHANGE"
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "Predecessor implementation range changed",
+            ):
+                validator(directory_fd, changed_policy)
+
+            self.tracker.write_text(
+                self.tracker.read_text(encoding="utf-8").replace(
+                    "Scope 8", "Concurrent scope 8", 1
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "Current mission tracker changed",
+            ):
+                validator(directory_fd, current_policy)
+            self.tracker.write_bytes(current_tracker_bytes)
+
+            predecessor_tracker.write_text(
+                predecessor_tracker.read_text(encoding="utf-8").replace(
+                    "Scope 1", "Concurrent predecessor scope 1", 1
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "Predecessor tracker changed",
+            ):
+                validator(directory_fd, current_policy)
+            predecessor_tracker.write_bytes(predecessor_tracker_bytes)
+
+            supervision_log.append_raw(
+                directory / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-CONCURRENT-RECOVERY-EVENT",
+                    "timestamp": supervision_log.utc_now(),
+                    "target_thread_id": self.target,
+                    "kind": "check",
+                    "category": "concurrent-recovery-state",
+                    "policy_sha256": current_policy["policy_sha256"],
+                },
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "event state changed before range rollover",
+            ):
+                validator(directory_fd, current_policy)
+        finally:
+            os.close(directory_fd)
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
+    def test_activation_recovery_review_cannot_predate_work_started_without_mutation(
+        self,
+    ) -> None:
+        self.write_tracker(["completed", "completed"])
+        self.bind()
+        outcome, lifecycle, activation, _successor = (
+            self.complete_predecessor_and_start_successor(
+                retain_range_authority=False,
+                mission_source_record=self.successor_source,
+                mission_source_sha256=self.successor_dual_use_sha,
+                first_work="decision-surface-tracker:block-0",
+            )
+        )
+        directory = self.root / self.target
+        pending = next(
+            item
+            for item in supervision_log.mission_activation_heads(
+                supervision_log.events(directory / "events.jsonl"),
+                open_only=True,
+            ).values()
+            if item.get("record_id") == activation
+        )
+        target_source = self.append_activation_target_boundary_source()
+        incident_head = self.append_recovery_incident()
+        premature_review = self.append_activation_recovery_review(
+            pending=pending,
+            work_started=pending,
+            target_source=target_source,
+            incident_head=incident_head,
+        )
+        result = self.call(
+            "mission-activation-start",
+            "--target-thread",
+            self.target,
+            "--mission-root",
+            str(pending["mission_root"]),
+            "--activation-policy-sha256",
+            str(pending["activation_policy_sha256"]),
+            "--first-eligible-work",
+            str(pending["first_eligible_work"]),
+            "--source-record",
+            str(target_source["record_id"]),
+            "--evidence",
+            f"target-turn:{self.recovery_turn}",
+            "--evidence",
+            f"target-item:{self.recovery_item}",
+        )
+        self.assertEqual(result["record"]["phase"], "work-started")
+        self.retain_successor_range_authority(
+            source_record=self.successor_source,
+            request_text=self.successor_dual_use_request,
+        )
+        self.tracker = self.root / "decision-surface-tracker.md"
+        self.write_tracker(["not-started"] * 9)
+        before = self.range_owner_bytes()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "chronology or identity differs",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id="RANGE-PREMATURE-RECOVERY-REVIEW",
+                rollover_records=(outcome, lifecycle, activation),
+                source_record=self.successor_source,
+                source_sha256=self.successor_dual_use_sha,
+                request_text=self.successor_dual_use_request,
+                activation_recovery_review_record=str(
+                    premature_review["record_id"]
+                ),
+            )
+
+        self.assertEqual(self.range_owner_bytes(), before)
 
     def test_dual_use_mission_source_requires_review_ingest_and_receipt(
         self,
