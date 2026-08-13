@@ -5598,7 +5598,8 @@ class OperationsProjectionService:
             "successor_transition_ids": transition_ids,
             "mission_activation_ids": activation_ids,
         }
-        expected_ids = owner.expected_terminal_automation_ids(policy)
+        expected_owners = owner.expected_terminal_automation_owners(policy)
+        expected_ids = list(expected_owners)
         gate_ids = gate.get("pause_automation_ids")
         if (
             not expected_ids
@@ -5671,7 +5672,7 @@ class OperationsProjectionService:
         exact_owner_error: str | None = None
         try:
             exact_owner_states = owner.terminal_automation_owner_states(
-                expected_ids,
+                expected_owners,
                 not_before=delivery_at,
                 automation_root=self.automations_root,
             )

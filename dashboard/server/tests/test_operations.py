@@ -35,7 +35,7 @@ TARGET = "target-thread-0001"
 BROKEN_TARGET = "target-thread-0002"
 WATCHER = "watcher-thread-001"
 REVIEWER = "reviewer-thread-01"
-OLD_MISSION = "a" * 64
+OLD_MISSION = sha256(b"Implement the tracker.").hexdigest()
 NEW_MISSION = "b" * 64
 
 
@@ -313,6 +313,63 @@ class OperationsProjectionTests(unittest.TestCase):
         if result.returncode:
             raise AssertionError(payload)
         return payload
+
+    def _retain_direct_range_authority(
+        self, *, target: str, source_record: str, request_text: str
+    ) -> None:
+        directory = self.supervision_root / target
+        policy = self.owner.read_json(directory / "policy.json")
+        current_events = self.owner.events(directory / "events.jsonl")
+        verifier = str(policy["runtime"]["base_reviewer_thread_id"])
+        source_bytes = request_text.encode("utf-8")
+        provenance = {
+            "schema_version": 1,
+            "kind": self.owner.DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": target,
+            "source_task_id": target,
+            "source_turn_id": "direct-range-turn-001",
+            "source_item_id": source_record,
+            "source_kind": self.owner.DIRECT_AUTHORITY_SOURCE_KIND,
+            "source_text": request_text,
+            "source_byte_count": len(source_bytes),
+            "source_sha256": sha256(source_bytes).hexdigest(),
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": verifier,
+            "authorization_record_id": f"EVT-{len(current_events) + 1:06d}",
+        }
+        self.owner.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": provenance["authorization_record_id"],
+                "timestamp": self.owner.utc_now(),
+                "target_thread_id": target,
+                "kind": "checkpoint-review",
+                "category": self.owner.DIRECT_AUTHORITY_REVIEW_CATEGORY,
+                "status": "accepted",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": self.owner.direct_authority_review_evidence(provenance),
+            },
+        )
+        ingested = self._command(
+            "direct-authority-ingest",
+            "--target-thread",
+            target,
+            "--provenance-base64",
+            base64.b64encode(self.owner.canonical(provenance)).decode("ascii"),
+        )
+        self._command(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            target,
+            "--authority-event-record",
+            str(ingested["record_id"]),
+        )
 
     def _init_target(self, target: str, mission: str, source_record: str) -> None:
         self._command(
@@ -663,7 +720,7 @@ class OperationsProjectionTests(unittest.TestCase):
         )
         self.assertEqual(gated["source_record_sha256"], record_sha256)
         self.assertTrue(gated["gate"]["completion_permitted"])
-        self.assertTrue(gated["gate"]["source_stop_permitted"])
+        self.assertFalse(gated["gate"]["source_stop_permitted"])
         self.assertEqual(gated["gate"]["open_incident_ids"], ["INC-TEST-0001"])
         self.assertEqual(gated["gate"]["open_decision_ids"], [])
         self.assertEqual(gated["gate"]["event_head"], control["event_head"])
@@ -686,6 +743,11 @@ class OperationsProjectionTests(unittest.TestCase):
 
     def test_successor_transition_gate_projection_preserves_phase_and_stop_boundary(self) -> None:
         transition_id = "TRANSITION-PROJECTION-001"
+        policy = self.owner.read_json(
+            self.supervision_root / TARGET / "policy.json"
+        )
+        mission = self.owner.bound_mission(policy)
+        self.assertIsNotNone(mission)
         identity = [
             "--tracker-sha256",
             "1" * 64,
@@ -700,7 +762,9 @@ class OperationsProjectionTests(unittest.TestCase):
             "--governing-authority-source-class",
             "direct-user",
             "--governing-authority-source-record",
-            "direct-user-item-44",
+            str(mission["mission_source_record"]),
+            "--governing-authority-source-sha256",
+            str(mission["mission_root"]),
         ]
 
         def record(phase: str, *extra: str) -> dict[str, object]:
@@ -737,58 +801,11 @@ class OperationsProjectionTests(unittest.TestCase):
             task_creation_authority="available",
         )
         self.assertEqual(gated["gate"]["phase"], "required")
-        self.assertEqual(gated["gate"]["next_action"], "create-successor-task")
+        self.assertEqual(gated["gate"]["next_action"], "start-same-task-new-run")
         self.assertFalse(gated["gate"]["source_stop_permitted"])
 
-        successor = ("successor-projection-001", "2" * 64, "successor-projection-001")
-        created = record("successor-created", "--successor-thread", successor[0])[
-            "record"
-        ]
-        record(
-            "successor-bound",
-            "--successor-thread",
-            successor[0],
-            "--successor-mission-root",
-            successor[1],
-            "--successor-group-id",
-            successor[2],
-        )
-        record(
-            "handoff-sent",
-            "--successor-thread",
-            successor[0],
-            "--successor-mission-root",
-            successor[1],
-            "--successor-group-id",
-            successor[2],
-            "--handoff-record",
-            "HANDOFF-PROJECTION-001",
-        )
-        record(
-            "target-acknowledged",
-            "--successor-thread",
-            successor[0],
-            "--successor-mission-root",
-            successor[1],
-            "--successor-group-id",
-            successor[2],
-            "--handoff-record",
-            "HANDOFF-PROJECTION-001",
-            "--acknowledgement-record",
-            "ACK-PROJECTION-001",
-        )
         started = record(
             "work-started",
-            "--successor-thread",
-            successor[0],
-            "--successor-mission-root",
-            successor[1],
-            "--successor-group-id",
-            successor[2],
-            "--handoff-record",
-            "HANDOFF-PROJECTION-001",
-            "--acknowledgement-record",
-            "ACK-PROJECTION-001",
             "--started-block",
             "Block 26",
         )["record"]
@@ -798,14 +815,15 @@ class OperationsProjectionTests(unittest.TestCase):
             task_creation_authority="available",
         )
         self.assertEqual(completed["head"]["record_id"], started["record_id"])
-        self.assertTrue(completed["gate"]["source_stop_permitted"])
+        self.assertFalse(completed["gate"]["source_stop_permitted"])
+        self.assertEqual(completed["gate"]["next_action"], "continue-same-task-run")
         self.assertFalse(completed["gate"]["transition_open"])
         records = self.service.policy_control_snapshot(TARGET)[
             "successor_transition_records"
         ][transition_id]
-        self.assertEqual(len(records), 6)
+        self.assertEqual(len(records), 2)
         self.assertEqual(
-            records[1]["state_fingerprint"], created["state_fingerprint"]
+            records[1]["state_fingerprint"], started["state_fingerprint"]
         )
         self.assertNotIn(
             transition_id,
@@ -1701,6 +1719,30 @@ class OperationsProjectionTests(unittest.TestCase):
         }
         self.owner.append_raw(directory / "events.jsonl", completion)
         self.owner.append_raw(directory / "events.jsonl", lifecycle)
+        self._retain_direct_range_authority(
+            target=TARGET,
+            source_record="direct-item-1",
+            request_text="Implement the tracker.",
+        )
+        self._command(
+            "implementation-range-bind",
+            "--target-thread",
+            TARGET,
+            "--range-id",
+            "dashboard-terminal-completed-fixture",
+            "--tracker",
+            str(
+                DEFAULT_SUPERVISION_OWNER.parents[2]
+                / "docs"
+                / "software-factory-operations-dashboard-implementation-tracker.md"
+            ),
+            "--request-text",
+            "Implement the tracker.",
+            "--authority-source-record",
+            "direct-item-1",
+            "--authority-source-sha256",
+            OLD_MISSION,
+        )
         incomplete = directory / "reports" / "weekly" / "weekly-incomplete-demo"
         (incomplete / "metrics.json").unlink()
         incomplete.rmdir()
@@ -2174,7 +2216,7 @@ class OperationsProjectionTests(unittest.TestCase):
                 updated_at=1786521720000,
             )
             states = self.owner.terminal_automation_owner_states(
-                gate_payload["pause_automation_ids"],
+                self.owner.expected_terminal_automation_owners(policy),
                 not_before=datetime(2026, 8, 12, 8, 0, tzinfo=UTC),
                 automation_root=self.automations_root,
             )
@@ -2203,6 +2245,9 @@ class OperationsProjectionTests(unittest.TestCase):
                 "policy_sha256": policy["policy_sha256"],
                 "previous_record_sha256": "6" * 64,
             }
+            receipt["shutdown_root_sha256"] = self.owner.digest(
+                self.owner.terminal_shutdown_record_material(receipt)
+            )
             receipt["record_sha256"] = self.owner.digest(receipt)
             gate_payload["event_count"] = 2
             gate_payload["event_head"] = receipt["record_sha256"]

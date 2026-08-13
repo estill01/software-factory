@@ -6593,6 +6593,27 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         and lifecycle_state in {"completed", "paused", "stopped"}
     )
     active_events = mission_scoped_events(directory, policy, all_events)
+    incident_heads: dict[str, dict[str, Any]] = {}
+    for item in active_events:
+        current_incident_id = item.get("incident_id")
+        if current_incident_id and is_substantive_incident_record(
+            item, str(current_incident_id)
+        ):
+            incident_heads[str(current_incident_id)] = item
+    open_incident_ids = sorted(
+        incident_id
+        for incident_id, item in incident_heads.items()
+        if not is_terminal_incident_record(item, incident_id)
+    )
+    decision_heads: dict[str, dict[str, Any]] = {}
+    for item in active_events:
+        if item.get("kind") == "decision" and item.get("decision_id"):
+            decision_heads[str(item["decision_id"])] = item
+    open_decision_ids = sorted(
+        decision_id
+        for decision_id, item in decision_heads.items()
+        if decision_head_is_open(item, policy)
+    )
     open_activations = mission_activation_heads(active_events, open_only=True)
     activation_stop_conflict = bool(
         open_activations
@@ -6800,9 +6821,15 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     if decision_context_required
                     else []
                 ),
+                "event_count": len(all_events),
+                "event_head": (
+                    all_events[-1].get("record_sha256") if all_events else None
+                ),
                 "lifecycle_state": lifecycle_state,
                 "notification_category": category,
                 "notification_dedup_key": notification_key,
+                "open_incident_ids": open_incident_ids,
+                "open_decision_ids": open_decision_ids,
                 "pause_automation_ids": (
                     expected_terminal_automation_ids(policy)
                     if supervision_pause_permitted
@@ -21004,7 +21031,10 @@ def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
 
 
 def latest_terminal_delivery(
-    all_events: Sequence[Mapping[str, Any]], *, lifecycle_record_id: str
+    all_events: Sequence[Mapping[str, Any]],
+    *,
+    lifecycle_record_id: str,
+    report_set_id: str | None = None,
 ) -> Mapping[str, Any] | None:
     return next(
         (
@@ -21014,6 +21044,10 @@ def latest_terminal_delivery(
             and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
             and item.get("status") == "sent"
             and lifecycle_record_id in item.get("evidence", [])
+            and (
+                report_set_id is None
+                or item.get("report_set_id") == report_set_id
+            )
         ),
         None,
     )
@@ -22079,9 +22113,12 @@ def expected_terminal_automation_ids(policy: Mapping[str, Any]) -> list[str]:
 
 
 def terminal_automation_owner_states(
-    automation_owners: Mapping[str, str], *, not_before: dt.datetime
+    automation_owners: Mapping[str, str],
+    *,
+    not_before: dt.datetime,
+    automation_root: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
-    owner_root = CODEX_AUTOMATIONS_ROOT.resolve()
+    owner_root = (automation_root or CODEX_AUTOMATIONS_ROOT).resolve()
     states: dict[str, dict[str, Any]] = {}
     for automation_id, target_thread_id in sorted(automation_owners.items()):
         safe_id(automation_id, label="automation ID")
@@ -22271,6 +22308,41 @@ def validate_terminal_shutdown_record(
                 "Canonical terminal shutdown automation state is invalid"
             )
     return dict(value)
+
+
+def terminal_shutdown_record_is_canonical(
+    value: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    lifecycle: Mapping[str, Any],
+    delivery: Mapping[str, Any],
+    verified: Mapping[str, Any],
+    automation_states: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Match one retained shutdown receipt to its exact current owner inputs."""
+
+    try:
+        record = validate_terminal_shutdown_record(value)
+    except SupervisionLogError:
+        return False
+    report_set_id = str(verified.get("report_set_id", ""))
+    expected_states = dict(automation_states)
+    return bool(
+        record.get("target_thread_id") == policy.get("target_thread_id")
+        and record.get("state_fingerprint") == lifecycle.get("state_fingerprint")
+        and record.get("policy_sha256") == policy.get("policy_sha256")
+        and record.get("report_set_id") == report_set_id
+        and delivery.get("report_set_id") == report_set_id
+        and record.get("manifest_root") == verified.get("manifest_root")
+        and record.get("evidence")
+        == [
+            lifecycle.get("record_id"),
+            report_set_id,
+            delivery.get("record_id"),
+        ]
+        and record.get("automation_states") == expected_states
+        and record.get("automation_state_root") == digest(expected_states)
+    )
 
 
 def terminal_shutdown_rejection_material(
