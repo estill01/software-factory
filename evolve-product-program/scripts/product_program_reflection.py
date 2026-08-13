@@ -54,16 +54,14 @@ ARCHITECTURE_LEVELS = {
     "no-change",
     "program-structural",
 }
-REQUIRED_INVENTORY_ROLES = {
-    "current-observable-behavior",
-    "feature-capability-inventory",
-    "tracker-accepted",
-    "tracker-active",
-    "tracker-completed",
-    "tracker-planned",
-    "tracker-rejected",
-    "tracker-retired",
-    "tracker-superseded",
+REQUIRED_TRACKER_STATES = {
+    "accepted",
+    "active",
+    "completed",
+    "planned",
+    "rejected",
+    "retired",
+    "superseded",
 }
 SELECTION_LANGUAGE = re.compile(
     r"\b(?:adopt(?:ed|ion)?|rank(?:ed|ing)?|select(?:ed|ion)?|winner)\b",
@@ -177,7 +175,16 @@ def evidence_sets(packet: Mapping[str, Any]) -> tuple[set[str], set[str]]:
 def normalize_inventory(packet: Mapping[str, Any], value: Any) -> dict[str, Any]:
     item = exact_keys(
         value,
-        {"capability_ids", "kind", "product_source_id", "schema_version", "source_roles", "user_ids"},
+        {
+            "behaviors",
+            "capabilities",
+            "features",
+            "kind",
+            "product_source_id",
+            "schema_version",
+            "tracker_states",
+            "users",
+        },
         "product inventory manifest",
     )
     if item["schema_version"] != SCHEMA_VERSION or item["kind"] != "product-program-inventory-manifest":
@@ -188,14 +195,129 @@ def normalize_inventory(packet: Mapping[str, Any], value: Any) -> dict[str, Any]
         raise ProductProgramError("inventory manifest is not bound to a packet product source")
     if hashlib.sha256(canonical(value)).hexdigest() != product_sources[source_id]["sha256"]:
         raise ProductProgramError("inventory manifest content differs from its packet source")
-    roles = semantic_ids(item["source_roles"], "inventory source roles")
-    if set(roles) != REQUIRED_INVENTORY_ROLES:
-        raise ProductProgramError("inventory manifest does not cover every required product/tracker role")
+    adjudicating, allowed_evidence = evidence_sets(packet)
+
+    def records(raw: Any, label: str, keys: set[str]) -> list[Mapping[str, Any]]:
+        if not isinstance(raw, list) or not raw or len(raw) > MAX_RECORDS:
+            raise ProductProgramError(f"{label} must be a nonempty bounded array")
+        return [exact_keys(entry, keys, f"{label} entry") for entry in raw]
+
+    def inventory_refs(raw: Any, label: str) -> list[str]:
+        refs = semantic_ids(raw, label, allowed=allowed_evidence)
+        if not set(refs) & adjudicating:
+            raise ProductProgramError(f"{label} relies only on report hypotheses")
+        return refs
+
+    capabilities: list[dict[str, Any]] = []
+    for entry in records(item["capabilities"], "inventory capabilities", {"capability_id", "evidence_ids", "status"}):
+        status = entry["status"]
+        if status not in {"existing", "retired"}:
+            raise ProductProgramError("inventory capability status is unsupported")
+        capabilities.append(
+            {
+                "capability_id": exact_id(entry["capability_id"], "inventory capability ID"),
+                "evidence_ids": inventory_refs(entry["evidence_ids"], "inventory capability evidence IDs"),
+                "status": status,
+            }
+        )
+    capabilities.sort(key=lambda entry: entry["capability_id"])
+    capability_ids = {entry["capability_id"] for entry in capabilities}
+    if len(capability_ids) != len(capabilities):
+        raise ProductProgramError("inventory capabilities repeat an ID")
+
+    users: list[dict[str, Any]] = []
+    for entry in records(item["users"], "inventory users", {"evidence_ids", "user_id"}):
+        users.append(
+            {
+                "evidence_ids": inventory_refs(entry["evidence_ids"], "inventory user evidence IDs"),
+                "user_id": exact_id(entry["user_id"], "inventory user ID"),
+            }
+        )
+    users.sort(key=lambda entry: entry["user_id"])
+    user_ids = {entry["user_id"] for entry in users}
+    if len(user_ids) != len(users):
+        raise ProductProgramError("inventory users repeat an ID")
+
+    features: list[dict[str, Any]] = []
+    for entry in records(
+        item["features"], "inventory features", {"capability_ids", "evidence_ids", "feature_id", "status"}
+    ):
+        status = entry["status"]
+        if status not in {"existing", "retired"}:
+            raise ProductProgramError("inventory feature status is unsupported")
+        features.append(
+            {
+                "capability_ids": semantic_ids(
+                    entry["capability_ids"], "inventory feature capability IDs", allowed=capability_ids
+                ),
+                "evidence_ids": inventory_refs(entry["evidence_ids"], "inventory feature evidence IDs"),
+                "feature_id": exact_id(entry["feature_id"], "inventory feature ID"),
+                "status": status,
+            }
+        )
+    features.sort(key=lambda entry: entry["feature_id"])
+    if len({entry["feature_id"] for entry in features}) != len(features):
+        raise ProductProgramError("inventory features repeat an ID")
+
+    behaviors: list[dict[str, Any]] = []
+    for entry in records(
+        item["behaviors"],
+        "inventory observable behaviors",
+        {"behavior_id", "capability_ids", "evidence_ids", "user_ids"},
+    ):
+        behaviors.append(
+            {
+                "behavior_id": exact_id(entry["behavior_id"], "inventory behavior ID"),
+                "capability_ids": semantic_ids(
+                    entry["capability_ids"], "inventory behavior capability IDs", allowed=capability_ids
+                ),
+                "evidence_ids": inventory_refs(entry["evidence_ids"], "inventory behavior evidence IDs"),
+                "user_ids": semantic_ids(entry["user_ids"], "inventory behavior user IDs", allowed=user_ids),
+            }
+        )
+    behaviors.sort(key=lambda entry: entry["behavior_id"])
+    if len({entry["behavior_id"] for entry in behaviors}) != len(behaviors):
+        raise ProductProgramError("inventory observable behaviors repeat an ID")
+    grounded_capabilities = {
+        ref for entry in features + behaviors for ref in entry["capability_ids"]
+    }
+    if grounded_capabilities != capability_ids:
+        raise ProductProgramError("inventory capability records are not grounded in features or behavior")
+
+    tracker_states: list[dict[str, Any]] = []
+    for entry in records(
+        item["tracker_states"],
+        "inventory tracker states",
+        {"disposition", "evidence_ids", "state", "tracker_ids"},
+    ):
+        state = entry["state"]
+        if state not in REQUIRED_TRACKER_STATES:
+            raise ProductProgramError("inventory tracker state is unsupported")
+        tracker_ids = semantic_ids(
+            entry["tracker_ids"], "inventory tracker IDs", allow_empty=True
+        )
+        disposition = entry["disposition"]
+        expected_disposition = "recorded" if tracker_ids else "verified-empty"
+        if disposition != expected_disposition:
+            raise ProductProgramError("inventory tracker-state disposition contradicts its records")
+        tracker_states.append(
+            {
+                "disposition": disposition,
+                "evidence_ids": inventory_refs(entry["evidence_ids"], "inventory tracker-state evidence IDs"),
+                "state": state,
+                "tracker_ids": tracker_ids,
+            }
+        )
+    tracker_states.sort(key=lambda entry: entry["state"])
+    if {entry["state"] for entry in tracker_states} != REQUIRED_TRACKER_STATES or len(tracker_states) != len(REQUIRED_TRACKER_STATES):
+        raise ProductProgramError("inventory does not record every required tracker state exactly once")
     return {
-        "capability_ids": semantic_ids(item["capability_ids"], "inventory capability IDs"),
+        "behaviors": behaviors,
+        "capabilities": capabilities,
+        "features": features,
         "product_source_id": source_id,
-        "source_roles": roles,
-        "user_ids": semantic_ids(item["user_ids"], "inventory user IDs"),
+        "tracker_states": tracker_states,
+        "users": users,
     }
 
 
@@ -315,15 +437,18 @@ def normalize_meta_patterns(value: Any, *, lesson_ids: set[str]) -> list[dict[st
         linked = semantic_ids(item["lesson_ids"], "meta-pattern lesson IDs", allowed=lesson_ids)
         if len(linked) < 2:
             raise ProductProgramError("meta-pattern must relate at least two lessons")
+        counterexample_lessons = semantic_ids(
+            item["counterexample_lesson_ids"],
+            "meta-pattern counterexample lessons",
+            allowed=lesson_ids,
+            allow_empty=True,
+        )
+        if not set(counterexample_lessons) <= set(linked):
+            raise ProductProgramError("meta-pattern counterexample lessons must remain in its lesson set")
         result.append(
             {
                 "applicability": divergent_text(item["applicability"], "meta-pattern applicability"),
-                "counterexample_lesson_ids": semantic_ids(
-                    item["counterexample_lesson_ids"],
-                    "meta-pattern counterexample lessons",
-                    allowed=lesson_ids,
-                    allow_empty=True,
-                ),
+                "counterexample_lesson_ids": counterexample_lessons,
                 "lesson_ids": linked,
                 "meta_pattern_id": exact_id(item["meta_pattern_id"], "meta-pattern ID"),
                 "statement": divergent_text(item["statement"], "meta-pattern statement"),
@@ -599,6 +724,65 @@ def reflection_fields() -> set[str]:
     return set(contract["artifact_schemas"]["product-program-reflection"])
 
 
+def unreviewed_authority() -> dict[str, Any]:
+    return {
+        "direct_effects_allowed": False,
+        "posture": "derived-nonauthorizing-unreviewed",
+        "selection_allowed": False,
+        "semantic_review": None,
+    }
+
+
+def normalize_review_submission(
+    reflection: Mapping[str, Any], value: Any
+) -> dict[str, Any]:
+    item = exact_keys(
+        value,
+        {
+            "category_dispositions_truthful",
+            "decision",
+            "divergent_only",
+            "finding_ids",
+            "kind",
+            "no_selection_or_adoption_claim",
+            "reflection_root",
+            "reviewer_id",
+            "schema_version",
+        },
+        "reflection semantic review",
+    )
+    if item["schema_version"] != SCHEMA_VERSION or item["kind"] != "product-program-reflection-review":
+        raise ProductProgramError("reflection semantic review identity differs")
+    if item["reflection_root"] != reflection["artifact_root"]:
+        raise ProductProgramError("reflection semantic review is stale")
+    decision = item["decision"]
+    if decision not in {"accepted", "rejected"}:
+        raise ProductProgramError("reflection semantic review decision is unsupported")
+    dimensions = {
+        "category_dispositions_truthful": item["category_dispositions_truthful"],
+        "divergent_only": item["divergent_only"],
+        "no_selection_or_adoption_claim": item["no_selection_or_adoption_claim"],
+    }
+    if any(type(value) is not bool for value in dimensions.values()):
+        raise ProductProgramError("reflection semantic review dimensions must be boolean")
+    finding_ids = semantic_ids(
+        item["finding_ids"], "reflection semantic review finding IDs", allow_empty=True
+    )
+    if decision == "accepted" and (not all(dimensions.values()) or finding_ids):
+        raise ProductProgramError("accepted semantic review contains a failed dimension or finding")
+    if decision == "rejected" and all(dimensions.values()) and not finding_ids:
+        raise ProductProgramError("rejected semantic review lacks an exact finding")
+    return {
+        **dimensions,
+        "decision": decision,
+        "finding_ids": finding_ids,
+        "kind": "product-program-reflection-review",
+        "reflection_root": reflection["artifact_root"],
+        "reviewer_id": exact_id(item["reviewer_id"], "reflection semantic reviewer ID"),
+        "schema_version": SCHEMA_VERSION,
+    }
+
+
 def normalize_submission(
     packet: Mapping[str, Any], submission: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -653,7 +837,24 @@ def normalize_submission(
         allowed_evidence=allowed_evidence,
         adjudicating=adjudicating,
     )
-    capability_ids = set(inventory["capability_ids"])
+    lessons_by_id = {entry["lesson_id"]: entry for entry in lessons}
+    patterns_by_id = {entry["meta_pattern_id"]: entry for entry in meta_patterns}
+    for gap in gaps:
+        transitive_lessons = {
+            lesson_id
+            for pattern_id in gap["meta_pattern_ids"]
+            for lesson_id in patterns_by_id[pattern_id]["lesson_ids"]
+        }
+        if set(gap["lesson_ids"]) != transitive_lessons:
+            raise ProductProgramError("capability gap lesson links differ from its meta-pattern closure")
+        transitive_observations = {
+            observation_id
+            for lesson_id in transitive_lessons
+            for observation_id in lessons_by_id[lesson_id]["observation_ids"]
+        }
+        if set(gap["observation_ids"]) != transitive_observations:
+            raise ProductProgramError("capability gap observation links differ from its lesson closure")
+    capability_ids = {entry["capability_id"] for entry in inventory["capabilities"]}
     if not {entry["capability_id"] for entry in packet["protected_capabilities"]} <= capability_ids:
         raise ProductProgramError("inventory omits a protected capability")
     candidates = normalize_candidates(
@@ -663,7 +864,7 @@ def normalize_submission(
         allowed_evidence=allowed_evidence,
         adjudicating=adjudicating,
         capability_ids=capability_ids,
-        user_ids=set(inventory["user_ids"]),
+        user_ids={entry["user_id"] for entry in inventory["users"]},
         candidate_ceiling=candidate_ceiling,
     )
     used_observations = {ref for lesson in lessons for ref in lesson["observation_ids"]}
@@ -711,11 +912,7 @@ def build_reflection(
     )
     reflection: dict[str, Any] = {
         "artifact_root": "",
-        "authority": {
-            "direct_effects_allowed": False,
-            "posture": "derived-nonauthorizing",
-            "selection_allowed": False,
-        },
+        "authority": unreviewed_authority(),
         **material,
         "currentness_root": currentness_root,
         "kind": "product-program-reflection",
@@ -726,12 +923,16 @@ def build_reflection(
     if set(reflection) != reflection_fields():
         raise ProductProgramError("reflection implementation differs from the frozen schema")
     reflection["artifact_root"] = digest({key: reflection[key] for key in reflection if key != "artifact_root"})
-    verify_reflection(packet, reflection, inventory_manifest)
+    verify_reflection_structure(packet, reflection, inventory_manifest, require_review=False)
     return reflection
 
 
-def verify_reflection(
-    packet: Mapping[str, Any], reflection: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
+def verify_reflection_structure(
+    packet: Mapping[str, Any],
+    reflection: Mapping[str, Any],
+    inventory_manifest: Mapping[str, Any],
+    *,
+    require_review: bool,
 ) -> dict[str, Any]:
     verify_packet(packet)
     inventory = normalize_inventory(packet, inventory_manifest)
@@ -743,15 +944,54 @@ def verify_reflection(
         raise ProductProgramError("reflection is stale for its packet")
     authority = exact_keys(
         reflection["authority"],
-        {"direct_effects_allowed", "posture", "selection_allowed"},
+        {"direct_effects_allowed", "posture", "selection_allowed", "semantic_review"},
         "reflection authority",
     )
-    if authority != {
-        "direct_effects_allowed": False,
-        "posture": "derived-nonauthorizing",
-        "selection_allowed": False,
-    }:
+    if authority["direct_effects_allowed"] is not False or authority["selection_allowed"] is not False:
         raise ProductProgramError("reflection asserts selection or downstream authority")
+    if require_review:
+        if authority["posture"] != "derived-nonauthorizing-reviewed" or not isinstance(
+            authority["semantic_review"], Mapping
+        ):
+            raise ProductProgramError("reflection lacks exact independent semantic acceptance")
+        semantic_review_record = exact_keys(
+            authority["semantic_review"],
+            {
+                "category_dispositions_truthful",
+                "decision",
+                "divergent_only",
+                "finding_ids",
+                "kind",
+                "no_selection_or_adoption_claim",
+                "reflection_root",
+                "review_root",
+                "reviewer_id",
+                "schema_version",
+            },
+            "accepted reflection semantic review",
+        )
+        review_root = semantic_review_record["review_root"]
+        review_without_root = {
+            key: semantic_review_record[key] for key in semantic_review_record if key != "review_root"
+        }
+        unreviewed = dict(reflection)
+        unreviewed["authority"] = unreviewed_authority()
+        unreviewed["artifact_root"] = digest(
+            {key: unreviewed[key] for key in unreviewed if key != "artifact_root"}
+        )
+        review = normalize_review_submission(unreviewed, review_without_root)
+        if review["decision"] != "accepted" or digest(review) != review_root:
+            raise ProductProgramError("reflection semantic review root is stale")
+        role_ids = {reflection["generator_id"]}
+        for candidate in reflection["candidates"]:
+            role_ids.update(
+                candidate[field]
+                for field in ("author_owner", "evaluation_owner", "implementation_owner", "selector_id")
+            )
+        if review["reviewer_id"] in role_ids:
+            raise ProductProgramError("semantic reviewer must be independent from generator and downstream owners")
+    elif authority != unreviewed_authority():
+        raise ProductProgramError("unreviewed reflection authority differs")
     normalized = normalize_submission(
         packet,
         {
@@ -790,6 +1030,44 @@ def verify_reflection(
     return {"artifact_root": expected_root, "currentness_root": expected_currentness, "verified": True}
 
 
+def apply_semantic_review(
+    packet: Mapping[str, Any],
+    reflection: Mapping[str, Any],
+    inventory_manifest: Mapping[str, Any],
+    review_submission: Mapping[str, Any],
+) -> dict[str, Any]:
+    verify_reflection_structure(packet, reflection, inventory_manifest, require_review=False)
+    review = normalize_review_submission(reflection, review_submission)
+    role_ids = {reflection["generator_id"]}
+    for candidate in reflection["candidates"]:
+        role_ids.update(
+            candidate[field]
+            for field in ("author_owner", "evaluation_owner", "implementation_owner", "selector_id")
+        )
+    if review["reviewer_id"] in role_ids:
+        raise ProductProgramError("semantic reviewer must be independent from generator and downstream owners")
+    if review["decision"] != "accepted":
+        raise ProductProgramError(
+            "reflection semantic review rejected: " + ",".join(review["finding_ids"])
+        )
+    accepted = dict(reflection)
+    accepted["authority"] = {
+        "direct_effects_allowed": False,
+        "posture": "derived-nonauthorizing-reviewed",
+        "selection_allowed": False,
+        "semantic_review": {**review, "review_root": digest(review)},
+    }
+    accepted["artifact_root"] = digest({key: accepted[key] for key in accepted if key != "artifact_root"})
+    verify_reflection(packet, accepted, inventory_manifest)
+    return accepted
+
+
+def verify_reflection(
+    packet: Mapping[str, Any], reflection: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    return verify_reflection_structure(packet, reflection, inventory_manifest, require_review=True)
+
+
 def reuse_reflection(
     packet: Mapping[str, Any], reflection: Mapping[str, Any], inventory_manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -814,6 +1092,11 @@ def parser() -> argparse.ArgumentParser:
     build.add_argument("--packet", required=True)
     build.add_argument("--inventory", required=True)
     build.add_argument("--submission", required=True)
+    review = commands.add_parser("review")
+    review.add_argument("--packet", required=True)
+    review.add_argument("--inventory", required=True)
+    review.add_argument("--reflection", required=True)
+    review.add_argument("--review", required=True)
     verify = commands.add_parser("verify")
     verify.add_argument("--packet", required=True)
     verify.add_argument("--inventory", required=True)
@@ -832,10 +1115,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         inventory = read_json(args.inventory, "product inventory manifest")
         if args.command == "build":
             output = {
-                "action": "reflection-prepared",
+                "action": "reflection-awaiting-independent-review",
                 "cognitive_work_started": True,
                 "reflection": build_reflection(
                     packet, read_json(args.submission, "reflection submission"), inventory
+                ),
+            }
+        elif args.command == "review":
+            output = {
+                "action": "reflection-independently-accepted",
+                "reflection": apply_semantic_review(
+                    packet,
+                    read_json(args.reflection, "unreviewed reflection"),
+                    inventory,
+                    read_json(args.review, "reflection semantic review"),
                 ),
             }
         else:

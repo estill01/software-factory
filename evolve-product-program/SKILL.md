@@ -55,11 +55,11 @@ prepares one successor packet; it does not itself start reflection.
 
 Read `references/program-reflection.md` completely. Before the one bounded
 high-resolution generation pass, provide one canonical product-program inventory
-manifest whose bytes are hash-bound to a retained packet product source. Its
-source roles must cover current observable behavior, feature/capability inventory,
-and planned, active, completed, accepted, rejected, retired, and superseded tracker
-inventory. Use its retained capability and user IDs; do not copy source content
-into the output.
+manifest whose bytes are hash-bound to a retained packet product source. It must
+contain bounded evidence-linked behavior, user, feature, capability, and exact
+planned/active/completed/accepted/rejected/retired/superseded tracker-state
+records, including evidence-backed `verified-empty` states. Use its retained
+capability and user IDs; do not copy source content into the output.
 
 Generate one semantic submission, then validate and root it:
 
@@ -71,7 +71,19 @@ Generate one semantic submission, then validate and root it:
 
 The generator must expose evidence-linked observations, lessons, meta-patterns,
 capability gaps, category searches, contrary posture, a no-change comparison,
-and bounded candidates. It does not rank or select. Use at most one widening
+and bounded candidates. Build output is unreviewed and cannot verify or reuse.
+An independent semantic reviewer must inspect the exact root, remain distinct
+from generator and downstream owners, and submit an accepted review:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
+  review --packet <packet.json> --inventory <inventory.json> \
+  --reflection <unreviewed-reflection.json> --review <review.json>
+```
+
+The reviewer accepts only a divergent-only artifact with truthful category
+dispositions and no selection/adoption claim. The generator does not rank or
+select. Use at most one widening
 pass for counterexamples. Generator, future selector, tracker author,
 implementation owner, and evaluator identities remain distinct.
 
@@ -97,6 +109,7 @@ placement handoff before any canonical application.
 ## Stop
 
 For packet preparation, stop after a verified packet or deterministic unchanged
-result. For reflection, stop after a verified reflection or exact reuse result.
+result. For reflection, stop after an independently accepted verified reflection
+or exact reuse result.
 Do not rank/select work, allocate a portfolio, edit a tracker, create a task, or
 perform an external effect.

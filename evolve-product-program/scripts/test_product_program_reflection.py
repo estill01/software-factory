@@ -187,6 +187,28 @@ def no_op_submission(packet: dict[str, object]) -> dict[str, object]:
     return result
 
 
+def review_submission(reflection: dict[str, object], *, decision: str = "accepted") -> dict[str, object]:
+    accepted = decision == "accepted"
+    return {
+        "category_dispositions_truthful": accepted,
+        "decision": decision,
+        "divergent_only": accepted,
+        "finding_ids": [] if accepted else ["finding-selection-authority"],
+        "kind": "product-program-reflection-review",
+        "no_selection_or_adoption_claim": accepted,
+        "reflection_root": reflection["artifact_root"],
+        "reviewer_id": "independent-reflection-reviewer",
+        "schema_version": 1,
+    }
+
+
+def accepted_reflection(
+    packet: dict[str, object], submission: dict[str, object], inventory: dict[str, object]
+) -> dict[str, object]:
+    unreviewed = MODULE.build_reflection(packet, submission, inventory)
+    return MODULE.apply_semantic_review(packet, unreviewed, inventory, review_submission(unreviewed))
+
+
 class ProductProgramReflectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -195,8 +217,8 @@ class ProductProgramReflectionTests(unittest.TestCase):
 
     def test_positive_reflection_is_deterministic_divergent_and_nonauthorizing(self) -> None:
         submission = base_submission(self.packet)
-        reflection = MODULE.build_reflection(self.packet, submission, self.inventory)
-        replay = MODULE.build_reflection(self.packet, deepcopy(submission), self.inventory)
+        reflection = accepted_reflection(self.packet, submission, self.inventory)
+        replay = accepted_reflection(self.packet, deepcopy(submission), self.inventory)
         self.assertEqual(MODULE.canonical(reflection), MODULE.canonical(replay))
         self.assertEqual({"feature", "simplification", "continue-unchanged"}, {item["candidate_type"] for item in reflection["candidates"]})
         self.assertFalse(reflection["authority"]["selection_allowed"])
@@ -212,13 +234,13 @@ class ProductProgramReflectionTests(unittest.TestCase):
             self.assertTrue(MODULE.verify_reflection(self.packet, reflection, self.inventory)["verified"])
 
     def test_observed_contrary_evidence_remains_visible(self) -> None:
-        reflection = MODULE.build_reflection(self.packet, base_submission(self.packet), self.inventory)
+        reflection = accepted_reflection(self.packet, base_submission(self.packet), self.inventory)
         lesson = next(item for item in reflection["lessons"] if item["lesson_id"] == "lesson-current")
         self.assertEqual("observed", lesson["counterexample_posture"])
         self.assertEqual(["observation-contrary"], lesson["counterexample_observation_ids"])
 
     def test_noop_reflection_has_no_gap_or_change_candidate(self) -> None:
-        reflection = MODULE.build_reflection(self.packet, no_op_submission(self.packet), self.inventory)
+        reflection = accepted_reflection(self.packet, no_op_submission(self.packet), self.inventory)
         self.assertEqual([], reflection["capability_gaps"])
         self.assertEqual(["continue-unchanged"], [item["candidate_type"] for item in reflection["candidates"]])
 
@@ -231,7 +253,7 @@ class ProductProgramReflectionTests(unittest.TestCase):
             candidate("candidate-feature", "feature"),
             candidate("candidate-no-change", "continue-unchanged"),
         ]
-        reflection = MODULE.build_reflection(self.packet, submission, self.inventory)
+        reflection = accepted_reflection(self.packet, submission, self.inventory)
         self.assertEqual(2, len(reflection["candidates"]))
 
     def test_single_unexplained_or_missing_no_change_candidate_rejects(self) -> None:
@@ -270,9 +292,21 @@ class ProductProgramReflectionTests(unittest.TestCase):
             MODULE.build_reflection(self.packet, missing_capability, self.inventory)
 
         incomplete_inventory = deepcopy(self.inventory)
-        incomplete_inventory["source_roles"] = ["current-observable-behavior"]
-        with self.assertRaisesRegex(MODULE.ProductProgramError, "content differs|every required"):
-            MODULE.build_reflection(self.packet, base_submission(self.packet), incomplete_inventory)
+        incomplete_inventory["tracker_states"] = incomplete_inventory["tracker_states"][:-1]
+        forged_packet = deepcopy(self.packet)
+        forged_packet["product_sources"][0]["sha256"] = MODULE.hashlib.sha256(
+            MODULE.canonical(incomplete_inventory)
+        ).hexdigest()
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "every required tracker state"):
+            MODULE.normalize_inventory(forged_packet, incomplete_inventory)
+
+        empty_behavior = deepcopy(self.inventory)
+        empty_behavior["behaviors"] = []
+        forged_packet["product_sources"][0]["sha256"] = MODULE.hashlib.sha256(
+            MODULE.canonical(empty_behavior)
+        ).hexdigest()
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "observable behaviors"):
+            MODULE.normalize_inventory(forged_packet, empty_behavior)
 
     def test_counterexample_generalized_platform_and_role_conflicts_reject(self) -> None:
         missing_posture = base_submission(self.packet)
@@ -299,6 +333,16 @@ class ProductProgramReflectionTests(unittest.TestCase):
         hidden_selection_prose["observations"][0]["summary"] = "This proves the feature is the winner."
         with self.assertRaisesRegex(MODULE.ProductProgramError, "asserts selection or adoption"):
             MODULE.build_reflection(self.packet, hidden_selection_prose, self.inventory)
+
+        synonym_selection = base_submission(self.packet)
+        synonym_selection["candidates"][0]["desired_effect"] = "This is the preferred proposal and must be implemented now."
+        unreviewed = MODULE.build_reflection(self.packet, synonym_selection, self.inventory)
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "lacks exact independent semantic acceptance"):
+            MODULE.verify_reflection(self.packet, unreviewed, self.inventory)
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "semantic review rejected"):
+            MODULE.apply_semantic_review(
+                self.packet, unreviewed, self.inventory, review_submission(unreviewed, decision="rejected")
+            )
 
         self_claim = base_submission(self.packet)
         self_claim["candidates"][0]["selection_claim"] = "winner"
@@ -341,13 +385,19 @@ class ProductProgramReflectionTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ProductProgramError, "contradicts its disposition"):
             MODULE.build_reflection(self.packet, contradictory_disposition, self.inventory)
 
+        per_gap_omission = base_submission(self.packet)
+        per_gap_omission["capability_gaps"][0]["lesson_ids"] = ["lesson-current"]
+        per_gap_omission["capability_gaps"][0]["observation_ids"] = ["observation-current"]
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "meta-pattern closure|lesson closure"):
+            MODULE.build_reflection(self.packet, per_gap_omission, self.inventory)
+
     def test_selection_budget_schedule_and_authority_fields_reject(self) -> None:
         selected = base_submission(self.packet)
         selected["candidates"][0]["selected"] = True
         with self.assertRaisesRegex(MODULE.ProductProgramError, "selection or hidden-output"):
             MODULE.build_reflection(self.packet, selected, self.inventory)
 
-        reflection = MODULE.build_reflection(self.packet, base_submission(self.packet), self.inventory)
+        reflection = accepted_reflection(self.packet, base_submission(self.packet), self.inventory)
         reflection["authority"]["selection_allowed"] = True
         reflection["artifact_root"] = MODULE.digest({key: reflection[key] for key in reflection if key != "artifact_root"})
         with self.assertRaisesRegex(MODULE.ProductProgramError, "asserts selection"):
@@ -365,7 +415,7 @@ class ProductProgramReflectionTests(unittest.TestCase):
             MODULE.build_reflection(self.packet, ceiling, self.inventory)
 
     def test_exact_reuse_is_zero_work_and_stale_packet_rejects(self) -> None:
-        reflection = MODULE.build_reflection(self.packet, base_submission(self.packet), self.inventory)
+        reflection = accepted_reflection(self.packet, base_submission(self.packet), self.inventory)
         reused = MODULE.reuse_reflection(self.packet, reflection, self.inventory)
         self.assertEqual("reflection-reused", reused["action"])
         self.assertEqual(0, reused["model_calls"])
@@ -392,6 +442,15 @@ class ProductProgramReflectionTests(unittest.TestCase):
             )
             reflection = json.loads(built.stdout)["reflection"]
             reflection_path = root / "reflection.json"
+            reflection_path.write_bytes(MODULE.canonical(reflection))
+            review_path = root / "review.json"
+            review_path.write_bytes(MODULE.canonical(review_submission(reflection)))
+            reviewed = subprocess.run(
+                [sys.executable, str(SCRIPT), "review", "--packet", str(packet_path), "--inventory", str(inventory_path), "--reflection", str(reflection_path), "--review", str(review_path)],
+                check=True,
+                capture_output=True,
+            )
+            reflection = json.loads(reviewed.stdout)["reflection"]
             reflection_path.write_bytes(MODULE.canonical(reflection))
             for command in ("verify", "reuse"):
                 result = subprocess.run(
