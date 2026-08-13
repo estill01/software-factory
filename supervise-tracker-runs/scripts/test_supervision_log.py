@@ -9301,6 +9301,8 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             {
                 "enabled": True,
                 "reply_message_id": "gmail-primary-1234",
+                "project_key": "target",
+                "subject": "Codex Tracker Supervision - target",
             }
         )
 
@@ -9316,6 +9318,8 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             {
                 "enabled": True,
                 "reply_message_id": "gmail-primary-1234",
+                "project_key": "target",
+                "subject": "Codex Tracker Supervision - target",
             }
         )
 

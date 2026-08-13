@@ -818,6 +818,30 @@ def terminal_report_contract() -> dict[str, Any]:
     }
 
 
+def terminal_gmail_lane(policy: Mapping[str, Any]) -> Mapping[str, Any]:
+    gmail = policy.get("notifications", {}).get("gmail", {})
+    return gmail if isinstance(gmail, Mapping) else {}
+
+
+def terminal_gmail_lane_ready(policy: Mapping[str, Any]) -> bool:
+    gmail = terminal_gmail_lane(policy)
+    return bool(
+        gmail.get("terminal_report_enabled") is True
+        and policy.get("permissions", {}).get("gmail_self_notification") is True
+        and gmail.get("recipient") == "me"
+        and gmail.get("thread_scope") == "monitored-project"
+        and all(gmail.get(key) for key in ("project_key", "reply_message_id", "subject"))
+    )
+
+
+def require_terminal_gmail_lane(policy: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not terminal_gmail_lane_ready(policy):
+        raise SupervisionLogError(
+            "Terminal report delivery requires its default bound primary Gmail lane"
+        )
+    return terminal_gmail_lane(policy)
+
+
 def alignment_operating_contract() -> dict[str, Any]:
     """Keep supervision aligned without requiring target-native alignment."""
 
@@ -1548,7 +1572,10 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
             "bounded_thread_steer": True,
             "bounded_supervision_maintenance": True,
             "allowlisted_skill_maintenance": False,
-            "gmail_self_notification": False,
+            # Terminal completion delivery is part of every supervision run.
+            # This permission does not enable intermediate or priority mail;
+            # those delivery lanes remain independently opt-in below.
+            "gmail_self_notification": True,
             "gmail_inbound_processing": False,
             "gmail_priority_notification": False,
             "gmail_roundup_notification": False,
@@ -1577,6 +1604,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
         "notifications": {
             "gmail": {
                 "enabled": False,
+                "terminal_report_enabled": True,
                 "recipient": "me",
                 "thread_scope": "monitored-project",
                 "project_key": None,
@@ -1587,7 +1615,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
                 "notice_gate_required": True,
                 "immediate_dispositions": sorted(IMMEDIATE_NOTICE_DISPOSITIONS),
                 "automatic_intermediate_delivery": "digest-only",
-                "terminal_delivery": "primary-outcome-if-previously-alerted",
+                "terminal_delivery": "required-terminal-completion-report",
                 "lifecycle_immediate_states": sorted(STANDARD_LIFECYCLE_STATES),
                 "lifecycle_banner": "IMPLEMENTATION STATUS",
             },
@@ -1799,6 +1827,22 @@ def validate_policy(policy: dict[str, Any]) -> None:
     terminal = policy.get("reports", {}).get("terminal")
     if terminal is not None and terminal != terminal_report_contract():
         raise SupervisionLogError("Terminal implementation report contract differs")
+    gmail = policy.get("notifications", {}).get("gmail")
+    if gmail is not None:
+        if not isinstance(gmail, Mapping):
+            raise SupervisionLogError("Primary Gmail binding is malformed")
+        terminal_enabled = gmail.get("terminal_report_enabled")
+        if terminal_enabled not in (None, True):
+            raise SupervisionLogError("Terminal Gmail delivery posture is invalid")
+        identity_values = [
+            gmail.get(key) for key in ("project_key", "reply_message_id", "subject")
+        ]
+        if any(identity_values) and not all(identity_values):
+            raise SupervisionLogError("Primary Gmail binding is incomplete")
+        if (gmail.get("enabled") is True or terminal_enabled is True) and policy.get(
+            "permissions", {}
+        ).get("gmail_self_notification") is not True:
+            raise SupervisionLogError("Primary Gmail delivery permission is absent")
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
         expected_priority = gmail_priority_contract()
@@ -3432,6 +3476,7 @@ def cmd_bind(args: argparse.Namespace) -> None:
         "gmail",
         {
             "enabled": False,
+            "terminal_report_enabled": True,
             "recipient": "me",
             "thread_scope": "monitored-project",
             "project_key": None,
@@ -3442,10 +3487,11 @@ def cmd_bind(args: argparse.Namespace) -> None:
         },
     )
     gmail_notice_defaults = {
+        "terminal_report_enabled": True,
         "notice_gate_required": True,
         "immediate_dispositions": sorted(IMMEDIATE_NOTICE_DISPOSITIONS),
         "automatic_intermediate_delivery": "digest-only",
-        "terminal_delivery": "primary-outcome-if-previously-alerted",
+        "terminal_delivery": "required-terminal-completion-report",
         "lifecycle_immediate_states": sorted(STANDARD_LIFECYCLE_STATES),
         "lifecycle_banner": "IMPLEMENTATION STATUS",
     }
@@ -3453,6 +3499,41 @@ def cmd_bind(args: argparse.Namespace) -> None:
         if gmail.get(key) != value:
             gmail[key] = value
             changed = True
+    if policy["permissions"].get("gmail_self_notification") is not True:
+        policy["permissions"]["gmail_self_notification"] = True
+        changed = True
+    terminal_message_id_raw = getattr(args, "gmail_terminal_reply_message_id", None)
+    if terminal_message_id_raw:
+        message_id = safe_id(
+            terminal_message_id_raw, label="Terminal Gmail reply message ID"
+        )
+        project_key = safe_id(
+            getattr(args, "gmail_terminal_project_key", None)
+            or policy["target_label"],
+            label="Terminal Gmail monitored project key",
+        )
+        subject = clean(
+            getattr(args, "gmail_terminal_subject", None)
+            or f"Codex Tracker Supervision - {project_key}",
+            label="Terminal Gmail subject",
+            maximum=160,
+        )
+        if gmail.get("reply_message_id") not in (None, message_id):
+            raise SupervisionLogError("Terminal Gmail reply binding already differs")
+        if gmail.get("subject") not in (None, subject):
+            raise SupervisionLogError("Terminal Gmail subject binding already differs")
+        desired_terminal_gmail = {
+            "terminal_report_enabled": True,
+            "recipient": "me",
+            "thread_scope": "monitored-project",
+            "project_key": project_key,
+            "reply_message_id": message_id,
+            "subject": subject,
+        }
+        for key, value in desired_terminal_gmail.items():
+            if gmail.get(key) != value:
+                gmail[key] = value
+                changed = True
     if args.gmail_reply_message_id:
         message_id = safe_id(
             args.gmail_reply_message_id, label="Gmail reply message ID"
@@ -3483,9 +3564,6 @@ def cmd_bind(args: argparse.Namespace) -> None:
             if gmail.get(key) != value:
                 gmail[key] = value
                 changed = True
-        if policy["permissions"].get("gmail_self_notification") is not True:
-            policy["permissions"]["gmail_self_notification"] = True
-            changed = True
     priority = policy.setdefault("notifications", {}).setdefault(
         "gmail_priority", gmail_priority_contract()
     )
@@ -6097,13 +6175,16 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     terminal_reports_delivered = False
     terminal_report_reason = "The lifecycle state does not require terminal reports."
     terminal_report_set_id: str | None = None
+    terminal_lane_ready = not terminal_reporting or terminal_gmail_lane_ready(policy)
     if terminal_reporting and completion_permitted:
         terminal_delivery = latest_terminal_delivery(
             all_events, lifecycle_record_id=source_record
         )
         if terminal_delivery is None:
             terminal_report_reason = (
-                "Generate, verify, and email both terminal PDF reports before pausing supervision."
+                "Bind the default terminal-report Gmail lane before generating completion reports."
+                if not terminal_lane_ready
+                else "Generate, verify, and email both terminal PDF reports before pausing supervision."
             )
         else:
             terminal_report_set_id = str(terminal_delivery.get("report_set_id", ""))
@@ -6221,6 +6302,10 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     if transition_stop_conflict
                     else "open-critical-false-completion-review"
                     if not completion_permitted
+                    else "bind-terminal-report-email-lane"
+                    if terminal_reporting
+                    and not terminal_reports_delivered
+                    and not terminal_lane_ready
                     else "prepare-finalize-verify-email-and-record-terminal-reports"
                     if terminal_reporting and not terminal_reports_delivered
                     else "none"
@@ -14788,6 +14873,7 @@ def cmd_terminal_report_prepare(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     if policy.get("reports", {}).get("terminal") != terminal_report_contract():
         raise SupervisionLogError("Terminal implementation reporting is not enabled")
+    require_terminal_gmail_lane(policy)
     all_events = events(directory / "events.jsonl")
     lifecycle_record = next(
         (item for item in all_events if item.get("record_id") == args.lifecycle_record),
@@ -15249,9 +15335,7 @@ def append_terminal_delivery(
     verified: Mapping[str, Any],
     readback: Mapping[str, Any],
 ) -> dict[str, Any]:
-    gmail = policy.get("notifications", {}).get("gmail", {})
-    if not gmail.get("enabled") or not gmail.get("reply_message_id"):
-        raise SupervisionLogError("Terminal report delivery requires the bound primary Gmail lane")
+    require_terminal_gmail_lane(policy)
     sent_message = readback["sent_message"]
     message_id = str(sent_message["message_id"])
     with append_lock(directory):
@@ -15853,6 +15937,9 @@ def parser() -> argparse.ArgumentParser:
     bind.add_argument("--gmail-reply-message-id")
     bind.add_argument("--gmail-project-key")
     bind.add_argument("--gmail-subject")
+    bind.add_argument("--gmail-terminal-reply-message-id")
+    bind.add_argument("--gmail-terminal-project-key")
+    bind.add_argument("--gmail-terminal-subject")
     bind.add_argument("--gmail-priority-reply-message-id")
     bind.add_argument("--gmail-priority-project-key")
     bind.add_argument("--gmail-priority-subject")
