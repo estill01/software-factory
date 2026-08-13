@@ -364,6 +364,14 @@ DIRECT_AUTHORITY_PROVENANCE_KIND = "direct-user-authority-provenance"
 DIRECT_AUTHORITY_REVIEW_CATEGORY = "direct-authority-ingestion"
 DIRECT_AUTHORITY_CLASSIFICATION = "full-tracker"
 DIRECT_AUTHORITY_SOURCE_KIND = "direct-user-message"
+DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND = (
+    "delegated-direct-user-authority-provenance"
+)
+DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY = (
+    "delegated-direct-authority-ingestion"
+)
+DELEGATED_DIRECT_AUTHORITY_TRANSPORT_KIND = "codex-delegation"
+DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE = "target-action"
 LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND = (
     "legacy-direct-user-authority-provenance"
 )
@@ -2563,7 +2571,11 @@ def canonical_direct_authority_event(
         event.get("schema_version") != 1
         or event.get("kind") != DIRECT_AUTHORITY_EVENT_KIND
         or event.get("source_class") != "direct-user"
-        or event.get("provenance_status") != "verified-before-entry"
+        or event.get("provenance_status")
+        not in {
+            "verified-before-entry",
+            "verified-delegated-before-entry",
+        }
         or event.get("target_thread_id") != policy.get("target_thread_id")
     ):
         raise SupervisionLogError(
@@ -2618,6 +2630,43 @@ def canonical_direct_authority_event(
     ):
         raise SupervisionLogError(
             "Canonical direct-authority event lacks independent provenance evidence"
+        )
+    if event.get("provenance_status") == "verified-delegated-before-entry":
+        transport_kind = evidence_value(evidence, "transport-kind:")
+        route_purpose = evidence_value(evidence, "route-purpose:")
+        route_source_value = evidence_value(evidence, "route-source:")
+        route_source_record_id, separator, route_source_record_sha256 = (
+            route_source_value.partition(":")
+        )
+        if not separator:
+            raise SupervisionLogError(
+                "Delegated authority route source evidence differs"
+            )
+        provenance = {
+            "target_thread_id": event["target_thread_id"],
+            "transport_kind": transport_kind,
+            "route_purpose": route_purpose,
+            "route_source_record_id": route_source_record_id,
+            "route_source_record_sha256": route_source_record_sha256,
+            "route_action_sha256": evidence_value(
+                evidence, "route-action-sha256:"
+            ),
+            "route_projection_sha256": evidence_value(
+                evidence, "route-projection-sha256:"
+            ),
+        }
+        if (
+            transport_kind != DELEGATED_DIRECT_AUTHORITY_TRANSPORT_KIND
+            or route_purpose
+            != DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE
+        ):
+            raise SupervisionLogError(
+                "Canonical delegated-authority transport differs"
+            )
+        delegated_direct_authority_route_source(
+            all_events,
+            provenance=provenance,
+            policy_sha256=source_policy_sha256,
         )
     return event
 
@@ -6723,7 +6772,7 @@ def decode_direct_authority_provenance(encoded_value: str) -> dict[str, Any]:
 def direct_authority_review_evidence(
     provenance: Mapping[str, Any],
 ) -> list[str]:
-    return [
+    evidence = [
         f"source-kind:{provenance['source_kind']}",
         f"source-task:{provenance['source_task_id']}",
         f"source-turn:{provenance['source_turn_id']}",
@@ -6733,6 +6782,88 @@ def direct_authority_review_evidence(
         f"verifier:{provenance['verifier_id']}",
         f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}",
     ]
+    if provenance.get("kind") == DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND:
+        evidence.extend(
+            [
+                "transport-kind:"
+                + str(provenance["transport_kind"]),
+                "route-purpose:"
+                + str(provenance["route_purpose"]),
+                "route-source:"
+                + ":".join(
+                    (
+                        str(provenance["route_source_record_id"]),
+                        str(provenance["route_source_record_sha256"]),
+                    )
+                ),
+                "route-action-sha256:"
+                + str(provenance["route_action_sha256"]),
+                "route-projection-sha256:"
+                + str(provenance["route_projection_sha256"]),
+            ]
+        )
+    return evidence
+
+
+def delegated_direct_authority_route_projection(
+    provenance: Mapping[str, Any], *, policy_sha256: str
+) -> dict[str, Any]:
+    """Rebuild the exact target-action route carried by a delegated packet."""
+
+    return {
+        "send_allowed": True,
+        "target_thread_id": provenance["target_thread_id"],
+        "recipient_thread_id": provenance["target_thread_id"],
+        "recipient_role": "target",
+        "purpose": provenance["route_purpose"],
+        "source_record": provenance["route_source_record_id"],
+        "action_sha256": provenance["route_action_sha256"],
+        "policy_sha256": policy_sha256,
+    }
+
+
+def delegated_direct_authority_route_source(
+    all_events: list[dict[str, Any]],
+    *,
+    provenance: Mapping[str, Any],
+    policy_sha256: str,
+) -> dict[str, Any]:
+    route_record_id = safe_id(
+        str(provenance["route_source_record_id"]),
+        label="delegated-authority route source record",
+    )
+    route_record_sha256 = exact_sha256(
+        str(provenance["route_source_record_sha256"]),
+        label="delegated-authority route source SHA-256",
+    )
+    route_source = next(
+        (
+            item
+            for item in all_events
+            if item.get("record_id") == route_record_id
+        ),
+        None,
+    )
+    if (
+        route_source is None
+        or route_source.get("target_thread_id")
+        != provenance.get("target_thread_id")
+        or route_source.get("record_sha256") != route_record_sha256
+        or route_source.get("policy_sha256") != policy_sha256
+    ):
+        raise SupervisionLogError(
+            "Delegated authority route source is not exact and current"
+        )
+    expected_projection = delegated_direct_authority_route_projection(
+        provenance, policy_sha256=policy_sha256
+    )
+    if provenance.get("route_projection_sha256") != digest(
+        expected_projection
+    ):
+        raise SupervisionLogError(
+            "Delegated authority route projection differs"
+        )
+    return route_source
 
 
 def canonical_retained_direct_authority_review(
@@ -6772,6 +6903,12 @@ def canonical_retained_direct_authority_review(
         if verifier_id == runtime.get("base_reviewer_thread_id")
         else "meta-review"
     )
+    expected_category = (
+        DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY
+        if provenance.get("kind")
+        == DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND
+        else DIRECT_AUTHORITY_REVIEW_CATEGORY
+    )
     evidence = event.get("evidence")
     if (
         verifier_id not in eligible
@@ -6779,7 +6916,7 @@ def canonical_retained_direct_authority_review(
         or event.get("schema_version") != 1
         or event.get("target_thread_id") != policy.get("target_thread_id")
         or event.get("kind") != expected_kind
-        or event.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY
+        or event.get("category") != expected_category
         or event.get("status") != "accepted"
         or event.get("model") != "gpt-5.6-sol"
         or event.get("reasoning") not in {"xhigh", "max"}
@@ -6810,6 +6947,10 @@ def validate_direct_authority_provenance(
     all_events: list[dict[str, Any]],
     require_current_policy: bool,
 ) -> tuple[dict[str, str], dict[str, Any]]:
+    delegated = (
+        provenance.get("kind")
+        == DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND
+    )
     expected = {
         "schema_version",
         "kind",
@@ -6826,17 +6967,46 @@ def validate_direct_authority_provenance(
         "verifier_id",
         "authorization_record_id",
     }
+    if delegated:
+        expected.update(
+            {
+                "transport_kind",
+                "route_purpose",
+                "route_source_record_id",
+                "route_source_record_sha256",
+                "route_action_sha256",
+                "route_projection_sha256",
+            }
+        )
     if set(provenance) != expected:
         raise SupervisionLogError("Direct-authority provenance shape differs")
     if (
         provenance.get("schema_version") != 1
-        or provenance.get("kind") != DIRECT_AUTHORITY_PROVENANCE_KIND
+        or provenance.get("kind")
+        not in {
+            DIRECT_AUTHORITY_PROVENANCE_KIND,
+            DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND,
+        }
         or provenance.get("target_thread_id") != policy.get("target_thread_id")
-        or provenance.get("source_task_id") != policy.get("target_thread_id")
         or provenance.get("source_kind") != DIRECT_AUTHORITY_SOURCE_KIND
     ):
         raise SupervisionLogError(
             "Direct-authority target, source kind, or provenance kind differs"
+        )
+    if not delegated and (
+        provenance.get("source_task_id") != policy.get("target_thread_id")
+    ):
+        raise SupervisionLogError(
+            "Direct-authority target, source kind, or provenance kind differs"
+        )
+    if delegated and (
+        provenance.get("transport_kind")
+        != DELEGATED_DIRECT_AUTHORITY_TRANSPORT_KIND
+        or provenance.get("route_purpose")
+        != DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE
+    ):
+        raise SupervisionLogError(
+            "Delegated authority transport or route purpose differs"
         )
     for field, label in (
         ("source_task_id", "direct-authority source task"),
@@ -6847,7 +7017,10 @@ def validate_direct_authority_provenance(
     source_text = provenance.get("source_text")
     if not isinstance(source_text, str):
         raise SupervisionLogError("Direct-authority source text is not exact")
-    if re.search(r"codex[_-]?delegation", source_text, re.I):
+    if (
+        not delegated
+        and re.search(r"codex[_-]?delegation", source_text, re.I)
+    ):
         raise SupervisionLogError(
             "Routed codex_delegation is not direct range authority"
         )
@@ -6868,6 +7041,19 @@ def validate_direct_authority_provenance(
         raise SupervisionLogError(
             "Direct-authority source bytes differ from their SHA-256"
         )
+    if delegated:
+        route_action_sha256 = exact_sha256(
+            str(provenance["route_action_sha256"]),
+            label="delegated-authority route action SHA-256",
+        )
+        exact_sha256(
+            str(provenance["route_projection_sha256"]),
+            label="delegated-authority route projection SHA-256",
+        )
+        if route_action_sha256 != digest(source_text):
+            raise SupervisionLogError(
+                "Delegated authority route action differs from the exact source"
+            )
     source_policy_sha256 = exact_sha256(
         str(provenance["policy_sha256"]),
         label="direct-authority policy SHA-256",
@@ -6894,6 +7080,13 @@ def validate_direct_authority_provenance(
         or source_policy_sha256 != policy.get("policy_sha256")
     ):
         raise SupervisionLogError("Direct-authority provenance policy is stale")
+    route_source = None
+    if delegated:
+        route_source = delegated_direct_authority_route_source(
+            all_events,
+            provenance=provenance,
+            policy_sha256=source_policy_sha256,
+        )
     current_mission = bound_mission(dict(policy))
     source_mission = bound_mission(dict(historical_policy))
     if (
@@ -6927,6 +7120,18 @@ def validate_direct_authority_provenance(
         provenance=provenance,
         policy=policy,
     )
+    if delegated:
+        event_order = {
+            str(item.get("record_id")): index
+            for index, item in enumerate(all_events)
+        }
+        assert route_source is not None
+        if event_order[str(route_source["record_id"])] >= event_order[
+            str(authorization["record_id"])
+        ]:
+            raise SupervisionLogError(
+                "Delegated authority route must precede its independent review"
+            )
     return {"range_intent": intent}, authorization
 
 
@@ -6958,7 +7163,12 @@ def retained_direct_authority_event_material(
         "source_task_id": provenance["source_task_id"],
         "source_item_id": provenance["source_item_id"],
         "verifier_id": provenance["verifier_id"],
-        "provenance_status": "verified-before-entry",
+        "provenance_status": (
+            "verified-delegated-before-entry"
+            if provenance.get("kind")
+            == DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND
+            else "verified-before-entry"
+        ),
         "policy_sha256": provenance["policy_sha256"],
         "evidence": direct_authority_event_evidence(
             provenance, authorization
@@ -8510,6 +8720,12 @@ def retained_full_tracker_authority(
             "Direct-authority event evidence is incomplete"
         )
     provenance = {
+        "kind": (
+            DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND
+            if source_event.get("provenance_status")
+            == "verified-delegated-before-entry"
+            else DIRECT_AUTHORITY_PROVENANCE_KIND
+        ),
         "source_kind": evidence_value(evidence, "source-kind:"),
         "source_task_id": evidence_value(evidence, "source-task:"),
         "source_turn_id": evidence_value(evidence, "source-turn:"),
@@ -8520,6 +8736,38 @@ def retained_full_tracker_authority(
         "policy_sha256": source_event["policy_sha256"],
         "authorization_record_id": authorization_record_id,
     }
+    delegated = (
+        provenance["kind"]
+        == DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND
+    )
+    if delegated:
+        route_source_value = evidence_value(evidence, "route-source:")
+        route_source_record_id, route_separator, route_source_record_sha256 = (
+            route_source_value.partition(":")
+        )
+        if not route_separator:
+            raise SupervisionLogError(
+                "Delegated authority route source evidence differs"
+            )
+        provenance.update(
+            {
+                "target_thread_id": policy["target_thread_id"],
+                "transport_kind": evidence_value(
+                    evidence, "transport-kind:"
+                ),
+                "route_purpose": evidence_value(
+                    evidence, "route-purpose:"
+                ),
+                "route_source_record_id": route_source_record_id,
+                "route_source_record_sha256": route_source_record_sha256,
+                "route_action_sha256": evidence_value(
+                    evidence, "route-action-sha256:"
+                ),
+                "route_projection_sha256": evidence_value(
+                    evidence, "route-projection-sha256:"
+                ),
+            }
+        )
     authorization = canonical_retained_direct_authority_review(
         all_events,
         provenance=provenance,
@@ -8541,7 +8789,11 @@ def retained_full_tracker_authority(
         or source_record == current_mission.get("mission_source_record")
         or source_record == controlling.get("record")
         or source_sha256 == controlling.get("sha256")
-        or source_event.get("source_task_id") != policy.get("target_thread_id")
+        or (
+            not delegated
+            and source_event.get("source_task_id")
+            != policy.get("target_thread_id")
+        )
         or source_event.get("source_item_id") != source_record
         or source_event.get("source_record") != source_record
         or source_event.get("source_sha256") != source_sha256

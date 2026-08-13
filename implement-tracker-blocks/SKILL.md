@@ -39,8 +39,11 @@ A full-tracker binding dynamically includes prerequisite Blocks inserted or
 renumbered by an accepted tracker amendment. It may be narrowed only by a newer
 direct-user source already ingested as a hash-chained canonical owner event
 with independently verified task/item provenance; the range helper may resolve
-that event but cannot create it. A caller string, tracker edit, routed
-supervisor packet, `codex_delegation`,
+that event but cannot create it. A helper-validated delegated-authority event
+and current receipt preserve the original direct-user source through the
+system's target-action route and are consumed as that exact source, without
+asking the user to repeat it. A caller string, tracker edit, routed supervisor
+packet, unbound `codex_delegation`,
 task/run/group boundary, handoff, reviewer statement, commit, push, or process
 record cannot contract it.
 
@@ -269,9 +272,12 @@ binding before starting the expensive computation. If valid proof output
 already exists and only reporting fails, freeze and reuse that output and rerun
 only reporting; never rerun the producer solely for a reporting failure.
 
-Preserve authority provenance exactly. A `codex_delegation` packet routes a
-source instruction; it is not direct user speech and must never be relabeled as
-such. Before classifying `reserved-authority`, cite the exact current controlling
+Preserve authority provenance exactly. A `codex_delegation` packet is a
+transport, not a new authority source. An unbound packet cannot authorize work;
+a helper-validated delegated-authority event and current receipt carry the
+exact independently verified originating direct-user source and must be acted
+on within that scope without a same-thread repetition or manual Resume. Before
+classifying `reserved-authority`, cite the exact current controlling
 user, system, repository, or tracker source and prove that it still applies.
 Retire a satisfied operation- or Block-scoped containment at its stated expiry;
 keep it only as history, with no inferred carry-forward across a Block,
@@ -620,8 +626,10 @@ python3 <supervision-log-helper> implementation-range-gate \
   --response-kind <block-boundary|outcome-terminal>
 ```
 
-On first use call `implementation-range-bind` with the tracker, request text,
-and exact canonical direct-user source record/hash. Use
+On first use call `implementation-range-admit` with the tracker, exact request
+text, and exact canonical direct-user source record/hash. This includes a
+validated delegated direct-user source transported from another thread after
+its canonical review, ingestion, and receipt. Use
 `implementation-range-amend` after an accepted tracker revision; the frozen
 full-range intent persists automatically. A contraction additionally requires
 an independently reviewed canonical `implementation-range-authority-receipt`

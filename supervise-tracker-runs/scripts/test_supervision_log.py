@@ -1708,6 +1708,93 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         return provenance
 
+    def append_delegated_range_authority_review(
+        self,
+        *,
+        source_task_id: str = "origin-user-thread-5678",
+        source_record: str = "origin-user-item-5678",
+        request_text: str = "implement this tracker",
+    ) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        route_record_id = f"EVT-{len(current_events) + 1:06d}"
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": route_record_id,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "mission-activation-route",
+                "status": "target-action-required",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": [source_record],
+            },
+        )
+        route_source = supervision_log.events(directory / "events.jsonl")[-1]
+        source_bytes = request_text.encode("utf-8")
+        provenance: dict[str, object] = {
+            "schema_version": 1,
+            "kind": (
+                supervision_log.DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND
+            ),
+            "target_thread_id": self.target,
+            "source_task_id": source_task_id,
+            "source_turn_id": "origin-user-turn-5678",
+            "source_item_id": source_record,
+            "source_kind": supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+            "source_text": request_text,
+            "source_byte_count": len(source_bytes),
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": self.reviewer,
+            "authorization_record_id": "",
+            "transport_kind": (
+                supervision_log.DELEGATED_DIRECT_AUTHORITY_TRANSPORT_KIND
+            ),
+            "route_purpose": (
+                supervision_log.DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE
+            ),
+            "route_source_record_id": route_source["record_id"],
+            "route_source_record_sha256": route_source["record_sha256"],
+            "route_action_sha256": supervision_log.digest(request_text),
+            "route_projection_sha256": "",
+        }
+        provenance["route_projection_sha256"] = supervision_log.digest(
+            supervision_log.delegated_direct_authority_route_projection(
+                provenance, policy_sha256=policy["policy_sha256"]
+            )
+        )
+        current_events = supervision_log.events(directory / "events.jsonl")
+        provenance["authorization_record_id"] = (
+            f"EVT-{len(current_events) + 1:06d}"
+        )
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": provenance["authorization_record_id"],
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "meta-review",
+                "category": (
+                    supervision_log.DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY
+                ),
+                "status": "accepted",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": supervision_log.direct_authority_review_evidence(
+                    provenance
+                ),
+            },
+        )
+        return provenance
+
     def retain_successor_range_authority(
         self,
         *,
@@ -2122,6 +2209,100 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 changed_encoded,
             )
         self.assertEqual((directory / "events.jsonl").read_bytes(), first_events)
+
+    def test_exact_delegated_direct_authority_starts_full_tracker_range(
+        self,
+    ) -> None:
+        self.write_tracker(["not-started"] * 8)
+        provenance = self.append_delegated_range_authority_review()
+        encoded = base64.b64encode(
+            supervision_log.canonical(provenance)
+        ).decode("ascii")
+
+        ingested = self.call(
+            "direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            encoded,
+        )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record_id"]),
+        )
+        bound = self.call(
+            "implementation-range-admit",
+            "--target-thread",
+            self.target,
+            "--range-id",
+            "RANGE-DELEGATED-5678",
+            "--tracker",
+            str(self.tracker),
+            "--request-text",
+            str(provenance["source_text"]),
+            "--authority-source-record",
+            str(provenance["source_item_id"]),
+            "--authority-source-sha256",
+            str(provenance["source_sha256"]),
+        )
+        gate = self.gate("final-response")
+
+        self.assertEqual(
+            ingested["source_record"], provenance["source_item_id"]
+        )
+        self.assertEqual(
+            bound["binding"]["range_intent"], "full-tracker"
+        )
+        self.assertEqual(gate["requested_blocks"], list(range(8)))
+        self.assertEqual(gate["eligible_blocks"], [0])
+        self.assertFalse(gate["final_response_permitted"])
+
+    def test_delegated_authority_rejects_changed_route_packet(
+        self,
+    ) -> None:
+        self.write_tracker(["not-started"] * 2)
+        provenance = self.append_delegated_range_authority_review()
+        directory = self.root / self.target
+        before = {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json",
+                "policy-history.jsonl",
+                "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            )
+        }
+        cases = {
+            "action": {**provenance, "route_action_sha256": "f" * 64},
+            "projection": {
+                **provenance,
+                "route_projection_sha256": "e" * 64,
+            },
+            "source": {
+                **provenance,
+                "route_source_record_sha256": "d" * 64,
+            },
+        }
+        for case, changed in cases.items():
+            with self.subTest(case=case):
+                encoded = base64.b64encode(
+                    supervision_log.canonical(changed)
+                ).decode("ascii")
+                with self.assertRaises(
+                    supervision_log.SupervisionLogError
+                ):
+                    self.call(
+                        "direct-authority-ingest",
+                        "--target-thread",
+                        self.target,
+                        "--provenance-base64",
+                        encoded,
+                    )
+                for name, raw in before.items():
+                    self.assertEqual((directory / name).read_bytes(), raw)
 
     def test_stale_or_ambiguous_receipt_rejects_fresh_admission(
         self,
@@ -11783,7 +11964,9 @@ class DecisionResolutionTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("Preserve any containment's exact authority source", supervision_policy)
-        self.assertIn("never relabel either as direct", supervision_policy)
+        self.assertIn("unbound `codex_delegation`", supervision_policy)
+        self.assertIn("helper-validated delegation envelope", supervision_policy)
+        self.assertIn("without a same-thread repetition", supervision_policy)
         self.assertIn("no inferred carry-forward across a Block", implementation_skill)
         self.assertIn("predecessor for proof, not every successor revision", implementation_skill)
         self.assertIn("constrains exact X rather than a later operation", implementation_skill)
