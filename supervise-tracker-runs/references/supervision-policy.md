@@ -1212,7 +1212,28 @@ names `releases/<release-id>` is migrated once after verified activation while
 preserving its automation ID, target thread, schedule, status, model, reasoning,
 and notification posture. Already-running role context receives the ordinary
 gated `role-refresh`; the next scheduled wake resolves the new release without a
-per-release prompt rewrite.
+per-release prompt rewrite. Derive the action with
+`software-factory-supervisor-refresh-plan --target-thread <target> --repo
+<repo> --promotion-record <event>`. The planner is read-only. It reopens the
+exact promoted source even after later clean commits, samples the release owner
+twice, and requires the same source, release, three installed roots,
+verification root, and activation-history count. It also requires the exact
+current mission-owned implementation range, stable policy/event heads, and
+owner-bound heartbeat files read without symlink, path, size, or identity
+drift.
+
+For an active maintained legacy prompt, the result supplies exactly one stable-
+channel prompt plus every non-prompt owner field to preserve. Only the Codex
+automation owner may apply it. Paused owners and explicit
+`manual-release-pin:<release-id>` paths stay held. A rerun after the owner update
+must classify the prompt current rather than schedule another migration. The
+next scheduled wake and next role-message boundary are the only derived safe
+boundaries: no caller boundary flag exists, and instruction bytes already
+loaded by an in-progress role remain unchanged. Every eligible running role
+must have a successful existing `thread-route-gate` receipt for purpose
+`role-refresh`. Re-run the projection at the owner write boundary and verify the
+post-update owner view before claiming refresh; the plan itself grants no write,
+release, or role authority.
 
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.

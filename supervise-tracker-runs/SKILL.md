@@ -648,9 +648,17 @@ reserved deferrals, safe frontier, and application posture.
   the independent acceptance itself, not a second promotion or quiescence
   authorization. Scheduled automations bind to
   the stable `current` paths, so verified activation updates their next wakes
-  without rewriting schedules or identities; migrate any legacy release-pinned
-  prompt once after activation and refresh already-running role context through
-  the existing `role-refresh` gate. A supervisor may never create, select among
+  without rewriting schedules or identities. After promotion, run the read-only
+  `software-factory-supervisor-refresh-plan` with the exact promotion record.
+  It revalidates release-owner history, current mission/range/control state,
+  and canonical automation-owner files; returns one exact prompt-only update
+  with every other owner field preserved; and derives next-wake/message
+  boundaries without caller booleans. Apply updates only through the Codex
+  automation owner, re-run the plan at that boundary, and verify the owner view
+  afterward. Paused automations and explicit manual release pins remain held.
+  Refresh already-running eligible role context only through the returned
+  existing `role-refresh` routes; a current turn keeps the instruction bytes it
+  already loaded. A supervisor may never create, select among
   ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still

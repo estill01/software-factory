@@ -4094,6 +4094,12 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "supervision"
         self.repo = Path(self.temporary.name) / "repository"
+        self.automation_root = Path(self.temporary.name) / "automations"
+        self.automation_root.mkdir()
+        self.automation_root = self.automation_root.resolve(strict=True)
+        self.release_root = (
+            Path(self.temporary.name) / "software-factory-releases"
+        ).resolve()
         self.repo.mkdir()
         self.repo = self.repo.resolve(strict=True)
         self.repo.joinpath("scripts").mkdir()
@@ -4339,6 +4345,146 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         if action == "promote":
             return copy.deepcopy(self.promotion)
         return copy.deepcopy(self.status if promoted else self.prior_status)
+
+    def legacy_pinned_automation_prompt(
+        self, *, manual_pin: bool = False
+    ) -> str:
+        release_id = f"{'a' * 12}-{'b' * 12}"
+        root = (
+            self.release_root
+            / "releases"
+            / release_id
+            / "supervise-tracker-runs"
+        )
+        paths = (
+            root / "SKILL.md",
+            root / "references" / "supervision-policy.md",
+            root / "scripts" / "supervision_log.py",
+        )
+        pin = f" manual-release-pin:{release_id}." if manual_pin else ""
+        return (
+            "Run one bounded scheduled watcher check now. Use the released "
+            f"contract at {paths[0]} and {paths[1]} with helper {paths[2]}."
+            f"{pin} Released hashes: SKILL {'1' * 64}; policy {'2' * 64}; "
+            f"helper {'3' * 64}. Target {self.target}; mission root {'4' * 64}; "
+            "source tracker:release-refresh:1234; source SHA-256 "
+            f"{'5' * 64}; policy v3 SHA-256 {'6' * 64}. The full Blocks 0-7 "
+            "range remains active. Required target posture is in-progress. "
+            "Follow the exact watcher role and route changed state."
+        )
+
+    def current_legacy_automation_prompt(self) -> str:
+        return (
+            "Run one ordinary watcher check now under your exact current "
+            "installed supervise-tracker-runs role and policy for target "
+            f"{self.target}. Use only the helper bundled with the currently "
+            "installed stable skill. The active mission source is "
+            "DIRECT-USER-MOVE-ALL-WORK-20260812 and mission root "
+            f"{'4' * 64}. This is a watcher check, not permission to implement "
+            "or mutate the target. Adopt 6660895f4b17 only: default terminal "
+            "Gmail remains terminal-only; ordinary mail stays off; missing "
+            "binding blocks prepare; shutdown reads canonical automation owner. "
+            "No send/replay authority."
+        )
+
+    def write_automation(
+        self,
+        prompt: str,
+        *,
+        automation_id: str = "release-refresh-automation-1234",
+        target_thread_id: str = "release-orchestration-watcher-1234",
+        status: str = "ACTIVE",
+        bind: bool = True,
+        updated_at: int = 2,
+    ) -> str:
+        directory = self.automation_root / automation_id
+        directory.mkdir(exist_ok=True)
+        directory.joinpath("automation.toml").write_text(
+            "\n".join(
+                (
+                    "version = 1",
+                    f'id = "{automation_id}"',
+                    'kind = "heartbeat"',
+                    'name = "Release refresh test"',
+                    f"prompt = {json.dumps(prompt)}",
+                    f'status = "{status}"',
+                    'rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"',
+                    f'target_thread_id = "{target_thread_id}"',
+                    'model = "gpt-5.6-terra"',
+                    'reasoning_effort = "max"',
+                    'notification_posture = "terminal-only"',
+                    "created_at = 1",
+                    f"updated_at = {updated_at}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        if bind:
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--routine-automation",
+                automation_id,
+            )
+        return automation_id
+
+    def refresh_plan(self, promotion_record: str) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = json.loads(
+            directory.joinpath("policy.json").read_text(encoding="utf-8")
+        )
+        mission_identity = supervision_log.current_mission_range_identity(policy)
+        range_state = {
+            "range_id": "release-refresh-range-1234",
+            "range_intent": "full-tracker",
+            "tracker_path": str(self.repo / "tracker.md"),
+            "tracker_sha256": "7" * 64,
+            "tracker_structure_sha256": "8" * 64,
+            "requested_blocks": list(range(8)),
+            "accepted_blocks": [0, 1, 2, 5],
+            "completed_prerequisite_blocks": [],
+            "remaining_blocks": [3, 4, 6, 7],
+            "eligible_blocks": [3],
+            "range_history_head_sha256": "9" * 64,
+        }
+        with (
+            mock.patch.object(
+                supervision_log,
+                "software_factory_automation_owner_root",
+                return_value=self.automation_root,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "software_factory_release_install_root",
+                return_value=self.release_root,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "run_software_factory_release_owner",
+                side_effect=lambda *_args, **_kwargs: copy.deepcopy(self.status),
+            ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_state",
+                return_value=copy.deepcopy(range_state),
+            ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_contract",
+                return_value={"mission_identity": mission_identity},
+            ),
+        ):
+            return self.call(
+                "software-factory-supervisor-refresh-plan",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--promotion-record",
+                promotion_record,
+            )
 
     def test_exact_acceptance_invokes_flagless_owner_and_deduplicates(self) -> None:
         accepted = self.acceptance()
@@ -5281,6 +5427,298 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                             value,
                         ]
                     )
+
+    def test_refresh_plan_migrates_current_legacy_prompt_once(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+
+        first = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+        self.assertEqual(first["next_action"], "apply-owner-updates-and-route-role-refresh")
+        self.assertEqual(
+            first["safe_boundaries"],
+            {
+                "scheduled_automation": "next-scheduled-wake",
+                "running_role": "next-role-message-boundary",
+                "in_progress_instruction_bytes": "unchanged",
+                "input_producer": "canonical-automation-owner-and-role-route-gate",
+            },
+        )
+        self.assertEqual(len(first["automation_updates"]), 1)
+        update = first["automation_updates"][0]
+        stable = update["stable_prompt"]
+        for path in (
+            self.release_root
+            / "current"
+            / "supervise-tracker-runs"
+            / "SKILL.md",
+            self.release_root
+            / "current"
+            / "supervise-tracker-runs"
+            / "references"
+            / "supervision-policy.md",
+            self.release_root
+            / "current"
+            / "supervise-tracker-runs"
+            / "scripts"
+            / "supervision_log.py",
+        ):
+            self.assertEqual(stable.count(str(path)), 1)
+        for stale in (
+            "mission root ",
+            "The active mission source",
+            "Adopt 6660895f4b17 only",
+            "Required target posture ",
+            "/releases/",
+        ):
+            self.assertNotIn(stale, stable)
+        self.assertIn("Rehydrate the current mission", stable)
+        self.assertEqual(
+            update["preserved_config"]["rrule"],
+            "RRULE:FREQ=MINUTELY;INTERVAL=20",
+        )
+        self.assertEqual(update["preserved_config"]["status"], "ACTIVE")
+        self.assertEqual(update["preserved_config"]["model"], "gpt-5.6-terra")
+        self.assertEqual(
+            update["preserved_config"]["notification_posture"],
+            "terminal-only",
+        )
+        self.assertTrue(first["role_refreshes"])
+        for role in first["role_refreshes"]:
+            self.assertTrue(role["route"]["send_allowed"])
+            self.assertEqual(role["route"]["purpose"], "role-refresh")
+
+        self.write_automation(stable, bind=False, updated_at=3)
+        second = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.assertEqual(second["automation_updates"], [])
+        self.assertEqual(len(second["current_automations"]), 1)
+        self.assertEqual(second["next_action"], "route-role-refresh")
+
+    def test_refresh_plan_supports_nonhead_promoted_source(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.repo.joinpath("later.txt").write_text("later\n", encoding="utf-8")
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "add", "later.txt"], check=True
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "commit", "-qm", "later"],
+            check=True,
+        )
+        self.write_automation(self.current_legacy_automation_prompt())
+
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+        self.assertEqual(plan["release_identity"]["source_commit"], self.source)
+
+    def test_refresh_plan_preserves_explicit_manual_pin(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(
+            self.legacy_pinned_automation_prompt(manual_pin=True)
+        )
+
+        first = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+        self.assertEqual(len(first["automation_updates"]), 1)
+        update = first["automation_updates"][0]
+        self.assertEqual(
+            update["manual_pin_release_id"], f"{'a' * 12}-{'b' * 12}"
+        )
+        self.assertIn(
+            f"/releases/{'a' * 12}-{'b' * 12}/", update["stable_prompt"]
+        )
+        self.assertNotIn("Released hashes:", update["stable_prompt"])
+
+        self.write_automation(update["stable_prompt"], bind=False, updated_at=3)
+        second = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.assertEqual(second["automation_updates"], [])
+        self.assertEqual(len(second["manual_pins"]), 1)
+        self.assertFalse(
+            any(
+                role["thread_id"] == "release-orchestration-watcher-1234"
+                for role in second["role_refreshes"]
+            )
+        )
+
+    def test_refresh_plan_holds_paused_automation_without_prompt_rewrite(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation("Paused owner-specific prompt.", status="PAUSED")
+
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+        self.assertEqual(len(plan["paused_automations"]), 1)
+        self.assertEqual(plan["automation_updates"], [])
+        self.assertFalse(
+            any(
+                role["thread_id"] == "release-orchestration-watcher-1234"
+                for role in plan["role_refreshes"]
+            )
+        )
+
+    def test_refresh_plan_rejects_foreign_automation_owner(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(
+            self.current_legacy_automation_prompt(),
+            target_thread_id="foreign-role-thread-1234",
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not bound to its configured owner",
+        ):
+            self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+    def test_refresh_plan_rejects_stale_release_identity(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        self.status["activation_history_records"] = 3
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "release is not current"
+        ):
+            self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+    def test_refresh_plan_rejects_control_drift_during_projection(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        original = supervision_log.software_factory_automation_config
+        calls = 0
+
+        def drift(automation_id: str) -> tuple[dict[str, object], str, dict[str, int]]:
+            nonlocal calls
+            value = original(automation_id)
+            calls += 1
+            if calls == 1:
+                self.call(
+                    "record",
+                    "--target-thread",
+                    self.target,
+                    "--kind",
+                    "check",
+                    "--model",
+                    "gpt-5.6-sol",
+                    "--reasoning",
+                    "xhigh",
+                    "--status",
+                    "observed",
+                    "--evidence",
+                    "refresh-plan-drift-1234",
+                    "--summary",
+                    "A concurrent canonical event advanced the owner head.",
+                )
+            return value
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "software_factory_automation_config",
+                side_effect=drift,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "control state changed",
+            ),
+        ):
+            self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+    def test_refresh_plan_has_no_caller_boundary_or_release_inputs(self) -> None:
+        for option, value in (
+            ("--safe-boundary", "true"),
+            ("--release-id", "0123456789ab-0123456789ab"),
+            ("--automation-id", "caller-automation-1234"),
+        ):
+            with self.subTest(option=option), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    supervision_log.parser().parse_args(
+                        [
+                            "--root",
+                            str(self.root),
+                            "software-factory-supervisor-refresh-plan",
+                            "--target-thread",
+                            self.target,
+                            "--repo",
+                            str(self.repo),
+                            "--promotion-record",
+                            "EVT-000001",
+                            option,
+                            value,
+                        ]
+                    )
+
+    def test_refresh_prompt_rejects_mixed_release_identities(self) -> None:
+        prompt = self.legacy_pinned_automation_prompt().replace(
+            f"/releases/{'a' * 12}-{'b' * 12}/supervise-tracker-runs/scripts/",
+            f"/releases/{'c' * 12}-{'d' * 12}/supervise-tracker-runs/scripts/",
+        )
+        with mock.patch.object(
+            supervision_log,
+            "software_factory_release_install_root",
+            return_value=self.release_root,
+        ), self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "mixes release identities"
+        ):
+            supervision_log.software_factory_stable_automation_prompt(
+                prompt, target_thread=self.target
+            )
+
+        conflicting_pin = self.legacy_pinned_automation_prompt(
+            manual_pin=True
+        ).replace(
+            "Follow the exact watcher role",
+            f"Adopt {'c' * 12} only: retain this conflicting identity. "
+            "Follow the exact watcher role",
+        )
+        with mock.patch.object(
+            supervision_log,
+            "software_factory_release_install_root",
+            return_value=self.release_root,
+        ), self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "manual automation pin"
+        ):
+            supervision_log.software_factory_stable_automation_prompt(
+                conflicting_pin, target_thread=self.target
+            )
 
 
 class LegacyDirectAuthorityIngestTests(unittest.TestCase):

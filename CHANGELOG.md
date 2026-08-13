@@ -55,6 +55,17 @@ the completed program materially changes Software Factory.
   caller-selected release identity cases reject before they can become
   canonical promotion evidence.
 
+- **Owner-projected stable-channel supervisor refresh.** A verified promotion
+  now produces one read-only refresh plan from the current release owner,
+  policy/range/event heads, and exact Codex automation-owner files. Active
+  legacy prompts migrate once to the three stable `current` paths while every
+  non-prompt field is retained; paused automations and explicit manual release
+  pins remain held. Already-running roles receive only existing
+  `role-refresh` routes at message boundaries, and in-progress instruction
+  bytes are never replaced. Stale release history, changed control state,
+  foreign automation ownership, mixed release identities, copied authority,
+  symlinks, and caller-supplied boundary or release identities fail closed.
+
 - **Provenance-bound authority across internal task routing.** A direct-user
   implementation instruction no longer loses its actionable authority merely
   because Software Factory carries it to the configured target through

@@ -147,6 +147,33 @@ stable paths; later releases require no prompt rewrite. Each wake rehydrates
 policy, mission, requested range, active frontier, and lifecycle posture from
 the current helper instead of trusting copied prompt values.
 
+Run `software-factory-supervisor-refresh-plan` with the canonical promotion
+record to derive that one-time migration. The command is read-only: it never
+writes `current`, an automation file, a schedule, or a role thread. It reopens
+the promoted non-HEAD source from an exact checkout, requires the release owner
+to return the same active source, release, three installed roots, verification
+root, and activation-history count twice, and joins them to the current
+mission-owned range plus stable policy/event heads.
+
+For each policy-bound heartbeat, the plan reads the Codex automation owner from
+the canonical operating-system account, rejects symlinks, path escapes,
+oversized or changing files, and returns the exact prior config identity. A
+legacy release-specific or maintained installed-stable prompt is projected
+once onto `current`; copied release hashes and mission/policy/Block/frontier
+prose are removed as authority. The returned `preserved_config` is every field
+except `prompt` and owner-generated `updated_at`, and must be supplied unchanged
+to the Codex automation owner. Paused automations and explicit
+`manual-release-pin:<release-id>` channels are held. Re-running after the owner
+update yields no prompt migration.
+
+The safe boundaries are owner-derived, never caller booleans: a heartbeat sees
+the new prompt only at its next scheduled wake, while already-running configured
+roles receive a `thread-route-gate` receipt for purpose `role-refresh` and load
+the verified release at the next role-message boundary. Existing in-progress
+instruction bytes are unchanged. Consumers must re-run the planner at the
+write boundary and verify the owner view afterward; the plan is a currentness-
+bound action projection, not an automation writer or durable release grant.
+
 ## Independent acceptance and optional release-owner evidence
 
 The signed `software-factory-release-acceptance` is the exact independent
