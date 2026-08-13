@@ -184,7 +184,7 @@ make their composition automatic and fail closed.
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
-| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
+| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
@@ -599,7 +599,7 @@ Stop before updating a running supervisor.
 
 ## Block 3 — Implement stable-channel safe-boundary supervisor refresh
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -665,7 +665,60 @@ Field-preservation and mid-action deferral regressions plus exact automation vie
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `d2bf8316933ffc8acd98e3b52aa4d399828d8bff` /
+  tree `0d5d6ba2451201c92748f1e8e7c65dc0add8271e`.
+- Inputs: exact canonical Block 2 promotion record, owner-current active
+  release/source/installed roots, current policy/event head, policy-bound runtime
+  roles and automation IDs, and owner-read automation TOML bytes.
+- Outputs: `software-factory-supervisor-refresh-plan` returns an exact rooted
+  plan containing one full field-preserving Codex automation-owner update per
+  maintained pinned prompt, already-current/paused/manual-pin classifications,
+  and one `role-refresh` action per configured running role.
+- Safe-boundary result: automation prompt replacement takes effect only on the
+  next scheduled wake; running roles receive the new release only at the next
+  message boundary. No code is replaced underneath an active role turn.
+- State preservation: every automation field other than prompt and owner-written
+  update time is retained exactly. Mission, policy/event history, range,
+  dependency-safe frontier, cursors, incidents, Gmail bindings, schedules,
+  models, target/role identities, and status remain owned by their existing
+  canonical sources and are rehydrated on every wake.
+- Focused validation: orchestration/refresh `15/15` plus the stable-channel
+  documentation contract `1/1` under maintained Python 3.14; changed files
+  compile and `git diff --check` passes.
+- Mapped validation: `test_supervision_log.py` `299/299` under maintained Python
+  3.14.
+- Negative regressions: foreign automation role, mixed release identities,
+  unsupported copied authority, stale active release/root, and inconsistent
+  manual pin reject. Stable prompts are no-ops; paused and explicit manual pins
+  remain held.
+- Product-capability review:
+  - Trigger: consequential live-supervisor operating-model change.
+  - Frame identity: this tracker, Block 3, SHA-256
+    `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`.
+  - Capability added or preserved: compatible supervisors follow the verified
+    stable release at an actual runtime boundary without prompt-owned mission or
+    range state.
+  - Paths compared: per-release prompt rewrites; direct supervisor pointer
+    writes; one field-preserving automation-owner migration plus stable-channel
+    and role-refresh consumption.
+  - Selected level and owner: the existing Codex automation owner plus canonical
+    `role-refresh` gate; this is the smallest path that preserves identities and
+    avoids a second release or scheduler authority.
+  - Protected-capability result: mission/range/cursor/incident/Gmail/schedule/
+    model state remains unchanged and current; explicit pinning remains possible.
+  - Rejected alternatives: per-release churn copies stale authority; supervisor
+    pointer writes violate single-writer release ownership.
+  - Tradeoffs and uncertainty: only maintained current prompt shapes are
+    migrated; unsupported shapes reject rather than receive generic legacy
+    compatibility.
+  - Frozen-candidate proof: `d2bf8316933ffc8acd98e3b52aa4d399828d8bff`,
+    focused `16/16`, mapped `299/299`.
+- Retained open work: health verification, rollback/restoration, and applied live
+  automation-owner receipts remain owned by Blocks 4 and 7.
+- Post-block audit: accepted. The implementation stops before claiming post-
+  refresh health or rollback success.
+- Git durability: `d2bf831` and this evidence successor are pushed without
+  history rewrite to `origin/codex/autonomous-accepted-release-final`.
 
 ### Stop
 
