@@ -294,6 +294,16 @@ class TerminalReportUnitTests(unittest.TestCase):
                 self.assertGreaterEqual(len(reader.pages), 3)
                 self.assertIn(expected, text)
 
+    def test_gmail_attachment_id_accepts_provider_owned_opaque_length(self) -> None:
+        provider_id = "A" * 512
+        self.assertEqual(
+            supervision_log.gmail_attachment_id(provider_id), provider_id
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "Invalid Gmail attachment ID"
+        ):
+            supervision_log.gmail_attachment_id("not a provider id")
+
 
 class TerminalReportIntegrationTests(unittest.TestCase):
     def prepare_root(self, root: Path, *, bind_gmail: bool = True) -> Path:

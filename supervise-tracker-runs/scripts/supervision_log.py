@@ -1385,6 +1385,14 @@ def safe_id(value: str, *, label: str) -> str:
     return value
 
 
+def gmail_attachment_id(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"[A-Za-z0-9_-]{4,2048}", value
+    ):
+        raise SupervisionLogError("Invalid Gmail attachment ID")
+    return value
+
+
 def optional_safe_id(value: str | None, *, label: str) -> str | None:
     return safe_id(value, label=label) if value else None
 
@@ -15278,9 +15286,7 @@ def validate_terminal_gmail_readback(
         filename = str(item.get("filename", ""))
         if filename not in expected_attachments or filename in seen_names:
             raise SupervisionLogError("Terminal Gmail attachment filename differs")
-        attachment_id = safe_id(
-            str(item.get("attachment_id", "")), label="Gmail attachment ID"
-        )
+        attachment_id = gmail_attachment_id(str(item.get("attachment_id", "")))
         if attachment_id in seen_ids:
             raise SupervisionLogError("Terminal Gmail repeats an attachment ID")
         attachment_call = safe_id(
