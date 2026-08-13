@@ -1733,6 +1733,20 @@ class ImplementationRangeControlTests(unittest.TestCase):
             },
         )
         route_source = supervision_log.events(directory / "events.jsonl")[-1]
+        route_record_result = self.call(
+            "delegated-direct-authority-route-record",
+            "--target-thread",
+            self.target,
+            "--source-record",
+            str(route_source["record_id"]),
+            "--action",
+            request_text,
+        )
+        route_record = next(
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("record_id") == route_record_result["record_id"]
+        )
         source_bytes = request_text.encode("utf-8")
         provenance: dict[str, object] = {
             "schema_version": 1,
@@ -1759,6 +1773,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
             ),
             "route_source_record_id": route_source["record_id"],
             "route_source_record_sha256": route_source["record_sha256"],
+            "route_record_id": route_record["record_id"],
+            "route_record_sha256": route_record["record_sha256"],
             "route_action_sha256": supervision_log.digest(request_text),
             "route_projection_sha256": "",
         }
@@ -2285,6 +2301,13 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 **provenance,
                 "route_source_record_sha256": "d" * 64,
             },
+            "unowned-record": {
+                **provenance,
+                "route_record_id": provenance["route_source_record_id"],
+                "route_record_sha256": provenance[
+                    "route_source_record_sha256"
+                ],
+            },
         }
         for case, changed in cases.items():
             with self.subTest(case=case):
@@ -2303,6 +2326,45 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     )
                 for name, raw in before.items():
                     self.assertEqual((directory / name).read_bytes(), raw)
+
+    def test_delegated_route_owner_rejects_action_beyond_gate_ceiling(
+        self,
+    ) -> None:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"EVT-{len(current_events) + 1:06d}",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "mission-activation-route",
+                "status": "target-action-required",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": ["origin-user-item-5678"],
+            },
+        )
+        route_source = supervision_log.events(directory / "events.jsonl")[-1]
+        before = (directory / "events.jsonl").read_bytes()
+        long_action = "implement this tracker; " + ("context " * 40)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "required action exceeds 240 characters",
+        ):
+            self.call(
+                "delegated-direct-authority-route-record",
+                "--target-thread",
+                self.target,
+                "--source-record",
+                str(route_source["record_id"]),
+                "--action",
+                long_action,
+            )
+
+        self.assertEqual((directory / "events.jsonl").read_bytes(), before)
 
     def test_stale_or_ambiguous_receipt_rejects_fresh_admission(
         self,

@@ -41,7 +41,7 @@ direct-user source already ingested as a hash-chained canonical owner event
 with independently verified task/item provenance; the range helper may resolve
 that event but cannot create it. A helper-validated delegated-authority event
 and current receipt preserve the original direct-user source through the
-system's target-action route and are consumed as that exact source, without
+system's owner-produced target-action route result and are consumed as that exact source, without
 asking the user to repeat it. A caller string, tracker edit, routed supervisor
 packet, unbound `codex_delegation`,
 task/run/group boundary, handoff, reviewer statement, commit, push, or process

@@ -497,7 +497,7 @@ reserved deferrals, safe frontier, and application posture.
   a supervisor steer, unbound `codex_delegation`, or derived inference cannot
   create it. A helper-validated delegated-authority event and current receipt
   carry the exact independently verified originating direct-user authority
-  through the system's own target-action route; execute that bounded source
+  through the system's owner-produced target-action route result; execute that bounded source
   without asking the user to repeat it, and never expand it from the routing
   packet. Goal-blocking or goal-reversing posture requires commensurate direct
   authority plus an independent mission-level challenge.
@@ -834,7 +834,7 @@ hidden reasoning into the review.
 - At admission, distinguish an unbound internal packet from a canonical
   delegated-authority envelope. The former cannot create scope. The latter
   preserves exact originating user bytes, current mission/policy, the canonical
-  target-action route source/projection, and independent acceptance; ingest and
+  owner-produced target-action route result/source/projection, and independent acceptance; ingest and
   receipt it through the existing owner, bind the full tracker, and start its
   first safe Block automatically. No same-thread repetition or manual Resume is
   permitted.
