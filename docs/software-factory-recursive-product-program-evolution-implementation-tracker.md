@@ -436,7 +436,7 @@ the mapped dependency closure of a concrete current defect.
 |---:|---|---:|---|
 | 0 | Freeze the recursive product-program evolution contract | — | `accepted` |
 | 1 | Build the fourth skill and deterministic program-evidence packet | 0 | `accepted` |
-| 2 | Add self-reflection and divergent future-work generation | 1 | `not-started` |
+| 2 | Add self-reflection and divergent future-work generation | 1 | `accepted` |
 | 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `not-started` |
 | 4 | Select, budget, schedule, and place one program portfolio | 2, 3 | `not-started` |
 | 5 | Apply tracker evolution and authoring-readiness handoff | 4 | `not-started` |
@@ -765,7 +765,7 @@ Stop before interpreting the packet or proposing work.
 
 ## Block 2 — Add self-reflection and divergent future-work generation
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -841,7 +841,86 @@ over-architecture, missing alternatives, and generator self-selection.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `5d3df57e5d04e50c30bbd0fb98ff855b75f048e6`;
+  tree `70928e1eade36eb84c1b7ca2fdced3d0ff621d12`.
+- External/domain revision or root: not applicable; Block 2 produced only the
+  source skill, derived reflection artifacts, and tests. It performed no tracker
+  application, implementation dispatch, supervision mutation, release,
+  automation, message, or external effect.
+- Inputs: accepted Block 1 packet owner at `e9d0a6b`; exact reflection packet
+  fixture SHA-256
+  `9031e46cc6dcfe50e3a64da983f5ce34a0c85fa1257c72d8bd66d9547110b0bd`;
+  hash-bound concrete product/program inventory SHA-256
+  `907b281fab327cca700019ff6883bbf2c312a49dc0e9dd2b19de49517f09051b`.
+- Outputs: reflection CLI SHA-256
+  `6569741d7256ccbfcf0ea867598f6d49ada4ccea443668974632a35f010af1c8`;
+  reflection contract SHA-256
+  `1d997e8e8c670031bbcef5912aedbb4d1f20bb73cbde65d0440a5a012faa9f06`;
+  independently reviewed positive/contrary/no-op artifact SHA-256 values
+  `5d784a97310f0882e25f2b604317af41044958672aa2ac142eb1ed82b75c5392`,
+  `80ded9876603494b9e467fb2c1167220477db2836eec0b57706b6e0490ad02a1`,
+  and `db1804c400c2722bdce7bbdb3bf8c5d742f7fedff84e1b8a60f000b4265ea722`.
+- Focused validation: `/usr/bin/python3 -m unittest discover -s
+  evolve-product-program/scripts -p 'test_*.py'` — 31/31 Block 0–2 tests
+  passed; `py_compile`, skill `quick_validate.py`, three retained fixture
+  verifications, full CLI build/review/verify/reuse, and `git diff --check`
+  passed.
+- Mapped validation: exact one-pass/candidate ceilings, diverse/no-change paths,
+  concrete evidence-linked behavior/user/feature/capability and seven-state
+  tracker inventory, report-only/dangling evidence rejection, observation to
+  lesson to meta-pattern to gap reachability, per-gap transitive closure,
+  contrary retention, distinct roles, independent semantic acceptance, stale
+  root rejection, and zero-model-call exact reuse were exercised.
+- Candidate freeze: initial `e525ff7` was rejected; remediation `0d9f751` and
+  `3eba462` were rejected with narrower residuals; exact successor `5d3df57` was
+  pushed and remained clean throughout the final independent review.
+- Remediation closure: exact inventory records replace asserted role labels;
+  every tracker state is present once, evidence-backed, and cross-state unique;
+  candidate users/capabilities resolve to the inventory; every changed ladder is
+  closed transitively; contrary records remain visible; and lexical checks are
+  backed by an exact independent semantic receipt whose reviewer is distinct
+  from generator, selector, author, implementer, and evaluator.
+- Resource posture: one bounded high-resolution generation pass, at most one
+  counterexample widening pass, candidate ceiling 1–12, one exact independent
+  semantic review, constant-root reuse with zero model calls, and no prospective
+  selection/budget/scheduling work.
+- Independent review: `/root/block2_review` rejected exact `e525ff7`, `0d9f751`,
+  and `3eba462`, then accepted exact
+  `5d3df57e5d04e50c30bbd0fb98ff855b75f048e6` with no findings; the final pass
+  reproduced cross-state uniqueness, manifest length/hash binding, concrete
+  inventory, semantic-review, authority, and transitive-ladder probes, with
+  31/31 tests and exact upstream equality.
+- Product-capability review:
+  - Trigger: consequential semantic reflection/candidate-generation capability.
+  - Capability added or preserved: evidence-bound reflection over actual product
+    behavior, features, users, capabilities, all tracker states, contrary
+    evidence, and a mandatory no-change alternative.
+  - Paths compared: opaque role assertions; generator-only lexical prohibition;
+    concrete inventories plus an exact independent semantic receipt.
+  - Selected level and owner: the concrete bounded reflection owner inside
+    `evolve-product-program`, with semantic acceptance separate from generator
+    and all future selection/application owners.
+  - Protected-capability result: direct mission, current work, exact lifecycle
+    inventory, contrary evidence, no-change, and nonauthorizing status are
+    preserved and mechanically/adversarially covered.
+  - Rejected alternatives: opaque labels cannot prove actual inventory;
+    blacklist-only prose checks cannot prove divergent intent; a generator-owned
+    acceptance bit would be self-review.
+  - Tradeoffs and uncertainty: exact inventory schemas are deliberately rigid
+    and semantic review costs one bounded independent pass; later Blocks alone
+    may measure resources and select a portfolio.
+  - Frozen-candidate proof: exact `5d3df57`, focused 31/31, independent ACCEPTED.
+- Retained open work: outcome/resource/useful-yield evidence remains Block 3;
+  ranking, budgets, scheduling, and placement remain Block 4; Blocks 5 onward
+  remain outside the active implementation range.
+- Decision/continuation posture: accept Block 2 and enter the direct-user
+  selection-quality tracker-amendment boundary before Block 3; no manual Resume.
+- Post-block audit: accepted; candidate sets are diverse when supported, contain
+  contrary and no-change evidence, remain mission-contained, and cannot verify
+  or reuse without exact independent non-selection acceptance.
+- Git durability: Block 2 commits `e525ff7`, `0d9f751`, `3eba462`, and `5d3df57`
+  are pushed on `codex/product-program-evolution-blocks-0-4` to its matching
+  `origin` upstream.
 
 ### Stop
 
