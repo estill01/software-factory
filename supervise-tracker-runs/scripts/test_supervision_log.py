@@ -1474,6 +1474,57 @@ class PolicyHistoryCompatibilityTests(unittest.TestCase):
             ("semantically-forged", semantically_forged, "invalid embedded policy")
         )
 
+        type_confused_reply = self.history()
+        for index in (7, 8):
+            type_confused_reply[index]["policy"]["notifications"]["gmail"][
+                "reply_message_id"
+            ] = 1234
+            self.rehash(type_confused_reply[index]["policy"])
+        cases.append(
+            ("type-confused-reply", type_confused_reply, "invalid embedded policy")
+        )
+
+        type_confused_project = self.history()
+        type_confused_project[8]["policy"]["notifications"]["gmail"][
+            "project_key"
+        ] = True
+        self.rehash(type_confused_project[8]["policy"])
+        cases.append(
+            (
+                "type-confused-project",
+                type_confused_project,
+                "invalid embedded policy",
+            )
+        )
+
+        type_confused_subject = self.history()
+        for index in (7, 8):
+            type_confused_subject[index]["policy"]["notifications"]["gmail"][
+                "subject"
+            ] = 1234
+            self.rehash(type_confused_subject[index]["policy"])
+        cases.append(
+            (
+                "type-confused-subject",
+                type_confused_subject,
+                "invalid embedded policy",
+            )
+        )
+
+        malformed_permissions = self.history()
+        for index in (7, 8):
+            malformed_permissions[index]["policy"]["permissions"] = [
+                "gmail_self_notification"
+            ]
+            self.rehash(malformed_permissions[index]["policy"])
+        cases.append(
+            (
+                "malformed-permissions",
+                malformed_permissions,
+                "invalid embedded policy",
+            )
+        )
+
         current_incompatible = self.history()
         current_incompatible[-1]["policy"]["notifications"]["gmail"] = copy.deepcopy(
             current_incompatible[7]["policy"]["notifications"]["gmail"]

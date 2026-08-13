@@ -1703,14 +1703,20 @@ def legacy_primary_gmail_project_scope_upgrade(
         "thread_scope",
     }:
         return False
+    reply_message_id = predecessor_gmail.get("reply_message_id")
     project_key = successor_gmail.get("project_key")
+    subject = predecessor_gmail.get("subject")
+    permissions = predecessor.get("permissions")
+    if (
+        not isinstance(reply_message_id, str)
+        or not isinstance(project_key, str)
+        or not isinstance(subject, str)
+        or not isinstance(permissions, Mapping)
+    ):
+        return False
     try:
-        safe_id(
-            str(predecessor_gmail.get("reply_message_id", "")),
-            label="Gmail reply message ID",
-        )
-        safe_id(str(project_key or ""), label="Gmail monitored project key")
-        subject = str(predecessor_gmail.get("subject", ""))
+        safe_id(reply_message_id, label="Gmail reply message ID")
+        safe_id(project_key, label="Gmail monitored project key")
         if not subject or clean(subject, label="Gmail subject", maximum=160) != subject:
             return False
     except SupervisionLogError:
@@ -1720,7 +1726,7 @@ def legacy_primary_gmail_project_scope_upgrade(
         or predecessor_gmail.get("recipient") != "me"
         or predecessor_gmail.get("delivery_policy")
         != "material-alerts-and-new-evidence-meta-digest"
-        or predecessor.get("permissions", {}).get("gmail_self_notification") is not True
+        or permissions.get("gmail_self_notification") is not True
         or successor_gmail.get("thread_scope") != "monitored-project"
         or successor.get("policy_version") != predecessor.get("policy_version", 0) + 1
     ):
