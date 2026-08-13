@@ -438,7 +438,7 @@ the mapped dependency closure of a concrete current defect.
 | 1 | Build the fourth skill and deterministic program-evidence packet | 0 | `accepted` |
 | 2 | Add self-reflection and divergent future-work generation | 1 | `accepted` |
 | 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `accepted` |
-| 4 | Select, budget, schedule, and place one program portfolio | 2, 3 | `not-started` |
+| 4 | Select, budget, schedule, and place one program portfolio | 2, 3 | `accepted` |
 | 5 | Apply tracker evolution and authoring-readiness handoff | 4 | `not-started` |
 | 6 | Invoke evolution from implementation boundaries | 5 | `not-started` |
 | 7 | Supervise evolution and consequential tracker authoring | 5 | `not-started` |
@@ -1035,7 +1035,7 @@ Stop before choosing a candidate or allocating a portfolio budget.
 
 ## Block 4 — Select, budget, schedule, and place one program portfolio
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -1112,7 +1112,39 @@ resource overrun, mission drift, current-work starvation, and selector conflicts
 
 ### Completion evidence
 
-Pending.
+Accepted at exact pushed source commit
+`942308bd54ef237a890371f0a4cf7fdd3815ea27`. The implementation adds the
+deterministic selection/portfolio/handoff CLI, exact retained operator-capacity
+manifest, separate comparison dimensions, rejected-alternative partition,
+bounded lane DAG and topological schedule, fixed owner placement, exact
+consequential adjudication receipt, direct-authority escalation premise,
+safe-deferral candidate/revisit preservation, nonauthorization boundary,
+committed fixture, reference contract, and focused tests under the
+`evolve-product-program` owner.
+
+Focused Block 4 proof passed `20/20`; the complete accepted Blocks 0–4
+regression passed `67/67`, plus all tracked Python `py_compile`, exact CLI
+build/verify/reuse, zero-model-call/no-cognition reuse, skill
+`quick_validate.py`, and `git diff --check`. Exact CLI proof matched selection
+root `bb47e809b47a510f2f96d7bea209192c58bb4e702adbd49b496b1c8aae40be11`,
+portfolio root `900b88aac92c70199fcda4dddba2ebbea927bd84c53479b58f3ae2bea9b8462d`,
+and handoff root `6a94546a2e78053478f2d7d89f6bb8f771101bc3bf5ccbd7c118b8417139645d`.
+
+The initial exact candidate `9e7da3ca40d9fbb08c588909b1bcc1c689198cc6`
+was independently rejected for caller-asserted capacity, suppressible/unbound
+adjudication, unbound lane owners, non-topological/duplicate schedules,
+duplicate rejected rows, and unsupported material-goal escalation. Successor
+`5d828ecf79d2704177d25c0dfd6a091ce14f2c23` closed those findings but was
+rejected because safe deferral could discard its candidate/revisit trigger.
+Successor `60f919fb6b50afbf05899118a76356cad2a52140` preserved both, but its
+consequential review root omitted the revisit trigger. Final successor
+`942308bd54ef237a890371f0a4cf7fdd3815ea27` bound that trigger into the exact
+reviewed input. Independent re-review by `/root/block0_review` accepted the
+exact final successor with no findings after adversarial mutation proof and
+exact local/upstream equality. The complete Block 4 delta remains confined to
+six `evolve-product-program`-owned files; the shared authoring paths retain an
+empty `2989340..HEAD` diff and the rejected `.program-revision` evidence remains
+preserved and excluded under `EVT-000026`.
 
 ### Stop
 
