@@ -185,7 +185,7 @@ make their composition automatic and fail closed.
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
-| 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
+| 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
@@ -728,7 +728,7 @@ Stop before declaring refresh health or rollback success.
 
 ## Block 4 — Verify health and recover through release-owner rollback
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -789,7 +789,48 @@ Failure injection at each transition and exact recovery review.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `262b3d6f1d537f21f03278763305182c5457854a` /
+  tree `853b9bab42a01c159a4246495c157f9b365d393b`.
+- Inputs: exact canonical promotion record including prior/active release
+  identities, owner-current release status, current automation-owner bytes,
+  policy-bound automation/role IDs, current implementation range, and governing
+  control posture.
+- Outputs: `software-factory-supervisor-refresh-health` waits while owner updates
+  remain pending, records one rooted `verified` health receipt after installed
+  roots/stable links/automation definitions/control posture reconcile, or asks
+  `scripts/skill_release.py rollback <prior-release>` to restore the exact prior
+  release and records one rooted `rolled-back` receipt.
+- Owner boundary: supervision never writes the global release pointer. Promotion,
+  status, and rollback are invoked only through the existing release owner; the
+  returned prior-release installed roots and fresh live status must agree.
+- Interruption and retry: a completed rollback observed before receipt append is
+  rehydrated from owner status and recorded without a second rollback. Verified
+  and rolled-back receipts deduplicate by exact promotion/outcome; pending
+  automation migration creates no premature health record.
+- Focused validation: release orchestration/refresh/health `19/19` under
+  maintained Python 3.14; changed Python files compile and `git diff --check`
+  passes.
+- Mapped validation: `test_supervision_log.py` `303/303` under maintained Python
+  3.14.
+- Negative regressions: partial/divergent owner rollback result, unrelated active
+  release, foreign automation role, changed installed roots, duplicate health,
+  and a failed refresh without an eligible predecessor reject.
+- Product-capability review:
+  - Trigger: consequential automatic recovery after live refresh.
+  - Capability added or preserved: a refresh converges to either the verified
+    promoted release or the verified prior release without split binding.
+  - Paths compared: direct supervisor rollback; parallel rollback service;
+    orchestration through the single existing release owner.
+  - Selected owner: the existing flagless release primitive, with supervision
+    limited to currentness validation, request, receipt, and restoration refresh.
+  - Protected-capability result: release history, stable links, mission, policy,
+    range, cursor, and automation ownership remain intact.
+- Retained open work: terminal completion shutdown is Block 5; integrated freeze,
+  independent review, promotion, and live effectiveness are Blocks 6–7.
+- Post-block audit: accepted. The implementation stops before claiming final
+  integrated promotion or live automation migration.
+- Git durability: `262b3d6` and this evidence successor are pushed without
+  history rewrite to `origin/codex/autonomous-accepted-release-final`.
 
 ### Stop
 
