@@ -393,7 +393,6 @@ MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
 MAX_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 MAX_LEGACY_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
-IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "tracker_sha256",
     "tracker_source_record",
@@ -1688,7 +1687,78 @@ def policy_material(policy: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in policy.items() if key != "policy_sha256"}
 
 
-def validate_policy(policy: dict[str, Any]) -> None:
+def legacy_primary_gmail_project_scope_upgrade(
+    predecessor: Mapping[str, Any], successor: Mapping[str, Any]
+) -> bool:
+    predecessor_notifications = predecessor.get("notifications")
+    successor_notifications = successor.get("notifications")
+    if not isinstance(predecessor_notifications, Mapping) or not isinstance(
+        successor_notifications, Mapping
+    ):
+        return False
+    predecessor_gmail = predecessor_notifications.get("gmail")
+    successor_gmail = successor_notifications.get("gmail")
+    if not isinstance(predecessor_gmail, Mapping) or not isinstance(
+        successor_gmail, Mapping
+    ):
+        return False
+    legacy_keys = {
+        "delivery_policy",
+        "enabled",
+        "recipient",
+        "reply_message_id",
+        "subject",
+    }
+    if set(predecessor_gmail) != legacy_keys or set(successor_gmail) != legacy_keys | {
+        "project_key",
+        "thread_scope",
+    }:
+        return False
+    reply_message_id = predecessor_gmail.get("reply_message_id")
+    project_key = successor_gmail.get("project_key")
+    subject = predecessor_gmail.get("subject")
+    permissions = predecessor.get("permissions")
+    if (
+        not isinstance(reply_message_id, str)
+        or not isinstance(project_key, str)
+        or not isinstance(subject, str)
+        or not isinstance(permissions, Mapping)
+    ):
+        return False
+    try:
+        safe_id(reply_message_id, label="Gmail reply message ID")
+        safe_id(project_key, label="Gmail monitored project key")
+        if not subject or clean(subject, label="Gmail subject", maximum=160) != subject:
+            return False
+    except SupervisionLogError:
+        return False
+    if (
+        predecessor_gmail.get("enabled") is not True
+        or predecessor_gmail.get("recipient") != "me"
+        or predecessor_gmail.get("delivery_policy")
+        != "material-alerts-and-new-evidence-meta-digest"
+        or permissions.get("gmail_self_notification") is not True
+        or successor_gmail.get("thread_scope") != "monitored-project"
+        or successor.get("policy_version") != predecessor.get("policy_version", 0) + 1
+    ):
+        return False
+
+    expected = dict(predecessor)
+    expected_notifications = dict(predecessor_notifications)
+    expected_gmail = dict(predecessor_gmail)
+    expected_gmail.update(
+        {"project_key": project_key, "thread_scope": "monitored-project"}
+    )
+    expected_notifications["gmail"] = expected_gmail
+    expected["notifications"] = expected_notifications
+    for key in ("policy_version", "policy_sha256", "updated_at"):
+        expected[key] = successor.get(key)
+    return expected == successor
+
+
+def validate_policy(
+    policy: dict[str, Any], *, historical_successor: Mapping[str, Any] | None = None
+) -> None:
     expected = digest(policy_material(policy))
     if policy.get("policy_sha256") != expected:
         raise SupervisionLogError("Supervision policy hash is stale")
@@ -1861,11 +1931,15 @@ def validate_policy(policy: dict[str, Any]) -> None:
         identity_values = [
             gmail.get(key) for key in ("project_key", "reply_message_id", "subject")
         ]
-        # Policies written before terminal delivery became a default may carry
-        # a partial legacy alert binding.  Preserve those immutable history
-        # entries; the current policy becomes strict when bind enables the
-        # terminal lane.
-        if terminal_enabled is True and any(identity_values) and not all(identity_values):
+        # Preserve the one exact legacy project-scope upgrade only when the
+        # immediately following canonical policy proves that transition.
+        # Current policies and standalone historical inputs remain strict.
+        if any(identity_values) and not all(identity_values) and not (
+            historical_successor is not None
+            and legacy_primary_gmail_project_scope_upgrade(
+                policy, historical_successor
+            )
+        ):
             raise SupervisionLogError("Primary Gmail binding is incomplete")
         if (gmail.get("enabled") is True or terminal_enabled is True) and policy.get(
             "permissions", {}
@@ -3147,8 +3221,16 @@ def validate_policy_history_sequence(
             raise SupervisionLogError(
                 "Canonical policy history sequence or owner differs"
             )
+        next_embedded = (
+            history[index].get("policy") if index < len(history) else None
+        )
         try:
-            validate_policy(dict(embedded))
+            validate_policy(
+                dict(embedded),
+                historical_successor=(
+                    next_embedded if isinstance(next_embedded, Mapping) else None
+                ),
+            )
         except SupervisionLogError as exc:
             raise SupervisionLogError(
                 "Canonical policy history contains an invalid embedded policy"
@@ -8228,20 +8310,51 @@ def implementation_tracker_snapshot(
     if len(heading_values) != len(headings):
         raise SupervisionLogError("Implementation tracker repeats a Block heading")
     rows: dict[int, dict[str, Any]] = {}
-    for line in text.splitlines():
-        match = IMPLEMENTATION_TABLE_ROW.match(line)
-        if match is None:
+    table_columns: dict[str, int] | None = None
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not line.strip().startswith("|"):
+            table_columns = None
             continue
-        number = int(match.group(1))
         cells = [item.strip().strip("`") for item in line.strip().strip("|").split("|")]
-        if len(cells) < 4 or number not in headings:
+        headers = [item.casefold() for item in cells]
+        required_headers = ("block", "scope", "depends on", "status")
+        if all(headers.count(header) == 1 for header in required_headers):
+            if index + 1 >= len(lines):
+                continue
+            separators = [
+                item.strip()
+                for item in lines[index + 1].strip().strip("|").split("|")
+            ]
+            if len(separators) != len(cells) or not all(
+                re.fullmatch(r":?-{3,}:?", item) for item in separators
+            ):
+                continue
+            table_columns = {header: headers.index(header) for header in required_headers}
+            continue
+        if table_columns is None:
+            continue
+        required_width = max(table_columns.values()) + 1
+        if len(cells) < required_width:
+            continue
+        block_value = cells[table_columns["block"]]
+        if re.fullmatch(r"\d+", block_value) is None:
+            continue
+        number = int(block_value)
+        if number not in headings:
             continue
         if number in rows:
             raise SupervisionLogError("Implementation tracker repeats a status row")
+        status = cells[table_columns["status"]]
+        if status == "complete":
+            status = "completed"
         rows[number] = {
-            "scope": cells[1],
-            "dependencies": [int(item) for item in re.findall(r"\d+", cells[2])],
-            "status": cells[3],
+            "scope": cells[table_columns["scope"]],
+            "dependencies": [
+                int(item)
+                for item in re.findall(r"\d+", cells[table_columns["depends on"]])
+            ],
+            "status": status,
         }
     missing = sorted(headings - set(rows))
     if missing or not rows:
