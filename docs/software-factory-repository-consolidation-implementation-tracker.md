@@ -231,7 +231,7 @@ accepted owner supersedes them.
 | 3 | Integrate accepted product-program work and future tracker sources | 2 | `completed` |
 | 4 | Validate and independently review the unified candidate | 3 | `completed` |
 | 5 | Publish canonical main and reconcile the installed release | 4 | `completed` |
-| 6 | Prune stale branches, worktrees, and pull-request residue | 5 | `not-started` |
+| 6 | Prune stale branches, worktrees, and pull-request residue | 5 | `completed` |
 | 7 | Recreate clean lanes and resume intended remaining work | 6 | `not-started` |
 | 8 | Verify the repository-wide steady state | 7 | `not-started` |
 
@@ -981,7 +981,7 @@ Stop before removing a branch or worktree.
 
 ## Block 6 — Prune stale branches, worktrees, and pull-request residue
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1045,7 +1045,47 @@ before the first deletion. Re-run inventory after cleanup.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: cleanup was performed only after published `main`
+  `2e4e8fe5f04c24350568a3d45b441fbc53ba4568`; this tracker-only successor
+  records the resulting topology.
+- External/domain revision or root: GitHub has only `refs/heads/main` at
+  `2e4e8fe5f04c24350568a3d45b441fbc53ba4568`; no open pull request exists.
+- Inputs: 38 clean registered worktrees, 33 local feature branches, 23 remote
+  feature branches, 18 completed/superseded Software Factory tasks and helper
+  roles, and six paused obsolete heartbeat automations.
+- Outputs: the 37 non-primary worktrees were removed; every local and remote
+  feature branch was deleted; the primary checkout is the sole worktree on
+  `main`; the 18 stale tasks are archived and the six stale automations are
+  deleted.
+- Focused validation: immediately before removal, every worktree was rechecked
+  clean and its exact HEAD was proven an ancestor of `main`; immediately before
+  each ref deletion, its exact tip was proven an ancestor of `main`. No force
+  option, reset, history rewrite, or broad filesystem deletion was used.
+- Mapped validation: `git fetch --prune origin`, `git ls-remote --heads origin`,
+  local/remote `for-each-ref`, `git worktree list --porcelain`, and clean status
+  now report only the primary `main` line and worktree.
+- Candidate freeze: every removed tip remains reachable through the canonical
+  main graph, including archival-only and unaccepted-candidate parents.
+- Remediation closure: three branch-dependent generated dashboard directories
+  became visible when the primary checkout switched to `main`. Reproducible
+  `node_modules` (263 MiB), `dist` (1.3 MiB), and `test-results` (4 KiB) were
+  moved recoverably to timestamped paths in the macOS Trash; source remained
+  clean.
+- Resource posture: repository topology is reduced to one branch and one
+  worktree until Block 7 proves a dependency-safe successor lane is useful.
+- Independent review: Block 4's independent combined-source review established
+  the preservation set. The required second read-only deletion review rebuilt
+  the complete ref/worktree manifest from published main and found zero dirty
+  or unpreserved targets before the first deletion.
+- Retained open work: no stale lane remains. Substantive intended work is
+  retained in canonical tracker files and assigned in Block 7.
+- Decision/continuation posture: safe to create at most one fresh eligible
+  implementation lane from current main; dependency-blocked lanes remain
+  dormant with explicit triggers.
+- Post-block audit: accepted; primary repository is clean on `main`, with one
+  worktree and no feature ref locally or remotely.
+- Git durability: all removed tips were already ancestors of pushed main; task
+  archiving and Trash moves are recoverable.
 
 ### Stop
 
