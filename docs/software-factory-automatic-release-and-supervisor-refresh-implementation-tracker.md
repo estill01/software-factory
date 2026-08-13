@@ -185,7 +185,7 @@ make their composition automatic and fail closed.
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
-| 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
+| 4 | Verify health and recover through release-owner rollback | 3 | `in-progress` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
@@ -849,7 +849,7 @@ Stop before declaring refresh health or rollback success.
 
 ## Block 4 — Verify health and recover through release-owner rollback
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
