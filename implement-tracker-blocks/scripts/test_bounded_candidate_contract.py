@@ -1529,7 +1529,10 @@ def validate_accepted_source_manifest(repo_root: Path) -> None:
             raise ValueError("accepted source path escapes repository") from error
         if path.is_symlink() or resolved != repo_root.resolve(strict=True) / relative or not path.is_file():
             raise ValueError("accepted source path differs")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+        live_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        if live_sha256 != expected_sha256 and not (
+            git_available and relative == tracker_relative
+        ):
             raise ValueError("accepted source content changed")
         frozen = subprocess.run(
             [GIT_EXECUTABLE, "show", f"{source_revision}:{relative}"],

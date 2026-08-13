@@ -39,6 +39,18 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Provenance-bound authority across internal task routing.** A direct-user
+  implementation instruction no longer loses its actionable authority merely
+  because Software Factory carries it to the configured target through
+  `codex_delegation`. The canonical delegation envelope binds the original
+  task/turn/item and exact bytes, current target mission and policy, the exact
+  target-action route source and deterministic route projection, and an
+  independent base-or-Max acceptance before the existing authority event,
+  receipt, and range owner consume it. The recipient starts the full-tracker
+  range automatically without a same-thread repetition or manual Resume.
+  Unbound internal packets, changed route/action/source evidence, supervisor
+  language, and scope expansion remain nonauthorizing.
+
 - **Automated, self-checking local skill promotion.** Ordinary updates to the
   three Software Factory skills now use one `promote` command over an exact
   clean commit. The release owner runs the four repository-owned test suites,

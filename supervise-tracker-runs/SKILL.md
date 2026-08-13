@@ -501,8 +501,12 @@ reserved deferrals, safe frontier, and application posture.
 - Preserve mission root, authority provenance, and non-scalar mission impact
   unchanged through every decision transition. `reserved-authority` may cite
   only an exact applicable direct-user, system, repository, or tracker source;
-  a supervisor steer, `codex_delegation`, or derived inference cannot create
-  it. Goal-blocking or goal-reversing posture requires commensurate direct
+  a supervisor steer, unbound `codex_delegation`, or derived inference cannot
+  create it. A helper-validated delegated-authority event and current receipt
+  carry the exact independently verified originating direct-user authority
+  through the system's own target-action route; execute that bounded source
+  without asking the user to repeat it, and never expand it from the routing
+  packet. Goal-blocking or goal-reversing posture requires commensurate direct
   authority plus an independent mission-level challenge.
 - Use only `scripts/supervision_log.py` for supervisor filesystem writes. Never
   place patent prose, project paths, credentials, prompts, or copied tool output
@@ -839,6 +843,13 @@ hidden reasoning into the review.
   handoff, push, and final-response boundaries never imply completion. A Block
   Stop inside a full-tracker request is an audit checkpoint, never a user-return
   boundary.
+- At admission, distinguish an unbound internal packet from a canonical
+  delegated-authority envelope. The former cannot create scope. The latter
+  preserves exact originating user bytes, current mission/policy, the canonical
+  target-action route source/projection, and independent acceptance; ingest and
+  receipt it through the existing owner, bind the full tracker, and start its
+  first safe Block automatically. No same-thread repetition or manual Resume is
+  permitted.
 - Treat the content-minimized `control_posture_replay_v1.json` fixture and its
   finite state matrix as the demonstrated convergence baseline for this failure
   family. Replay it through the public `control-posture-gate`: an open or

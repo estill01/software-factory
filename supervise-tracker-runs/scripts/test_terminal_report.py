@@ -299,10 +299,13 @@ class TerminalReportUnitTests(unittest.TestCase):
         self.assertEqual(
             supervision_log.gmail_attachment_id(provider_id), provider_id
         )
-        with self.assertRaisesRegex(
-            supervision_log.SupervisionLogError, "Invalid Gmail attachment ID"
-        ):
-            supervision_log.gmail_attachment_id("not a provider id")
+        for invalid in ("not a provider id", "A" * 2049):
+            with self.subTest(invalid_length=len(invalid)):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "Invalid Gmail attachment ID",
+                ):
+                    supervision_log.gmail_attachment_id(invalid)
 
     def test_automation_owner_root_is_codex_runtime_state(self) -> None:
         self.assertEqual(
@@ -612,6 +615,31 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
                 "attachment read-back differs",
+            ):
+                supervision_log.cmd_terminal_report_delivery(args)
+
+    def test_delivery_rejects_duplicate_provider_attachment_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            receipt = json.loads(
+                base64.b64decode(gmail_readback(verified=verified, policy=policy))
+            )
+            receipt["attachments"][1]["attachment_id"] = receipt["attachments"][0][
+                "attachment_id"
+            ]
+            args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=base64.b64encode(
+                    json.dumps(receipt, separators=(",", ":")).encode()
+                ).decode(),
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "repeats an attachment ID",
             ):
                 supervision_log.cmd_terminal_report_delivery(args)
 

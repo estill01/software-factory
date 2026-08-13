@@ -217,10 +217,10 @@ Stop after exact review.
         }
 
     def range_contract(self) -> dict[str, object]:
-        request = "Implement this tracker."
+        request = "Implement this tracker!"
         authority = {
             "source_class": "direct-user",
-            "source_record": "direct-item-1234",
+            "source_record": "direct-range-item-1235",
             "source_sha256": hashlib.sha256(request.encode()).hexdigest(),
         }
         entry = supervision_log.implementation_range_history_entry(
@@ -609,16 +609,79 @@ Stop after exact review.
         output = io.StringIO()
         with redirect_stdout(output):
             supervision_log.cmd_init(args)
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        request_text = "Implement this tracker!"
+        request_bytes = request_text.encode("utf-8")
+        provenance: dict[str, object] = {
+            "schema_version": 1,
+            "kind": supervision_log.DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": self.target,
+            "source_task_id": self.target,
+            "source_turn_id": "direct-range-turn-1235",
+            "source_item_id": "direct-range-item-1235",
+            "source_kind": supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+            "source_text": request_text,
+            "source_byte_count": len(request_bytes),
+            "source_sha256": hashlib.sha256(request_bytes).hexdigest(),
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": "reviewer-1234",
+            "authorization_record_id": "EVT-000001",
+        }
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": provenance["authorization_record_id"],
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "meta-review",
+                "category": supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY,
+                "status": "accepted",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": supervision_log.direct_authority_review_evidence(
+                    provenance
+                ),
+            },
+        )
+        ingest_args = supervision_log.parser().parse_args(
+            [
+                "--root", str(self.root), "direct-authority-ingest",
+                "--target-thread", self.target,
+                "--provenance-base64", base64.b64encode(
+                    supervision_log.canonical(provenance)
+                ).decode("ascii"),
+            ]
+        )
+        ingest_output = io.StringIO()
+        with redirect_stdout(ingest_output):
+            supervision_log.cmd_direct_authority_ingest(ingest_args)
+        ingested = json.loads(ingest_output.getvalue())
+        receipt_args = supervision_log.parser().parse_args(
+            [
+                "--root", str(self.root),
+                "implementation-range-authority-receipt",
+                "--target-thread", self.target,
+                "--authority-event-record", str(ingested["record_id"]),
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            supervision_log.cmd_implementation_authority_receipt(receipt_args)
         bind_args = supervision_log.parser().parse_args(
             [
                 "--root", str(self.root), "implementation-range-bind",
                 "--target-thread", self.target,
                 "--range-id", "adaptive-range-1234",
                 "--tracker", str(self.tracker_path),
-                "--request-text", "Implement this tracker.",
-                "--authority-source-record", "direct-item-1234",
+                "--request-text", request_text,
+                "--authority-source-record", "direct-range-item-1235",
                 "--authority-source-sha256", hashlib.sha256(
-                    b"Implement this tracker."
+                    request_bytes
                 ).hexdigest(),
             ]
         )
