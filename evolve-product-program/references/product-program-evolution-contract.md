@@ -18,10 +18,12 @@ resource evidence. The cycle stops after it emits one verified, nonauthorizing
 placement handoff. The receiving existing owner decides whether and how to apply
 that handoff under its own contract.
 
-An unchanged checkpoint is a deterministic no-op. Equality of the prior
-`material_change_fingerprint` and current `currentness_root` returns
+An unchanged checkpoint is a deterministic no-op. Equality of the prior and
+current `material_change_fingerprint` values, together with equality of the
+prior and current `currentness_root` values, returns
 `continue-program-unchanged` without cognition, candidates, selection,
-authoring, task creation, source writes, or supervisor work.
+authoring, task creation, source writes, or supervisor work. The two identity
+classes are never compared with each other.
 
 ## Target profiles
 
@@ -50,6 +52,7 @@ and a Factory artifact cannot change a target product or tracker directly.
 |---|---|---|
 | Evidence assembler | deterministic source validation, minimization, and packet identity | semantic judgment or authority claims |
 | Reflection generator | observations, lessons, meta-patterns, gaps, and divergent candidates | selection, authoring, implementation, or evaluation |
+| Resource-evidence builder | typed resource/outcome projection and useful-yield priors | allocation, billing claims, spend, or selection |
 | Portfolio selector | one disposition, rejected alternatives, budget, DAG, and placement handoff | candidate generation, downstream writes, or self-evaluation |
 | Consequential adjudicator | unresolved material placement review | generation, implementation, or promotion |
 | Tracker author | tracker structure and program-revision history | source implementation or derived-evidence ownership |
@@ -65,8 +68,11 @@ evidence cannot resolve a material placement tradeoff.
 ## Artifact classes and authority
 
 Every artifact is canonical JSON with exact keys, deterministic ordering, one
-schema version, declared transformation version, source identities, source
-hashes, currentness root, and its own root. Artifacts contain hashes and bounded
+schema version, declared transformation version where a deterministic builder
+exists, source identities, source hashes, currentness root, and its own root.
+`product_program_contract_v1.json` is the machine-readable source for the exact
+checkpoint input, artifact field sets, producing roles, and sibling interfaces;
+unknown, omitted, or extra keys reject. Artifacts contain hashes and bounded
 facts, not transcripts, hidden reasoning, secrets, or copied repositories.
 
 1. `product-program-evidence-packet` is deterministic, content-minimized, and
@@ -81,6 +87,13 @@ facts, not transcripts, hidden reasoning, secrets, or copied repositories.
    dependency DAG, budgets, ownership, Stops, rollback/retirement, and placement.
 6. `product-program-placement-handoff` names exactly one existing downstream
    owner and the preconditions it must revalidate. It is never an authorization.
+
+The evidence assembler owns only `product-program-evidence-packet`; the
+reflection generator owns only `product-program-reflection`; the resource-
+evidence builder owns only `product-program-resource-evidence`; and the
+portfolio selector owns `product-program-selection`, `product-program-portfolio`,
+and `product-program-placement-handoff`. Producing an artifact never grants its
+consumer role or any canonical write authority.
 
 Deleting a derived artifact deletes no canonical evidence. The exact inputs can
 rebuild it byte-for-byte.
@@ -184,6 +197,13 @@ availability creates neither relevance nor authority.
 - `skill_release.py`, automation, Gmail, deployment, credential, spend,
   destructive, and other external-effect owners accept no authority from these
   artifacts.
+
+The exact interface records in `product_program_contract_v1.json` bind each
+consumer, accepted input kind, produced output kind, revalidation fields, and
+whether the interface may apply an effect. The three sibling skill interfaces
+are nonauthorizing requests or handoffs until the named existing owner accepts
+them; the release/external interface always has `apply_effect: false` in this
+contract.
 
 ## Rejection rules
 
