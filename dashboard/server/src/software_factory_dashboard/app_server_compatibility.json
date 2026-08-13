@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "cli_version": "codex-cli 0.145.0",
+  "transport": "stdio://",
+  "schema_generation_arguments": [
+    "app-server",
+    "generate-json-schema",
+    "--out",
+    "<temporary-directory>"
+  ],
+  "experimental": false,
+  "generated_file_count": 273,
+  "semantic_manifest_sha256": "757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8",
+  "semantic_manifest_algorithm": "For each relative *.json path in C bytewise order, parse JSON, encode one compact UTF-8 JSON line with recursively sorted object keys, hash that line, emit lowercase-sha256 two-spaces relative-posix-path LF, then SHA-256 the complete manifest.",
+  "protocol_error_schema": "JSONRPCError.json",
+  "client_requests": {
+    "initialize": {
+      "params_schema": "v1/InitializeParams.json",
+      "response_schema": "v1/InitializeResponse.json"
+    },
+    "task_list": {
+      "params_schema": "v2/ThreadListParams.json",
+      "response_schema": "v2/ThreadListResponse.json"
+    },
+    "task_read": {
+      "params_schema": "v2/ThreadReadParams.json",
+      "response_schema": "v2/ThreadReadResponse.json"
+    },
+    "task_start": {
+      "params_schema": "v2/ThreadStartParams.json",
+      "response_schema": "v2/ThreadStartResponse.json"
+    },
+    "task_resume": {
+      "params_schema": "v2/ThreadResumeParams.json",
+      "response_schema": "v2/ThreadResumeResponse.json"
+    },
+    "turn_start": {
+      "params_schema": "v2/TurnStartParams.json",
+      "response_schema": "v2/TurnStartResponse.json"
+    },
+    "turn_steer": {
+      "params_schema": "v2/TurnSteerParams.json",
+      "response_schema": "v2/TurnSteerResponse.json"
+    },
+    "turn_interrupt": {
+      "params_schema": "v2/TurnInterruptParams.json",
+      "response_schema": "v2/TurnInterruptResponse.json"
+    }
+  },
+  "server_notifications": {
+    "task_started": "v2/ThreadStartedNotification.json",
+    "task_status_changed": "v2/ThreadStatusChangedNotification.json",
+    "turn_started": "v2/TurnStartedNotification.json",
+    "turn_completed": "v2/TurnCompletedNotification.json",
+    "item_started": "v2/ItemStartedNotification.json",
+    "item_completed": "v2/ItemCompletedNotification.json",
+    "error": "v2/ErrorNotification.json"
+  },
+  "server_requests": {
+    "command_approval": {
+      "params_schema": "CommandExecutionRequestApprovalParams.json",
+      "response_schema": "CommandExecutionRequestApprovalResponse.json"
+    },
+    "file_approval": {
+      "params_schema": "FileChangeRequestApprovalParams.json",
+      "response_schema": "FileChangeRequestApprovalResponse.json"
+    },
+    "user_input": {
+      "params_schema": "ToolRequestUserInputParams.json",
+      "response_schema": "ToolRequestUserInputResponse.json"
+    }
+  }
+}
