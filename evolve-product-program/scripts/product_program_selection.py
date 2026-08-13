@@ -221,6 +221,7 @@ def adjudication_input_root(
     packet: Mapping[str, Any],
     reflection: Mapping[str, Any],
     resource: Mapping[str, Any],
+    defer_revisit_id: str,
     disposition: str,
     selected: Sequence[str],
     dimensions: Sequence[Mapping[str, Any]],
@@ -234,6 +235,7 @@ def adjudication_input_root(
         {
             "capacity": ceiling,
             "dimensions": list(dimensions),
+            "defer_revisit_id": defer_revisit_id,
             "disposition": disposition,
             "kind": "product-program-selection-adjudication-input",
             "lanes": list(lanes),
@@ -473,7 +475,7 @@ def normalize_submission(
         for dimension in MATERIAL_ADJUDICATION_DIMENSIONS
         if by_candidate[candidate_id]["values"][dimension] in {"adverse", "uncertain"}
     )
-    expected_reviewed_root = adjudication_input_root(packet, reflection, resource, disposition, selected, dimensions, rejected, ceiling, lanes, groups)
+    expected_reviewed_root = adjudication_input_root(packet, reflection, resource, defer_revisit_id, disposition, selected, dimensions, rejected, ceiling, lanes, groups)
     adjudication_raw = exact_keys(item["adjudication"], {"adjudicator_id", "decision", "finding_ids", "required", "review_root", "reviewed_input_root", "tradeoff_ids"}, "selection adjudication")
     if type(adjudication_raw["required"]) is not bool or adjudication_raw["decision"] not in {"accepted", "not-required", "rejected"}:
         raise ProductProgramError("selection adjudication state is invalid")

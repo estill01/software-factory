@@ -82,7 +82,7 @@ class ProductProgramSelectionTests(unittest.TestCase):
         lanes=sorted(submission["lanes"],key=lambda entry:entry["lane_id"])
         ceiling=MODULE.normalize_capacity_source(self.packet,self.capacity_source)
         tradeoffs=sorted(f"{candidate_id}:{dimension}" for candidate_id in submission["selected_candidate_ids"] for dimension in MODULE.MATERIAL_ADJUDICATION_DIMENSIONS if next(entry for entry in dimensions if entry["candidate_id"]==candidate_id)["values"][dimension] in {"adverse","uncertain"})
-        reviewed=MODULE.adjudication_input_root(self.packet,self.reflection,self.resource,submission["disposition"],submission["selected_candidate_ids"],dimensions,rejected,ceiling,lanes,submission["scheduling_groups"])
+        reviewed=MODULE.adjudication_input_root(self.packet,self.reflection,self.resource,submission["defer_revisit_id"],submission["disposition"],submission["selected_candidate_ids"],dimensions,rejected,ceiling,lanes,submission["scheduling_groups"])
         receipt={"adjudicator_id":"consequential-max-adjudicator","decision":"accepted","finding_ids":[],"required":True,"reviewed_input_root":reviewed,"tradeoff_ids":tradeoffs}
         receipt["review_root"]=MODULE.digest(receipt)
         return receipt
@@ -191,6 +191,11 @@ class ProductProgramSelectionTests(unittest.TestCase):
         bundle=self.build(defer); self.assertEqual(["candidate-feature"],bundle["handoff"]["expected_effect"]["candidate_ids"]); self.assertEqual("new-direct-authority",bundle["handoff"]["expected_effect"]["revisit_id"])
         missing=deepcopy(defer); missing["selected_candidate_ids"]=[]; missing["rejected_candidates"].insert(0,{"candidate_id":"candidate-feature","evidence_ids":["outcome-1"],"reason_id":"current-range-risk"}); self.reject(missing,"must not be empty")
         no_trigger=deepcopy(defer); no_trigger["defer_revisit_id"]="none"; self.reject(no_trigger,"must preserve exactly one candidate")
+
+    def test_consequential_adjudication_binds_defer_revisit_trigger(self):
+        defer=deepcopy(self.submission); defer["disposition"]="safe-defer-open-fact-or-authority"; defer["lanes"]=[]; defer["scheduling_groups"]=[]; defer["defer_revisit_id"]="new-direct-authority"; defer["dimensions"][0]["values"]["risk"]="uncertain"; defer["adjudication"]=self.accepted_adjudication(defer)
+        self.assertTrue(self.build(defer)["selection"]["rationale"]["adjudication"]["required"])
+        stale=deepcopy(defer); stale["defer_revisit_id"]="resource-currentness-change"; self.reject(stale,"not independently accepted")
 
     def test_unchanged_disposition_emits_no_lane_and_fixed_placement(self):
         unchanged=deepcopy(self.submission); unchanged["disposition"]="continue-program-unchanged"; unchanged["selected_candidate_ids"]=["candidate-no-change"]; unchanged["lanes"]=[]; unchanged["scheduling_groups"]=[]
