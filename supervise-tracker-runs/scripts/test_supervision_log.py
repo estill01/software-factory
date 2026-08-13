@@ -1564,6 +1564,36 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertFalse(result["manual_resume_required"])
         self.assertFalse(result["human_input_required"])
 
+    def test_range_uses_named_status_column_and_ignores_other_numeric_tables(
+        self,
+    ) -> None:
+        self.tracker.write_text(
+            "| Wave | Blocks | Owner | Outcome |\n"
+            "|---:|---|---|---|\n"
+            "| 0 | 0 | coordinator | accepted baseline |\n\n"
+            "| Block | Scope | Depends on | Lane | Status |\n"
+            "|---:|---|---:|---|---|\n"
+            "| 0 | Scope 0 | — | coordination | `complete` |\n"
+            "| 1 | Scope 1 | 0 | integration | `not-started` |\n\n"
+            "## Block 0 — Scope 0\n\n"
+            "Status: `complete`\n\n"
+            "### Completion evidence\n\nAccepted.\n\n"
+            "### Stop\n\nStop at this Block boundary.\n\n"
+            "## Block 1 — Scope 1\n\n"
+            "Status: `not-started`\n\n"
+            "### Completion evidence\n\nPending.\n\n"
+            "### Stop\n\nStop at this Block boundary.\n",
+            encoding="utf-8",
+        )
+
+        self.bind()
+        result = self.gate("final-response")
+
+        self.assertEqual(result["accepted_blocks"], [0])
+        self.assertEqual(result["remaining_blocks"], [1])
+        self.assertEqual(result["eligible_blocks"], [1])
+        self.assertEqual(result["next_action"], "continue-next-eligible-block")
+
     def test_noncurrent_tracker_returns_structured_nonterminal_repair(self) -> None:
         self.write_tracker(["completed", "not-started"])
         self.bind()

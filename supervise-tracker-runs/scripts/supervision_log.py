@@ -7002,21 +7002,37 @@ def implementation_tracker_snapshot(
     headings = set(heading_values)
     if len(heading_values) != len(headings):
         raise SupervisionLogError("Implementation tracker repeats a Block heading")
+    lines = text.splitlines()
+    status_tables: list[tuple[int, list[str]]] = []
+    for index, line in enumerate(lines):
+        cells = [item.strip().strip("`") for item in line.strip().strip("|").split("|")]
+        normalized = [item.lower() for item in cells]
+        if normalized and normalized[0] == "block" and "status" in normalized:
+            status_tables.append((index, normalized))
+    if len(status_tables) != 1:
+        raise SupervisionLogError(
+            "Implementation tracker must contain one exact status table"
+        )
+    status_table_index, status_headers = status_tables[0]
+    status_column = status_headers.index("status")
     rows: dict[int, dict[str, Any]] = {}
-    for line in text.splitlines():
+    for line in lines[status_table_index + 1:]:
+        if not line.strip() and rows:
+            break
         match = IMPLEMENTATION_TABLE_ROW.match(line)
         if match is None:
             continue
         number = int(match.group(1))
         cells = [item.strip().strip("`") for item in line.strip().strip("|").split("|")]
-        if len(cells) < 4 or number not in headings:
+        if len(cells) != len(status_headers) or number not in headings:
             continue
         if number in rows:
             raise SupervisionLogError("Implementation tracker repeats a status row")
+        status = cells[status_column]
         rows[number] = {
             "scope": cells[1],
             "dependencies": [int(item) for item in re.findall(r"\d+", cells[2])],
-            "status": cells[3],
+            "status": "completed" if status == "complete" else status,
         }
     missing = sorted(headings - set(rows))
     if missing or not rows:
