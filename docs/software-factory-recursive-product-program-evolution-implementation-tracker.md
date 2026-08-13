@@ -437,7 +437,7 @@ the mapped dependency closure of a concrete current defect.
 | 0 | Freeze the recursive product-program evolution contract | — | `accepted` |
 | 1 | Build the fourth skill and deterministic program-evidence packet | 0 | `accepted` |
 | 2 | Add self-reflection and divergent future-work generation | 1 | `accepted` |
-| 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `not-started` |
+| 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `accepted` |
 | 4 | Select, budget, schedule, and place one program portfolio | 2, 3 | `not-started` |
 | 5 | Apply tracker evolution and authoring-readiness handoff | 4 | `not-started` |
 | 6 | Invoke evolution from implementation boundaries | 5 | `not-started` |
@@ -930,7 +930,7 @@ Stop before selecting, budgeting, or scheduling candidates.
 
 ## Block 3 — Measure outcome quality, resource use, and useful-yield priors
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -1002,7 +1002,30 @@ causal claims, missing data, and perverse incentives.
 
 ### Completion evidence
 
-Pending.
+Accepted at exact source commit
+`da8d9426c9b362886cad512f43d2f81b959d01e5` (tree
+`694aa8f2918d11c09587c3d42127c3da9bb59562`). The implementation adds the
+canonical resource/outcome source manifest, separately rooted retained resource
+identities, deterministic typed builder/verifier/reuse CLI, work-class row roots,
+versioned estimation profile, useful-yield/limitation contract, committed fixture,
+and focused tests under the `evolve-product-program` owner.
+
+Focused and accepted regression proof passed `47/47` tests under system Python,
+plus `py_compile`, exact CLI build/verify/reuse, zero-model-call/no-cognition
+reuse, skill `quick_validate.py`, and `git diff --check`. Exact CLI proof matched
+artifact root `d36bd53e03db5a6f51322bb49a63aa0964e33d3441eb21a123936f873801fe47`.
+
+The initial exact candidate `db053a6ef8aa8d6f23dc25ee2424fd1a399a0338`
+was independently rejected for provider-reported outcome leakage, free semantic
+billing/utility/speed claims, estimation-profile omission from derived-row roots,
+and estimated/inferred point precision. Exact successor
+`da8d9426c9b362886cad512f43d2f81b959d01e5` closed all four:
+provider-reported evidence is token-resource only; semantic methods and
+uncertainties are closed identifiers; derived rows bind the exact profile while
+observed-only rows remain reusable; and estimates/inferences require genuine
+ranges. Independent re-review by `/root/block2_review` accepted the exact
+successor with no findings after adversarial probes and exact local/upstream
+equality.
 
 ### Stop
 
