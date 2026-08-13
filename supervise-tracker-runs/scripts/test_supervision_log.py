@@ -4160,6 +4160,7 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             args.func(args)
         self.owner_actions: list[str] = []
+        self.owner_promoted = False
         self.promotion, self.status = self.owner_results()
         self.prior_status = copy.deepcopy(self.status)
         prior_release = self.promotion["activation"]["previous_release_id"]
@@ -4339,12 +4340,14 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         release_id: str | None = None,
     ) -> dict[str, object]:
         self.assertEqual(source_commit, self.source)
-        promoted = "promote" in self.owner_actions
         self.assertIsNone(release_id)
         self.owner_actions.append(action)
         if action == "promote":
+            self.owner_promoted = True
             return copy.deepcopy(self.promotion)
-        return copy.deepcopy(self.status if promoted else self.prior_status)
+        return copy.deepcopy(
+            self.status if self.owner_promoted else self.prior_status
+        )
 
     def pinned_automation_prompt(self, *, manual_pin: bool = False) -> str:
         release_id = f"{'a' * 12}-{'b' * 12}"

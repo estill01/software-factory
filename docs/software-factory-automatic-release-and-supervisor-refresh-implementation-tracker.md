@@ -184,9 +184,9 @@ make their composition automatic and fail closed.
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
-| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
-| 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
-| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
+| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
+| 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
+| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `in-progress` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
 
@@ -678,7 +678,7 @@ Stop before updating a running supervisor.
 
 ## Block 3 — Implement stable-channel safe-boundary supervisor refresh
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -744,7 +744,20 @@ Field-preservation and mid-action deferral regressions plus exact automation vie
 
 ### Completion evidence
 
-Pending.
+- Accepted source: `d2bf8316933ffc8acd98e3b52aa4d399828d8bff`;
+  consolidation port `c879446` preserves its stable-channel plan, automation
+  field preservation, manual-pin rejection, and role-refresh contract on top
+  of the corrected Block 2 source.
+- Original exact proof: refresh/documentation `16/16` and mapped supervision
+  `299/299` under maintained Python 3.14, with compile and diff checks passing.
+- Negative proof: foreign roles, mixed release identities, copied authority,
+  stale roots, and inconsistent manual pins reject; paused and explicit pins
+  remain held.
+- Post-block audit: accepted capability port; live automation mutation remains
+  reserved to Block 7.
+- Git durability: original accepted history is reachable through a deliberate
+  history-preserving merge; the selected source delta is a separate cohesive
+  consolidation commit.
 
 ### Stop
 
@@ -754,7 +767,7 @@ Stop before declaring refresh health or rollback success.
 
 ## Block 4 — Verify health and recover through release-owner rollback
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -815,7 +828,20 @@ Failure injection at each transition and exact recovery review.
 
 ### Completion evidence
 
-Pending.
+- Accepted source: `262b3d6652d0f5fa96d529f5f1ab51323468bd98`;
+  consolidation port `0a972a7` preserves verified health, release-owner-only
+  rollback, restored binding verification, and idempotent interruption recovery.
+- Original exact proof: focused release/refresh/health `19/19` and mapped
+  supervision `303/303` under maintained Python 3.14, with compile and diff
+  checks passing.
+- Owner boundary: supervision validates and records; `skill_release.py` alone
+  mutates release state and must return the exact prior/active identities.
+- Negative proof: partial roots, divergent rollback, unrelated active release,
+  foreign role, duplicate health, and predecessor-less failure reject.
+- Post-block audit: accepted capability port; live release reconciliation is
+  reserved to consolidation and automatic-release Blocks 6–7.
+- Git durability: original accepted history is reachable and its selected source
+  delta is retained as a separate consolidation commit.
 
 ### Stop
 
@@ -825,7 +851,7 @@ Stop before final integrated release/promotion.
 
 ## Block 5 — Integrate terminal report delivery, readback, and shutdown defaults
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -890,7 +916,21 @@ Focused terminal/Gmail/shutdown suite plus full supervision mapping.
 
 ### Completion evidence
 
-Pending.
+- Reopened successor: the formerly shared dirty work from stopped tasks
+  `019ffc0a-7946-76e0-9164-d70ddbe7a492` and
+  `019fdfe4-dabe-7130-ac93-f8fa8e3bce12` is frozen at
+  `ba9d80171bd21397b970977267c192ae101d994f`, tree
+  `8601baddf200cb96553824b7207d3cdd6ad6105e`.
+- Preserved prior acceptance: `d398d108b4bd4ac8af9c62e68e0b424ce1c2ea4a`
+  remains reachable as historical evidence, but the candidate was reopened for
+  stronger current range/control, provider-review provenance, runtime-owner,
+  same-byte identity, reopened-lifecycle, and shutdown-append currentness.
+- Focused validation: combined terminal/supervision `330/330`, Python 3.14
+  compile, supervision skill validation, and diff check pass for `ba9d801`.
+- Current consolidation adds accepted watcher report materialization/order plus
+  Blocks 3–4; final mapped proof and exact integrated review remain required in
+  consolidation Block 4 before this Block can be marked completed.
+- No Gmail, automation, release, lifecycle, or pointer effect was taken.
 
 ### Stop
 
