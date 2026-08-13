@@ -82,6 +82,11 @@ WATCHER_AVAILABILITY_TERMINAL_STATUSES = {
     "closed",
     "corrected",
 }
+WATCHER_INCIDENT_REPORT_MARKER = re.compile(
+    r"^<!-- canonical-watcher-event ([A-Za-z0-9][A-Za-z0-9._:-]{3,127}) "
+    r"([0-9a-f]{64}) -->$",
+    re.MULTILINE,
+)
 OUTCOME_COMPLETION_HASH_FIELDS = (
     "outcome_manifest_sha256",
     "artifact_currentness_sha256",
@@ -3072,11 +3077,7 @@ def events_snapshot(
     return parse_events(text, ledger_name=path.name), snapshot
 
 
-def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if create and path.exists():
-        raise SupervisionLogError(f"Material report already exists: {path.name}")
-    mode = "x" if create else "a"
+def markdown_record_text(record: Mapping[str, Any], *, create: bool) -> str:
     heading = f"# {record['incident_id']}\n" if create else f"\n## {record['kind']} — {record['timestamp']}\n"
     rows = [heading]
     for key in (
@@ -3110,8 +3111,49 @@ def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None
                 f"- {envelope_name.replace('_', ' ').title()}: "
                 f"`{canonical(record[envelope_name]).decode('utf-8')}`\n"
             )
+    return "".join(rows)
+
+
+def atomic_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            delete=False,
+        ) as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temporary = Path(handle.name)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        temporary = None
+        directory_fd = os.open(
+            path.parent,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if create and path.exists():
+        raise SupervisionLogError(f"Material report already exists: {path.name}")
+    mode = "x" if create else "a"
     with path.open(mode, encoding="utf-8") as handle:
-        handle.writelines(rows)
+        handle.write(markdown_record_text(record, create=create))
     os.chmod(path, 0o600)
 
 
@@ -4659,6 +4701,174 @@ def watcher_availability_incident_head(
     return open_heads[0] if open_heads else None
 
 
+def watcher_availability_incident_report_records(
+    all_events: list[dict[str, Any]], incident_id_value: str
+) -> list[dict[str, Any]]:
+    """Validate and return the canonical watcher-owned material-report lineage."""
+
+    current_incident_id = safe_id(
+        incident_id_value, label="watcher availability incident ID"
+    )
+    incident_records = [
+        item
+        for item in all_events
+        if item.get("incident_id") == current_incident_id
+    ]
+    initiations = [item for item in incident_records if item.get("kind") == "incident"]
+    if not initiations:
+        raise SupervisionLogError(
+            "Watcher availability report backfill requires its canonical incident initiation"
+        )
+    if len(initiations) != 1:
+        raise SupervisionLogError(
+            "Watcher availability report backfill found ambiguous incident initiation"
+        )
+    initiation = initiations[0]
+    if initiation.get("category") != WATCHER_AVAILABILITY_INCIDENT_CATEGORY:
+        raise SupervisionLogError(
+            "Watcher availability report backfill rejected a non-watcher incident"
+        )
+    if (
+        initiation.get("status") != "open"
+        or initiation.get("watcher_read_status") != "unavailable"
+        or not isinstance(initiation.get("watcher_unavailable_read_count"), int)
+        or int(initiation["watcher_unavailable_read_count"])
+        < WATCHER_AVAILABILITY_THRESHOLD
+    ):
+        raise SupervisionLogError(
+            "Watcher availability report backfill initiation is not canonical"
+        )
+    target_thread_id = initiation.get("target_thread_id")
+    report_records: list[dict[str, Any]] = []
+    for item in incident_records:
+        if item.get("target_thread_id") != target_thread_id:
+            raise SupervisionLogError(
+                "Watcher availability report backfill target binding differs"
+            )
+        is_initiation = item is initiation
+        is_recurrence = (
+            item.get("kind") == "resolution"
+            and item.get("category") == WATCHER_AVAILABILITY_INCIDENT_CATEGORY
+            and item.get("status") == "recurrence-current"
+            and item.get("watcher_read_status") == "unavailable"
+        )
+        is_verified = (
+            item.get("kind") == "check"
+            and item.get("category") == WATCHER_VERIFIED_CATEGORY
+            and item.get("status") == "verified"
+            and item.get("watcher_read_status") == "available-verified"
+            and item.get("next_state_verified") is True
+        )
+        if not (is_initiation or is_recurrence or is_verified):
+            if item.get("status") in {"recurrence-current", "verified"}:
+                raise SupervisionLogError(
+                    "Watcher availability report backfill found a mismatched successor"
+                )
+            continue
+        record_id_value = item.get("record_id")
+        record_sha256 = item.get("record_sha256")
+        if (
+            not isinstance(record_id_value, str)
+            or not SAFE_ID.fullmatch(record_id_value)
+            or not isinstance(record_sha256, str)
+            or not SHA256.fullmatch(record_sha256)
+        ):
+            raise SupervisionLogError(
+                "Watcher availability report backfill requires canonical event identities"
+            )
+        report_records.append(item)
+    if not report_records or report_records[0] is not initiation:
+        raise SupervisionLogError(
+            "Watcher availability report backfill initiation order is not canonical"
+        )
+    return report_records
+
+
+def watcher_incident_report_marker(record: Mapping[str, Any]) -> str:
+    return (
+        "<!-- canonical-watcher-event "
+        f"{record['record_id']} {record['record_sha256']} -->\n"
+    )
+
+
+def ensure_watcher_availability_incident_report(
+    directory: Path,
+    all_events: list[dict[str, Any]],
+    incident_id_value: str,
+) -> dict[str, Any]:
+    """Create or append the watcher report once from its canonical event lineage."""
+
+    report_records = watcher_availability_incident_report_records(
+        all_events, incident_id_value
+    )
+    current_incident_id = str(report_records[0]["incident_id"])
+    path = directory / "incidents" / f"{current_incident_id}.md"
+    if not path.exists():
+        text = ""
+        for index, record in enumerate(report_records):
+            text += markdown_record_text(record, create=index == 0)
+            text += watcher_incident_report_marker(record)
+        atomic_text(path, text)
+        return {
+            "created": True,
+            "appended_record_ids": [item["record_id"] for item in report_records],
+            "incident_id": current_incident_id,
+        }
+
+    existing, _snapshot = read_text_snapshot(path)
+    marker_rows = WATCHER_INCIDENT_REPORT_MARKER.findall(existing)
+    marker_by_record: dict[str, str] = {}
+    for record_id_value, record_sha256 in marker_rows:
+        if record_id_value in marker_by_record:
+            raise SupervisionLogError(
+                "Watcher availability incident report contains duplicate event entries"
+            )
+        marker_by_record[record_id_value] = record_sha256
+    expected_ids = [str(item["record_id"]) for item in report_records]
+    unknown_ids = set(marker_by_record).difference(expected_ids)
+    if unknown_ids:
+        raise SupervisionLogError(
+            "Watcher availability incident report contains a noncanonical event entry"
+        )
+    present_count = 0
+    for item in report_records:
+        record_id_value = str(item["record_id"])
+        recorded_sha256 = marker_by_record.get(record_id_value)
+        if recorded_sha256 is None:
+            break
+        if recorded_sha256 != item["record_sha256"]:
+            raise SupervisionLogError(
+                "Watcher availability incident report event identity differs"
+            )
+        present_count += 1
+    if present_count == 0:
+        raise SupervisionLogError(
+            "Existing watcher availability incident report lacks canonical initiation"
+        )
+    if any(record_id in marker_by_record for record_id in expected_ids[present_count:]):
+        raise SupervisionLogError(
+            "Watcher availability incident report event order differs"
+        )
+    missing = report_records[present_count:]
+    if not missing:
+        return {
+            "created": False,
+            "appended_record_ids": [],
+            "incident_id": current_incident_id,
+        }
+    addition = "".join(
+        markdown_record_text(record, create=False)
+        + watcher_incident_report_marker(record)
+        for record in missing
+    )
+    atomic_text(path, existing + addition)
+    return {
+        "created": False,
+        "appended_record_ids": [item["record_id"] for item in missing],
+        "incident_id": current_incident_id,
+    }
+
+
 def watcher_unavailable_run_length(
     all_events: list[dict[str, Any]], state_fingerprint: str
 ) -> int:
@@ -4782,6 +4992,11 @@ def _cmd_watcher_availability_locked(
             and incident_head.get("watcher_availability_attempt_fingerprint")
             == availability_attempt_fingerprint
         ):
+            report_result = ensure_watcher_availability_incident_report(
+                directory,
+                events(directory / "events.jsonl"),
+                str(incident_head["incident_id"]),
+            )
             print(
                 json.dumps(
                     {
@@ -4789,6 +5004,7 @@ def _cmd_watcher_availability_locked(
                         "incident_id": incident_head.get("incident_id"),
                         "record_required": False,
                         "route_required": False,
+                        "incident_report": report_result,
                         "unavailable_read_count": max(
                             run_length, WATCHER_AVAILABILITY_THRESHOLD
                         ),
@@ -4866,9 +5082,30 @@ def _cmd_watcher_availability_locked(
                     "resolution": "One current incident owns the repeated availability gap until a real read and a distinct next-state verification are independently reviewed.",
                 }
             )
+            if incident_head is not None:
+                ensure_watcher_availability_incident_report(
+                    directory,
+                    events(directory / "events.jsonl"),
+                    incident_id_value,
+                )
+            elif (
+                directory / "incidents" / f"{incident_id_value}.md"
+            ).exists():
+                raise SupervisionLogError(
+                    "Watcher availability incident report exists without canonical initiation"
+                )
         current_events = events(directory / "events.jsonl")
         record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
         append_event_locked(args, directory, record)
+        report_result = (
+            ensure_watcher_availability_incident_report(
+                directory,
+                events(directory / "events.jsonl"),
+                incident_id_value,
+            )
+            if threshold_reached
+            else None
+        )
         runtime = policy.get("runtime", {})
         print(
             json.dumps(
@@ -4877,6 +5114,11 @@ def _cmd_watcher_availability_locked(
                     "record": record,
                     "record_required": True,
                     "route_required": threshold_reached,
+                    **(
+                        {"incident_report": report_result}
+                        if report_result is not None
+                        else {}
+                    ),
                     "route_recipient_thread_id": (
                         runtime.get("reviewer_thread_id")
                         if threshold_reached
@@ -4955,11 +5197,17 @@ def _cmd_watcher_availability_locked(
         None,
     )
     if prior is not None:
+        report_result = ensure_watcher_availability_incident_report(
+            directory,
+            events(directory / "events.jsonl"),
+            incident_id_value,
+        )
         print(
             json.dumps(
                 {
                     "duplicate": True,
                     "record_id": prior.get("record_id"),
+                    "incident_report": report_result,
                     "review_required": True,
                     "next_action": "route-effectiveness-review",
                 },
@@ -4967,6 +5215,11 @@ def _cmd_watcher_availability_locked(
             )
         )
         return
+    ensure_watcher_availability_incident_report(
+        directory,
+        events(directory / "events.jsonl"),
+        incident_id_value,
+    )
     record = watcher_availability_record_base(
         args=args,
         policy=policy,
@@ -5002,12 +5255,18 @@ def _cmd_watcher_availability_locked(
     current_events = events(directory / "events.jsonl")
     record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
     append_event_locked(args, directory, record)
+    report_result = ensure_watcher_availability_incident_report(
+        directory,
+        events(directory / "events.jsonl"),
+        incident_id_value,
+    )
     runtime = policy.get("runtime", {})
     print(
         json.dumps(
             {
                 "duplicate": False,
                 "record": record,
+                "incident_report": report_result,
                 "review_required": True,
                 "route_recipient_thread_id": runtime.get("reviewer_thread_id"),
                 "next_action": "route-effectiveness-review",

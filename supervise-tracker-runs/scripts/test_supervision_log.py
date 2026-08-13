@@ -10207,13 +10207,20 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             and item.get("kind") == "incident"
         ]
         self.assertEqual(len(incidents), 1)
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        self.assertTrue(report.is_file())
+        report_text = report.read_text(encoding="utf-8")
+        marker = supervision_log.watcher_incident_report_marker(incidents[0])
+        self.assertEqual(report_text.count(marker), 1)
 
     def test_changed_trigger_records_new_retry_under_the_same_incident(self) -> None:
         incident_id = self.open_incident()
 
         changed = self.unavailable("compact-thread-read-after-route-1234")
+        duplicate = self.unavailable("compact-thread-read-after-route-1234")
 
         self.assertFalse(changed["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
         self.assertTrue(changed["route_required"])
         self.assertEqual(changed["record"]["incident_id"], incident_id)
         head = supervision_log.watcher_availability_incident_head(
@@ -10222,6 +10229,15 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         self.assertIsNotNone(head)
         assert head is not None
         self.assertEqual(head["incident_id"], incident_id)
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        report_text = report.read_text(encoding="utf-8")
+        for item in supervision_log.watcher_availability_incident_report_records(
+            supervision_log.events(self.directory / "events.jsonl"), incident_id
+        ):
+            self.assertEqual(
+                report_text.count(supervision_log.watcher_incident_report_marker(item)),
+                1,
+            )
 
     def test_three_changed_triggers_share_one_target_state_threshold(self) -> None:
         first = self.unavailable("compact-trigger-a-1234")
@@ -10308,6 +10324,14 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             if item.get("category") == supervision_log.WATCHER_VERIFIED_CATEGORY
         ]
         self.assertEqual(len(verified_records), 1)
+        report_text = (
+            self.directory / "incidents" / f"{incident_id}.md"
+        ).read_text(encoding="utf-8")
+        for item in incident_records + verified_records:
+            self.assertEqual(
+                report_text.count(supervision_log.watcher_incident_report_marker(item)),
+                1,
+            )
 
     def test_verified_read_requires_distinct_next_state_and_routes_review(self) -> None:
         incident_id = self.open_incident()
@@ -10359,6 +10383,15 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         )
         self.assertTrue(result["record"]["next_state_verified"])
         self.assertTrue(duplicate["duplicate"])
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        verified_marker = supervision_log.watcher_incident_report_marker(
+            next(
+                item
+                for item in supervision_log.events(self.directory / "events.jsonl")
+                if item.get("category") == supervision_log.WATCHER_VERIFIED_CATEGORY
+            )
+        )
+        self.assertEqual(report.read_text(encoding="utf-8").count(verified_marker), 1)
         self.assertIsNotNone(
             supervision_log.watcher_availability_incident_head(
                 supervision_log.events(self.directory / "events.jsonl")
@@ -10374,6 +10407,204 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         self.assertEqual(recurrence["record"]["incident_id"], incident_id)
         self.assertEqual(recurrence["record"]["status"], "recurrence-current")
         self.assertTrue(repeated_recurrence["duplicate"])
+
+    def test_legacy_missing_report_backfills_without_ledger_or_policy_change(self) -> None:
+        incident_id = self.open_incident()
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        report.unlink()
+        events_before = (self.directory / "events.jsonl").read_bytes()
+        head_before = (self.directory / "events-head.json").read_bytes()
+        policy_before = (self.directory / "policy.json").read_bytes()
+        history_before = (self.directory / "policy-history.jsonl").read_bytes()
+
+        duplicate = self.unavailable("compact-thread-read-retry-3-1234")
+
+        self.assertTrue(duplicate["duplicate"])
+        self.assertTrue(duplicate["incident_report"]["created"])
+        self.assertEqual(
+            (self.directory / "events.jsonl").read_bytes(), events_before
+        )
+        self.assertEqual(
+            (self.directory / "events-head.json").read_bytes(), head_before
+        )
+        self.assertEqual((self.directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+        lineage = supervision_log.watcher_availability_incident_report_records(
+            supervision_log.events(self.directory / "events.jsonl"), incident_id
+        )
+        report_text = report.read_text(encoding="utf-8")
+        for item in lineage:
+            self.assertEqual(
+                report_text.count(supervision_log.watcher_incident_report_marker(item)),
+                1,
+            )
+
+    def test_interrupted_report_creation_repairs_on_duplicate_retry(self) -> None:
+        self.unavailable("compact-interrupted-trigger-a-1234")
+        self.unavailable("compact-interrupted-trigger-b-1234")
+        original_atomic_text = supervision_log.atomic_text
+        failed = False
+
+        def interrupt_once(path: Path, text: str) -> None:
+            nonlocal failed
+            if not failed and path.parent.name == "incidents":
+                failed = True
+                raise OSError("simulated report interruption")
+            original_atomic_text(path, text)
+
+        with mock.patch.object(
+            supervision_log, "atomic_text", side_effect=interrupt_once
+        ):
+            with self.assertRaisesRegex(OSError, "simulated report interruption"):
+                self.unavailable("compact-interrupted-trigger-c-1234")
+        events_after_interruption = supervision_log.events(
+            self.directory / "events.jsonl"
+        )
+        incident = next(
+            item for item in events_after_interruption if item.get("kind") == "incident"
+        )
+        report = self.directory / "incidents" / f"{incident['incident_id']}.md"
+        self.assertFalse(report.exists())
+
+        repaired = self.unavailable("compact-interrupted-trigger-c-1234")
+
+        self.assertTrue(repaired["duplicate"])
+        self.assertTrue(repaired["incident_report"]["created"])
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")),
+            len(events_after_interruption),
+        )
+        self.assertEqual(
+            report.read_text(encoding="utf-8").count(
+                supervision_log.watcher_incident_report_marker(incident)
+            ),
+            1,
+        )
+
+    def test_backfill_rejects_absent_ambiguous_mismatched_and_nonwatcher_origins(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "canonical incident initiation"
+        ):
+            supervision_log.ensure_watcher_availability_incident_report(
+                self.directory, [], "INC-WATCHER-ABSENT-1234"
+            )
+        self.assertEqual(list((self.directory / "incidents").iterdir()), [])
+
+        incident_id = self.open_incident()
+        canonical = supervision_log.events(self.directory / "events.jsonl")
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        report_before = report.read_bytes()
+        initiation = next(item for item in canonical if item.get("kind") == "incident")
+        ambiguous = copy.deepcopy(initiation)
+        ambiguous["record_id"] = "EVT-AMBIGUOUS-1234"
+        ambiguous["record_sha256"] = "a" * 64
+        cases = [
+            (
+                [*canonical, ambiguous],
+                "ambiguous incident initiation",
+            ),
+            (
+                [
+                    {
+                        **item,
+                        "watcher_unavailable_read_count": 2,
+                    }
+                    if item is initiation
+                    else item
+                    for item in canonical
+                ],
+                "initiation is not canonical",
+            ),
+            (
+                [
+                    {
+                        **item,
+                        "category": "ordinary-incident",
+                    }
+                    if item is initiation
+                    else item
+                    for item in canonical
+                ],
+                "non-watcher incident",
+            ),
+        ]
+        for event_rows, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, message
+                ):
+                    supervision_log.ensure_watcher_availability_incident_report(
+                        self.directory, event_rows, incident_id
+                    )
+                self.assertEqual(report.read_bytes(), report_before)
+
+    def test_materialized_report_unblocks_review_and_notice_owners(self) -> None:
+        incident_id = self.open_incident()
+        review_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "meta-review",
+                "--incident-id",
+                incident_id,
+                "--review-id",
+                "REVIEW-WATCHER-AVAILABILITY-1234",
+                "--status",
+                "effectiveness-pending",
+                "--category",
+                "watcher-availability-effectiveness",
+                "--summary",
+                "Independent review awaits a real read and next-state verification.",
+            ]
+        )
+        review_output = io.StringIO()
+        with redirect_stdout(review_output):
+            supervision_log.cmd_record(review_args)
+        review_record = json.loads(review_output.getvalue())["record"]
+        self.assertTrue(
+            (
+                self.directory
+                / "reviews"
+                / "REVIEW-WATCHER-AVAILABILITY-1234.md"
+            ).is_file()
+        )
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        self.assertIn("## meta-review", report.read_text(encoding="utf-8"))
+
+        notice_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "notice-gate",
+                "--target-thread",
+                self.target,
+                "--incident-id",
+                incident_id,
+                "--source-record",
+                review_record["record_id"],
+                "--notice-disposition",
+                "intermediate",
+                "--resolution-owner",
+                "supervisor",
+                "--user-action-required",
+                "no",
+                "--severity",
+                "high",
+            ]
+        )
+        notice_output = io.StringIO()
+        with redirect_stdout(notice_output):
+            supervision_log.cmd_notice_gate(notice_args)
+        notice = json.loads(notice_output.getvalue())
+        self.assertFalse(notice["send_now"])
 
     def test_verified_read_rejects_unknown_or_closed_incident(self) -> None:
         with self.assertRaisesRegex(
