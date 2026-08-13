@@ -382,7 +382,6 @@ MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
 MAX_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 MAX_LEGACY_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
-IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "tracker_sha256",
     "tracker_source_record",
@@ -7576,20 +7575,51 @@ def implementation_tracker_snapshot(
     if len(heading_values) != len(headings):
         raise SupervisionLogError("Implementation tracker repeats a Block heading")
     rows: dict[int, dict[str, Any]] = {}
-    for line in text.splitlines():
-        match = IMPLEMENTATION_TABLE_ROW.match(line)
-        if match is None:
+    table_columns: dict[str, int] | None = None
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not line.strip().startswith("|"):
+            table_columns = None
             continue
-        number = int(match.group(1))
         cells = [item.strip().strip("`") for item in line.strip().strip("|").split("|")]
-        if len(cells) < 4 or number not in headings:
+        headers = [item.casefold() for item in cells]
+        required_headers = ("block", "scope", "depends on", "status")
+        if all(headers.count(header) == 1 for header in required_headers):
+            if index + 1 >= len(lines):
+                continue
+            separators = [
+                item.strip()
+                for item in lines[index + 1].strip().strip("|").split("|")
+            ]
+            if len(separators) != len(cells) or not all(
+                re.fullmatch(r":?-{3,}:?", item) for item in separators
+            ):
+                continue
+            table_columns = {header: headers.index(header) for header in required_headers}
+            continue
+        if table_columns is None:
+            continue
+        required_width = max(table_columns.values()) + 1
+        if len(cells) < required_width:
+            continue
+        block_value = cells[table_columns["block"]]
+        if re.fullmatch(r"\d+", block_value) is None:
+            continue
+        number = int(block_value)
+        if number not in headings:
             continue
         if number in rows:
             raise SupervisionLogError("Implementation tracker repeats a status row")
+        status = cells[table_columns["status"]]
+        if status == "complete":
+            status = "completed"
         rows[number] = {
-            "scope": cells[1],
-            "dependencies": [int(item) for item in re.findall(r"\d+", cells[2])],
-            "status": cells[3],
+            "scope": cells[table_columns["scope"]],
+            "dependencies": [
+                int(item)
+                for item in re.findall(r"\d+", cells[table_columns["depends on"]])
+            ],
+            "status": status,
         }
     missing = sorted(headings - set(rows))
     if missing or not rows:
