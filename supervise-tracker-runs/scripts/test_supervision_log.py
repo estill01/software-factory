@@ -1956,6 +1956,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_task_id: str = "origin-user-thread-5678",
         source_record: str | None = None,
         request_text: str | None = None,
+        route_action: str = "continue-current-full-tracker",
     ) -> dict[str, object]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -1964,7 +1965,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.complete_predecessor_and_start_successor(
             retain_range_authority=False,
             mission_source_record=source_record,
-            mission_source_sha256=supervision_log.digest(request_text),
+            mission_source_sha256=supervision_log.digest(route_action),
         )
         policy = supervision_log.read_json(directory / "policy.json")
         current_events = supervision_log.events(directory / "events.jsonl")
@@ -1992,7 +1993,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "--source-item",
             source_record,
             "--action",
-            request_text,
+            route_action,
+            "--source-text-base64",
+            base64.b64encode(request_text.encode("utf-8")).decode("ascii"),
         )
         route_record = next(
             item
@@ -2033,7 +2036,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "route_source_record_sha256": route_source["record_sha256"],
             "route_record_id": route_record["record_id"],
             "route_record_sha256": route_record["record_sha256"],
-            "route_action_sha256": supervision_log.digest(request_text),
+            "route_action_sha256": supervision_log.digest(route_action),
             "route_projection_sha256": "",
         }
         provenance["route_projection_sha256"] = supervision_log.digest(
@@ -2564,7 +2567,16 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self,
     ) -> None:
         self.write_tracker(["not-started"] * 8)
-        provenance = self.append_delegated_range_authority_review()
+        request_text = (
+            "DIRECT-USER ROUTED CONTINUATION — move all work into this main "
+            "thread.\nThis is a new full-tracker mission/range.\n"
+            "Invoke $implement-tracker-blocks and execute the COMPLETE Blocks "
+            "0–7 objective automatically.\n"
+            + ("Preserve the exact current evidence and owner boundaries. " * 70)
+        )
+        provenance = self.append_delegated_range_authority_review(
+            request_text=request_text
+        )
         encoded = base64.b64encode(
             supervision_log.canonical(provenance)
         ).decode("ascii")
@@ -2603,12 +2615,50 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(
             ingested["source_record"], provenance["source_item_id"]
         )
+        self.assertGreater(provenance["source_byte_count"], 1200)
+        self.assertNotEqual(
+            provenance["route_action_sha256"],
+            supervision_log.digest(provenance["source_text"]),
+        )
         self.assertEqual(
             bound["binding"]["range_intent"], "full-tracker"
         )
         self.assertEqual(gate["requested_blocks"], list(range(8)))
         self.assertEqual(gate["eligible_blocks"], [0])
         self.assertFalse(gate["final_response_permitted"])
+
+    def test_delegated_route_owner_rejects_changed_direct_source_bytes(
+        self,
+    ) -> None:
+        provenance = self.append_delegated_range_authority_review()
+        directory = self.root / self.target
+        before = (directory / "events.jsonl").read_bytes()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "different owner evidence",
+        ):
+            self.call(
+                "delegated-direct-authority-route-record",
+                "--target-thread",
+                self.target,
+                "--source-record",
+                str(provenance["route_source_record_id"]),
+                "--source-task",
+                str(provenance["source_task_id"]),
+                "--source-turn",
+                str(provenance["source_turn_id"]),
+                "--source-item",
+                str(provenance["source_item_id"]),
+                "--action",
+                "continue-current-full-tracker",
+                "--source-text-base64",
+                base64.b64encode(b"implement the complete tracker").decode(
+                    "ascii"
+                ),
+            )
+
+        self.assertEqual((directory / "events.jsonl").read_bytes(), before)
 
     def test_delegated_authority_rejects_changed_route_packet(
         self,
@@ -2780,6 +2830,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "origin-user-item-5678",
                 "--action",
                 long_action,
+                "--source-text-base64",
+                base64.b64encode(b"implement this tracker").decode("ascii"),
             )
 
         self.assertEqual((directory / "events.jsonl").read_bytes(), before)
@@ -2823,6 +2875,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 self.initial_source,
                 "--action",
                 self.initial_mission_request,
+                "--source-text-base64",
+                base64.b64encode(
+                    self.initial_mission_request.encode("utf-8")
+                ).decode("ascii"),
             )
 
         self.assertEqual((directory / "events.jsonl").read_bytes(), before)

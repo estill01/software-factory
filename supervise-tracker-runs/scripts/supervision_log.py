@@ -390,7 +390,8 @@ EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
 OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
 OWNER_ROOT_KEY_DIRECTORY = ".owner-root-keys"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
-MAX_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
+MAX_DIRECT_AUTHORITY_SOURCE_BYTES = 8 * 1024
+MAX_DIRECT_AUTHORITY_PROVENANCE_BYTES = 16 * 1024
 MAX_LEGACY_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
@@ -6891,6 +6892,34 @@ def decode_direct_authority_provenance(encoded_value: str) -> dict[str, Any]:
     return value
 
 
+def decode_direct_authority_source_text(encoded_value: str) -> str:
+    if not isinstance(encoded_value, str) or not encoded_value:
+        raise SupervisionLogError(
+            "Direct-authority source text must be nonempty canonical base64"
+        )
+    try:
+        encoded = encoded_value.encode("ascii")
+        raw = base64.b64decode(encoded, validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise SupervisionLogError(
+            "Direct-authority source text is not valid canonical base64"
+        ) from exc
+    if base64.b64encode(raw) != encoded:
+        raise SupervisionLogError(
+            "Direct-authority source text is not valid canonical base64"
+        )
+    if not raw or len(raw) > MAX_DIRECT_AUTHORITY_SOURCE_BYTES:
+        raise SupervisionLogError(
+            "Direct-authority source text exceeds its byte bound"
+        )
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SupervisionLogError(
+            "Direct-authority source text is not valid UTF-8"
+        ) from exc
+
+
 def direct_authority_review_evidence(
     provenance: Mapping[str, Any],
 ) -> list[str]:
@@ -7257,6 +7286,9 @@ def delegated_direct_authority_route_result(
 def cmd_delegated_direct_authority_route_record(
     args: argparse.Namespace,
 ) -> None:
+    source_text = decode_direct_authority_source_text(
+        args.source_text_base64
+    )
     (
         directory,
         policy,
@@ -7280,7 +7312,7 @@ def cmd_delegated_direct_authority_route_record(
         source_task_id=args.source_task,
         source_turn_id=args.source_turn,
         source_item_id=args.source_item,
-        source_text=args.action,
+        source_text=source_text,
     )
     duplicate = matching_delegated_direct_authority_route_record(
         all_events, material=material
@@ -7332,7 +7364,7 @@ def cmd_delegated_direct_authority_route_record(
             source_task_id=args.source_task,
             source_turn_id=args.source_turn,
             source_item_id=args.source_item,
-            source_text=args.action,
+            source_text=source_text,
         )
         if current_material != material:
             raise SupervisionLogError(
@@ -7552,7 +7584,7 @@ def validate_direct_authority_provenance(
     if (
         type(source_byte_count) is not int
         or source_byte_count <= 0
-        or source_byte_count > 1200
+        or source_byte_count > MAX_DIRECT_AUTHORITY_SOURCE_BYTES
         or len(source_bytes) != source_byte_count
     ):
         raise SupervisionLogError("Direct-authority source byte count differs")
@@ -7565,7 +7597,7 @@ def validate_direct_authority_provenance(
             "Direct-authority source bytes differ from their SHA-256"
         )
     if delegated:
-        route_action_sha256 = exact_sha256(
+        exact_sha256(
             str(provenance["route_action_sha256"]),
             label="delegated-authority route action SHA-256",
         )
@@ -7573,10 +7605,6 @@ def validate_direct_authority_provenance(
             str(provenance["route_projection_sha256"]),
             label="delegated-authority route projection SHA-256",
         )
-        if route_action_sha256 != digest(source_text):
-            raise SupervisionLogError(
-                "Delegated authority route action differs from the exact source"
-            )
     source_policy_sha256 = exact_sha256(
         str(provenance["policy_sha256"]),
         label="direct-authority policy SHA-256",
@@ -7634,7 +7662,9 @@ def validate_direct_authority_provenance(
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
         )
-    intent, _requested = classify_implementation_request(source_text, {0})
+    intent, _requested = classify_implementation_request(
+        source_text, {0}, allow_unknown_blocks=True
+    )
     if intent != "full-tracker":
         raise SupervisionLogError(
             "Direct-authority source does not authorize the full tracker"
@@ -8418,7 +8448,10 @@ def implementation_tracker_snapshot(
 
 
 def classify_implementation_request(
-    request_text: str, blocks: set[int]
+    request_text: str,
+    blocks: set[int],
+    *,
+    allow_unknown_blocks: bool = False,
 ) -> tuple[str, list[int]]:
     markdown_invocation = re.compile(
         r"(?P<prefix>\[\$implement-tracker-blocks\]\()"
@@ -8431,11 +8464,48 @@ def classify_implementation_request(
         ),
         request_text,
     )
-    value = clean(
-        classification_text,
-        label="implementation range request text",
-        maximum=1200,
+    if not isinstance(classification_text, str):
+        raise SupervisionLogError(
+            "Implementation range request text is not exact"
+        )
+    request_bytes = classification_text.encode("utf-8")
+    if (
+        not request_bytes
+        or len(request_bytes) > MAX_DIRECT_AUTHORITY_SOURCE_BYTES
+    ):
+        raise SupervisionLogError(
+            "Implementation range request text exceeds its byte bound"
+        )
+    if "\x00" in classification_text:
+        raise SupervisionLogError(
+            "Implementation range request text contains an invalid character"
+        )
+    value = classification_text.strip()
+    normalized_value = re.sub(r"\s+", " ", value)
+    routed_full = re.search(
+        r"\bnew\s+full-tracker\s+mission/range\b",
+        normalized_value,
+        re.I,
     )
+    routed_execution = re.search(
+        r"\binvoke\s+\$?implement-tracker-blocks\s+and\s+execute\s+the\s+"
+        r"complete\s+blocks?\s+(\d+)\s*[-–]\s*(\d+)\s+objective\s+"
+        r"automatically\b",
+        normalized_value,
+        re.I,
+    )
+    if routed_full is not None and routed_execution is not None:
+        start, end = map(int, routed_execution.groups())
+        requested = list(range(start, end + 1)) if end >= start else []
+        if not allow_unknown_blocks and requested != sorted(blocks):
+            raise SupervisionLogError(
+                "Full-tracker routed request does not cover the current tracker"
+            )
+        return (
+            "full-tracker",
+            sorted(blocks) if allow_unknown_blocks else requested,
+        )
+    value = re.sub(r"\s+", " ", value)
     def exact_blocks(expression: str) -> list[int]:
         normalized = expression.strip().lower().rstrip(".!")
         range_match = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", normalized)
@@ -9395,7 +9465,7 @@ def retained_full_tracker_authority(
                 "Implementation request text differs from retained direct authority"
             )
         intent, requested = classify_implementation_request(
-            request_text, {0}
+            request_text, {0}, allow_unknown_blocks=True
         )
         if intent != "full-tracker" or requested != [0]:
             raise SupervisionLogError(
@@ -18728,6 +18798,9 @@ def parser() -> argparse.ArgumentParser:
     delegated_authority_route.add_argument("--source-turn", required=True)
     delegated_authority_route.add_argument("--source-item", required=True)
     delegated_authority_route.add_argument("--action", required=True)
+    delegated_authority_route.add_argument(
+        "--source-text-base64", required=True
+    )
     delegated_authority_route.set_defaults(
         func=cmd_delegated_direct_authority_route_record
     )

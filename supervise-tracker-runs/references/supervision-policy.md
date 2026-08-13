@@ -913,9 +913,13 @@ reject before append:
 
 The mission controlling-source SHA is the canonical route-owner action digest
 returned by `thread-route-gate`. Delegated provenance separately retains and
-revalidates the exact raw UTF-8 byte count and SHA-256. Comparing the mission
-digest to the raw byte hash is an identity mismatch and must reject; the two
-forms are never interchangeable.
+revalidates the exact raw UTF-8 byte count and SHA-256. The route action is a
+bounded owner command and the source text is the complete originating direct
+instruction; they are distinct required inputs. Comparing either digest to the
+other, using the action as source text, or omitting the source bytes is an
+identity mismatch and must reject. Exact source text is passed as canonical
+base64 so multiline requests and their original bytes are retained without
+shell normalization.
 
 The retained activation source must remain the exact current head through
 ingestion, receipt, and fresh range admission. Actual first-Block work starts
@@ -928,7 +932,8 @@ python3 <LOG_HELPER> delegated-direct-authority-route-record \
   --target-thread <TARGET> --source-record <CANONICAL_ROUTE_SOURCE> \
   --source-task <ORIGIN_TASK> --source-turn <ORIGIN_TURN> \
   --source-item <ORIGIN_ITEM> \
-  --action <EXACT_DIRECT_SOURCE_TEXT>
+  --action <EXACT_BOUNDED_ROUTE_ACTION> \
+  --source-text-base64 <CANONICAL_BASE64_EXACT_DIRECT_SOURCE_TEXT>
 
 python3 <LOG_HELPER> direct-authority-ingest \
   --target-thread <TARGET> \
