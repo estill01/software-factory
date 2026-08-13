@@ -4486,6 +4486,116 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 promotion_record,
             )
 
+    def refresh_health(
+        self,
+        promotion_record: str,
+        *,
+        owner: object,
+        plan: dict[str, object],
+    ) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = json.loads(
+            directory.joinpath("policy.json").read_text(encoding="utf-8")
+        )
+        mission_identity = supervision_log.current_mission_range_identity(policy)
+        range_state = {
+            "range_id": "release-refresh-range-1234",
+            "range_intent": "full-tracker",
+            "tracker_path": str(self.repo / "tracker.md"),
+            "tracker_sha256": "7" * 64,
+            "tracker_structure_sha256": "8" * 64,
+            "requested_blocks": list(range(8)),
+            "accepted_blocks": [0, 1, 2, 3, 5],
+            "completed_prerequisite_blocks": [],
+            "remaining_blocks": [4, 6, 7],
+            "eligible_blocks": [4],
+            "range_history_head_sha256": "9" * 64,
+        }
+        plan_path = Path(self.temporary.name) / "refresh-plan.json"
+        plan_path.write_bytes(supervision_log.canonical(plan) + b"\n")
+        with (
+            mock.patch.object(
+                supervision_log,
+                "software_factory_automation_owner_root",
+                return_value=self.automation_root,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "software_factory_release_install_root",
+                return_value=self.release_root,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "run_software_factory_release_owner",
+                side_effect=owner,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_state",
+                return_value=copy.deepcopy(range_state),
+            ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_contract",
+                return_value={"mission_identity": mission_identity},
+            ),
+        ):
+            return self.call(
+                "software-factory-supervisor-refresh-health",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--promotion-record",
+                promotion_record,
+                "--refresh-plan",
+                str(plan_path),
+            )
+
+    def recovery_owner(
+        self,
+        _repository: Path,
+        *,
+        source_commit: str,
+        action: str,
+        release_id: str | None = None,
+    ) -> dict[str, object]:
+        self.assertEqual(source_commit, self.source)
+        self.owner_actions.append(action)
+        if action == "status":
+            selected = (
+                self.restored_status
+                if getattr(self, "rollback_complete", False)
+                else self.health_status
+            )
+            return copy.deepcopy(selected)
+        if action != "rollback":
+            raise AssertionError(f"unexpected owner action: {action}")
+        self.assertEqual(release_id, self.prior_status["active_release_id"])
+        self.rollback_complete = True
+        return {
+            "action": "rollback",
+            "active_release_id": self.prior_status["active_release_id"],
+            "previous_release_id": self.status["active_release_id"],
+            "installed": copy.deepcopy(
+                self.prior_status["current_verification"]
+            ),
+            "activation_record": {"record_id": "rollback-owner-record-1234"},
+        }
+
+    def prepare_recovery_owner(self, *, unhealthy: bool) -> None:
+        self.owner_actions.clear()
+        self.rollback_complete = False
+        self.health_status = copy.deepcopy(self.status)
+        if unhealthy:
+            self.health_status["skills"]["supervise-tracker-runs"][
+                "content_root_sha256"
+            ] = "f" * 64
+        self.restored_status = copy.deepcopy(self.prior_status)
+        self.restored_status["activation_history_records"] = (
+            int(self.status["activation_history_records"]) + 1
+        )
+
     def test_exact_acceptance_invokes_flagless_owner_and_deduplicates(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(
@@ -5719,6 +5829,281 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                             value,
                         ]
                     )
+
+    def test_refresh_health_waits_for_automation_owner_then_records_once(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.prepare_recovery_owner(unhealthy=False)
+
+        pending = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+
+        self.assertEqual(pending["posture"], "refresh-pending")
+        self.assertFalse(pending["duplicate"])
+        stable = pending["refresh_plan"]["automation_updates"][0][
+            "stable_prompt"
+        ]
+        self.write_automation(stable, bind=False, updated_at=3)
+
+        healthy = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+        duplicate = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+
+        self.assertEqual(healthy["posture"], "healthy")
+        self.assertFalse(healthy["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(
+            healthy["health"]["record_id"], duplicate["health"]["record_id"]
+        )
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_HEALTH_KIND
+                ]
+            ),
+            1,
+        )
+        self.assertNotIn("rollback", self.owner_actions)
+
+    def test_refresh_health_rolls_back_once_and_rehydrates_duplicate(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.prepare_recovery_owner(unhealthy=True)
+
+        first = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+        second = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+
+        self.assertEqual(first["posture"], "rollback-restored")
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(self.owner_actions.count("rollback"), 1)
+        self.assertEqual(
+            first["restored_release"]["release_id"],
+            self.prior_status["active_release_id"],
+        )
+        self.assertTrue(first["restoration_role_refreshes"])
+
+    def test_refresh_health_recovers_after_rollback_result_append_failure(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.prepare_recovery_owner(unhealthy=True)
+        original = supervision_log.append_event_locked
+        interrupted = False
+
+        def fail_once(
+            args: argparse.Namespace,
+            directory: Path,
+            record: dict[str, object],
+        ) -> None:
+            nonlocal interrupted
+            if (
+                record.get("kind")
+                == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_ROLLBACK_KIND
+                and not interrupted
+            ):
+                interrupted = True
+                raise OSError("injected rollback result append failure")
+            original(args, directory, record)
+
+        with mock.patch.object(
+            supervision_log, "append_event_locked", side_effect=fail_once
+        ), self.assertRaisesRegex(OSError, "injected rollback"):
+            self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                owner=self.recovery_owner,
+                plan=plan,
+            )
+
+        recovered = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+
+        self.assertEqual(recovered["posture"], "rollback-restored")
+        self.assertEqual(self.owner_actions.count("rollback"), 1)
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_ROLLBACK_REQUIRED_KIND
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_ROLLBACK_KIND
+                ]
+            ),
+            1,
+        )
+
+    def test_refresh_health_retries_failed_owner_rollback_requirement(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        self.prepare_recovery_owner(unhealthy=True)
+        failed = False
+
+        def fail_rollback_once(
+            repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+        ) -> dict[str, object]:
+            nonlocal failed
+            if action == "rollback" and not failed:
+                failed = True
+                self.owner_actions.append(action)
+                raise supervision_log.SupervisionLogError(
+                    "injected release-owner rollback failure"
+                )
+            return self.recovery_owner(
+                repository,
+                source_commit=source_commit,
+                action=action,
+                release_id=release_id,
+            )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "injected release-owner"
+        ):
+            self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                owner=fail_rollback_once,
+                plan=plan,
+            )
+
+        recovered = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=fail_rollback_once,
+            plan=plan,
+        )
+
+        self.assertEqual(recovered["posture"], "rollback-restored")
+        self.assertEqual(self.owner_actions.count("rollback"), 2)
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_ROLLBACK_REQUIRED_KIND
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_ROLLBACK_KIND
+                ]
+            ),
+            1,
+        )
+
+    def test_refresh_health_duplicate_rejects_changed_automation_owner(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(self.current_legacy_automation_prompt())
+        plan = self.refresh_plan(str(promoted["promotion"]["record_id"]))
+        stable = plan["automation_updates"][0]["stable_prompt"]
+        self.write_automation(stable, bind=False, updated_at=3)
+        self.prepare_recovery_owner(unhealthy=False)
+        healthy = self.refresh_health(
+            str(promoted["promotion"]["record_id"]),
+            owner=self.recovery_owner,
+            plan=plan,
+        )
+        self.assertEqual(healthy["posture"], "healthy")
+        self.write_automation(
+            stable + " Owner bytes changed after health.",
+            bind=False,
+            updated_at=4,
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "health is no longer current",
+        ):
+            self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                owner=self.recovery_owner,
+                plan=plan,
+            )
 
     def test_refresh_prompt_rejects_mixed_release_identities(self) -> None:
         prompt = self.legacy_pinned_automation_prompt().replace(
