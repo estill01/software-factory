@@ -601,9 +601,20 @@ reserved deferrals, safe frontier, and application posture.
   remote-durability claim; it never changes final-response permission, required
   target posture, local promotion eligibility, post-activation role-refresh
   eligibility, or local effectiveness. After the exact accepted commit is
-  available locally, immediately invoke the maintained release owner's
-  `promote --repo <repo> --source-commit <commit>` operation without asking for
-  another user confirmation. That owner must run exact-commit checks, retain the
+  available locally, retain one canonical `checkpoint-review` with category
+  `software-factory-release-acceptance`, status `accepted`, the exact source
+  commit/tree, no findings, and the policy-bound base-or-Max reviewer. Then use
+  `supervision_log.py software-factory-release-promote --target-thread <target>
+  --repo <repo> --source-commit <commit> --acceptance-record <event>` without
+  another user confirmation.
+  That orchestration command invokes only the
+  maintained release owner's exact flagless `promote --repo <repo>
+  --source-commit <commit>` operation, revalidates its returned active release
+  and three installed roots through live owner status, and records one
+  deduplicated canonical result. It accepts no caller-selected active identity,
+  pointer, stage, or quiescence input. A configured `--manual-pin-release` is
+  the explicit hold exception and must equal the verified current release. The
+  release owner must run exact-commit checks, retain the
   prior release, atomically swap the active pointer, verify it in a fresh
   process, and restore the prior pointer on failure. Optional signed
   review/cutover evidence is for a specifically required separation-of-duties

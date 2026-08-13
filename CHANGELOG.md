@@ -39,6 +39,14 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Exact-acceptance-triggered release orchestration.** The supervision owner
+  now consumes one canonical policy-bound base-or-Max acceptance for the exact
+  clean source HEAD/tree, invokes only the flagless `skill_release.py promote`
+  owner, revalidates its returned active release and three installed roots
+  through live status, and retains one deduplicated result. Missing, stale,
+  changed-byte, unbound-review, divergent-result, and caller-selected release
+  identity cases reject before they can become canonical promotion evidence.
+
 - **Provenance-bound authority across internal task routing.** A direct-user
   implementation instruction no longer loses its actionable authority merely
   because Software Factory carries it to the configured target through

@@ -111,8 +111,16 @@ to `releases/<release-id>` directories:
 ~/.codex/software-factory-releases/current/supervise-tracker-runs/scripts/supervision_log.py
 ```
 
-After an exact accepted commit is available locally, the ordinary owner runs
-`skill_release.py promote` automatically. The atomic `current` swap updates the
+After an exact accepted commit is available locally, supervision retains its
+policy-bound `software-factory-release-acceptance` checkpoint and runs
+`supervision_log.py software-factory-release-promote`. That seam accepts only
+the exact clean HEAD and canonical acceptance record, invokes the ordinary
+owner's flagless `skill_release.py promote --repo ... --source-commit ...`, and
+revalidates the returned active identity and three installed roots through live
+owner status. Identical accepted revisions reuse the one retained promotion;
+there is no caller active-release or pointer input. An explicit
+`--manual-pin-release` may hold only the verified current release. The atomic
+`current` swap updates the
 next scheduled monitor wake while preserving its automation ID, target thread,
 schedule, model, reasoning, status, and notification posture. An already-running
 turn may finish with the instruction bytes loaded before the swap. Legacy

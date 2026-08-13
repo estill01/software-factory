@@ -399,8 +399,10 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         for text in (supervision_skill, policy, release_contract):
             self.assertIn(stable_path, text)
             self.assertIn("next scheduled", text)
+            self.assertIn("software-factory-release-promote", text)
         self.assertIn("scripts/skill_release.py promote --repo <repo>", policy)
         self.assertIn("--source-commit <commit>", policy)
+        self.assertIn("software-factory-release-acceptance", policy)
         self.assertIn(
             "without asking for another user confirmation",
             " ".join(supervision_skill.split()),
@@ -4080,6 +4082,490 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertIn("newer exact direct-user", authoring)
         self.assertIn("unauthorized requested-range contraction", changelog)
         self.assertIn("019fb18f-3d03-7ca0-9fe9-68353f0405ce", changelog)
+
+
+class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
+    target = "release-orchestration-target-1234"
+    reviewer = "release-orchestration-reviewer-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "supervision"
+        self.repo = Path(self.temporary.name) / "repository"
+        self.repo.mkdir()
+        self.repo = self.repo.resolve(strict=True)
+        self.repo.joinpath("scripts").mkdir()
+        self.repo.joinpath("scripts", "skill_release.py").write_text(
+            "#!/usr/bin/env python3\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["/usr/bin/git", "init", "-q", str(self.repo)], check=True)
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "config", "user.name", "Test"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                str(self.repo),
+                "config",
+                "user.email",
+                "test@example.invalid",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "add", "."], check=True
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "commit", "-qm", "source"],
+            check=True,
+        )
+        self.source = subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.tree = subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "rev-parse", "HEAD^{tree}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "Release orchestration target",
+                "--watcher-thread",
+                "release-orchestration-watcher-1234",
+                "--reviewer-thread",
+                self.reviewer,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "release-orchestration-source-1234",
+                "--mission-source-sha256",
+                "1" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        self.owner_actions: list[str] = []
+        self.promotion, self.status = self.owner_results()
+
+    def call(self, *arguments: str) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), *arguments]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def owner_results(self) -> tuple[dict[str, object], dict[str, object]]:
+        roots = {
+            name: hashlib.sha256(name.encode("utf-8")).hexdigest()
+            for name in supervision_log.SOFTWARE_FACTORY_RELEASE_SKILLS
+        }
+        checks = []
+        for item in (
+            "release-owner",
+            "tracker-authoring",
+            "tracker-execution",
+            "tracker-supervision",
+        ):
+            check_material = {
+                "id": item,
+                "status": "passed",
+                "test_count": 1,
+                "failure_count": 0,
+                "baseline_failure_count": 0,
+            }
+            checks.append(
+                {
+                    **check_material,
+                    "result_sha256": supervision_log.digest(check_material),
+                }
+            )
+        assurance_material: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-skill-release-automated-assurance",
+            "record_id": f"AUTOMATED-{self.source[:12]}-{'3' * 12}",
+            "source_commit": self.source,
+            "candidate_root_sha256": "4" * 64,
+            "checks": checks,
+            "outcome": "passed",
+        }
+        assurance = {
+            **assurance_material,
+            "assurance_root_sha256": supervision_log.digest(assurance_material),
+        }
+        release_id = (
+            f"{self.source[:12]}-"
+            f"{supervision_log.digest({'candidate_root_sha256': assurance['candidate_root_sha256'], 'assurance_root_sha256': assurance['assurance_root_sha256']})[:12]}"
+        )
+        installed_material: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-post-swap-resolution",
+            "release_id": release_id,
+            "installed_roots": roots,
+        }
+        installed = {
+            **installed_material,
+            "verification_root_sha256": supervision_log.digest(installed_material),
+        }
+        promotion = {
+            "promotion": "completed",
+            "stage": "created",
+            "release_id": release_id,
+            "source_commit": self.source,
+            "automated_assurance": assurance,
+            "activation": {
+                "action": "activate",
+                "active_release_id": release_id,
+                "previous_release_id": f"{'5' * 12}-{'6' * 12}",
+                "installed": installed,
+                "activation_record": {"record_id": "release-owner-record-1234"},
+            },
+        }
+        status = {
+            "active_release_id": release_id,
+            "source_commit": self.source,
+            "skills": {
+                name: {"content_root_sha256": root, "file_count": 1}
+                for name, root in roots.items()
+            },
+            "installed_links": {
+                name: {"stable": True} for name in roots
+            },
+            "installed_complete": True,
+            "activation_history_records": 1,
+            "current_verification": installed,
+        }
+        return promotion, status
+
+    def acceptance(self, *, reviewer: str | None = None, tree: str | None = None) -> str:
+        selected_reviewer = reviewer or self.reviewer
+        result = self.call(
+            "record",
+            "--target-thread",
+            self.target,
+            "--kind",
+            "checkpoint-review",
+            "--status",
+            "accepted",
+            "--category",
+            supervision_log.SOFTWARE_FACTORY_RELEASE_ACCEPTANCE_CATEGORY,
+            "--model",
+            "gpt-5.6-sol",
+            "--reasoning",
+            "max",
+            "--summary",
+            "Independent exact source review found no material issue.",
+            "--evidence",
+            f"source-commit:{self.source}",
+            "--evidence",
+            f"source-tree:{tree or self.tree}",
+            "--evidence",
+            f"reviewer-thread:{selected_reviewer}",
+            "--evidence",
+            "review-findings:none",
+        )
+        return str(result["record"]["record_id"])
+
+    def promote(self, acceptance: str) -> dict[str, object]:
+        return self.call(
+            "software-factory-release-promote",
+            "--target-thread",
+            self.target,
+            "--repo",
+            str(self.repo),
+            "--source-commit",
+            self.source,
+            "--acceptance-record",
+            acceptance,
+        )
+
+    def fake_owner(
+        self, _repository: Path, *, source_commit: str, action: str
+    ) -> dict[str, object]:
+        self.assertEqual(source_commit, self.source)
+        self.owner_actions.append(action)
+        return copy.deepcopy(self.promotion if action == "promote" else self.status)
+
+    def test_exact_acceptance_invokes_flagless_owner_and_deduplicates(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            first = self.promote(accepted)
+            second = self.promote(accepted)
+
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(self.owner_actions, ["promote", "status", "status"])
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in records
+                    if item.get("kind")
+                    == supervision_log.SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+                ]
+            ),
+            1,
+        )
+
+    def test_missing_or_unbound_acceptance_rejects_before_owner(self) -> None:
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "missing or ambiguous"
+            ):
+                self.promote("EVT-009999")
+            unbound = self.acceptance(reviewer="different-reviewer-1234")
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "not policy-bound"
+            ):
+                self.promote(unbound)
+        self.assertEqual(self.owner_actions, [])
+
+    def test_later_source_review_retires_prior_acceptance(self) -> None:
+        accepted = self.acceptance()
+        self.call(
+            "record",
+            "--target-thread",
+            self.target,
+            "--kind",
+            "checkpoint-review",
+            "--status",
+            "rejected",
+            "--category",
+            supervision_log.SOFTWARE_FACTORY_RELEASE_ACCEPTANCE_CATEGORY,
+            "--model",
+            "gpt-5.6-sol",
+            "--reasoning",
+            "max",
+            "--summary",
+            "Later exact review found an unresolved issue.",
+            "--evidence",
+            f"source-commit:{self.source}",
+            "--evidence",
+            f"source-tree:{self.tree}",
+            "--evidence",
+            f"reviewer-thread:{self.reviewer}",
+            "--evidence",
+            "review-findings:open",
+        )
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "current exact review"
+            ):
+                self.promote(accepted)
+        self.assertEqual(self.owner_actions, [])
+
+    def test_explicit_manual_pin_holds_without_promotion(self) -> None:
+        accepted = self.acceptance()
+        release_id = str(self.status["active_release_id"])
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            result = self.call(
+                "software-factory-release-promote",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--source-commit",
+                self.source,
+                "--acceptance-record",
+                accepted,
+                "--manual-pin-release",
+                release_id,
+            )
+        self.assertEqual(self.owner_actions, ["status"])
+        self.assertEqual(
+            result["kind"], "software-factory-release-manual-pin-hold"
+        )
+        self.assertFalse(result["owner_invoked"])
+        self.assertEqual(result["manual_pin_release_id"], release_id)
+        self.assertEqual(
+            result["result_root_sha256"],
+            supervision_log.digest(
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key != "result_root_sha256"
+                }
+            ),
+        )
+
+    def test_invalid_automated_assurance_check_rejects(self) -> None:
+        accepted = self.acceptance()
+        invalid = copy.deepcopy(self.promotion)
+        invalid["automated_assurance"]["checks"][0]["failure_count"] = 1
+        assurance_material = {
+            key: value
+            for key, value in invalid["automated_assurance"].items()
+            if key != "assurance_root_sha256"
+        }
+        invalid["automated_assurance"]["assurance_root_sha256"] = (
+            supervision_log.digest(assurance_material)
+        )
+
+        def owner(
+            _repository: Path, *, source_commit: str, action: str
+        ) -> dict[str, object]:
+            self.owner_actions.append(action)
+            return copy.deepcopy(invalid if action == "promote" else self.status)
+
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "assurance check is invalid"
+            ):
+                self.promote(accepted)
+        self.assertEqual(self.owner_actions, ["promote", "status"])
+
+    def test_changed_source_or_tree_rejects_before_owner(self) -> None:
+        wrong_tree = self.acceptance(tree="f" * 40)
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "not exact and accepted"
+            ):
+                self.promote(wrong_tree)
+        self.repo.joinpath("changed.txt").write_text("changed\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "exact and clean"
+        ):
+            self.promote(wrong_tree)
+        self.assertEqual(self.owner_actions, [])
+
+    def test_acceptance_for_nonhead_commit_is_stale(self) -> None:
+        accepted = self.acceptance()
+        self.repo.joinpath("later.txt").write_text("later\n", encoding="utf-8")
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "add", "later.txt"],
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "commit", "-qm", "later"],
+            check=True,
+        )
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "stale for the current HEAD"
+            ):
+                self.promote(accepted)
+        self.assertEqual(self.owner_actions, [])
+
+    def test_owner_invocation_is_exactly_flagless(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=b"{}", stderr=b""
+        )
+        with mock.patch.object(
+            supervision_log.subprocess, "run", return_value=completed
+        ) as run:
+            supervision_log.run_software_factory_release_owner(
+                self.repo, source_commit=self.source, action="promote"
+            )
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "/usr/bin/python3",
+                str(self.repo / "scripts" / "skill_release.py"),
+                "promote",
+                "--repo",
+                str(self.repo),
+                "--source-commit",
+                self.source,
+            ],
+        )
+
+    def test_divergent_owner_status_never_becomes_canonical(self) -> None:
+        accepted = self.acceptance()
+        divergent = copy.deepcopy(self.status)
+        divergent["source_commit"] = "f" * 40
+
+        def owner(
+            _repository: Path, *, source_commit: str, action: str
+        ) -> dict[str, object]:
+            self.owner_actions.append(action)
+            return copy.deepcopy(self.promotion if action == "promote" else divergent)
+
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "live status differs"
+            ):
+                self.promote(accepted)
+        records = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+                for item in records
+            )
+        )
+
+    def test_pointer_and_caller_active_identity_inputs_are_absent(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                supervision_log.parser().parse_args(
+                    [
+                        "--root",
+                        str(self.root),
+                        "software-factory-release-promote",
+                        "--target-thread",
+                        self.target,
+                        "--repo",
+                        str(self.repo),
+                        "--source-commit",
+                        self.source,
+                        "--acceptance-record",
+                        "EVT-000001",
+                        "--release-id",
+                        "caller-release-1234",
+                    ]
+                )
 
 
 class LegacyDirectAuthorityIngestTests(unittest.TestCase):
