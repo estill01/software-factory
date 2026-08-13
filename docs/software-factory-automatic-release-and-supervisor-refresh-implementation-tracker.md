@@ -187,7 +187,7 @@ make their composition automatic and fail closed.
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
-| 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
+| 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `in-progress` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
 
 Required order:
@@ -956,7 +956,7 @@ Stop before promoting the integrated candidate.
 
 ## Block 6 — Freeze, validate, independently review, merge, and promote
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1010,7 +1010,33 @@ Exact-revision independent review is mandatory before promotion.
 
 ### Completion evidence
 
-Pending.
+- Candidate source before this evidence-only child:
+  `8cda98cd6d763909d0ab40cfccf157ce3bc30947`; it is pushed, clean, and includes
+  exact merge `5b1d0eed78ce217e4dae4a9fd54ff8055ca97ae9` of the currently installed
+  `eaa75be5e739915b181819afede8a35a6e654155` range-authority correction.
+- Main-line identity: `origin/main` at
+  `a2f86665842ad9514fa1c38ed8a405f148f2025b` is an ancestor of the candidate;
+  no force push or history rewrite is required.
+- Full validation: author `30/30`; implementation `69/69` under its frozen
+  `/usr/bin/python3` runtime; supervision `392/392` under maintained Python 3.14
+  with ReportLab and pypdf; release owner `21/21`; all three skill validators,
+  full eight-Block tracker verification, compilation, and diff checks pass.
+- Runtime note: an exploratory Python 3.14 invocation of the frozen bounded-
+  candidate fixture rejected its expected Python 3.9 runtime identity. The
+  maintained exact-runtime rerun passed `69/69`; no fixture or production
+  contract was changed to hide that diagnostic.
+- Focused invalidation proof after active-source integration and documentation:
+  legacy app-readback range authority plus release/refresh orchestration `21/21`,
+  terminal report path `18/18`, stable-channel documentation contract `1/1`.
+- Candidate review request: rebuild from this evidence child through
+  `scripts/skill_release.py review-request`; exact independent review remains
+  required before `origin/main` update or release-owner promotion.
+- Retained open work: exact independent acceptance, main fast-forward, canonical
+  promotion/health receipt, and Block 7 live automation/effectiveness proof.
+- Post-block audit: candidate frozen; Block remains in progress at the mandatory
+  independent-review boundary.
+- Git durability: the code/docs candidate and this evidence child are pushed to
+  `origin/codex/autonomous-accepted-release-final`.
 
 ### Stop
 
