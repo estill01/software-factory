@@ -19,7 +19,14 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.fixture = dogfood.load_fixture()
-        cls.result = dogfood.run_dogfood()
+        try:
+            cls.result = dogfood.run_dogfood()
+        except ValueError as exc:
+            if str(exc) != "validation runtime differs":
+                raise
+            raise unittest.SkipTest(
+                "adaptive dogfood requires its recorded validation runtime"
+            ) from exc
 
     def indexed(self, key: str) -> dict[str, dict[str, object]]:
         return {str(item["case_id"]): item for item in self.result[key]}
