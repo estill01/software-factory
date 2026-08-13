@@ -371,7 +371,7 @@ the mapped dependency closure of a concrete current defect.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Freeze the recursive product-program evolution contract | — | `accepted` |
-| 1 | Build the fourth skill and deterministic program-evidence packet | 0 | `not-started` |
+| 1 | Build the fourth skill and deterministic program-evidence packet | 0 | `accepted` |
 | 2 | Add self-reflection and divergent future-work generation | 1 | `not-started` |
 | 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `not-started` |
 | 4 | Select, budget, schedule, and place one program portfolio | 2, 3 | `not-started` |
@@ -543,7 +543,7 @@ Stop before creating the executable skill or producing a candidate set.
 
 ## Block 1 — Build the fourth skill and deterministic program-evidence packet
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -614,7 +614,84 @@ judgment is explicitly absent.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `e9d0a6b6a5d7b506861947ae4d106b1876a63f05`;
+  tree `421c06f92bac6b9f05b19aae99cc00c6cd227231`.
+- External/domain revision or root: not applicable; Block 1 produced only the
+  source skill package and derived nonauthorizing fixtures. It performed no
+  release, tracker application, supervisor mutation, automation, or external
+  effect.
+- Inputs: accepted Block 0 contract at `f09ce6f`; immutable planning tracker
+  `781a3b653e44bd8570809a8e4665b5e21d19b981`; Block 1 frame SHA-256
+  `eda3aef56469064d1e42cfd6c832b9ea51634119d7a2684e2882e527102b0bf0`.
+- Outputs: skill root file SHA-256
+  `5e69973dcd002df84ca6fbbc9a5397e2b04502eb16eb4603cf7d0bedc219fc02`;
+  packet contract SHA-256
+  `3d98c84aa60c0730cb1d9c91567012a0c2fe0a805cc03ecccebd15343cf074d1`;
+  deterministic CLI SHA-256
+  `7891e1ce89b59c90baaa82f58f6cc89ef9bf937b6d9ae1afb5a157108a28b3d3`;
+  running/completed fixture SHA-256 values
+  `54a66ffdb2b0e61c14032bdbcc369bae9ff3ff249039962f67bea1c9383bed80`
+  and `9617293095fe58432a6c73eb8025bc3283b1f57fc9a4e16d2fbcf963695a59dd`.
+- Focused validation: `/usr/bin/python3 -m unittest -v
+  evolve-product-program/scripts/test_product_program_evidence.py
+  evolve-product-program/scripts/test_product_program_contract.py` — 18/18
+  passed; both retained packet fixtures verified; `py_compile`, skill
+  `quick_validate.py`, and `git diff --check` passed.
+- Mapped validation: deterministic replay, semantic/currentness separation,
+  zero-cognition unchanged result, exact repository/tracker/range derivation,
+  component-wise no-follow reads, source rechecks, authority rejection, retained
+  packet verification, and running/completed packet paths were exercised.
+- Candidate freeze: initial commit `a09d41f` was rejected; exact successor
+  `e9d0a6b6a5d7b506861947ae4d106b1876a63f05` was pushed and remained clean
+  throughout fresh review.
+- Remediation closure: lexical and actual-HOME containment now reject using
+  component-wise `dir_fd`/`O_NOFOLLOW`; retained range is recomputed from tracker
+  status/dependencies; product/resource evidence is nonempty in build and
+  verification; report prose changes currentness without inventing semantic
+  novelty. Direct regressions and 7/7 independent adversarial probes passed.
+- Resource posture: one bounded packet build per changed identity, no semantic
+  model call in this Block, 4 MiB/64-source ceilings, exact double-read
+  currentness, and constant identity comparison after preparation.
+- Independent review: `/root/block1_review` rejected exact `a09d41f` with four
+  material findings and accepted exact successor
+  `e9d0a6b6a5d7b506861947ae4d106b1876a63f05`; 18/18 focused tests, compilation,
+  skill validation, two fixture verifications, 7/7 adversarial probes, and clean
+  diff all passed without reviewer edits.
+- Product-capability review:
+  - Trigger: consequential fourth-skill/evidence-owner creation.
+  - Frame identity: immutable Block 1 planning bytes at `781a3b6`, SHA-256
+    `eda3aef56469064d1e42cfd6c832b9ea51634119d7a2684e2882e527102b0bf0`.
+  - Capability added or preserved: independently invocable, reproducible,
+    content-minimized product/program evidence with exact no-op convergence and
+    no downstream authority.
+  - Paths compared: copy Factory evidence logic into supervision; extend an
+    existing sibling writer; create the bounded deterministic owner in the new
+    skill.
+  - Selected level and owner: the bounded owner in `evolve-product-program`,
+    leaving semantic reflection and every canonical write to later or existing
+    owners.
+  - Protected-capability result: source ownership, explicit target/range,
+    currentness, content minimization, first-loop independence, and derived-only
+    status are preserved and covered by negative tests.
+  - Rejected alternatives: copying supervision logic would drift and conflate
+    evidence with review; extending an existing writer would weaken separation.
+  - Tradeoffs and uncertainty: exact schemas and repeated source reads cost
+    bounded local I/O; actual provider usage remains unavailable and is retained
+    only as typed source evidence for Block 3.
+  - Frozen-candidate proof: exact `e9d0a6b6a5d7b506861947ae4d106b1876a63f05`,
+    focused 18/18, independent ACCEPTED.
+- Retained open work: semantic interpretation and candidates remain exclusively
+  in Block 2; resource projection remains in Block 3; no Block 5–11 owner was
+  edited.
+- Decision/continuation posture: accept Block 1 and enter the direct-user
+  tracker-amendment boundary before Block 2; the exact Blocks 0–4 implementation
+  range remains intact and needs no manual Resume.
+- Post-block audit: accepted; packet rebuild is deterministic, every governing
+  semantic/currentness class changes the correct identity, packet verification
+  rejects forged frontier/resources/authority/containment, and outputs remain
+  nonauthorizing.
+- Git durability: `a09d41f` and remediation `e9d0a6b` are pushed on
+  `codex/product-program-evolution-blocks-0-4` to its matching `origin` upstream.
 
 ### Stop
 
