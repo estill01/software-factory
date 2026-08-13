@@ -8480,8 +8480,7 @@ def classify_implementation_request(
         raise SupervisionLogError(
             "Implementation range request text contains an invalid character"
         )
-    value = classification_text.strip()
-    normalized_value = re.sub(r"\s+", " ", value)
+    normalized_value = re.sub(r"\s+", " ", classification_text.strip())
     routed_full = re.search(
         r"\bnew\s+full-tracker\s+mission/range\b",
         normalized_value,
@@ -8505,7 +8504,11 @@ def classify_implementation_request(
             "full-tracker",
             sorted(blocks) if allow_unknown_blocks else requested,
         )
-    value = re.sub(r"\s+", " ", value)
+    value = clean(
+        classification_text,
+        label="implementation range request text",
+        maximum=1200,
+    )
     def exact_blocks(expression: str) -> list[int]:
         normalized = expression.strip().lower().rstrip(".!")
         range_match = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", normalized)
