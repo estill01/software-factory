@@ -1145,7 +1145,7 @@ available. The independent release reviewer first signs one exact
 ledger with `software-factory-release-accept`; the event retains the exact source
 commit/tree, `review-findings:none`, reviewer public-key identity, acceptance
 root, and signature. A generic caller-authored checkpoint is nonauthorizing.
-Then invoke:
+Its policy version must remain current when promotion begins. Then invoke:
 
 ```bash
 python3 <LOG_HELPER> software-factory-release-accept \

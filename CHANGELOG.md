@@ -50,7 +50,8 @@ the completed program materially changes Software Factory.
   advances before any effect, an immutable successor requirement may bind the
   newer acceptance only after exact prior release, installed-root,
   verification-root, and history currentness is revalidated. Missing, stale,
-  changed-byte, unverified or caller-asserted review, divergent-result, and
+  changed-policy, changed-byte, unverified or caller-asserted review,
+  divergent-result, and
   caller-selected release identity cases reject before they can become
   canonical promotion evidence.
 

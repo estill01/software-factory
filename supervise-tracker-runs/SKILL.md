@@ -605,7 +605,8 @@ reserved deferrals, safe frontier, and application posture.
   `software-factory-release-acceptance` object and ingest it with
   `software-factory-release-accept`. The canonical event binds its exact source
   commit/tree, no findings, reviewer public-key identity, root, and signature.
-  A generic caller-authored checkpoint cannot substitute for it. Then use
+  A generic caller-authored checkpoint cannot substitute for it, and its policy
+  version must remain current when promotion begins. Then use
   `supervision_log.py software-factory-release-promote --target-thread <target>
   --repo <repo> --source-commit <commit> --acceptance-record <event>` without
   asking for another user confirmation.

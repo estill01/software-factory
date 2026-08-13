@@ -4885,6 +4885,27 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 self.promote(accepted)
         self.assertEqual(self.owner_actions, [])
 
+    def test_policy_advance_retires_prior_acceptance(self) -> None:
+        accepted = self.acceptance()
+        self.call(
+            "bind",
+            "--target-thread",
+            self.target,
+            "--base-reviewer-thread",
+            "release-base-reviewer-1234",
+        )
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "stale for the current policy",
+            ):
+                self.promote(accepted)
+        self.assertEqual(self.owner_actions, [])
+
     def test_invalid_automated_assurance_check_rejects(self) -> None:
         accepted = self.acceptance()
         invalid = copy.deepcopy(self.promotion)

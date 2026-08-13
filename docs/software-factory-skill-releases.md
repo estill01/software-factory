@@ -116,7 +116,8 @@ reviewer signs the exact `software-factory-release-acceptance` object and
 supervision ingests it with `supervision_log.py
 software-factory-release-accept`. The canonical event retains the signed source,
 tree, reviewer authority, root, and no-findings disposition; a generic
-caller-authored checkpoint is nonauthorizing. Supervision then runs
+caller-authored checkpoint is nonauthorizing. Its policy version must remain
+current when promotion begins. Supervision then runs
 `supervision_log.py software-factory-release-promote`. That seam accepts only
 the exact clean HEAD and canonical acceptance record, invokes the ordinary
 owner's flagless `skill_release.py promote --repo ... --source-commit ...`, and
