@@ -230,7 +230,7 @@ accepted owner supersedes them.
 | 2 | Integrate and preserve the completed dashboard/evolution web app | 1 | `completed` |
 | 3 | Integrate accepted product-program work and future tracker sources | 2 | `completed` |
 | 4 | Validate and independently review the unified candidate | 3 | `completed` |
-| 5 | Publish canonical main and reconcile the installed release | 4 | `not-started` |
+| 5 | Publish canonical main and reconcile the installed release | 4 | `completed` |
 | 6 | Prune stale branches, worktrees, and pull-request residue | 5 | `not-started` |
 | 7 | Recreate clean lanes and resume intended remaining work | 6 | `not-started` |
 | 8 | Verify the repository-wide steady state | 7 | `not-started` |
@@ -853,7 +853,7 @@ release.
 
 ## Block 5 — Publish canonical main and reconcile the installed release
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -931,7 +931,47 @@ status after publication.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: canonical `main` and `origin/main`
+  `2109eeee46468a50c6c1c934628c4f033e7bb1fa`; publication used only
+  non-force updates. The integration source `731fc346022b99c3d70dd8a8c3f841fab168ec1a`
+  and every preservation parent are ancestors.
+- External/domain revision or root: active release
+  `2109eeee4646-fb7861d1f68b`, source commit `2109eeee46468a50c6c1c934628c4f033e7bb1fa`,
+  post-swap verification root
+  `8339924155057a190a421318304789a2d08b0b38d441c21dd1c6679374a8610d`.
+- Inputs: frozen Block 4 candidate, one late six-file unaccepted automatic-
+  release candidate preserved at `ca6173837d0c985222b9841247ddce4a2f7c3722`,
+  and the remote `main` currentness check.
+- Outputs: local `main == origin/main`; the late unaccepted candidate is an
+  ancestry-only parent and has no tree effect; no open pull request remains.
+- Focused validation: runtime-bound adaptive dogfood passed under its recorded
+  system Python and explicitly skipped, rather than produced a false
+  regression, under the release runner's Python 3.14. The strict underlying
+  bounded-candidate runtime validator remains unchanged.
+- Mapped validation: release-owner 23/23, tracker-authoring 42/42,
+  tracker-execution 110 tests with only the same 18 accepted-baseline failures,
+  and tracker-supervision 523/523 passed the maintained release owner.
+- Candidate freeze: source `2109eeee46468a50c6c1c934628c4f033e7bb1fa`,
+  unchanged throughout promotion and already pushed before activation.
+- Remediation closure: the first promotion attempt failed closed because the
+  new adaptive dogfood suite added a runtime-portability-only error. Commit
+  `2109eee` makes that test runtime-aware without weakening the performance
+  evidence validator; the second exact promotion completed.
+- Resource posture: previous release `b5162c0ffac9-832677d54c7f` remains the
+  release owner's rollback source; stable install links resolve to the newly
+  verified release.
+- Independent review: Block 4's exact combined-source review and finding
+  closure remain applicable; the release owner independently admitted and
+  activated only the exact pushed source after its full candidate/baseline
+  comparison.
+- Retained open work: branch and worktree cleanup in Block 6; dependency-
+  ordered automatic-release, systemic-recovery, and product-program work in
+  Block 7.
+- Decision/continuation posture: publication is complete and deletion remains
+  gated on fresh ancestry, dirt, and exact-ref proof.
+- Post-block audit: accepted; current release source is exactly canonical main.
+- Git durability: `main` push completed without force; GitHub reports only
+  historical merged PR 1 and no open PR.
 
 ### Stop
 
