@@ -1,0 +1,101 @@
+{
+  "cases": [
+    {
+      "case_id": "clean-redundant-worktree",
+      "expected_posture": "safe-cleanup",
+      "forbidden_claims": ["age-is-staleness"],
+      "proposed_disposition": "integrated",
+      "required_proof": ["published-main-tree", "clean-unowned-worktree", "semantic-coverage"],
+      "source_state": ["clean", "reachable", "unowned"]
+    },
+    {
+      "case_id": "unique-committed-work",
+      "expected_posture": "retain",
+      "forbidden_claims": ["reachability-is-acceptance"],
+      "proposed_disposition": "retain",
+      "required_proof": ["exact-object-preservation", "capability-review"],
+      "source_state": ["unique-commit", "unaccepted"]
+    },
+    {
+      "case_id": "dirty-and-local-bytes",
+      "expected_posture": "retain",
+      "forbidden_claims": ["clean-ignored-files", "push-sensitive-bytes"],
+      "proposed_disposition": "retain",
+      "required_proof": ["staged-bytes", "unstaged-bytes", "untracked-bytes", "relevant-ignored-bytes", "local-restore"],
+      "source_state": ["staged", "unstaged", "untracked", "ignored"]
+    },
+    {
+      "case_id": "detached-and-stashed-work",
+      "expected_posture": "retain",
+      "forbidden_claims": ["detached-is-disposable"],
+      "proposed_disposition": "preserved",
+      "required_proof": ["detached-object", "stash-object", "restore-drill"],
+      "source_state": ["detached", "stash"]
+    },
+    {
+      "case_id": "moved-ref-after-plan",
+      "expected_posture": "replan",
+      "forbidden_claims": ["reuse-stale-gate"],
+      "proposed_disposition": "retain",
+      "required_proof": ["current-ref-object", "successor-plan"],
+      "source_state": ["ref-moved"]
+    },
+    {
+      "case_id": "provider-pr-matrix",
+      "expected_posture": "coordinated-reconciliation",
+      "forbidden_claims": ["merge-every-pr", "provider-unavailable-is-clean"],
+      "proposed_disposition": "retain",
+      "required_proof": ["merge-ready-current-acceptance", "supersession-owner", "retain-unavailable"],
+      "source_state": ["merge-ready-pr", "superseded-pr", "provider-unavailable-pr"]
+    },
+    {
+      "case_id": "active-overlapping-writer",
+      "expected_posture": "coordinated-reconciliation",
+      "forbidden_claims": ["caller-asserted-quiescence", "pause-unaffected-writer"],
+      "proposed_disposition": "retain",
+      "required_proof": ["owner-checkpoint", "owner-inactive", "quiescence-gate"],
+      "source_state": ["overlapping-writer", "unaffected-writer"]
+    },
+    {
+      "case_id": "conflict-drops-functionality",
+      "expected_posture": "retain",
+      "forbidden_claims": ["ancestry-proves-functionality", "tests-prove-complete-coverage"],
+      "proposed_disposition": "retain",
+      "required_proof": ["capability-map", "distinct-semantic-review", "conflict-correction"],
+      "source_state": ["reachable-merge", "missing-route"]
+    },
+    {
+      "case_id": "interrupted-cleanup",
+      "expected_posture": "resume-current-run",
+      "forbidden_claims": ["duplicate-run", "repeat-completed-effect"],
+      "proposed_disposition": "retain",
+      "required_proof": ["immutable-phase-receipts", "remaining-exact-set"],
+      "source_state": ["partial-effects", "unchanged-source"]
+    },
+    {
+      "case_id": "successful-retirement",
+      "expected_posture": "safe-cleanup",
+      "forbidden_claims": ["force-delete", "expire-archive"],
+      "proposed_disposition": "preserved",
+      "required_proof": ["restore-drill", "deletion-review", "deletion-gate", "exact-revalidation"],
+      "source_state": ["clean", "unowned", "preserved", "semantically-covered"]
+    },
+    {
+      "case_id": "restart-and-dormancy",
+      "expected_posture": "coordinated-reconciliation",
+      "forbidden_claims": ["handoff-is-work", "manual-resume"],
+      "proposed_disposition": "retain",
+      "required_proof": ["normalized-main", "single-writer", "first-useful-work", "owned-revisit-trigger"],
+      "source_state": ["eligible-lane", "dependency-dormant-lane"]
+    }
+  ],
+  "content_policy": "synthetic-content-minimized",
+  "dispositions": [
+    "integrated",
+    "preserved",
+    "validly-superseded",
+    "generated-reproducible",
+    "retain"
+  ],
+  "schema_version": 1
+}
