@@ -116,6 +116,7 @@ CAPABILITY_RECONCILIATION_KIND = (
 CAPABILITY_RECONCILIATION_POSTURES = {"verified", "reopen-narrow-owner"}
 MAX_CAPABILITY_RECONCILIATION_BYTES = 64 * 1024
 MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES = 64 * 1024
+MAX_ADAPTIVE_INCUMBENT_SCOPE_CONTENT_BYTES = 256 * 1024
 MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
 ADAPTIVE_REVIEWER_ID = "software-factory-release-reviewer-v1"
@@ -17863,11 +17864,14 @@ def adaptive_scope_content_snapshot(
             descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
             try:
                 before = os.fstat(descriptor)
-                if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or before.st_size > MAX_ADAPTIVE_INCUMBENT_SCOPE_CONTENT_BYTES
+                ):
                     raise SupervisionLogError("Adaptive affected scope is not a bounded regular file")
                 with os.fdopen(descriptor, "rb") as handle:
                     descriptor = -1
-                    content = handle.read(MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES + 1)
+                    content = handle.read(MAX_ADAPTIVE_INCUMBENT_SCOPE_CONTENT_BYTES + 1)
                     after = os.fstat(handle.fileno())
                 if file_snapshot(before) != file_snapshot(after) or path_snapshot(resolved) != file_snapshot(after):
                     raise SupervisionLogError("Adaptive affected file changed while reading")
@@ -17876,7 +17880,7 @@ def adaptive_scope_content_snapshot(
                     os.close(descriptor)
         except OSError as exc:
             raise SupervisionLogError("Adaptive affected file cannot be read safely") from exc
-        if len(content) > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
+        if len(content) > MAX_ADAPTIVE_INCUMBENT_SCOPE_CONTENT_BYTES:
             raise SupervisionLogError("Adaptive affected file exceeds its byte bound")
         return hashlib.sha256(content).hexdigest(), content
     parent = path.parent
