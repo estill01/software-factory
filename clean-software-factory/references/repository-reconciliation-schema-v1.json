@@ -20,7 +20,7 @@
     "capability-surface": {"additional_fields": false, "fields": {"candidate_id": {"type": "string"}, "evidence_refs": {"items": "string", "type": "array", "unique": true}, "surface_id": {"type": "string"}, "surface_kind": {"enum": ["route", "api", "migration", "configuration", "ui", "test", "fix", "tracker-evidence", "review-evidence", "deferred-option"], "type": "string"}}, "required": ["surface_id", "candidate_id", "surface_kind", "evidence_refs"]},
     "command-envelope": {"additional_fields": false, "fields": {"argv": {"items": "string", "min_items": 1, "type": "array"}, "command_id": {"type": "string"}, "cwd": {"format": "canonical-absolute-path", "type": "string"}, "runtime": {"type": "string"}}, "required": ["command_id", "argv", "cwd", "runtime"]},
     "conflict-decision": {"additional_fields": false, "fields": {"conflict_id": {"type": "string"}, "decision_root": {"format": "sha256", "type": "string"}, "review_id": {"type": "string"}, "surface_ids": {"items": "string", "type": "array", "unique": true}}, "required": ["conflict_id", "surface_ids", "review_id", "decision_root"]},
-    "deletion-effect": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "effect_id": {"type": "string"}, "expected_object_id": {"format": "git-oid-or-null", "type": ["string", "null"]}, "path": {"type": ["string", "null"]}, "ref_name": {"type": ["string", "null"]}}, "required": ["effect_id", "artifact_id", "expected_object_id", "path", "ref_name"]},
+    "deletion-effect": {"additional_fields": false, "fields": {"archive_id": {"type": ["string", "null"]}, "artifact_id": {"type": "string"}, "coverage_root": {"format": "sha256", "type": "string"}, "dirt": {"enum": ["clean", "staged", "unstaged", "untracked", "ignored", "unknown"], "type": "string"}, "effect_id": {"type": "string"}, "effect_kind": {"enum": ["delete-local-ref", "delete-remote-ref", "remove-worktree", "close-pr", "retain-archive"], "type": "string"}, "expected_object_id": {"format": "git-oid-or-null", "type": ["string", "null"]}, "owner_id": {"type": "string"}, "path": {"type": ["string", "null"]}, "pr_number": {"minimum": 1, "type": ["integer", "null"]}, "preservation_root": {"format": "sha256", "type": "string"}, "ref_name": {"type": ["string", "null"]}}, "required": ["effect_id", "effect_kind", "artifact_id", "owner_id", "dirt", "expected_object_id", "path", "ref_name", "pr_number", "archive_id", "preservation_root", "coverage_root"]},
     "disposition-entry": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "disposition": {"enum": ["integrated", "preserved", "validly-superseded", "generated-reproducible", "retain"], "type": "string"}, "proof_refs": {"items": "string", "type": "array", "unique": true}}, "required": ["artifact_id", "disposition", "proof_refs"]},
     "dormant-lane": {"additional_fields": false, "fields": {"dependency": {"type": "string"}, "frontier": {"type": "string"}, "lane_id": {"type": "string"}, "owner_id": {"type": "string"}, "revisit_trigger": {"type": "string"}}, "required": ["lane_id", "owner_id", "dependency", "frontier", "revisit_trigger"]},
     "effect-receipt": {"additional_fields": false, "fields": {"effect_id": {"type": "string"}, "post_state_root": {"format": "sha256", "type": "string"}, "pre_state_root": {"format": "sha256", "type": "string"}, "status": {"enum": ["applied", "rejected", "stale"], "type": "string"}}, "required": ["effect_id", "status", "pre_state_root", "post_state_root"]},
@@ -45,13 +45,23 @@
     "unknown-capability": {"additional_fields": false, "fields": {"reason": {"type": "string"}, "revisit_trigger": {"type": "string"}, "subject_id": {"type": "string"}}, "required": ["subject_id", "reason", "revisit_trigger"]},
     "validation-result": {"additional_fields": false, "fields": {"command_id": {"type": "string"}, "result_id": {"type": "string"}, "result_root": {"format": "sha256", "type": "string"}, "status": {"enum": ["passed", "failed", "diagnostic"], "type": "string"}}, "required": ["result_id", "command_id", "status", "result_root"]}
   },
+  "cross_field_rules": {
+    "unknown-no-loss-dimension-forces-retain": {
+      "if_any": {"byte_result": ["unknown"], "capability_result": ["unknown"]},
+      "item_type": "no-loss-entry",
+      "then": {"deletion_eligible": false}
+    }
+  },
   "phases": ["inventory", "plan", "preserve", "quiescence", "integrate", "validate", "publish", "delete", "restart", "outcome"],
+  "record_field_policy": {"additional_fields": false, "required": "all-declared-fields"},
   "records": {
     "capability-coverage": {
       "binds": ["plan_root", "preservation_root"],
       "fields": {
         "candidates": {"items": "capability-candidate", "type": "array", "unique_by": "candidate_id"},
         "coverage_root": {"format": "sha256", "type": "string"},
+        "plan_root": {"format": "sha256", "type": "string"},
+        "preservation_root": {"format": "sha256", "type": "string"},
         "review_requirements": {"items": "review-requirement", "type": "array", "unique_by": "candidate_id"},
         "surfaces": {"items": "capability-surface", "type": "array", "unique_by": "surface_id"},
         "unknowns": {"items": "unknown-capability", "type": "array", "unique_by": "subject_id"}
@@ -61,10 +71,13 @@
     "deletion": {
       "binds": ["publication_root", "preservation_root", "coverage_root", "deletion_review_root", "deletion_gate_root"],
       "fields": {
+        "coverage_root": {"format": "sha256", "type": "string"},
         "deletion_gate_root": {"format": "sha256", "type": "string"},
         "deletion_review_root": {"format": "sha256", "type": "string"},
         "effects": {"items": "deletion-effect", "type": "array", "unique_by": "effect_id"},
         "manifest_root": {"format": "sha256", "type": "string"},
+        "preservation_root": {"format": "sha256", "type": "string"},
+        "publication_root": {"format": "sha256", "type": "string"},
         "receipts": {"items": "effect-receipt", "type": "array", "unique_by": "effect_id"},
         "retained_archives": {"items": "archive-reference", "type": "array", "unique_by": "archive_id"}
       },
@@ -75,7 +88,10 @@
       "fields": {
         "accepted_sources": {"items": "acceptance-receipt", "type": "array", "unique_by": "source_id"},
         "conflict_decisions": {"items": "conflict-decision", "type": "array", "unique_by": "conflict_id"},
+        "coverage_root": {"format": "sha256", "type": "string"},
         "integration_root": {"format": "sha256", "type": "string"},
+        "plan_root": {"format": "sha256", "type": "string"},
+        "preservation_root": {"format": "sha256", "type": "string"},
         "quiescence_gate_root": {"format": "sha256", "type": "string"},
         "result_commit": {"format": "git-oid", "type": "string"},
         "result_tree": {"format": "git-oid", "type": "string"},
@@ -95,13 +111,22 @@
     "outcome": {
       "binds": ["inventory_root", "plan_root", "preservation_root", "coverage_root", "integration_root", "validation_root", "publication_root", "manifest_root", "restart_root", "outcome_gate_root"],
       "fields": {
+        "coverage_root": {"format": "sha256", "type": "string"},
         "final_topology": {"item_ref": "topology-state", "type": "object"},
+        "integration_root": {"format": "sha256", "type": "string"},
+        "inventory_root": {"format": "sha256", "type": "string"},
+        "manifest_root": {"format": "sha256", "type": "string"},
         "no_loss_matrix": {"items": "no-loss-entry", "type": "array", "unique_by": "artifact_id"},
         "open_items": {"items": "open-item", "type": "array", "unique_by": "item_id"},
         "outcome_gate_root": {"format": "sha256", "type": "string"},
         "outcome_root": {"format": "sha256", "type": "string"},
+        "plan_root": {"format": "sha256", "type": "string"},
+        "preservation_root": {"format": "sha256", "type": "string"},
+        "publication_root": {"format": "sha256", "type": "string"},
         "readback": {"item_ref": "outcome-readback", "type": "object"},
-        "restore_results": {"items": "restore-result", "type": "array", "unique_by": "artifact_id"}
+        "restart_root": {"format": "sha256", "type": "string"},
+        "restore_results": {"items": "restore-result", "type": "array", "unique_by": "artifact_id"},
+        "validation_root": {"format": "sha256", "type": "string"}
       },
       "phase": "outcome"
     },
@@ -110,6 +135,7 @@
       "fields": {
         "dispositions": {"items": "disposition-entry", "type": "array", "unique_by": "artifact_id"},
         "holds": {"items": "operation-hold", "type": "array", "unique_by": "hold_id"},
+        "inventory_root": {"format": "sha256", "type": "string"},
         "next_action": {"max_length": 240, "type": "string"},
         "path": {"enum": ["audit", "safe-cleanup", "coordinated-reconciliation"], "type": "string"},
         "plan_root": {"format": "sha256", "type": "string"}
@@ -122,6 +148,7 @@
         "byte_entries": {"items": "byte-entry", "type": "array", "unique_by": "artifact_id"},
         "object_entries": {"items": "object-entry", "type": "array", "unique_by": "artifact_id"},
         "packages": {"items": "preservation-package", "type": "array", "unique_by": "package_id"},
+        "plan_root": {"format": "sha256", "type": "string"},
         "preservation_root": {"format": "sha256", "type": "string"},
         "restore_receipts": {"items": "restore-receipt", "type": "array", "unique_by": "artifact_id"}
       },
@@ -137,7 +164,8 @@
         "provider_snapshot_root": {"format": "sha256", "type": "string"},
         "publication_root": {"format": "sha256", "type": "string"},
         "remote_main_after": {"format": "git-oid", "type": "string"},
-        "remote_main_before": {"format": "git-oid", "type": "string"}
+        "remote_main_before": {"format": "git-oid", "type": "string"},
+        "validation_root": {"format": "sha256", "type": "string"}
       },
       "phase": "publish"
     },
@@ -146,6 +174,8 @@
       "fields": {
         "dormant_lanes": {"items": "dormant-lane", "type": "array", "unique_by": "lane_id"},
         "first_work_receipts": {"items": "first-work-receipt", "type": "array", "unique_by": "lane_id"},
+        "manifest_root": {"format": "sha256", "type": "string"},
+        "publication_root": {"format": "sha256", "type": "string"},
         "restart_root": {"format": "sha256", "type": "string"},
         "started_lanes": {"items": "started-lane", "type": "array", "unique_by": "lane_id"}
       },
@@ -185,6 +215,7 @@
         "candidate_commit": {"format": "git-oid", "type": "string"},
         "candidate_tree": {"format": "git-oid", "type": "string"},
         "commands": {"items": "command-envelope", "type": "array", "unique_by": "command_id"},
+        "integration_root": {"format": "sha256", "type": "string"},
         "mapped_surfaces": {"items": "surface-result", "type": "array", "unique_by": "surface_id"},
         "results": {"items": "validation-result", "type": "array", "unique_by": "result_id"},
         "validation_root": {"format": "sha256", "type": "string"}

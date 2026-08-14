@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unittest
@@ -14,6 +15,8 @@ CONTRACT = ROOT / "references" / "repository-reconciliation-contract.md"
 FIXTURE = ROOT / "fixtures" / "repository_reconciliation_v1.json"
 SCHEMA = ROOT / "references" / "repository-reconciliation-schema-v1.json"
 CURRENTNESS = ROOT / "references" / "source-adaptation-currentness-v1.json"
+SCHEMA_CANONICAL_SHA256 = "de4a42a66e91241d79ef837ade7eaf71093083a14654955083333f1c506ac14c"
+CURRENTNESS_CANONICAL_SHA256 = "958c6abafac2b1d2da2bfd4267fd193ea993a8eb71516504e758e4d4ea8c7c11"
 DISPOSITIONS = {
     "integrated",
     "preserved",
@@ -123,9 +126,26 @@ class ReconciliationContractTests(unittest.TestCase):
         self.assertEqual(self.schema["schema_version"], 1)
         self.assertEqual(
             set(self.schema),
-            {"base_fields", "item_types", "phases", "records", "schema_version", "statuses"},
+            {
+                "base_fields",
+                "cross_field_rules",
+                "item_types",
+                "phases",
+                "record_field_policy",
+                "records",
+                "schema_version",
+                "statuses",
+            },
         )
+        schema_canonical = json.dumps(
+            self.schema, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        self.assertEqual(hashlib.sha256(schema_canonical).hexdigest(), SCHEMA_CANONICAL_SHA256)
         self.assertEqual(set(self.schema["records"]), RECORDS)
+        self.assertEqual(
+            self.schema["record_field_policy"],
+            {"additional_fields": False, "required": "all-declared-fields"},
+        )
         self.assertEqual(
             self.schema["base_fields"]["schema_version"],
             {"const": 1, "type": "integer"},
@@ -140,6 +160,7 @@ class ReconciliationContractTests(unittest.TestCase):
             self.assertEqual(set(record), {"binds", "fields", "phase"})
             self.assertTrue(record["fields"])
             self.assertIn(record["phase"], self.schema["phases"])
+            self.assertFalse(set(record["binds"]) - set(self.schema["base_fields"]) - set(record["fields"]))
             for field in record["fields"].values():
                 if "items" in field and field["items"] not in {"string", "integer"}:
                     self.assertIn(field["items"], self.schema["item_types"])
@@ -150,7 +171,37 @@ class ReconciliationContractTests(unittest.TestCase):
             self.assertFalse(item["additional_fields"])
             self.assertEqual(set(item["fields"]), set(item["required"]))
 
+        no_loss_rule = self.schema["cross_field_rules"][
+            "unknown-no-loss-dimension-forces-retain"
+        ]
+        self.assertEqual(no_loss_rule["item_type"], "no-loss-entry")
+        self.assertEqual(
+            no_loss_rule["if_any"],
+            {"byte_result": ["unknown"], "capability_result": ["unknown"]},
+        )
+        self.assertEqual(no_loss_rule["then"], {"deletion_eligible": False})
+        deletion_fields = self.schema["item_types"]["deletion-effect"]["fields"]
+        self.assertTrue(
+            {
+                "archive_id",
+                "coverage_root",
+                "dirt",
+                "effect_kind",
+                "owner_id",
+                "pr_number",
+                "preservation_root",
+            }
+            <= set(deletion_fields)
+        )
+
         self.assertEqual(self.currentness["schema_version"], 1)
+        currentness_canonical = json.dumps(
+            self.currentness, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        self.assertEqual(
+            hashlib.sha256(currentness_canonical).hexdigest(),
+            CURRENTNESS_CANONICAL_SHA256,
+        )
         self.assertEqual(self.currentness["observed_at"], "2026-08-14T06:04:27Z")
         self.assertEqual(self.currentness["provider"]["owner"], "github")
         self.assertEqual(self.currentness["provider"]["result_count"], 0)
@@ -158,7 +209,39 @@ class ReconciliationContractTests(unittest.TestCase):
             self.currentness["provider"]["payload_sha256"],
             "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
         )
-        self.assertEqual(self.currentness["provider"]["argv"][:4], ["gh", "pr", "list", "--repo"])
+        self.assertEqual(
+            self.currentness["provider"]["argv"],
+            [
+                "gh",
+                "pr",
+                "list",
+                "--repo",
+                "estill01/software-factory",
+                "--state",
+                "open",
+                "--limit",
+                "100",
+                "--json",
+                "number,state,headRefName,baseRefName,isDraft,mergeStateStatus,updatedAt",
+            ],
+        )
+        self.assertEqual(self.currentness["provider"]["canonicalizer"], ["jq", "-cS"])
+        self.assertEqual(
+            self.currentness["provider"]["selected_fields"],
+            [
+                "baseRefName",
+                "headRefName",
+                "isDraft",
+                "mergeStateStatus",
+                "number",
+                "state",
+                "updatedAt",
+            ],
+        )
+        self.assertEqual(
+            self.currentness["provider"]["tool_version"],
+            "gh version 2.92.0 (2026-04-28)",
+        )
         self.assertEqual(
             self.currentness["active_owner"]["head"],
             "0b97d661bb8e108963aa34ecaaaa992176f104d6",
@@ -168,8 +251,19 @@ class ReconciliationContractTests(unittest.TestCase):
             "dirty-in-progress-nonoverlapping",
         )
         self.assertFalse(self.currentness["active_owner"]["overlap_with_cleanup_paths"])
-        self.assertEqual(len(self.currentness["active_owner"]["dirty_paths"]), 4)
-        self.assertRegex(self.currentness["active_owner"]["dirty_status_sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            self.currentness["active_owner"]["dirty_paths"],
+            [
+                "scripts/skill_release.py",
+                "scripts/test_skill_release.py",
+                "supervise-tracker-runs/scripts/supervision_log.py",
+                "supervise-tracker-runs/scripts/test_supervision_log.py",
+            ],
+        )
+        self.assertEqual(
+            self.currentness["active_owner"]["dirty_status_sha256"],
+            "4a86ee644331a0f210cb8629c4ba339eebfe6e4cf1df655839537ad9fad9430d",
+        )
 
     def test_fixture_is_complete_unique_and_content_minimized(self) -> None:
         self.assertEqual(self.fixture["schema_version"], 1)
@@ -218,6 +312,46 @@ class ReconciliationContractTests(unittest.TestCase):
         for case_id, (posture, disposition) in CASE_EXPECTATIONS.items():
             self.assertEqual(by_id[case_id]["expected_posture"], posture)
             self.assertEqual(by_id[case_id]["proposed_disposition"], disposition)
+
+    def test_adversarial_schema_and_currentness_mutations_are_rejected(self) -> None:
+        mutations = {
+            "byte-hash-type": lambda probe: probe.schema["item_types"]["byte-entry"][
+                "fields"
+            ].__setitem__("sha256", {"type": "integer"}),
+            "forced-unknown-deletion": lambda probe: probe.schema["cross_field_rules"][
+                "unknown-no-loss-dimension-forces-retain"
+            ]["then"].__setitem__("deletion_eligible", True),
+            "orphan-dependency": lambda probe: probe.schema["records"]["plan"][
+                "fields"
+            ].pop("inventory_root"),
+            "provider-argv": lambda probe: probe.currentness["provider"].__setitem__(
+                "argv", ["gh", "pr", "list", "--repo", "wrong/repository"]
+            ),
+            "provider-canonicalizer": lambda probe: probe.currentness["provider"].__setitem__(
+                "canonicalizer", ["not-jq"]
+            ),
+            "provider-fields": lambda probe: probe.currentness["provider"].__setitem__(
+                "selected_fields", []
+            ),
+            "provider-version": lambda probe: probe.currentness["provider"].__setitem__(
+                "tool_version", "unknown"
+            ),
+            "dirty-paths": lambda probe: probe.currentness["active_owner"].__setitem__(
+                "dirty_paths", ["invented-a", "invented-b", "invented-c", "invented-d"]
+            ),
+            "dirty-root": lambda probe: probe.currentness["active_owner"].__setitem__(
+                "dirty_status_sha256", "0" * 64
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                probe = ReconciliationContractTests(
+                    "test_machine_schema_and_currentness_are_exact"
+                )
+                probe.setUp()
+                mutate(probe)
+                with self.assertRaises(AssertionError):
+                    probe.test_machine_schema_and_currentness_are_exact()
 
     def test_negative_cases_preserve_unknown_and_functionality(self) -> None:
         by_id = {case["case_id"]: case for case in self.fixture["cases"]}
