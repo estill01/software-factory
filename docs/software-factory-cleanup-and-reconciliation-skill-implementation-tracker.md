@@ -311,8 +311,8 @@ that existing generic event projection cannot represent the cleanup outcome.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `in-progress` |
-| 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `not-started` |
+| 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `completed` |
+| 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `in-progress` |
 | 2 | Implement no-loss preservation and functional coverage proof | 1 | `not-started` |
 | 3 | Add supervisor reconciliation coordination and monitoring gates | 2 | `not-started` |
 | 4 | Implement accepted integration, PR disposition, validation, and main publication | 3 | `not-started` |
@@ -328,7 +328,7 @@ Required order:
 
 ## Block 0 — Freeze the cleanup contract, live owner baseline, and regression fixtures
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -457,6 +457,13 @@ both lost bytes and lost functionality without creating duplicate authority.
   configured remote-main ref could not be represented without fabricating a Git
   OID. The exact schema/test slice is reopened; Block 1 remains `not-started`
   until a reviewed successor permits `remote_main: null` and rejects regression.
+- Reopened-finding closure: commit
+  `1e2dfce994f0645fdb065a78b98462a8b717b859` changes `remote_main` to
+  `git-oid-or-null`, preserves schema root
+  `df766b0288511ed9071941c393b641502cf502db51af1aa88f73d5bb927c4a85`,
+  and adds the permanent required-string regression mutation. Reviewer session
+  `019ffefb-29cb-7fe3-abb0-248131849879` accepted that exact successor after
+  5/5 tests, root/probe checks, clean Git proof, and Block 0 Stop verification.
 
 ### Stop
 
@@ -466,7 +473,7 @@ Stop before creating the new skill entry point or inventory helper.
 
 ## Block 1 — Build the cleanup skill and deterministic read-only inventory/plan
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
