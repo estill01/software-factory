@@ -481,6 +481,47 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release.AUTOMATED_CHECK_TIMEOUT_SECONDS,
         )
 
+    def test_supervision_automated_suite_installs_pdf_dependencies(self) -> None:
+        completed = mock.Mock(
+            returncode=0,
+            stdout=b"Ran 1 test in 0.001s\n",
+            stderr=b"",
+        )
+        with mock.patch.object(
+            skill_release.subprocess, "run", return_value=completed
+        ) as runner:
+            count, failures, _output = skill_release.run_automated_suite(
+                self.repo,
+                runner=Path("/opt/homebrew/bin/uv"),
+                check_id="tracker-supervision",
+                directory="supervise-tracker-runs/scripts",
+                pattern="test_*.py",
+                runtime="uv-reportlab",
+            )
+        self.assertEqual(count, 1)
+        self.assertEqual(failures, set())
+        self.assertEqual(
+            runner.call_args.args[0],
+            [
+                "/opt/homebrew/bin/uv",
+                "run",
+                "--python",
+                "3.14",
+                "--with",
+                "reportlab",
+                "--with",
+                "pypdf",
+                "python",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "supervise-tracker-runs/scripts",
+                "-p",
+                "test_*.py",
+            ],
+        )
+
     def test_stage_activate_second_release_and_rollback(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         original_targets = {

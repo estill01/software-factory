@@ -1121,6 +1121,8 @@ def run_automated_suite(
             "3.14",
             "--with",
             "reportlab",
+            "--with",
+            "pypdf",
             "python",
         ]
         if runtime == "uv-reportlab"
