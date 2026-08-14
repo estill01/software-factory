@@ -5742,6 +5742,27 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
     target = "release-orchestration-target-1234"
     reviewer = "release-orchestration-reviewer-1234"
 
+    def test_release_lock_serializes_sibling_target_ledgers(self) -> None:
+        first = self.root / self.target
+        second = self.root / "release-orchestration-target-5678"
+        second.mkdir()
+        attempted = threading.Event()
+        entered = threading.Event()
+
+        def acquire_second() -> None:
+            attempted.set()
+            with supervision_log.software_factory_release_orchestration_lock(second):
+                entered.set()
+
+        with supervision_log.software_factory_release_orchestration_lock(first):
+            worker = threading.Thread(target=acquire_second)
+            worker.start()
+            self.assertTrue(attempted.wait(1))
+            self.assertFalse(entered.wait(0.05))
+        worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(entered.is_set())
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

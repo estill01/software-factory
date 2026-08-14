@@ -12141,7 +12141,11 @@ def software_factory_release_exact_checkout(
 @contextmanager
 def software_factory_release_orchestration_lock(directory: Path) -> Iterator[None]:
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(directory / ".skill-release-orchestration.lock", flags, 0o600)
+    descriptor = os.open(
+        directory.parent / ".software-factory-release-orchestration.lock",
+        flags,
+        0o600,
+    )
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
