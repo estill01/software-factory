@@ -311,7 +311,7 @@ that existing generic event projection cannot represent the cleanup outcome.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `in-progress` |
+| 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `completed` |
 | 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `not-started` |
 | 2 | Implement no-loss preservation and functional coverage proof | 1 | `not-started` |
 | 3 | Add supervisor reconciliation coordination and monitoring gates | 2 | `not-started` |
@@ -328,7 +328,7 @@ Required order:
 
 ## Block 0 — Freeze the cleanup contract, live owner baseline, and regression fixtures
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -407,7 +407,52 @@ both lost bytes and lost functionality without creating duplicate authority.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `e58000fa6894de1452506a000073caf201430082`;
+  rejected predecessor commits `e39f3add00234c83ae224805549948c8b3a66aa7`,
+  `0885b15c94f35c1c453e0752839da0ee9d8c4622`,
+  `d88811d86b032df69db216b7c8cc2e35802dc508` remain in history.
+- External/domain revision or root: provider open-PR payload
+  `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`;
+  installed release `2109eeee4646-fb7861d1f68b`; currentness root
+  `958c6abafac2b1d2da2bfd4267fd193ea993a8eb71516504e758e4d4ea8c7c11`.
+- Inputs: `origin/main` `fe2d0c643549239fbe65acd0823520a9fa809540`,
+  automatic-release owner task `019ffd59-10b3-73a0-a644-15c5e6ca9db6`
+  at committed head `0b97d661bb8e108963aa34ecaaaa992176f104d6`, four
+  worktrees, no open PRs, and exact Git/provider/release observation envelopes.
+- Outputs: the reconciliation contract, exact machine schema, content-minimized
+  15-case fixture, source-adaptation/currentness record, and contract tests.
+- Focused validation: `python3 -m unittest
+  clean-software-factory/scripts/test_reconciliation_contract.py` passed 5/5;
+  JSON parsing, Python compilation, bind-field audit, hostile combined mutation
+  rejection, and `git diff --check` passed.
+- Mapped validation: all Block 0 schema, byte/functionality, unknown-retain,
+  protected-content, owner-boundary, active-writer, and Stop criteria mapped to
+  the five-test suite and exact semantic review.
+- Candidate freeze: commit `e58000fa6894de1452506a000073caf201430082`,
+  pushed unchanged to `origin/codex/clean-software-factory`.
+- Remediation closure: stale source/provider envelope, mutation-fragile tests,
+  aggregated PR outcomes, and incomplete owner/schema findings were closed at
+  `0885b15`; missing typed dependency roots, under-specified deletion identity,
+  unknown-loss eligibility, and hostile nested mutations were closed at
+  `e58000f`, with all rejected revisions retained.
+- Resource posture: one bounded Git/provider/release/task sweep plus current
+  nonoverlap read; no historical task rescan and no repository mutation beyond
+  this contract/tracker lane.
+- Independent review: reviewer session
+  `019ffee6-0453-7d71-95f3-e66eb5fd6043` accepted exact `e58000f` with no
+  findings after rerunning the permanent tests and independent semantic probes.
+- Retained open work: Blocks 1–9; automatic-release Block 6 remains active and
+  owns seven current dirty paths with zero cleanup-lane overlap; local `main`
+  movement invalidates reuse of the recorded baseline and requires reread before
+  any shared edit.
+- Decision/continuation posture: continue through Blocks 1–2 only in the new
+  cleanup tree; hold shared supervisor/release/implementation-skill edits until
+  the upstream lane is accepted, published, quiescent, and this lane is rebased.
+- Post-block audit: accepted; Block 0 Stop adhered and no skill entry point,
+  runtime helper, supervisor policy, release owner, or live cleanup effect was
+  created.
+- Git durability: accepted commit and evidence predecessors pushed; worktree
+  clean before this acceptance-record update.
 
 ### Stop
 
