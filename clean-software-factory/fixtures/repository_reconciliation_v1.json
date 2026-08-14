@@ -41,12 +41,36 @@
       "source_state": ["ref-moved"]
     },
     {
-      "case_id": "provider-pr-matrix",
+      "case_id": "merge-ready-accepted-pr",
       "expected_posture": "coordinated-reconciliation",
-      "forbidden_claims": ["merge-every-pr", "provider-unavailable-is-clean"],
+      "forbidden_claims": ["mergeability-is-acceptance"],
+      "proposed_disposition": "integrated",
+      "required_proof": ["merge-ready-current-acceptance", "provider-currentness", "mapped-validation"],
+      "source_state": ["merge-ready-pr", "accepted"]
+    },
+    {
+      "case_id": "superseded-pr",
+      "expected_posture": "coordinated-reconciliation",
+      "forbidden_claims": ["caller-selected-supersession"],
+      "proposed_disposition": "validly-superseded",
+      "required_proof": ["supersession-owner", "distinct-semantic-review", "provider-currentness"],
+      "source_state": ["superseded-pr", "owner-reviewed"]
+    },
+    {
+      "case_id": "open-unaccepted-pr",
+      "expected_posture": "retain",
+      "forbidden_claims": ["merge-every-pr"],
       "proposed_disposition": "retain",
-      "required_proof": ["merge-ready-current-acceptance", "supersession-owner", "retain-unavailable"],
-      "source_state": ["merge-ready-pr", "superseded-pr", "provider-unavailable-pr"]
+      "required_proof": ["retain-unaccepted", "provider-currentness"],
+      "source_state": ["open-pr", "unaccepted"]
+    },
+    {
+      "case_id": "provider-unavailable-pr",
+      "expected_posture": "retain",
+      "forbidden_claims": ["provider-unavailable-is-clean"],
+      "proposed_disposition": "retain",
+      "required_proof": ["retain-unavailable", "provider-revisit-trigger"],
+      "source_state": ["provider-unavailable-pr", "unknown"]
     },
     {
       "case_id": "active-overlapping-writer",
@@ -87,6 +111,14 @@
       "proposed_disposition": "retain",
       "required_proof": ["normalized-main", "single-writer", "first-useful-work", "owned-revisit-trigger"],
       "source_state": ["eligible-lane", "dependency-dormant-lane"]
+    },
+    {
+      "case_id": "unknown-malformed-sensitive-state",
+      "expected_posture": "retain",
+      "forbidden_claims": ["caller-selected-task-acceptance", "push-sensitive-bytes", "unknown-is-redundant"],
+      "proposed_disposition": "retain",
+      "required_proof": ["bounded-local-preservation", "owner-revisit-trigger"],
+      "source_state": ["unknown", "malformed", "sensitive"]
     }
   ],
   "content_policy": "synthetic-content-minimized",

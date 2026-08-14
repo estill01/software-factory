@@ -19,15 +19,19 @@ read of the repository, GitHub, installed release, and active task owner:
 - canonical branch and remote: `main` and `origin`;
 - local and remote main: `fe2d0c643549239fbe65acd0823520a9fa809540`;
 - open pull requests: none; merged pull requests `1` and `2` remain provider
-  history rather than cleanup candidates;
+  history rather than cleanup candidates; the canonical compact open-PR query
+  returned `[]` with SHA-256
+  `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`;
 - active installed release: `2109eeee4646-fb7861d1f68b`, sourced from
   `2109eeee46468a50c6c1c934628c4f033e7bb1fa`, with the three installed skills
   verified complete;
 - automatic-release owner task:
   `019ffd59-10b3-73a0-a644-15c5e6ca9db6`, clean and pushed on branch
   `codex/automatic-release-monitor-refresh` at
-  `99c03ea1e32a23b1c83348c4bb88097ca5124523`; its Block 5 is accepted and
-  Block 6 is in progress;
+  `0b97d661bb8e108963aa34ecaaaa992176f104d6`; its Block 5 is accepted and
+  Block 6 is in progress. That exact revision has merged the cleanup tracker's
+  `fe2d0c6` main baseline and changes only the automatic-release tracker plus
+  five existing supervisor/test owners relative to main;
 - cleanup implementation owner: this branch
   `codex/clean-software-factory`, initially based on the exact main revision
   above; and
@@ -39,7 +43,9 @@ tracker delta. Cleanup Blocks 0-2 use only the new cleanup-skill tree and this
 tracker. Any edit to shared supervisor, implementation-skill, authoring-skill,
 or release-owner surfaces remains held until that upstream line is accepted,
 integrated, and the cleanup lane is rebased. The active owner is therefore
-preserved and non-overlapping, not declared idle.
+preserved and non-overlapping, not declared idle. This paragraph is an
+implementation-time observation, not a reusable cleanup gate: a later branch,
+path-set, task, or dirt change must be re-read before shared edits.
 
 The executor's full-range interpretation is Blocks 0-9. The current range owner
 rejected the concise direct request as syntactically under-specified for a
@@ -98,6 +104,44 @@ The run artifact set is:
 10. `restart.json` — lane, task, range, frontier, and first-useful-work proof;
 11. `outcome.json` — no-loss and operator-visible reconciliation; and
 12. `status.json` — derived current phase and exact next action.
+
+Every record has these required typed fields:
+
+| Field | Type and rule |
+|---|---|
+| `schema_version` | integer, exactly `1` |
+| `kind` | lowercase fixed enum for the named record |
+| `repository_identity` | 64-character lowercase SHA-256 |
+| `run_id` | `cleanup-` plus 24 lowercase hexadecimal characters |
+| `source_snapshot_root` | 64-character lowercase SHA-256 |
+| `record_root` | SHA-256 of the canonical record with this field omitted |
+| `previous_record_root` | null for the first record of a kind, otherwise the exact prior immutable root |
+| `phase` | one value from the monotonic phase enum below |
+| `status` | `open`, `passed`, `replan-required`, `rejected`, or `completed` |
+| `created_at` | owner-produced RFC 3339 timestamp; excluded from semantic/run identity |
+
+Record-specific required fields and dependencies are:
+
+| Record | Required fields beyond the base | Must bind |
+|---|---|---|
+| `source-snapshot` | repository/common-dir/main/remote/provider/worktree/ref/task/release identities and roots | live owners directly |
+| `inventory` | exhaustive `artifacts`, `artifact_count`, `inventory_root` | source snapshot |
+| `plan` | `path`, exhaustive `dispositions`, `holds`, `next_action`, `plan_root` | source snapshot and inventory |
+| `preservation` | `packages`, `objects`, `bytes`, `modes`, `restore_receipts`, `preservation_root` | plan and exact artifacts |
+| `capability-coverage` | `candidates`, `surfaces`, `unknowns`, `review_requirements`, `coverage_root` | plan and preservation |
+| `integration` | accepted source receipts, conflict decisions, semantic reviews, resulting commit/tree | plan, preservation, coverage, quiescence gate |
+| `validation` | exact candidate commit/tree, commands, results, mapped surfaces, validation root | integration |
+| `publication` | fetched remote head, provider/protection state, non-force effect, local/remote main | validation and exact review |
+| `deletion` | exact object/path/owner/dirt/PR/archive/coverage entries and per-effect receipts | publication, preservation, coverage, deletion review/gate |
+| `restart` | lane/task/range/frontier/base/route/first-work or dormant-trigger entries | publication and final topology |
+| `outcome` | no-loss matrix, restore results, final topology, provider/task/release readback, open items | all applicable prior records and outcome gate |
+| `status` | derived current phase, active holds, gate posture, exact next action | current immutable heads only |
+
+Arrays that own artifacts or effects are sorted by stable identity and contain
+no duplicate key. Roots bind canonical semantic fields, required dependency
+roots, and exact entry counts. A missing field, wrong type, unknown enum,
+duplicate, orphan dependency, caller-provided derived root, or non-monotonic
+transition rejects the record rather than defaulting it.
 
 Records store content roots of other records, not mutable path assertions.
 Packages may contain sensitive or ignored bytes only locally. Unknown bytes are
@@ -158,12 +202,17 @@ automatically.
 |---|---|---|
 | Repository identity, refs, commits, status, worktrees | Git | inspect or execute exact non-force operations |
 | PR/review/protection/merge state | configured hosting provider | query and perform only current dispositioned effects |
+| Inventory and source-snapshot production | deterministic cleanup helper reading canonical owners | produce evidence; never decide acceptance or quiescence |
+| Audit/safe/coordinated path and disposition proposals | deterministic cleanup helper under the contract | propose only; ambiguity is `retain` |
 | Tracker acceptance and remaining range | tracker and implementation-range owners | consume exact evidence; never infer acceptance |
 | Task identity, checkpoint, pause, wake, first work | task owner routed by supervisor | request exact actions; never edit another task's state |
 | Changed-state monitoring and four phase gates | supervision event owner | store minimized roots; never write the repository |
 | Byte packages and restore receipts | cleanup artifact owner | create locally and verify before eligibility |
 | Functional equivalence/supersession | distinct semantic reviewer | provide exact-revision disposition |
+| Deletion eligibility | deterministic manifest plus distinct semantic reviewer and current supervisor deletion gate | eligible only when all three agree on the same roots |
+| Successor plan after invalidation | deterministic cleanup helper from newly read owners | append a replan; never replay a stale gate |
 | Integration, validation, publication, retirement | cleanup writer using Git/provider/test owners | execute only after the applicable current gate |
+| Restart or dormant-path selection | existing tracker/range/task owners coordinated by supervisor | preserve the exact mission and dependency frontier |
 | Skill activation and rollback | `scripts/skill_release.py` | invoke owner; never edit pointers/links manually |
 | Final capability outcome | supervisor outcome review plus current repository/task readback | close only from observed effects |
 
