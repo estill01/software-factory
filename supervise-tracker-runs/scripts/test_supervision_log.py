@@ -7031,6 +7031,154 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             outcomes, ["verified", "currentness-rejected", "rolled-back"]
         )
 
+    def test_refresh_health_correction_uses_current_policy_after_drift(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        prior_release = str(self.promotion["activation"]["previous_release_id"])
+        prior_status = self.status_for_release(
+            prior_release, source_commit="7" * 40
+        )
+        rolled_back = False
+
+        def owner(
+            _repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_current_activation_record: str | None = None,
+        ) -> dict[str, object]:
+            nonlocal rolled_back
+            self.assertEqual(source_commit, self.source)
+            self.owner_actions.append(action)
+            if action == "status":
+                return copy.deepcopy(prior_status if rolled_back else self.status)
+            self.assertEqual(action, "rollback")
+            self.assertEqual(release_id, prior_release)
+            self.assertEqual(expected_current_release_id, self.promotion["release_id"])
+            self.assertEqual(expected_current_activation_record, "e" * 64)
+            rolled_back = True
+            return {
+                "action": "rollback",
+                "active_release_id": prior_release,
+                "previous_release_id": self.promotion["release_id"],
+                "installed": copy.deepcopy(prior_status["current_verification"]),
+                "activation_record": {"record_id": "rollback-owner-record-1234"},
+            }
+
+        def drift_policy(*_args: object, **_kwargs: object) -> None:
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--base-reviewer-thread",
+                "release-refresh-later-base-reviewer-1234",
+            )
+            raise supervision_log.SupervisionLogError(
+                "policy changed during append"
+            )
+
+        with mock.patch.object(
+            supervision_log,
+            "require_software_factory_refresh_health_current",
+            side_effect=drift_policy,
+        ):
+            result = self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                Path(self.temporary.name) / "automations",
+                owner=owner,
+            )
+        health = [
+            item
+            for item in supervision_log.events(
+                self.root / self.target / "events.jsonl"
+            )
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+        ]
+        current_policy = json.loads(
+            (self.root / self.target / "policy.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            [item["outcome"] for item in health],
+            ["verified", "currentness-rejected", "rolled-back"],
+        )
+        self.assertNotEqual(health[0]["policy_sha256"], health[1]["policy_sha256"])
+        self.assertEqual(health[1]["policy_sha256"], current_policy["policy_sha256"])
+        self.assertEqual(result["health"]["policy_sha256"], current_policy["policy_sha256"])
+
+    def test_refresh_health_rejects_same_release_reactivation_history(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        cycled = copy.deepcopy(self.status)
+        cycled["activation_history_records"] = 4
+        cycled["activation_record"] = {
+            "release_id": self.promotion["release_id"],
+            "record_hmac_sha256": "c" * 64,
+        }
+        actions: list[str] = []
+
+        def owner(
+            _repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_current_activation_record: str | None = None,
+        ) -> dict[str, object]:
+            self.assertEqual(source_commit, self.source)
+            actions.append(action)
+            self.assertEqual(action, "status")
+            self.assertIsNone(release_id)
+            self.assertIsNone(expected_current_release_id)
+            self.assertIsNone(expected_current_activation_record)
+            return copy.deepcopy(cycled)
+
+        for _attempt in range(2):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "promotion activation is no longer current",
+            ):
+                self.refresh_health(
+                    str(promoted["promotion"]["record_id"]),
+                    Path(self.temporary.name) / "automations",
+                    owner=owner,
+                )
+        rejected = [
+            item
+            for item in supervision_log.events(
+                self.root / self.target / "events.jsonl"
+            )
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+            and item.get("outcome") == "currentness-rejected"
+        ]
+        self.assertEqual(actions, ["status", "status", "status", "status"])
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0]["activation_history_records"], 4)
+        self.assertEqual(rejected[0]["activation_record_hmac_sha256"], "c" * 64)
+
 
 class LegacyDirectAuthorityIngestTests(unittest.TestCase):
     target = "019fdfe4-dabe-7130-ac93-f8fa8e3bce12"

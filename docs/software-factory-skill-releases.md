@@ -185,11 +185,14 @@ their next message boundary.
 
 Refresh health appends `verified` only after checking the installed release,
 stable automation-owner bytes, and governing control posture. It then rereads
-the policy and range, promotion, complete refresh plan, automation-owner roots,
-and control posture at the append boundary. Drift is retained as a successor
-`currentness-rejected` event and triggers only an expected-current guarded
-rollback. A newer unrelated release is never rolled back; an already-restored
-prior release is recorded without a second owner effect.
+the policy and exact range root, promotion, complete refresh plan,
+automation-owner roots, release activation-history count and record HMAC, and
+control posture at the append boundary. Drift is retained under the newly
+current policy as a successor `currentness-rejected` event, so retry can finish
+the correction even when the policy or range changed. Rollback then requires
+both the original promotion history count and an expected-current owner guard.
+A same-ID reactivation or newer unrelated release is never rolled back; an
+already-restored prior release is recorded without a second owner effect.
 
 ## Independent acceptance and optional release-owner evidence
 

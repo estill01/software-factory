@@ -1365,14 +1365,17 @@ without a per-release prompt rewrite. Every wake rehydrates mission, policy,
 event head, range, dependency-safe frontier, cursors, and lifecycle posture from
 the current helper rather than copied prompt prose.
 
-A `verified` health append is followed by a boundary reread of the same policy
-and implementation range, promotion, complete refresh plan, automation-owner
-roots, and governing control posture. Drift is retained as a successor
-`currentness-rejected` event. Any resulting rollback first rereads owner status
-and supplies the exact candidate release and activation-record HMAC to the
-release owner's locked expected-current guard. An already-restored prior
-release is recorded without a second effect, and a newer unrelated release is
-never overwritten.
+A `verified` health append is followed by a boundary reread of the same policy,
+exact implementation-range root, promotion, complete refresh plan,
+automation-owner roots, release activation-history count and record HMAC, and
+governing control posture. Drift is retained under the newly current policy as
+a successor `currentness-rejected` event, so policy/range drift or an
+interrupted correction append remains retryable. Any resulting rollback first
+requires the original promotion history count, rereads owner status, and
+supplies the exact candidate release and activation-record HMAC to the release
+owner's locked expected-current guard. An already-restored prior release is
+recorded without a second effect; a same-ID reactivation or newer unrelated
+release is never overwritten.
 
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.

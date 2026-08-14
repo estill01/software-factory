@@ -700,12 +700,16 @@ reserved deferrals, safe frontier, and application posture.
   safe runtime boundary. Route already-running role context through the plan's
   existing `role-refresh` gates, which deliver at role message boundaries. A
   `verified` refresh-health append is provisional until a boundary reread
-  confirms the same policy and range, promotion, complete refresh plan,
-  automation-owner roots, and governing control posture. Retain drift as a
-  successor `currentness-rejected` event. Before rollback, reread live owner
-  status and pass the exact candidate release plus activation-record HMAC to
-  the release owner's locked expected-current guard; never overwrite a newer
-  valid release. A supervisor may never create, select among
+  confirms the same policy and exact range root, promotion, complete refresh
+  plan, automation-owner roots, release activation-history count and record
+  HMAC, and governing control posture. Retain drift under the newly current
+  policy as a successor `currentness-rejected` event, including after an
+  interrupted correction append. Before rollback, require the original
+  promotion history count, reread live owner status, and pass the exact
+  candidate release plus activation-record HMAC to the release owner's locked
+  expected-current guard. A same-ID reactivation is not the original
+  promotion; never overwrite it or another newer valid release. A supervisor
+  may never create, select among
   ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still

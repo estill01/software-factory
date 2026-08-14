@@ -12863,6 +12863,9 @@ def build_software_factory_supervisor_refresh_plan(
             source_commit=str(promotion["source_commit"]),
             action="status",
         )
+    live = validate_software_factory_release_live_status(
+        status, source_commit=str(promotion["source_commit"])
+    )
     current = status.get("current_verification") if isinstance(status, Mapping) else None
     roots, verification_root = validate_software_factory_installed_result(
         current, release_id=str(promotion["release_id"])
@@ -12873,6 +12876,8 @@ def build_software_factory_supervisor_refresh_plan(
         status.get("active_release_id") != promotion["release_id"]
         or status.get("source_commit") != promotion["source_commit"]
         or status.get("installed_complete") is not True
+        or live["activation_history_records"]
+        != promotion["activation_history_records"]
         or roots != promotion["installed_roots"]
         or verification_root != promotion["verification_root_sha256"]
         or not isinstance(links, Mapping)
@@ -12980,6 +12985,10 @@ def build_software_factory_supervisor_refresh_plan(
         "source_commit": promotion["source_commit"],
         "installed_roots": roots,
         "verification_root_sha256": verification_root,
+        "activation_history_records": live["activation_history_records"],
+        "activation_record_hmac_sha256": software_factory_current_activation_guard(
+            status, release_id=str(promotion["release_id"])
+        ),
         "policy_sha256": policy["policy_sha256"],
         "event_head_sha256": all_events[-1]["record_sha256"],
         "implementation_range": range_state,
@@ -13066,6 +13075,31 @@ def software_factory_current_activation_guard(
     )
 
 
+def software_factory_current_health_identity(
+    status: Any, *, release_id: str
+) -> dict[str, Any]:
+    source_commit, roots, verification_root = validate_software_factory_current_status(
+        status, release_id=release_id
+    )
+    if not isinstance(status, Mapping):
+        raise SupervisionLogError("Software Factory current health status is missing")
+    history_count = status.get("activation_history_records")
+    if type(history_count) is not int or history_count < 1:
+        raise SupervisionLogError(
+            "Software Factory current activation history identity is invalid"
+        )
+    return {
+        "active_release_id": release_id,
+        "active_source_commit": source_commit,
+        "installed_roots": roots,
+        "verification_root_sha256": verification_root,
+        "activation_history_records": history_count,
+        "activation_record_hmac_sha256": software_factory_current_activation_guard(
+            status, release_id=release_id
+        ),
+    }
+
+
 def validate_software_factory_rollback_result(
     value: Any,
     status: Any,
@@ -13105,18 +13139,18 @@ def validate_software_factory_rollback_result(
         raise SupervisionLogError(
             "Software Factory rollback live status differs"
         )
-    return {
-        "active_release_id": release_id,
-        "active_source_commit": source_commit,
-        "installed_roots": roots,
-        "verification_root_sha256": verification_root,
-    }
+    active = software_factory_current_health_identity(
+        status, release_id=release_id
+    )
+    if active["active_source_commit"] != source_commit:
+        raise SupervisionLogError("Software Factory rollback source identity differs")
+    return active
 
 
 def software_factory_refresh_health_material(
     value: Mapping[str, Any],
 ) -> dict[str, Any]:
-    keys = (
+    keys = [
         "schema_version",
         "record_id",
         "timestamp",
@@ -13133,7 +13167,15 @@ def software_factory_refresh_health_material(
         "automation_config_roots",
         "control_posture_root_sha256",
         "reason",
-    )
+    ]
+    if value.get("schema_version") == 2:
+        keys.extend(
+            (
+                "activation_history_records",
+                "activation_record_hmac_sha256",
+                "implementation_range_root_sha256",
+            )
+        )
     return {key: value.get(key) for key in keys}
 
 
@@ -13153,13 +13195,17 @@ def require_software_factory_refresh_health_current(
     policy_sha256: str,
     automation_config_roots: Mapping[str, str],
     control_posture_root_sha256: str,
+    activation_history_records: int,
+    activation_record_hmac_sha256: str,
+    implementation_range_root_sha256: str,
 ) -> None:
     directory, policy = load_policy(args)
     if policy.get("policy_sha256") != policy_sha256:
         raise SupervisionLogError(
             "Software Factory refresh policy changed at the health boundary"
         )
-    if implementation_range_state(policy) is None:
+    range_state = implementation_range_state(policy)
+    if range_state is None:
         raise SupervisionLogError(
             "Software Factory refresh range disappeared at the health boundary"
         )
@@ -13180,6 +13226,18 @@ def require_software_factory_refresh_health_current(
     if plan["automation_updates"]:
         raise SupervisionLogError(
             "Software Factory automation refresh changed at the health boundary"
+        )
+    if (
+        plan["activation_history_records"] != activation_history_records
+        or plan["activation_record_hmac_sha256"]
+        != activation_record_hmac_sha256
+    ):
+        raise SupervisionLogError(
+            "Software Factory release activation changed at the health boundary"
+        )
+    if digest(range_state) != implementation_range_root_sha256:
+        raise SupervisionLogError(
+            "Software Factory implementation range changed at the health boundary"
         )
     observed_automation_roots = {
         str(item["automation_id"]): str(item["config_sha256"])
@@ -13215,10 +13273,11 @@ def validate_software_factory_refresh_health_record(
     retained_fields = {*core_fields, "previous_record_sha256", "record_sha256"}
     roots = value.get("installed_roots")
     automation_roots = value.get("automation_config_roots")
+    schema_version = value.get("schema_version")
     if (
         frozenset(value) not in {frozenset(core_fields), frozenset(retained_fields)}
         or type(value.get("schema_version")) is not int
-        or value.get("schema_version") != 1
+        or schema_version not in {1, 2}
         or value.get("kind") != SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
         or value.get("outcome")
         not in {"verified", "rolled-back", "currentness-rejected"}
@@ -13247,6 +13306,21 @@ def validate_software_factory_refresh_health_record(
     control_root = value.get("control_posture_root_sha256")
     if control_root is not None:
         exact_sha256(str(control_root), label="control posture root")
+    if schema_version == 2:
+        if (
+            type(value.get("activation_history_records")) is not int
+            or value["activation_history_records"] < 1
+        ):
+            raise SupervisionLogError(
+                "Software Factory supervisor refresh activation history is invalid"
+            )
+        exact_sha256(
+            str(value.get("activation_record_hmac_sha256", "")),
+            label="refresh activation record HMAC",
+        )
+        range_root = value.get("implementation_range_root_sha256")
+        if range_root is not None:
+            exact_sha256(str(range_root), label="refresh implementation range root")
     for name in SOFTWARE_FACTORY_RELEASE_SKILLS:
         exact_sha256(str(roots[name]), label=f"installed {name} root")
     for automation_id, config_root in automation_roots.items():
@@ -13265,6 +13339,7 @@ def append_software_factory_refresh_health(
     active: Mapping[str, Any],
     automation_config_roots: Mapping[str, str],
     control_posture_root_sha256: str | None,
+    implementation_range_root_sha256: str | None,
     reason: str,
 ) -> tuple[bool, dict[str, Any]]:
     with append_lock(directory):
@@ -13281,7 +13356,7 @@ def append_software_factory_refresh_health(
                 "Software Factory supervisor refresh health is duplicated"
             )
         material_fields = {
-            "schema_version": 1,
+            "schema_version": 2,
             "record_id": (
                 duplicates[0]["record_id"]
                 if duplicates
@@ -13300,6 +13375,15 @@ def append_software_factory_refresh_health(
             "verification_root_sha256": active["verification_root_sha256"],
             "automation_config_roots": dict(automation_config_roots),
             "control_posture_root_sha256": control_posture_root_sha256,
+            "activation_history_records": active[
+                "activation_history_records"
+            ],
+            "activation_record_hmac_sha256": active[
+                "activation_record_hmac_sha256"
+            ],
+            "implementation_range_root_sha256": (
+                implementation_range_root_sha256
+            ),
             "reason": clean(reason, label="refresh health reason", maximum=300),
         }
         material_fields["health_result_root_sha256"] = digest(
@@ -13351,15 +13435,10 @@ def cmd_software_factory_supervisor_refresh_health(
     current_release = str(status.get("active_release_id", ""))
     prior_release = promotion.get("previous_release_id")
     if current_release == prior_release and prior_release != promotion["release_id"]:
-        source, roots, verification = validate_software_factory_current_status(
+        active = software_factory_current_health_identity(
             status, release_id=str(prior_release)
         )
-        active = {
-            "active_release_id": prior_release,
-            "active_source_commit": source,
-            "installed_roots": roots,
-            "verification_root_sha256": verification,
-        }
+        current_range = implementation_range_state(policy)
         duplicate, record = append_software_factory_refresh_health(
             args,
             directory=directory,
@@ -13369,6 +13448,9 @@ def cmd_software_factory_supervisor_refresh_health(
             active=active,
             automation_config_roots={},
             control_posture_root_sha256=None,
+            implementation_range_root_sha256=(
+                digest(current_range) if current_range is not None else None
+            ),
             reason=(
                 "Post-refresh verification did not remain current; the release "
                 "owner restored or retained the prior release."
@@ -13380,7 +13462,13 @@ def cmd_software_factory_supervisor_refresh_health(
         raise SupervisionLogError(
             "Software Factory refresh health active release is unrelated"
         )
+    observed_active = software_factory_current_health_identity(
+        status, release_id=str(promotion["release_id"])
+    )
     plan: dict[str, Any] | None = None
+    control: dict[str, Any] | None = None
+    automation_roots: dict[str, str] = {}
+    range_root: str | None = None
     failure = ""
     health_history = [
         item
@@ -13388,24 +13476,61 @@ def cmd_software_factory_supervisor_refresh_health(
         if item.get("kind") == SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
         and item.get("promotion_record_id") == promotion["record_id"]
     ]
-    if health_history and health_history[-1].get("outcome") == "currentness-rejected":
+    verified_record = next(
+        (
+            validate_software_factory_refresh_health_record(item)
+            for item in reversed(health_history)
+            if item.get("outcome") == "verified"
+        ),
+        None,
+    )
+    latest_outcome = health_history[-1].get("outcome") if health_history else None
+    correction_required = False
+    if latest_outcome == "currentness-rejected":
         failure = "prior verified refresh health lost append-boundary currentness"
+    elif (
+        observed_active["activation_history_records"]
+        != promotion["activation_history_records"]
+    ):
+        failure = "promoted release activation history is no longer current"
+        correction_required = True
+    elif verified_record is not None and (
+        verified_record.get("schema_version") != 2
+        or verified_record.get("policy_sha256") != policy["policy_sha256"]
+        or any(
+            verified_record.get(key) != observed_active[key]
+            for key in (
+                "active_release_id",
+                "active_source_commit",
+                "installed_roots",
+                "verification_root_sha256",
+                "activation_history_records",
+                "activation_record_hmac_sha256",
+            )
+        )
+    ):
+        failure = "prior verified refresh health is stale for current policy or activation"
+        correction_required = True
     if not failure:
         try:
             plan = build_software_factory_supervisor_refresh_plan(args)
             if plan["automation_updates"]:
-                print(
-                    json.dumps(
-                        {
-                            "duplicate": False,
-                            "outcome": "refresh-pending",
-                            "next_action": "apply-automation-owner-updates-at-next-wake",
-                            "refresh_plan": plan,
-                        },
-                        sort_keys=True,
+                if verified_record is None:
+                    print(
+                        json.dumps(
+                            {
+                                "duplicate": False,
+                                "outcome": "refresh-pending",
+                                "next_action": "apply-automation-owner-updates-at-next-wake",
+                                "refresh_plan": plan,
+                            },
+                            sort_keys=True,
+                        )
                     )
+                    return
+                raise SupervisionLogError(
+                    "automation state changed after verified refresh health"
                 )
-                return
             control = reduce_control_posture(
                 directory=directory,
                 policy=policy,
@@ -13417,8 +13542,10 @@ def cmd_software_factory_supervisor_refresh_health(
                 )
         except SupervisionLogError as exc:
             failure = str(exc)
+            correction_required = verified_record is not None
     if not failure:
         assert plan is not None
+        assert control is not None
         automation_roots = {
             str(item["automation_id"]): str(item["config_sha256"])
             for category in (
@@ -13428,59 +13555,104 @@ def cmd_software_factory_supervisor_refresh_health(
             )
             for item in plan[category]
         }
-        source, roots, verification = validate_software_factory_current_status(
-            status, release_id=str(promotion["release_id"])
-        )
         active = {
             "active_release_id": promotion["release_id"],
-            "active_source_commit": source,
-            "installed_roots": roots,
-            "verification_root_sha256": verification,
+            "active_source_commit": plan["source_commit"],
+            "installed_roots": plan["installed_roots"],
+            "verification_root_sha256": plan["verification_root_sha256"],
+            "activation_history_records": plan["activation_history_records"],
+            "activation_record_hmac_sha256": plan[
+                "activation_record_hmac_sha256"
+            ],
         }
-        duplicate, record = append_software_factory_refresh_health(
-            args,
-            directory=directory,
-            policy=policy,
-            promotion=promotion,
-            outcome="verified",
-            active=active,
-            automation_config_roots=automation_roots,
-            control_posture_root_sha256=software_factory_control_health_root(control),
-            reason="Installed roots, stable automation owners, and control posture are current.",
-        )
-        try:
-            require_software_factory_refresh_health_current(
-                args,
-                promotion=promotion,
-                policy_sha256=str(policy["policy_sha256"]),
-                automation_config_roots=automation_roots,
-                control_posture_root_sha256=software_factory_control_health_root(
-                    control
-                ),
-            )
-        except SupervisionLogError as exc:
-            failure = str(exc)
-            append_software_factory_refresh_health(
+        range_root = digest(plan["implementation_range"])
+        control_root = software_factory_control_health_root(control)
+        if verified_record is None:
+            duplicate, record = append_software_factory_refresh_health(
                 args,
                 directory=directory,
                 policy=policy,
                 promotion=promotion,
-                outcome="currentness-rejected",
+                outcome="verified",
                 active=active,
                 automation_config_roots=automation_roots,
-                control_posture_root_sha256=None,
-                reason=(
-                    "Verified refresh health lost currentness at its append boundary: "
-                    + failure[:200]
-                ),
+                control_posture_root_sha256=control_root,
+                implementation_range_root_sha256=range_root,
+                reason="Installed roots, stable automation owners, and control posture are current.",
             )
         else:
-            print(
-                json.dumps(
-                    {"duplicate": duplicate, "health": record}, sort_keys=True
+            expected_verified = {
+                "policy_sha256": policy["policy_sha256"],
+                "automation_config_roots": automation_roots,
+                "control_posture_root_sha256": control_root,
+                "implementation_range_root_sha256": range_root,
+                **active,
+            }
+            if any(
+                verified_record.get(key) != value
+                for key, value in expected_verified.items()
+            ):
+                failure = "prior verified refresh health material is no longer current"
+                correction_required = True
+            else:
+                duplicate, record = True, verified_record
+        if failure:
+            active = observed_active
+        else:
+            try:
+                require_software_factory_refresh_health_current(
+                    args,
+                    promotion=promotion,
+                    policy_sha256=str(policy["policy_sha256"]),
+                    automation_config_roots=automation_roots,
+                    control_posture_root_sha256=control_root,
+                    activation_history_records=int(
+                        active["activation_history_records"]
+                    ),
+                    activation_record_hmac_sha256=str(
+                        active["activation_record_hmac_sha256"]
+                    ),
+                    implementation_range_root_sha256=range_root,
                 )
-            )
-            return
+            except SupervisionLogError as exc:
+                failure = str(exc)
+                correction_required = True
+            else:
+                print(
+                    json.dumps(
+                        {"duplicate": duplicate, "health": record}, sort_keys=True
+                    )
+                )
+                return
+    if correction_required and latest_outcome != "currentness-rejected":
+        directory, policy = load_policy(args)
+        current_range = implementation_range_state(policy)
+        append_software_factory_refresh_health(
+            args,
+            directory=directory,
+            policy=policy,
+            promotion=promotion,
+            outcome="currentness-rejected",
+            active=observed_active,
+            automation_config_roots=(
+                automation_roots
+                if automation_roots
+                else (
+                    dict(verified_record.get("automation_config_roots", {}))
+                    if verified_record is not None
+                    else {}
+                )
+            ),
+            control_posture_root_sha256=None,
+            implementation_range_root_sha256=(
+                range_root
+                or (digest(current_range) if current_range is not None else None)
+            ),
+            reason=(
+                "Verified refresh health lost currentness at its append boundary: "
+                + failure[:200]
+            ),
+        )
     if (
         prior_release is None
         or prior_release == promotion["release_id"]
@@ -13500,15 +13672,10 @@ def cmd_software_factory_supervisor_refresh_health(
         )
         guarded_release = str(rollback_guard_status.get("active_release_id", ""))
         if guarded_release == str(prior_release):
-            source, roots, verification = validate_software_factory_current_status(
+            active = software_factory_current_health_identity(
                 rollback_guard_status, release_id=str(prior_release)
             )
-            active = {
-                "active_release_id": str(prior_release),
-                "active_source_commit": source,
-                "installed_roots": roots,
-                "verification_root_sha256": verification,
-            }
+            current_range = implementation_range_state(policy)
             duplicate, record = append_software_factory_refresh_health(
                 args,
                 directory=directory,
@@ -13518,6 +13685,9 @@ def cmd_software_factory_supervisor_refresh_health(
                 active=active,
                 automation_config_roots={},
                 control_posture_root_sha256=None,
+                implementation_range_root_sha256=(
+                    digest(current_range) if current_range is not None else None
+                ),
                 reason=(
                     "Post-refresh verification did not remain current; the release "
                     "owner restored or retained the prior release."
@@ -13540,6 +13710,13 @@ def cmd_software_factory_supervisor_refresh_health(
         if guarded_release != str(promotion["release_id"]):
             raise SupervisionLogError(
                 "Software Factory refresh active release changed before rollback"
+            )
+        if (
+            rollback_guard_status.get("activation_history_records")
+            != promotion["activation_history_records"]
+        ):
+            raise SupervisionLogError(
+                "Software Factory refresh promotion activation is no longer current"
             )
         expected_activation = software_factory_current_activation_guard(
             rollback_guard_status,
@@ -13573,6 +13750,11 @@ def cmd_software_factory_supervisor_refresh_health(
         active=active,
         automation_config_roots={},
         control_posture_root_sha256=None,
+        implementation_range_root_sha256=(
+            digest(current_range)
+            if (current_range := implementation_range_state(policy)) is not None
+            else None
+        ),
         reason=(
             "Post-refresh verification did not remain current; the release "
             "owner restored or retained the prior release."
