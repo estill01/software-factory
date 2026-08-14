@@ -2901,6 +2901,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_record: str,
         source_sha256: str,
         source_text: str | None = None,
+        source_item: str | None = None,
     ) -> str:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -2909,6 +2910,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_bytes = (
             self.later_request if source_text is None else source_text
         ).encode("utf-8")
+        source_item = source_item or source_record
         self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), source_sha256)
         review: dict[str, object] = {
             "schema_version": 1,
@@ -2916,7 +2918,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "record_id": f"range-source-review-{event_record.lower()}",
             "target_thread_id": self.target,
             "source_task_id": self.target,
-            "source_item_id": source_record,
+            "source_item_id": source_item,
             "source_record": source_record,
             "source_sha256": source_sha256,
             "source_byte_count": len(source_bytes),
@@ -2956,6 +2958,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         review["signature_base64"] = base64.b64encode(signature.read_bytes()).decode()
+        if source_item != source_record:
+            review_path = self.root / f"{event_record}-range-review.json"
+            review_path.write_bytes(supervision_log.canonical(review) + b"\n")
+            return str(review_path)
         supervision_log.append_raw(
             directory / "events.jsonl",
             {
@@ -2969,7 +2975,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "source_sha256": source_sha256,
                 "source_byte_count": len(source_bytes),
                 "source_task_id": self.target,
-                "source_item_id": source_record,
+                "source_item_id": source_item,
                 "verifier_id": self.reviewer,
                 "provenance_review_payload": review,
                 "provenance_review_record": review["record_id"],
@@ -4216,6 +4222,34 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 changed_encoded,
             )
         self.assertEqual((directory / "events.jsonl").read_bytes(), first_events)
+
+    def test_bound_direct_user_mission_source_ingest_is_exact(self) -> None:
+        source_item = "item-192"
+        source_record = f"direct-user:{self.target}:{source_item}"
+        source_text = "[$implement-tracker-blocks](/Users/ethanstillman/.codex/software-factory-releases/releases/2109eeee4646-fb7861d1f68b/implement-tracker-blocks/SKILL.md) for the implementation tracker. also, notify 019ffd59-10b3-73a0-a644-15c5e6ca9db6 what you are doing in case it is relevant to its work\n"
+        source_bytes = source_text.encode("utf-8")
+        source_sha256 = "4ed853ff46abe2cfe4c549fa86f68bb4980f215a15f75f7ed9bb22d33f9ce66a"
+        self.assertEqual((len(source_bytes), hashlib.sha256(source_bytes).hexdigest()), (288, source_sha256))
+        self.write_tracker(["completed"])
+        self.bind()
+        self.complete_predecessor_and_start_successor(retain_range_authority=False, mission_source_record=source_record, mission_source_sha256=source_sha256)
+        policy = supervision_log.read_json(self.root / self.target / "policy.json")
+        review_path = self.ingest_direct_authority_event(source_record=source_record, source_sha256=source_sha256, source_text=source_text, source_item=source_item)
+        encoded = base64.b64encode(source_bytes).decode("ascii")
+        arguments = ["implementation-range-authority-source-ingest", "--target-thread", self.target, "--source-task", self.target, "--source-item", source_item, "--source-record", source_record, "--source-text-base64", encoded, "--provenance-review-record", review_path, "--expected-policy-sha256", policy["policy_sha256"]]
+        bad_review = supervision_log.read_json(Path(review_path))
+        bad_review["source_byte_count"] = 287
+        bad_review_path = self.root / "bad-range-review.json"
+        bad_review_path.write_bytes(supervision_log.canonical(bad_review) + b"\n")
+        before = (self.root / self.target / "events.jsonl").read_bytes()
+        for flag, value in (("--source-task", "wrong-task-1234"), ("--source-item", "item-193"), ("--source-record", f"direct-user:{self.target}:item-193"), ("--source-text-base64", base64.b64encode(source_bytes + b"!").decode("ascii")), ("--provenance-review-record", str(bad_review_path)), ("--expected-policy-sha256", "f" * 64)):
+            changed = arguments.copy()
+            changed[changed.index(flag) + 1] = value
+            with self.subTest(flag=flag), self.assertRaises(supervision_log.SupervisionLogError):
+                self.call(*changed)
+            self.assertEqual((self.root / self.target / "events.jsonl").read_bytes(), before)
+        result = self.call(*arguments)
+        self.assertEqual((result["record"]["source_record"], result["record"]["source_sha256"]), (source_record, source_sha256))
 
     def test_exact_delegated_direct_authority_starts_full_tracker_range(
         self,
