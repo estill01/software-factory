@@ -189,7 +189,7 @@
         "provider_snapshot_root": {"format": "sha256", "type": "string"},
         "ref_snapshot_root": {"format": "sha256", "type": "string"},
         "release_snapshot_root": {"format": "sha256", "type": "string"},
-        "remote_main": {"format": "git-oid", "type": "string"},
+        "remote_main": {"format": "git-oid-or-null", "type": ["string", "null"]},
         "remote_name": {"type": "string"},
         "remote_url": {"format": "normalized-git-url", "type": "string"},
         "repository_root": {"format": "canonical-absolute-path", "type": "string"},

@@ -15,7 +15,7 @@ CONTRACT = ROOT / "references" / "repository-reconciliation-contract.md"
 FIXTURE = ROOT / "fixtures" / "repository_reconciliation_v1.json"
 SCHEMA = ROOT / "references" / "repository-reconciliation-schema-v1.json"
 CURRENTNESS = ROOT / "references" / "source-adaptation-currentness-v1.json"
-SCHEMA_CANONICAL_SHA256 = "de4a42a66e91241d79ef837ade7eaf71093083a14654955083333f1c506ac14c"
+SCHEMA_CANONICAL_SHA256 = "df766b0288511ed9071941c393b641502cf502db51af1aa88f73d5bb927c4a85"
 CURRENTNESS_CANONICAL_SHA256 = "958c6abafac2b1d2da2bfd4267fd193ea993a8eb71516504e758e4d4ea8c7c11"
 DISPOSITIONS = {
     "integrated",
@@ -151,6 +151,10 @@ class ReconciliationContractTests(unittest.TestCase):
             {"const": 1, "type": "integer"},
         )
         self.assertEqual(self.schema["records"]["inventory"]["binds"], ["source_snapshot_root"])
+        self.assertEqual(
+            self.schema["records"]["source-snapshot"]["fields"]["remote_main"],
+            {"format": "git-oid-or-null", "type": ["string", "null"]},
+        )
         self.assertEqual(self.schema["records"]["deletion"]["phase"], "delete")
         self.assertEqual(
             self.schema["records"]["deletion"]["binds"],
@@ -324,6 +328,9 @@ class ReconciliationContractTests(unittest.TestCase):
             "orphan-dependency": lambda probe: probe.schema["records"]["plan"][
                 "fields"
             ].pop("inventory_root"),
+            "missing-remote-fabricated": lambda probe: probe.schema["records"][
+                "source-snapshot"
+            ]["fields"].__setitem__("remote_main", {"format": "git-oid", "type": "string"}),
             "provider-argv": lambda probe: probe.currentness["provider"].__setitem__(
                 "argv", ["gh", "pr", "list", "--repo", "wrong/repository"]
             ),

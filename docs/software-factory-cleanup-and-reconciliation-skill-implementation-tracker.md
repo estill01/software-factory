@@ -311,7 +311,7 @@ that existing generic event projection cannot represent the cleanup outcome.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `completed` |
+| 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `in-progress` |
 | 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `not-started` |
 | 2 | Implement no-loss preservation and functional coverage proof | 1 | `not-started` |
 | 3 | Add supervisor reconciliation coordination and monitoring gates | 2 | `not-started` |
@@ -328,7 +328,7 @@ Required order:
 
 ## Block 0 — Freeze the cleanup contract, live owner baseline, and regression fixtures
 
-Status: `completed`
+Status: `in-progress`
 
 ### Objective
 
@@ -453,6 +453,10 @@ both lost bytes and lost functionality without creating duplicate authority.
   created.
 - Git durability: accepted commit and evidence predecessors pushed; worktree
   clean before this acceptance-record update.
+- Reopened finding: Block 1 pre-edit design review showed that an unavailable
+  configured remote-main ref could not be represented without fabricating a Git
+  OID. The exact schema/test slice is reopened; Block 1 remains `not-started`
+  until a reviewed successor permits `remote_main: null` and rejects regression.
 
 ### Stop
 
