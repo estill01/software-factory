@@ -37,7 +37,7 @@ def run(
 
 class ReconcileTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = tempfile.TemporaryDirectory(dir="/private/tmp")
         self.root = Path(self.temporary.name)
         self.remote = self.root / "remote.git"
         self.repo = self.root / "repo"
@@ -59,6 +59,7 @@ class ReconcileTests(unittest.TestCase):
                 {
                     "availability": "available",
                     "complete": True,
+                    "branch_protection": {"required_pull_request_reviews": True},
                     "kind": "provider-snapshot",
                     "owner": "github",
                     "pull_requests": [],
@@ -197,7 +198,7 @@ class ReconcileTests(unittest.TestCase):
         run_dir = Path(result["run_dir"])
         inventory = json.loads((run_dir / "inventory.json").read_text())
         dirt = {item["dirt"] for item in inventory["artifacts"]}
-        self.assertTrue({"unstaged", "untracked", "ignored"} <= dirt)
+        self.assertTrue({"unstaged", "untracked"} <= dirt)
         all_records = "".join(path.read_text() for path in run_dir.glob("*.json"))
         self.assertNotIn("private-local-byte", all_records)
         self.assertNotIn("ignored-local-byte", all_records)
@@ -256,7 +257,7 @@ class ReconcileTests(unittest.TestCase):
         )
 
     def test_missing_remote_main_is_null_and_retained(self) -> None:
-        run(["git", "update-ref", "-d", "refs/remotes/origin/main"], self.repo)
+        run(["git", "update-ref", "-d", "refs/heads/main"], self.remote)
         payload = json.loads(self.command("plan").stdout)
         source = json.loads(
             (Path(payload["run_dir"]) / "source-snapshot.json").read_text(
@@ -277,6 +278,179 @@ class ReconcileTests(unittest.TestCase):
             first["source_snapshot_root"], second["source_snapshot_root"]
         )
         self.assertNotEqual(first["run_dir"], second["run_dir"])
+
+    def test_untracked_content_and_stash_changes_create_successors(self) -> None:
+        untracked = self.repo / "untracked.txt"
+        untracked.write_text("first\n", encoding="utf-8")
+        first = json.loads(self.command("plan").stdout)
+        untracked.write_text("other\n", encoding="utf-8")
+        second = json.loads(self.command("plan").stdout)
+        self.assertNotEqual(first["run_id"], second["run_id"])
+        run(["git", "stash", "push", "--include-untracked", "-m", "one"], self.repo)
+        third = json.loads(self.command("plan").stdout)
+        self.assertNotEqual(second["run_id"], third["run_id"])
+
+    def test_exhaustive_ref_reflog_and_dual_dirty_dimensions(self) -> None:
+        head = run(["git", "rev-parse", "HEAD"], self.repo).stdout.strip()
+        run(["git", "update-ref", "refs/custom/preserve", head], self.repo)
+        (self.repo / "tracked.txt").write_text("staged\n", encoding="utf-8")
+        run(["git", "add", "tracked.txt"], self.repo)
+        (self.repo / "tracked.txt").write_text("unstaged\n", encoding="utf-8")
+        payload = json.loads(self.command("plan").stdout)
+        inventory = json.loads(
+            (Path(payload["run_dir"]) / "inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            any(
+                item["artifact_kind"] == "ref"
+                and item["origin"] == "refs/custom/preserve"
+                for item in inventory["artifacts"]
+            )
+        )
+        self.assertTrue(
+            any(
+                item["artifact_kind"] == "reflog-candidate"
+                for item in inventory["artifacts"]
+            )
+        )
+        dimensions = {
+            item["dirt"]
+            for item in inventory["artifacts"]
+            if item["artifact_kind"] == "worktree-path"
+            and item["path"] == "tracked.txt"
+        }
+        self.assertEqual(dimensions, {"staged", "unstaged"})
+
+    def test_relevant_ignored_state_is_widened_for_linked_worktree(self) -> None:
+        (self.repo / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
+        run(["git", "add", ".gitignore"], self.repo)
+        run(["git", "commit", "-m", "ignore fixture"], self.repo)
+        run(["git", "push", "origin", "main"], self.repo)
+        linked = self.root / "linked"
+        run(["git", "worktree", "add", "-b", "candidate", str(linked)], self.repo)
+        (linked / "ignored.txt").write_text("local\n", encoding="utf-8")
+        payload = json.loads(self.command("plan").stdout)
+        inventory = json.loads(
+            (Path(payload["run_dir"]) / "inventory.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(
+            any(
+                item["artifact_kind"] == "worktree-path"
+                and item["dirt"] == "ignored"
+                and item["origin"].find(str(linked)) >= 0
+                for item in inventory["artifacts"]
+            )
+        )
+
+    def test_malformed_complete_owner_snapshots_fail_closed(self) -> None:
+        self.provider.write_text(
+            json.dumps(
+                {
+                    "availability": "available",
+                    "complete": True,
+                    "kind": "provider-snapshot",
+                    "owner": "github",
+                }
+            ),
+            encoding="utf-8",
+        )
+        provider = self.command("plan", check=False)
+        self.assertEqual(provider.returncode, 2)
+        self.provider.write_text(
+            json.dumps(
+                {
+                    "availability": "available",
+                    "branch_protection": {},
+                    "complete": True,
+                    "kind": "provider-snapshot",
+                    "owner": "github",
+                    "pull_requests": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.tasks.write_text(
+            json.dumps(
+                {
+                    "availability": "available",
+                    "complete": True,
+                    "kind": "task-snapshot",
+                    "tasks": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        tasks = self.command("plan", check=False)
+        self.assertEqual(tasks.returncode, 2)
+
+    def test_plan_never_infers_acceptance_and_covers_every_artifact(self) -> None:
+        payload = json.loads(self.command("plan").stdout)
+        run_dir = Path(payload["run_dir"])
+        inventory = json.loads((run_dir / "inventory.json").read_text(encoding="utf-8"))
+        plan = json.loads((run_dir / "plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [entry["artifact_id"] for entry in plan["dispositions"]],
+            [entry["artifact_id"] for entry in inventory["artifacts"]],
+        )
+        self.assertEqual(
+            {entry["disposition"] for entry in plan["dispositions"]}, {"retain"}
+        )
+        self.assertTrue(all(not entry["proof_refs"] for entry in plan["dispositions"]))
+
+    def test_verify_rejects_derived_roots_noncanonical_and_duplicate_keys(self) -> None:
+        payload = json.loads(self.command("plan").stdout)
+        run_dir = Path(payload["run_dir"])
+        inventory_path = run_dir / "inventory.json"
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        original_inventory = dict(inventory)
+        inventory["inventory_root"] = "f" * 64
+        projection = dict(inventory)
+        projection.pop("record_root")
+        inventory["record_root"] = reconcile.sha256(projection)
+        inventory_path.write_bytes(reconcile.canonical(inventory) + b"\n")
+        derived = self.verify_command(payload["run_dir"], check=False)
+        self.assertEqual(derived.returncode, 2)
+        self.assertIn("inventory root differs", derived.stdout)
+
+        inventory_path.write_bytes(reconcile.canonical(original_inventory) + b"\n")
+        (self.repo / "tracked.txt").write_text("successor\n", encoding="utf-8")
+        successor = json.loads(self.command("plan").stdout)
+        source_path = Path(successor["run_dir"]) / "source-snapshot.json"
+        source = json.loads(source_path.read_text(encoding="utf-8"))
+        source_path.write_text(json.dumps(source, indent=2), encoding="utf-8")
+        noncanonical = self.verify_command(successor["run_dir"], check=False)
+        self.assertEqual(noncanonical.returncode, 2)
+        self.assertIn("not canonical", noncanonical.stdout)
+        duplicate = (
+            b'{"kind":"source-snapshot",' + reconcile.canonical(source)[1:] + b"\n"
+        )
+        source_path.write_bytes(duplicate)
+        duplicated = self.verify_command(successor["run_dir"], check=False)
+        self.assertEqual(duplicated.returncode, 2)
+        self.assertIn("duplicate keys", duplicated.stdout)
+
+    def test_rejects_noncanonical_repository_and_artifact_paths(self) -> None:
+        noncanonical_repo = f"{self.repo.parent}/./{self.repo.name}"
+        result = run(
+            ["python3", str(SCRIPT), "inventory", "--repo", noncanonical_repo],
+            self.root,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        symlink_root = run(
+            [
+                "python3",
+                str(SCRIPT),
+                "inventory",
+                "--repo",
+                str(self.repo),
+                "--artifact-root",
+                "/tmp/cleanup-artifacts",
+            ],
+            self.repo,
+            check=False,
+        )
+        self.assertEqual(symlink_root.returncode, 2)
 
     def test_rejects_non_top_level_symlink_and_malformed_or_oversized_snapshots(
         self,
