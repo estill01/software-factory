@@ -9830,6 +9830,121 @@ def evidence_value(evidence: Any, prefix: str) -> str:
     return matches[0]
 
 
+def retained_legacy_app_readback_authority(
+    policy: Mapping[str, Any],
+    *,
+    receipt: Mapping[str, Any],
+    source_event: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+    source_record: str,
+    source_sha256: str,
+    request_text: str | None,
+) -> tuple[dict[str, Any], dict[str, Any], None]:
+    target_thread_id = policy.get("target_thread_id")
+    reviewer_id = receipt.get("reviewer_id")
+    source_policy_sha256 = receipt.get("source_policy_sha256")
+    accepted_policy_version = receipt.get("accepted_policy_version")
+    raw_identity = (
+        target_thread_id,
+        source_record,
+        source_sha256,
+        reviewer_id,
+        source_policy_sha256,
+        receipt.get("source_task_id"),
+        receipt.get("source_item_id"),
+        receipt.get("source_event_record_id"),
+        receipt.get("source_event_sha256"),
+        source_event.get("source_task_id"),
+        source_event.get("source_item_id"),
+        source_event.get("source_record"),
+        source_event.get("source_sha256"),
+        source_event.get("verifier_id"),
+        source_event.get("policy_sha256"),
+        source_event.get("record_id"),
+        source_event.get("record_sha256"),
+    )
+    if (
+        not all(isinstance(value, str) and value for value in raw_identity)
+        or type(accepted_policy_version) is not int
+    ):
+        raise SupervisionLogError(
+            "Legacy app-readback authority identity is malformed"
+        )
+    expected_evidence = [
+        f"app-readback:{target_thread_id}:{source_record}"
+    ]
+    if (
+        receipt.get("evidence") != expected_evidence
+        or source_event.get("evidence") != expected_evidence
+    ):
+        raise SupervisionLogError(
+            "Legacy app-readback authority evidence differs"
+        )
+    exact_receipt_binding = {
+        "source_class": "direct-user",
+        "source_record": source_event["source_record"],
+        "source_sha256": source_event["source_sha256"],
+        "reviewer_id": source_event["verifier_id"],
+        "source_event_record_id": source_event["record_id"],
+        "source_event_sha256": source_event["record_sha256"],
+        "source_task_id": source_event["source_task_id"],
+        "source_item_id": source_event["source_item_id"],
+        "source_policy_sha256": source_event["policy_sha256"],
+        "accepted": True,
+        "accepted_policy_version": accepted_policy_version,
+        "evidence": expected_evidence,
+    }
+    if dict(receipt) != exact_receipt_binding:
+        raise SupervisionLogError(
+            "Legacy app-readback authority receipt differs from its owner event"
+        )
+    if (
+        source_event.get("source_task_id") != target_thread_id
+        or source_event.get("source_item_id") != source_record
+        or source_event.get("source_record") != source_record
+        or source_event.get("source_sha256") != source_sha256
+    ):
+        raise SupervisionLogError(
+            "Legacy app-readback authority source identity differs"
+        )
+    source_policy = policy_snapshot_by_sha256(
+        policy_history, source_policy_sha256
+    )
+    source_policy_version = source_policy.get("policy_version")
+    current_policy_version = policy.get("policy_version")
+    if (
+        type(source_policy_version) is not int
+        or type(current_policy_version) is not int
+        or accepted_policy_version != source_policy_version + 1
+        or accepted_policy_version > current_policy_version
+    ):
+        raise SupervisionLogError(
+            "Legacy app-readback authority receipt policy transition differs"
+        )
+    current_mission = bound_mission(dict(policy))
+    source_mission = bound_mission(source_policy)
+    if (
+        current_mission is None
+        or source_mission is None
+        or mission_binding_identity(current_mission)
+        != mission_binding_identity(source_mission)
+    ):
+        raise SupervisionLogError(
+            "Legacy app-readback authority is stale for this mission"
+        )
+    if request_text is not None:
+        if hashlib.sha256(request_text.encode("utf-8")).hexdigest() != source_sha256:
+            raise SupervisionLogError(
+                "Implementation request text differs from retained direct authority"
+            )
+        intent, requested = classify_implementation_request(request_text, {0})
+        if intent != "full-tracker" or requested != [0]:
+            raise SupervisionLogError(
+                "Retained direct authority does not authorize the full tracker"
+            )
+    return dict(receipt), dict(source_event), None
+
+
 def retained_full_tracker_authority(
     policy: Mapping[str, Any],
     *,
@@ -9839,7 +9954,7 @@ def retained_full_tracker_authority(
     source_sha256: str,
     require_current_receipt: bool,
     request_text: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
     current_mission = bound_mission(dict(policy))
     controlling = (
         current_mission.get("mission_derivation", {}).get(
@@ -9896,6 +10011,22 @@ def retained_full_tracker_authority(
         require_current_route_source=require_current_receipt,
     )
     evidence = source_event["evidence"]
+    receipt_evidence = receipt.get("evidence")
+    if any(
+        isinstance(item, str) and item.startswith("app-readback:")
+        for collection in (evidence, receipt_evidence)
+        if isinstance(collection, list)
+        for item in collection
+    ):
+        return retained_legacy_app_readback_authority(
+            policy,
+            receipt=receipt,
+            source_event=source_event,
+            policy_history=policy_history,
+            source_record=source_record,
+            source_sha256=source_sha256,
+            request_text=request_text,
+        )
     if (
         evidence_value(evidence, "source-kind:")
         != DIRECT_AUTHORITY_SOURCE_KIND
@@ -10627,7 +10758,7 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         prior_entry_sha256="",
         operation=(
             "retained-authority-bound"
-            if retained_review is not None
+            if intent == "full-tracker" and retained_receipt is not None
             else "bound"
         ),
         request_text=request_text,
