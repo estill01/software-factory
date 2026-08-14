@@ -58,6 +58,7 @@ class ReconcileTests(unittest.TestCase):
             json.dumps(
                 {
                     "availability": "available",
+                    "branch_protection": {"required_reviews": True},
                     "complete": True,
                     "kind": "provider-snapshot",
                     "owner": "github",

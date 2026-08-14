@@ -241,12 +241,14 @@ def load_owner_snapshot(path: str | None, kind: str) -> dict[str, Any]:
         value["complete"] = False
     if value.get("availability") == "available" and value.get("complete") is True:
         expected = {
-            "provider-snapshot": ("pull_requests", list),
+            "provider-snapshot": ("pull_requests", list, "branch_protection", dict),
             "task-snapshot": ("tasks", list),
             "release-snapshot": ("release_id", str),
         }[kind]
         if not isinstance(value.get(expected[0]), expected[1]):
             raise CleanupError(f"{kind} complete payload is malformed")
+        if len(expected) == 4 and not isinstance(value.get(expected[2]), expected[3]):
+            raise CleanupError(f"{kind} protection payload is malformed")
     return value
 
 
@@ -307,7 +309,8 @@ def provider_snapshot(
     return {
         "availability": "available",
         "argv": argv,
-        "complete": len(payload) < 1000,
+        "branch_protection": {"availability": "deferred"},
+        "complete": False,
         "kind": "provider-snapshot",
         "owner": provider,
         "pull_requests": sorted(payload, key=lambda item: int(item["number"])),
@@ -516,26 +519,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                 }
             )
 
-    semantic = {
-        "common_dir": str(common),
-        "invocation": {
-            "main": args.main,
-            "provider": args.provider,
-            "remote": args.remote,
-        },
-        "lfs": lfs_state,
-        "local_main": local_main,
-        "provider": provider_state,
-        "refs": refs,
-        "release": release_state,
-        "remote_main": remote_main,
-        "remote_url": remote_url,
-        "stash_root": sha256(stash_raw),
-        "repository_root": str(repo),
-        "submodules": submodule_state,
-        "tasks": task_state,
-        "worktrees": worktree_projection,
-    }
     if git_oid(repo, f"refs/heads/{args.main}") != local_main:
         raise CleanupError("source changed during inventory")
     if remote_main_oid(repo, args.remote, args.main) != remote_main:
@@ -581,7 +564,26 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             "repository_root": str(repo),
         }
     )
-    source_root = sha256(semantic)
+    source_fields = {
+        "common_dir": str(common),
+        "main_ref": f"refs/heads/{args.main}@{local_main}",
+        "provider_snapshot_root": sha256(provider_state),
+        "ref_snapshot_root": sha256({"refs": refs, "stash_root": sha256(stash_raw)}),
+        "release_snapshot_root": sha256(release_state),
+        "remote_main": remote_main,
+        "remote_name": args.remote,
+        "remote_url": remote_url,
+        "repository_root": str(repo),
+        "task_snapshot_root": sha256(task_state),
+        "worktree_snapshot_root": sha256(
+            {
+                "lfs": lfs_state,
+                "submodules": submodule_state,
+                "worktrees": worktree_projection,
+            }
+        ),
+    }
+    source_root = sha256(source_fields)
     run_id = f"cleanup-{source_root[:24]}"
     created_at = utc_now()
     source_record = base_record(
@@ -593,21 +595,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         source_root,
         created_at,
     )
-    source_record.update(
-        {
-            "common_dir": str(common),
-            "main_ref": f"refs/heads/{args.main}@{local_main}",
-            "provider_snapshot_root": sha256(provider_state),
-            "ref_snapshot_root": sha256(refs),
-            "release_snapshot_root": sha256(release_state),
-            "remote_main": remote_main,
-            "remote_name": args.remote,
-            "remote_url": remote_url,
-            "repository_root": str(repo),
-            "task_snapshot_root": sha256(task_state),
-            "worktree_snapshot_root": sha256(worktree_projection),
-        }
-    )
+    source_record.update(source_fields)
     finish_record(source_record)
     artifacts = sorted(artifacts, key=lambda item: item["artifact_id"])
     if len({item["artifact_id"] for item in artifacts}) != len(artifacts):
@@ -713,28 +701,12 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
         add_hold(f"active-writer:{task_id}")
 
     dispositions: list[dict[str, Any]] = []
-    canonical_oids = {
-        state["source"]["main_ref"].rsplit("@", 1)[-1],
-        state["remote_main"],
-    }
     for artifact in state["artifacts"]:
-        integrated = False and (
-            artifact["artifact_kind"] == "ref"
-            and artifact["object_id"] in canonical_oids
-            and artifact["origin"]
-            in {
-                state["source"]["main_ref"].rsplit("@", 1)[0],
-                f"refs/remotes/{state['source']['remote_name']}/"
-                f"{state['source']['main_ref'].split('@', 1)[0].split('/')[-1]}",
-            }
-        )
-        disposition = "integrated" if integrated else "retain"
-        proof = [state["source_root"]] if integrated else []
         dispositions.append(
             {
                 "artifact_id": artifact["artifact_id"],
-                "disposition": disposition,
-                "proof_refs": proof,
+                "disposition": "retain",
+                "proof_refs": [],
             }
         )
 
@@ -996,6 +968,10 @@ def validate_record(value: dict[str, Any]) -> None:
             or value["inventory_root"] != expected
         ):
             raise CleanupError("inventory semantic root differs")
+    if kind == "source-snapshot":
+        source_fields = {name: value[name] for name in definition["fields"]}
+        if value["source_snapshot_root"] != sha256(source_fields):
+            raise CleanupError("source semantic root differs")
     if kind == "plan":
         projection = {
             name: value[name]
