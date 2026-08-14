@@ -1969,9 +1969,6 @@ def validate_policy(
         validate_tracker_authoring_profile_binding(
             authoring_profile,
             runtime=policy.get("runtime", {}),
-            repository_root=str(
-                (adaptive or {}).get("target_repository_root", "")
-            ),
         )
     economy = policy.get("execution_economy")
     if economy is not None and canonical(economy) not in {
@@ -10004,40 +10001,44 @@ def retained_full_tracker_authority(
         if current_mission is not None
         else {}
     )
-    delegated = any(
-        item.get("source_record") == source_record
-        and item.get("source_sha256") == source_sha256
-        and item.get("provenance_status") == "verified-delegated-before-entry"
-        for item in all_events
-    )
-    if (
-        current_mission is None
-        or (
-            not delegated
-            and (
-                source_record == current_mission.get("mission_source_record")
-                or source_record == controlling.get("record")
-                or source_sha256 == controlling.get("sha256")
-            )
-        )
-    ):
+    if current_mission is None:
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
         )
+    source_is_mission_identity = (
+        source_record == current_mission.get("mission_source_record")
+        or source_record == controlling.get("record")
+        or source_sha256 == controlling.get("sha256")
+    )
+    source_is_exact_direct_mission_source = (
+        controlling.get("class") == "direct-user"
+        and source_record == current_mission.get("mission_source_record")
+        and source_record == controlling.get("record")
+        and source_sha256 == controlling.get("sha256")
+    )
     receipts = [
         item
         for item in policy.get("direct_authority_receipts", [])
         if isinstance(item, Mapping)
-        and item.get("accepted") is True
-        and item.get("source_class") == "direct-user"
         and item.get("source_record") == source_record
         and item.get("source_sha256") == source_sha256
     ]
     if len(receipts) != 1:
+        if not receipts and source_is_mission_identity:
+            raise SupervisionLogError(
+                "Mission controlling source is identity only, not range authority"
+            )
         raise SupervisionLogError(
             "Fresh implementation range requires one exact retained authority receipt"
         )
     receipt = dict(receipts[0])
+    if (
+        receipt.get("accepted") is not True
+        or receipt.get("source_class") != "direct-user"
+    ):
+        raise SupervisionLogError(
+            "Fresh implementation range requires one exact retained authority receipt"
+        )
     if require_current_receipt and receipt.get(
         "accepted_policy_version"
     ) != policy.get("policy_version"):
@@ -10051,6 +10052,20 @@ def retained_full_tracker_authority(
         policy_history=policy_history,
         require_current_route_source=require_current_receipt,
     )
+    validate_direct_authority_receipts(
+        policy,
+        all_events=all_events,
+        policy_history=policy_history,
+    )
+    if (
+        source_is_mission_identity
+        and source_event.get("provenance_status")
+        != "verified-delegated-before-entry"
+        and not source_is_exact_direct_mission_source
+    ):
+        raise SupervisionLogError(
+            "Mission controlling source is identity only, not range authority"
+        )
     evidence = source_event["evidence"]
     receipt_evidence = receipt.get("evidence")
     if any(
@@ -10167,14 +10182,6 @@ def retained_full_tracker_authority(
         or source_mission is None
         or mission_binding_identity(current_mission)
         != mission_binding_identity(source_mission)
-        or (
-            not delegated
-            and (
-                source_record == current_mission.get("mission_source_record")
-                or source_record == controlling.get("record")
-                or source_sha256 == controlling.get("sha256")
-            )
-        )
         or (
             not delegated
             and source_event.get("source_task_id")
@@ -24831,10 +24838,28 @@ def validate_tracker_authoring_profile_review(value: Any) -> dict[str, Any]:
     return review
 
 
+def software_factory_source_repository_root() -> Path:
+    try:
+        owner_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
+        source_root = (owner_home / "code" / "software_factory").resolve(
+            strict=True
+        )
+    except (KeyError, OSError) as exc:
+        raise SupervisionLogError(
+            "Maintained Software Factory source repository is unavailable"
+        ) from exc
+    try:
+        return adaptive_git_top_level(str(source_root))
+    except SupervisionLogError as exc:
+        raise SupervisionLogError(
+            "Maintained Software Factory source repository is invalid"
+        ) from exc
+
+
 def tracker_authoring_profile_source(
-    *, repository_root: str, source_revision: str | None = None
+    *, source_revision: str | None = None
 ) -> dict[str, str]:
-    root = adaptive_git_top_level(repository_root)
+    root = software_factory_source_repository_root()
     current_revision = adaptive_git_revision(str(root))
     revision = source_revision or current_revision
     if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
@@ -24924,12 +24949,10 @@ def tracker_authoring_profile_binding(
     *,
     authoring_thread_id: str,
     runtime: Mapping[str, Any],
-    repository_root: str,
     profile_review: Mapping[str, Any],
 ) -> dict[str, Any]:
     accepted_review = validate_tracker_authoring_profile_review(profile_review)
     source = tracker_authoring_profile_source(
-        repository_root=repository_root,
         source_revision=str(accepted_review["profile_source_revision"]),
     )
     if (
@@ -24984,14 +25007,13 @@ def tracker_authoring_profile_binding(
 
 
 def validate_tracker_authoring_profile_binding(
-    value: Mapping[str, Any], *, runtime: Mapping[str, Any], repository_root: str
+    value: Mapping[str, Any], *, runtime: Mapping[str, Any]
 ) -> None:
     if not isinstance(value, Mapping):
         raise SupervisionLogError("Tracker-authoring profile binding is malformed")
     expected = tracker_authoring_profile_binding(
         authoring_thread_id=str(value.get("authoring_target_thread_id", "")),
         runtime=runtime,
-        repository_root=repository_root,
         profile_review=value.get("profile_acceptance", {}),
     )
     if dict(value) != expected:
@@ -26603,11 +26625,6 @@ def validate_program_revision_inputs(
     validate_tracker_authoring_profile_binding(
         authoring_profile,
         runtime=policy.get("runtime", {}),
-        repository_root=str(
-            policy.get("adaptive_decision_control", {}).get(
-                "target_repository_root", ""
-            )
-        ),
     )
     semantic_review_event = next(
         item for item in active_events if item.get("record_id") == review_record
@@ -27449,11 +27466,6 @@ def cmd_adjust(args: argparse.Namespace) -> None:
                 requested["program_revision_authoring_thread"]
             ),
             runtime=policy.get("runtime", {}),
-            repository_root=str(
-                policy.get("adaptive_decision_control", {}).get(
-                    "target_repository_root", ""
-                )
-            ),
             profile_review=profile_review,
         )
         existing_profile = policy.get("program_revision_authoring_profile")

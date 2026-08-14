@@ -47,17 +47,23 @@ class ProgramRevisionControlTests(unittest.TestCase):
                 ("Structural revision", [6], "in-progress"),
             ],
         )
-        profile_source = (
-            Path(self.fixture.repository_root)
-            / supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH
-        )
-        profile_source.parent.mkdir(parents=True, exist_ok=True)
-        profile_source.write_text(
+        (
+            self.software_factory_source_root,
+            self.software_factory_source_revision,
+            software_factory_source_sha256,
+        ) = self.create_profile_source_repository(
+            "maintained-software-factory-source",
             "# Maintained tracker-authoring supervision policy\n\n"
             "The author writes; the watcher routes; distinct semantic and "
             "adjudication roles remain read-only.\n",
-            encoding="utf-8",
         )
+        source_root_patch = mock.patch.object(
+            supervision_log,
+            "software_factory_source_repository_root",
+            return_value=self.software_factory_source_root,
+        )
+        source_root_patch.start()
+        self.addCleanup(source_root_patch.stop)
         subprocess.run(
             [
                 "/usr/bin/git",
@@ -65,7 +71,6 @@ class ProgramRevisionControlTests(unittest.TestCase):
                 self.fixture.repository_root,
                 "add",
                 "tracker.md",
-                supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH,
             ],
             check=True,
         )
@@ -83,8 +88,8 @@ class ProgramRevisionControlTests(unittest.TestCase):
         )
         self.refresh_fixture_revision()
         self.profile_review = self.signed_profile_review(
-            source_revision=self.fixture.target_revision,
-            source_root=hashlib.sha256(profile_source.read_bytes()).hexdigest(),
+            source_revision=self.software_factory_source_revision,
+            source_root=software_factory_source_sha256,
         )
         self.profile_review_path = self.fixture.write_json(
             "tracker-authoring-profile-review.json", self.profile_review
@@ -143,6 +148,48 @@ class ProgramRevisionControlTests(unittest.TestCase):
         )["record"]
         self.packet = self.build_packet()
         self.packet_path = self.fixture.write_json("program-revision.json", self.packet)
+
+    def create_profile_source_repository(
+        self, name: str, profile_text: str
+    ) -> tuple[Path, str, str]:
+        repository = (self.fixture.root / name).resolve()
+        repository.mkdir()
+        subprocess.run(["/usr/bin/git", "init", "-q"], cwd=repository, check=True)
+        subprocess.run(
+            ["/usr/bin/git", "config", "user.email", "test@example.com"],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "config", "user.name", "Test"],
+            cwd=repository,
+            check=True,
+        )
+        profile = repository / supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH
+        profile.parent.mkdir(parents=True)
+        profile.write_text(profile_text, encoding="utf-8")
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "add",
+                supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH,
+            ],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "commit", "-q", "-m", "profile source"],
+            cwd=repository,
+            check=True,
+        )
+        revision = subprocess.run(
+            ["/usr/bin/git", "rev-parse", "HEAD"],
+            cwd=repository,
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        return repository, revision, hashlib.sha256(profile.read_bytes()).hexdigest()
 
     def install_program_control(
         self,
@@ -1045,9 +1092,25 @@ Stop before the next Block mutation.
             supervision_log.tracker_authoring_profile_binding(
                 authoring_thread_id=self.policy["runtime"]["watcher_thread_id"],
                 runtime=self.policy["runtime"],
-                repository_root=self.fixture.repository_root,
                 profile_review=self.profile_review,
             )
+
+    def test_external_target_uses_maintained_profile_without_a_copied_document(self) -> None:
+        target_profile = (
+            Path(self.fixture.repository_root)
+            / supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH
+        )
+        self.assertFalse(target_profile.exists())
+        accepted = self.record_program_revision()
+        self.assertEqual(accepted["record"]["review_disposition"], "accepted")
+        self.assertEqual(
+            accepted["record"]["packet"]["repository_root"],
+            self.fixture.repository_root,
+        )
+        self.assertEqual(
+            accepted["record"]["packet"]["authoring_profile_source_revision"],
+            self.software_factory_source_revision,
+        )
 
     def test_authoring_profile_resolves_exact_maintained_source_revision(self) -> None:
         profile = self.policy["program_revision_authoring_profile"]
@@ -1055,7 +1118,9 @@ Stop before the next Block mutation.
             profile["profile_source_path"],
             "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md",
         )
-        self.assertEqual(profile["profile_revision"], self.fixture.target_revision)
+        self.assertEqual(
+            profile["profile_revision"], self.software_factory_source_revision
+        )
         self.assertEqual(profile["profile_root"], profile["profile_source_root"])
         self.assertEqual(
             profile["profile_acceptance_record_id"], self.profile_review["record_id"]
@@ -1080,7 +1145,7 @@ Stop before the next Block mutation.
             [
                 "/usr/bin/git",
                 "-C",
-                self.fixture.repository_root,
+                str(self.software_factory_source_root),
                 "cat-file",
                 "blob",
                 f"{profile['profile_source_revision']}:"
@@ -1120,6 +1185,84 @@ Stop before the next Block mutation.
             supervision_log.validate_tracker_authoring_profile_review(
                 changed_review
             )
+
+    def test_stale_or_mismatched_maintained_profile_source_fails_closed(self) -> None:
+        unrelated_source, _revision, _source_sha256 = (
+            self.create_profile_source_repository(
+                "unrelated-software-factory-source",
+                "# Unrelated profile source\n",
+            )
+        )
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.events(directory / "events.jsonl")
+        with (
+            mock.patch.object(
+                supervision_log,
+                "software_factory_source_repository_root",
+                return_value=unrelated_source,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "source is not in current repository history",
+            ),
+        ):
+            self.record_program_revision()
+        self.assertEqual(
+            supervision_log.events(directory / "events.jsonl"), before
+        )
+
+        mismatched_review = self.signed_profile_review(
+            source_revision=self.software_factory_source_revision,
+            source_root="f" * 64,
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "review differs from its exact source",
+        ):
+            supervision_log.tracker_authoring_profile_binding(
+                authoring_thread_id="tracker-authoring-thread-1234",
+                runtime=self.policy["runtime"],
+                profile_review=mismatched_review,
+            )
+        self.assertEqual(
+            supervision_log.events(directory / "events.jsonl"), before
+        )
+
+    def test_adaptive_target_root_and_revision_drift_remain_fail_closed(self) -> None:
+        drifted_root = copy.deepcopy(self.decision_evidence)
+        drifted_root["target_repository_root"] = str(
+            self.software_factory_source_root
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Adaptive target repository root differs from canonical policy",
+        ):
+            supervision_log.validate_adaptive_decision_evidence(
+                drifted_root, policy=self.policy
+            )
+
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.events(directory / "events.jsonl")
+        drift_path = Path(self.fixture.repository_root) / "target-drift.txt"
+        drift_path.write_text("later target state\n", encoding="utf-8")
+        subprocess.run(
+            ["/usr/bin/git", "add", "target-drift.txt"],
+            cwd=self.fixture.repository_root,
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "commit", "-q", "-m", "advance target state"],
+            cwd=self.fixture.repository_root,
+            check=True,
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Adaptive target revision is stale",
+        ):
+            self.record_program_revision()
+        self.assertEqual(
+            supervision_log.events(directory / "events.jsonl"), before
+        )
 
     def test_exact_explicit_range_maps_to_successor_union_without_contraction(self) -> None:
         directory = self.fixture.root / self.fixture.target
