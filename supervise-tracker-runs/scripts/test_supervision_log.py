@@ -7238,6 +7238,58 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.assertEqual(plan["automation_updates"], [])
         self.assertEqual(len(plan["current_automations"]), 1)
 
+    def test_refresh_plan_ignores_unrelated_append_but_rejects_owner_drift(
+        self,
+    ) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        promotion_record = str(promoted["promotion"]["record_id"])
+        automation_root = Path(self.temporary.name) / "automations"
+        before = self.refresh_plan(promotion_record, automation_root)
+        with redirect_stdout(io.StringIO()):
+            self.call(
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "check",
+                "--model",
+                "gpt-5.6-sol",
+                "--reasoning",
+                "xhigh",
+                "--state-fingerprint",
+                "f" * 64,
+                "--status",
+                "no-intervention",
+                "--evidence",
+                "unrelated-target-event",
+                "--summary",
+                "Unrelated append-only target supervision event.",
+            )
+        after = self.refresh_plan(promotion_record, automation_root)
+        self.assertNotIn("event_head_sha256", after)
+        self.assertEqual(
+            before["refresh_plan_root_sha256"],
+            after["refresh_plan_root_sha256"],
+        )
+
+        self.status["activation_history_records"] += 1
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "release is not current",
+        ):
+            self.refresh_plan(promotion_record, automation_root)
+
     def test_refresh_plan_accepts_lowercase_current_target_reference(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(

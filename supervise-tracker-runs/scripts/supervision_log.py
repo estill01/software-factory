@@ -13134,7 +13134,6 @@ def build_software_factory_supervisor_refresh_plan(
             status, release_id=str(promotion["release_id"])
         ),
         "policy_sha256": policy["policy_sha256"],
-        "event_head_sha256": all_events[-1]["record_sha256"],
         "implementation_range": range_state,
         "refresh_boundary": "next-scheduled-wake-or-role-message-boundary",
         "automation_updates": updates,
