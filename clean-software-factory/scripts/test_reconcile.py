@@ -341,6 +341,187 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("record fields differ", result.stdout)
 
+    def test_preserve_restores_dirty_bytes_without_repository_mutation(self) -> None:
+        (self.repo / "tracked.txt").write_text("staged\n", encoding="utf-8")
+        run(["git", "add", "tracked.txt"], self.repo)
+        (self.repo / "tracked.txt").write_text("unstaged\n", encoding="utf-8")
+        (self.repo / "untracked.txt").write_text(
+            "private-local-byte\n", encoding="utf-8"
+        )
+        for name in (
+            "api-route.py",
+            "migration.sql",
+            "product-config.yaml",
+            "Widget.tsx",
+            "feature.test.py",
+            "work-tracker.md",
+            "semantic-review.txt",
+            "deferred-option.md",
+        ):
+            (self.repo / name).write_text(f"{name}\n", encoding="utf-8")
+        before = run(["git", "status", "--porcelain=v2", "--branch"], self.repo).stdout
+        refs_before = run(["git", "show-ref"], self.repo).stdout
+        plan = json.loads(self.command("plan").stdout)
+        preserved = json.loads(
+            self.command("preserve", "--run-dir", plan["run_dir"]).stdout
+        )
+        self.assertEqual(preserved["status"], "preservation-retained-unknown")
+        run_dir = Path(plan["run_dir"])
+        record = json.loads((run_dir / "preservation.json").read_text())
+        coverage = json.loads((run_dir / "capability-coverage.json").read_text())
+        inventory = json.loads((run_dir / "inventory.json").read_text())
+        self.assertTrue(record["packages"])
+        self.assertTrue(all(item["local_only"] for item in record["packages"]))
+        self.assertTrue(
+            all(
+                self.repo not in Path(item["path"]).parents
+                for item in record["packages"]
+            )
+        )
+        self.assertTrue(record["restore_receipts"])
+        self.assertTrue(
+            all(
+                item["status"] == "passed"
+                and item["disposable_root"] == item["restored_root"]
+                for item in record["restore_receipts"]
+            )
+        )
+        self.assertEqual(
+            {item["artifact_id"] for item in inventory["artifacts"]},
+            {
+                artifact_id
+                for item in coverage["candidates"]
+                for artifact_id in item["source_artifact_ids"]
+            },
+        )
+        self.assertTrue(
+            all(item["status"] == "unknown" for item in coverage["candidates"])
+        )
+        self.assertTrue(
+            {
+                "api",
+                "configuration",
+                "deferred-option",
+                "migration",
+                "review-evidence",
+                "route",
+                "test",
+                "tracker-evidence",
+                "ui",
+            }
+            <= {item["surface_kind"] for item in coverage["surfaces"]}
+        )
+        records = "".join(path.read_text() for path in run_dir.glob("*.json"))
+        self.assertNotIn("private-local-byte", records)
+        self.assertEqual(
+            run(["git", "status", "--porcelain=v2", "--branch"], self.repo).stdout,
+            before,
+        )
+        self.assertEqual(run(["git", "show-ref"], self.repo).stdout, refs_before)
+        untracked_id = next(
+            item["artifact_id"]
+            for item in inventory["artifacts"]
+            if item["artifact_kind"] == "worktree-path"
+            and item["path"] == "untracked.txt"
+        )
+        destination = self.root / "restored-untracked.txt"
+        restored = json.loads(
+            run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "restore",
+                    "--run-dir",
+                    plan["run_dir"],
+                    "--artifact-id",
+                    untracked_id,
+                    "--destination",
+                    str(destination),
+                ],
+                self.repo,
+            ).stdout
+        )
+        self.assertEqual(restored["status"], "restored")
+        self.assertEqual(destination.read_text(), "private-local-byte\n")
+        overwrite = run(
+            [
+                "python3",
+                str(SCRIPT),
+                "restore",
+                "--run-dir",
+                plan["run_dir"],
+                "--artifact-id",
+                untracked_id,
+                "--destination",
+                str(destination),
+            ],
+            self.repo,
+            check=False,
+        )
+        self.assertEqual(overwrite.returncode, 2)
+        status = json.loads(
+            run(
+                ["python3", str(SCRIPT), "status", "--run-dir", plan["run_dir"]],
+                self.repo,
+            ).stdout
+        )
+        self.assertEqual(status["current_phase"], "preserve")
+
+    def test_verify_rejects_tampered_preservation_package(self) -> None:
+        (self.repo / "untracked.txt").write_text("keep me\n", encoding="utf-8")
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        run_dir = Path(plan["run_dir"])
+        package_file = next((run_dir / "packages").glob("*/*.bin"))
+        package_file.write_bytes(b"tampered\n")
+        result = self.verify_command(plan["run_dir"], check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("preservation package bytes differ", result.stdout)
+
+    def test_preserve_rejects_moving_source(self) -> None:
+        plan = json.loads(self.command("plan").stdout)
+        (self.repo / "tracked.txt").write_text("moved\n", encoding="utf-8")
+        result = self.command("preserve", "--run-dir", plan["run_dir"], check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("successor plan required", result.stdout)
+
+    def test_preserve_resumes_an_interrupted_record_pair(self) -> None:
+        (self.repo / "untracked.txt").write_text("keep me\n", encoding="utf-8")
+        plan = json.loads(self.command("plan").stdout)
+        first = json.loads(
+            self.command("preserve", "--run-dir", plan["run_dir"]).stdout
+        )
+        coverage_path = Path(plan["run_dir"]) / "capability-coverage.json"
+        coverage_path.unlink()
+        resumed = json.loads(
+            self.command("preserve", "--run-dir", plan["run_dir"]).stdout
+        )
+        self.assertEqual(first["preservation_root"], resumed["preservation_root"])
+        self.assertEqual(resumed["status"], "preservation-retained-unknown")
+
+    def test_nonregular_untracked_path_remains_unknown_and_unpackaged(self) -> None:
+        (self.repo / "link").symlink_to(self.repo / "tracked.txt")
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        run_dir = Path(plan["run_dir"])
+        inventory = json.loads((run_dir / "inventory.json").read_text())
+        record = json.loads((run_dir / "preservation.json").read_text())
+        coverage = json.loads((run_dir / "capability-coverage.json").read_text())
+        link_id = next(
+            item["artifact_id"]
+            for item in inventory["artifacts"]
+            if item["artifact_kind"] == "worktree-path" and item["path"] == "link"
+        )
+        self.assertNotIn(
+            link_id, {item["artifact_id"] for item in record["byte_entries"]}
+        )
+        candidate = next(
+            item
+            for item in coverage["candidates"]
+            if item["source_artifact_ids"] == [link_id]
+        )
+        self.assertEqual(candidate["status"], "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

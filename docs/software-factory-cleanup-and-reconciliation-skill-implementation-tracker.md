@@ -313,7 +313,7 @@ that existing generic event projection cannot represent the cleanup outcome.
 |---:|---|---:|---|
 | 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `completed` |
 | 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `completed` |
-| 2 | Implement no-loss preservation and functional coverage proof | 1 | `not-started` |
+| 2 | Implement no-loss preservation and functional coverage proof | 1 | `in-progress` |
 | 3 | Add supervisor reconciliation coordination and monitoring gates | 2 | `not-started` |
 | 4 | Implement accepted integration, PR disposition, validation, and main publication | 3 | `not-started` |
 | 5 | Implement independently gated branch/worktree retirement | 4 | `not-started` |
@@ -610,7 +610,7 @@ Stop before preserving candidate bytes or asking the supervisor for quiescence.
 
 ## Block 2 — Implement no-loss preservation and functional coverage proof
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 

@@ -44,6 +44,38 @@ provider result. The helper writes only to its bounded local run-artifact root;
 the repository, provider, tasks, and supervision state remain read-only during
 inventory and planning.
 
+Before any integration or topology change, preserve the exact run locally:
+
+```bash
+python3 clean-software-factory/scripts/reconcile.py preserve \
+  --run-dir /absolute/local/run-directory \
+  --repo /absolute/repository/top-level \
+  --main main \
+  --remote origin \
+  --provider github
+```
+
+Preservation packages stay outside the repository and Git common directory.
+The helper verifies their hashes with a disposable restore drill, maps every
+inventoried artifact to an explicit capability candidate, and leaves every
+candidate `unknown` and retained until a distinct semantic reviewer supplies
+current coverage. It does not push package bytes or make anything eligible for
+deletion.
+
+Restore one packaged artifact only to an explicit new local file after verifying
+the complete run:
+
+```bash
+python3 clean-software-factory/scripts/reconcile.py restore \
+  --run-dir /absolute/local/run-directory \
+  --artifact-id worktree-path-0123456789abcdef01234567 \
+  --destination /absolute/disposable/restored-file
+```
+
+The cleanup artifact owner controls the run directory and restore destination.
+The command refuses overwrite, re-verifies the immutable package, reapplies the
+recorded file mode, and compares the restored bytes before reporting success.
+
 ## Choose the path from evidence
 
 - `audit`: use when any owner is unavailable, state is ambiguous or moving, or
