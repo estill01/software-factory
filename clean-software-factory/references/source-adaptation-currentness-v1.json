@@ -1,0 +1,78 @@
+{
+  "active_owner": {
+    "branch": "codex/automatic-release-monitor-refresh",
+    "changed_paths": [
+      "docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md",
+      "supervise-tracker-runs/SKILL.md",
+      "supervise-tracker-runs/references/supervision-policy.md",
+      "supervise-tracker-runs/scripts/supervision_log.py",
+      "supervise-tracker-runs/scripts/test_factory_evolution_admission.py",
+      "supervise-tracker-runs/scripts/test_terminal_report.py"
+    ],
+    "dirty_paths": [
+      "scripts/skill_release.py",
+      "scripts/test_skill_release.py",
+      "supervise-tracker-runs/scripts/supervision_log.py",
+      "supervise-tracker-runs/scripts/test_supervision_log.py"
+    ],
+    "dirty_status_sha256": "4a86ee644331a0f210cb8629c4ba339eebfe6e4cf1df655839537ad9fad9430d",
+    "head": "0b97d661bb8e108963aa34ecaaaa992176f104d6",
+    "overlap_with_cleanup_paths": false,
+    "status": "dirty-in-progress-nonoverlapping",
+    "task_id": "019ffd59-10b3-73a0-a644-15c5e6ca9db6",
+    "tracker_block": 6
+  },
+  "cleanup_owner": {
+    "base": "fe2d0c643549239fbe65acd0823520a9fa809540",
+    "branch": "codex/clean-software-factory",
+    "shared_edit_hold": [
+      "author-implementation-trackers",
+      "implement-tracker-blocks",
+      "scripts/skill_release.py",
+      "supervise-tracker-runs"
+    ]
+  },
+  "git": {
+    "main": "fe2d0c643549239fbe65acd0823520a9fa809540",
+    "origin_main": "fe2d0c643549239fbe65acd0823520a9fa809540",
+    "remote": "origin",
+    "worktree_snapshot_sha256": "5acab0a22d1a906b25fb83f64a6c0f08942db43339252fe38d2e4233008a7ebb"
+  },
+  "kind": "cleanup-source-adaptation-currentness",
+  "observed_at": "2026-08-14T06:04:27Z",
+  "provider": {
+    "argv": [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      "estill01/software-factory",
+      "--state",
+      "open",
+      "--limit",
+      "100",
+      "--json",
+      "number,state,headRefName,baseRefName,isDraft,mergeStateStatus,updatedAt"
+    ],
+    "canonicalizer": ["jq", "-cS"],
+    "owner": "github",
+    "payload_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "result_count": 0,
+    "selected_fields": [
+      "baseRefName",
+      "headRefName",
+      "isDraft",
+      "mergeStateStatus",
+      "number",
+      "state",
+      "updatedAt"
+    ],
+    "tool_version": "gh version 2.92.0 (2026-04-28)"
+  },
+  "release": {
+    "active_release_id": "2109eeee4646-fb7861d1f68b",
+    "source_commit": "2109eeee46468a50c6c1c934628c4f033e7bb1fa",
+    "status_root_sha256": "0f0a06a6abc35e1feb63661d564589687931067175b15a4febccf38aa52206ca"
+  },
+  "schema_version": 1
+}

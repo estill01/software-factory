@@ -1,0 +1,197 @@
+{
+  "base_fields": {
+    "created_at": {"format": "rfc3339", "type": "string"},
+    "kind": {"format": "record-kind", "type": "string"},
+    "phase": {"enum_ref": "phases", "type": "string"},
+    "previous_record_root": {"format": "sha256-or-null", "type": ["string", "null"]},
+    "record_root": {"format": "sha256-self-excluded", "type": "string"},
+    "repository_identity": {"format": "sha256", "type": "string"},
+    "run_id": {"format": "cleanup-id", "type": "string"},
+    "schema_version": {"const": 1, "type": "integer"},
+    "source_snapshot_root": {"format": "sha256", "type": "string"},
+    "status": {"enum_ref": "statuses", "type": "string"}
+  },
+  "item_types": {
+    "acceptance-receipt": {"additional_fields": false, "fields": {"acceptance_root": {"format": "sha256", "type": "string"}, "authority_record": {"type": "string"}, "source_commit": {"format": "git-oid", "type": "string"}, "source_id": {"type": "string"}}, "required": ["source_id", "authority_record", "source_commit", "acceptance_root"]},
+    "archive-reference": {"additional_fields": false, "fields": {"archive_id": {"type": "string"}, "archive_root": {"format": "sha256", "type": "string"}, "path": {"format": "canonical-absolute-path", "type": "string"}, "restore_receipt_root": {"format": "sha256", "type": "string"}}, "required": ["archive_id", "path", "archive_root", "restore_receipt_root"]},
+    "artifact": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "artifact_kind": {"type": "string"}, "dirt": {"enum": ["clean", "staged", "unstaged", "untracked", "ignored", "unknown"], "type": "string"}, "object_id": {"format": "git-oid-or-null", "type": ["string", "null"]}, "origin": {"type": "string"}, "owner_id": {"type": ["string", "null"]}, "path": {"type": ["string", "null"]}}, "required": ["artifact_id", "artifact_kind", "origin", "object_id", "path", "dirt", "owner_id"]},
+    "byte-entry": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "mode": {"format": "git-mode", "type": "string"}, "path": {"type": "string"}, "sha256": {"format": "sha256", "type": "string"}, "size": {"minimum": 0, "type": "integer"}}, "required": ["artifact_id", "path", "mode", "size", "sha256"]},
+    "capability-candidate": {"additional_fields": false, "fields": {"candidate_id": {"type": "string"}, "source_artifact_ids": {"items": "string", "type": "array", "unique": true}, "status": {"enum": ["covered", "unknown", "review-required"], "type": "string"}}, "required": ["candidate_id", "source_artifact_ids", "status"]},
+    "capability-surface": {"additional_fields": false, "fields": {"candidate_id": {"type": "string"}, "evidence_refs": {"items": "string", "type": "array", "unique": true}, "surface_id": {"type": "string"}, "surface_kind": {"enum": ["route", "api", "migration", "configuration", "ui", "test", "fix", "tracker-evidence", "review-evidence", "deferred-option"], "type": "string"}}, "required": ["surface_id", "candidate_id", "surface_kind", "evidence_refs"]},
+    "command-envelope": {"additional_fields": false, "fields": {"argv": {"items": "string", "min_items": 1, "type": "array"}, "command_id": {"type": "string"}, "cwd": {"format": "canonical-absolute-path", "type": "string"}, "runtime": {"type": "string"}}, "required": ["command_id", "argv", "cwd", "runtime"]},
+    "conflict-decision": {"additional_fields": false, "fields": {"conflict_id": {"type": "string"}, "decision_root": {"format": "sha256", "type": "string"}, "review_id": {"type": "string"}, "surface_ids": {"items": "string", "type": "array", "unique": true}}, "required": ["conflict_id", "surface_ids", "review_id", "decision_root"]},
+    "deletion-effect": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "effect_id": {"type": "string"}, "expected_object_id": {"format": "git-oid-or-null", "type": ["string", "null"]}, "path": {"type": ["string", "null"]}, "ref_name": {"type": ["string", "null"]}}, "required": ["effect_id", "artifact_id", "expected_object_id", "path", "ref_name"]},
+    "disposition-entry": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "disposition": {"enum": ["integrated", "preserved", "validly-superseded", "generated-reproducible", "retain"], "type": "string"}, "proof_refs": {"items": "string", "type": "array", "unique": true}}, "required": ["artifact_id", "disposition", "proof_refs"]},
+    "dormant-lane": {"additional_fields": false, "fields": {"dependency": {"type": "string"}, "frontier": {"type": "string"}, "lane_id": {"type": "string"}, "owner_id": {"type": "string"}, "revisit_trigger": {"type": "string"}}, "required": ["lane_id", "owner_id", "dependency", "frontier", "revisit_trigger"]},
+    "effect-receipt": {"additional_fields": false, "fields": {"effect_id": {"type": "string"}, "post_state_root": {"format": "sha256", "type": "string"}, "pre_state_root": {"format": "sha256", "type": "string"}, "status": {"enum": ["applied", "rejected", "stale"], "type": "string"}}, "required": ["effect_id", "status", "pre_state_root", "post_state_root"]},
+    "first-work-receipt": {"additional_fields": false, "fields": {"base_commit": {"format": "git-oid", "type": "string"}, "evidence_root": {"format": "sha256", "type": "string"}, "frontier": {"type": "string"}, "lane_id": {"type": "string"}, "task_id": {"type": "string"}}, "required": ["lane_id", "task_id", "base_commit", "frontier", "evidence_root"]},
+    "gate-posture": {"additional_fields": false, "fields": {"deletion": {"enum": ["not-requested", "permitted", "rejected", "revoked"], "type": "string"}, "outcome": {"enum": ["not-requested", "permitted", "rejected", "revoked"], "type": "string"}, "plan": {"enum": ["not-requested", "permitted", "rejected", "revoked"], "type": "string"}, "quiescence": {"enum": ["not-requested", "permitted", "rejected", "revoked"], "type": "string"}}, "required": ["plan", "quiescence", "deletion", "outcome"]},
+    "no-loss-entry": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "byte_result": {"enum": ["preserved", "identical", "unknown"], "type": "string"}, "capability_result": {"enum": ["preserved", "superseded-reviewed", "unknown"], "type": "string"}, "deletion_eligible": {"type": "boolean"}}, "required": ["artifact_id", "byte_result", "capability_result", "deletion_eligible"]},
+    "object-entry": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "object_id": {"format": "git-oid", "type": "string"}, "object_type": {"enum": ["commit", "tree", "blob", "tag", "stash"], "type": "string"}}, "required": ["artifact_id", "object_id", "object_type"]},
+    "open-item": {"additional_fields": false, "fields": {"compatible_with_outcome": {"type": "boolean"}, "item_id": {"type": "string"}, "owner_id": {"type": "string"}, "revisit_trigger": {"type": "string"}}, "required": ["item_id", "owner_id", "compatible_with_outcome", "revisit_trigger"]},
+    "operation-hold": {"additional_fields": false, "fields": {"carry_forward": {"const": false, "type": "boolean"}, "effect_scope": {"items": "string", "min_items": 1, "type": "array", "unique": true}, "expiry_root": {"format": "sha256", "type": "string"}, "hold_id": {"type": "string"}, "successor_effects": {"const": "blocked", "type": "string"}}, "required": ["hold_id", "effect_scope", "expiry_root", "carry_forward", "successor_effects"]},
+    "outcome-readback": {"additional_fields": false, "fields": {"git_root": {"format": "sha256", "type": "string"}, "provider_root": {"format": "sha256", "type": "string"}, "release_root": {"format": "sha256", "type": "string"}, "task_root": {"format": "sha256", "type": "string"}}, "required": ["git_root", "provider_root", "task_root", "release_root"]},
+    "preservation-package": {"additional_fields": false, "fields": {"artifact_ids": {"items": "string", "min_items": 1, "type": "array", "unique": true}, "local_only": {"const": true, "type": "boolean"}, "package_id": {"type": "string"}, "package_root": {"format": "sha256", "type": "string"}, "path": {"format": "canonical-absolute-path", "type": "string"}}, "required": ["package_id", "artifact_ids", "path", "package_root", "local_only"]},
+    "provider-effect": {"additional_fields": false, "fields": {"effect_id": {"type": "string"}, "effect_kind": {"enum": ["merge-pr", "close-superseded-pr", "retain-pr"], "type": "string"}, "pr_number": {"minimum": 1, "type": "integer"}, "receipt_root": {"format": "sha256", "type": "string"}}, "required": ["effect_id", "effect_kind", "pr_number", "receipt_root"]},
+    "restore-receipt": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "disposable_root": {"format": "sha256", "type": "string"}, "restored_root": {"format": "sha256", "type": "string"}, "status": {"const": "passed", "type": "string"}}, "required": ["artifact_id", "disposable_root", "restored_root", "status"]},
+    "restore-result": {"additional_fields": false, "fields": {"artifact_id": {"type": "string"}, "receipt_root": {"format": "sha256", "type": "string"}, "status": {"enum": ["passed", "failed", "unknown"], "type": "string"}}, "required": ["artifact_id", "status", "receipt_root"]},
+    "review-requirement": {"additional_fields": false, "fields": {"candidate_id": {"type": "string"}, "reason": {"type": "string"}, "review_kind": {"enum": ["semantic-supersession", "conflict-behavior", "deletion-complete-set"], "type": "string"}}, "required": ["candidate_id", "review_kind", "reason"]},
+    "root-map": {"additional_fields": false, "fields": {"entries": {"items": "root-map-entry", "type": "array", "unique_by": "kind"}}, "required": ["entries"]},
+    "root-map-entry": {"additional_fields": false, "fields": {"kind": {"format": "record-kind", "type": "string"}, "root": {"format": "sha256", "type": "string"}}, "required": ["kind", "root"]},
+    "semantic-review": {"additional_fields": false, "fields": {"candidate_root": {"format": "sha256", "type": "string"}, "disposition": {"enum": ["accepted", "revise", "rejected"], "type": "string"}, "review_id": {"type": "string"}, "reviewer_id": {"type": "string"}}, "required": ["review_id", "reviewer_id", "candidate_root", "disposition"]},
+    "started-lane": {"additional_fields": false, "fields": {"base_commit": {"format": "git-oid", "type": "string"}, "branch": {"type": "string"}, "lane_id": {"type": "string"}, "range_root": {"format": "sha256", "type": "string"}, "task_id": {"type": "string"}, "worktree": {"format": "canonical-absolute-path", "type": "string"}}, "required": ["lane_id", "task_id", "branch", "worktree", "base_commit", "range_root"]},
+    "surface-result": {"additional_fields": false, "fields": {"result_id": {"type": "string"}, "status": {"enum": ["passed", "failed", "unknown"], "type": "string"}, "surface_id": {"type": "string"}}, "required": ["surface_id", "result_id", "status"]},
+    "topology-state": {"additional_fields": false, "fields": {"branches": {"items": "string", "type": "array", "unique": true}, "pull_requests": {"items": "integer", "type": "array", "unique": true}, "worktrees": {"items": "string", "type": "array", "unique": true}}, "required": ["branches", "worktrees", "pull_requests"]},
+    "unknown-capability": {"additional_fields": false, "fields": {"reason": {"type": "string"}, "revisit_trigger": {"type": "string"}, "subject_id": {"type": "string"}}, "required": ["subject_id", "reason", "revisit_trigger"]},
+    "validation-result": {"additional_fields": false, "fields": {"command_id": {"type": "string"}, "result_id": {"type": "string"}, "result_root": {"format": "sha256", "type": "string"}, "status": {"enum": ["passed", "failed", "diagnostic"], "type": "string"}}, "required": ["result_id", "command_id", "status", "result_root"]}
+  },
+  "phases": ["inventory", "plan", "preserve", "quiescence", "integrate", "validate", "publish", "delete", "restart", "outcome"],
+  "records": {
+    "capability-coverage": {
+      "binds": ["plan_root", "preservation_root"],
+      "fields": {
+        "candidates": {"items": "capability-candidate", "type": "array", "unique_by": "candidate_id"},
+        "coverage_root": {"format": "sha256", "type": "string"},
+        "review_requirements": {"items": "review-requirement", "type": "array", "unique_by": "candidate_id"},
+        "surfaces": {"items": "capability-surface", "type": "array", "unique_by": "surface_id"},
+        "unknowns": {"items": "unknown-capability", "type": "array", "unique_by": "subject_id"}
+      },
+      "phase": "preserve"
+    },
+    "deletion": {
+      "binds": ["publication_root", "preservation_root", "coverage_root", "deletion_review_root", "deletion_gate_root"],
+      "fields": {
+        "deletion_gate_root": {"format": "sha256", "type": "string"},
+        "deletion_review_root": {"format": "sha256", "type": "string"},
+        "effects": {"items": "deletion-effect", "type": "array", "unique_by": "effect_id"},
+        "manifest_root": {"format": "sha256", "type": "string"},
+        "receipts": {"items": "effect-receipt", "type": "array", "unique_by": "effect_id"},
+        "retained_archives": {"items": "archive-reference", "type": "array", "unique_by": "archive_id"}
+      },
+      "phase": "delete"
+    },
+    "integration": {
+      "binds": ["plan_root", "preservation_root", "coverage_root", "quiescence_gate_root"],
+      "fields": {
+        "accepted_sources": {"items": "acceptance-receipt", "type": "array", "unique_by": "source_id"},
+        "conflict_decisions": {"items": "conflict-decision", "type": "array", "unique_by": "conflict_id"},
+        "integration_root": {"format": "sha256", "type": "string"},
+        "quiescence_gate_root": {"format": "sha256", "type": "string"},
+        "result_commit": {"format": "git-oid", "type": "string"},
+        "result_tree": {"format": "git-oid", "type": "string"},
+        "semantic_reviews": {"items": "semantic-review", "type": "array", "unique_by": "review_id"}
+      },
+      "phase": "integrate"
+    },
+    "inventory": {
+      "binds": ["source_snapshot_root"],
+      "fields": {
+        "artifact_count": {"minimum": 0, "type": "integer"},
+        "artifacts": {"items": "artifact", "type": "array", "unique_by": "artifact_id"},
+        "inventory_root": {"format": "sha256", "type": "string"}
+      },
+      "phase": "inventory"
+    },
+    "outcome": {
+      "binds": ["inventory_root", "plan_root", "preservation_root", "coverage_root", "integration_root", "validation_root", "publication_root", "manifest_root", "restart_root", "outcome_gate_root"],
+      "fields": {
+        "final_topology": {"item_ref": "topology-state", "type": "object"},
+        "no_loss_matrix": {"items": "no-loss-entry", "type": "array", "unique_by": "artifact_id"},
+        "open_items": {"items": "open-item", "type": "array", "unique_by": "item_id"},
+        "outcome_gate_root": {"format": "sha256", "type": "string"},
+        "outcome_root": {"format": "sha256", "type": "string"},
+        "readback": {"item_ref": "outcome-readback", "type": "object"},
+        "restore_results": {"items": "restore-result", "type": "array", "unique_by": "artifact_id"}
+      },
+      "phase": "outcome"
+    },
+    "plan": {
+      "binds": ["source_snapshot_root", "inventory_root"],
+      "fields": {
+        "dispositions": {"items": "disposition-entry", "type": "array", "unique_by": "artifact_id"},
+        "holds": {"items": "operation-hold", "type": "array", "unique_by": "hold_id"},
+        "next_action": {"max_length": 240, "type": "string"},
+        "path": {"enum": ["audit", "safe-cleanup", "coordinated-reconciliation"], "type": "string"},
+        "plan_root": {"format": "sha256", "type": "string"}
+      },
+      "phase": "plan"
+    },
+    "preservation": {
+      "binds": ["plan_root"],
+      "fields": {
+        "byte_entries": {"items": "byte-entry", "type": "array", "unique_by": "artifact_id"},
+        "object_entries": {"items": "object-entry", "type": "array", "unique_by": "artifact_id"},
+        "packages": {"items": "preservation-package", "type": "array", "unique_by": "package_id"},
+        "preservation_root": {"format": "sha256", "type": "string"},
+        "restore_receipts": {"items": "restore-receipt", "type": "array", "unique_by": "artifact_id"}
+      },
+      "phase": "preserve"
+    },
+    "publication": {
+      "binds": ["validation_root", "exact_review_root"],
+      "fields": {
+        "exact_review_root": {"format": "sha256", "type": "string"},
+        "local_main": {"format": "git-oid", "type": "string"},
+        "non_force_effect": {"const": true, "type": "boolean"},
+        "provider_effects": {"items": "provider-effect", "type": "array", "unique_by": "effect_id"},
+        "provider_snapshot_root": {"format": "sha256", "type": "string"},
+        "publication_root": {"format": "sha256", "type": "string"},
+        "remote_main_after": {"format": "git-oid", "type": "string"},
+        "remote_main_before": {"format": "git-oid", "type": "string"}
+      },
+      "phase": "publish"
+    },
+    "restart": {
+      "binds": ["publication_root", "manifest_root"],
+      "fields": {
+        "dormant_lanes": {"items": "dormant-lane", "type": "array", "unique_by": "lane_id"},
+        "first_work_receipts": {"items": "first-work-receipt", "type": "array", "unique_by": "lane_id"},
+        "restart_root": {"format": "sha256", "type": "string"},
+        "started_lanes": {"items": "started-lane", "type": "array", "unique_by": "lane_id"}
+      },
+      "phase": "restart"
+    },
+    "source-snapshot": {
+      "binds": [],
+      "fields": {
+        "common_dir": {"format": "canonical-absolute-path", "type": "string"},
+        "main_ref": {"type": "string"},
+        "provider_snapshot_root": {"format": "sha256", "type": "string"},
+        "ref_snapshot_root": {"format": "sha256", "type": "string"},
+        "release_snapshot_root": {"format": "sha256", "type": "string"},
+        "remote_main": {"format": "git-oid", "type": "string"},
+        "remote_name": {"type": "string"},
+        "remote_url": {"format": "normalized-git-url", "type": "string"},
+        "repository_root": {"format": "canonical-absolute-path", "type": "string"},
+        "task_snapshot_root": {"format": "sha256", "type": "string"},
+        "worktree_snapshot_root": {"format": "sha256", "type": "string"}
+      },
+      "phase": "inventory"
+    },
+    "status": {
+      "binds": ["current_record_roots"],
+      "fields": {
+        "active_holds": {"items": "operation-hold", "type": "array", "unique_by": "hold_id"},
+        "current_phase": {"enum_ref": "phases", "type": "string"},
+        "current_record_roots": {"item_ref": "root-map", "type": "object"},
+        "gate_posture": {"item_ref": "gate-posture", "type": "object"},
+        "next_action": {"max_length": 240, "type": "string"}
+      },
+      "phase": "outcome"
+    },
+    "validation": {
+      "binds": ["integration_root"],
+      "fields": {
+        "candidate_commit": {"format": "git-oid", "type": "string"},
+        "candidate_tree": {"format": "git-oid", "type": "string"},
+        "commands": {"items": "command-envelope", "type": "array", "unique_by": "command_id"},
+        "mapped_surfaces": {"items": "surface-result", "type": "array", "unique_by": "surface_id"},
+        "results": {"items": "validation-result", "type": "array", "unique_by": "result_id"},
+        "validation_root": {"format": "sha256", "type": "string"}
+      },
+      "phase": "validate"
+    }
+  },
+  "schema_version": 1,
+  "statuses": ["open", "passed", "replan-required", "rejected", "completed"]
+}

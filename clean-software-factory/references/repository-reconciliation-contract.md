@@ -19,19 +19,22 @@ read of the repository, GitHub, installed release, and active task owner:
 - canonical branch and remote: `main` and `origin`;
 - local and remote main: `fe2d0c643549239fbe65acd0823520a9fa809540`;
 - open pull requests: none; merged pull requests `1` and `2` remain provider
-  history rather than cleanup candidates; the canonical compact open-PR query
-  returned `[]` with SHA-256
+  history rather than cleanup candidates; at `2026-08-14T06:04:27Z`, `gh`
+  `2.92.0` ran
+  `gh pr list --repo estill01/software-factory --state open --limit 100 --json number,state,headRefName,baseRefName,isDraft,mergeStateStatus,updatedAt`,
+  canonicalized the response with `jq -cS`, and returned `[]` with SHA-256
   `37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570`;
 - active installed release: `2109eeee4646-fb7861d1f68b`, sourced from
   `2109eeee46468a50c6c1c934628c4f033e7bb1fa`, with the three installed skills
   verified complete;
 - automatic-release owner task:
-  `019ffd59-10b3-73a0-a644-15c5e6ca9db6`, clean and pushed on branch
+  `019ffd59-10b3-73a0-a644-15c5e6ca9db6`, pushed and actively editing on branch
   `codex/automatic-release-monitor-refresh` at
   `0b97d661bb8e108963aa34ecaaaa992176f104d6`; its Block 5 is accepted and
-  Block 6 is in progress. That exact revision has merged the cleanup tracker's
-  `fe2d0c6` main baseline and changes only the automatic-release tracker plus
-  five existing supervisor/test owners relative to main;
+  Block 6 is in progress. At the recorded observation it had four dirty paths
+  under its reserved release/supervisor owners and no overlap with the cleanup
+  skill tree or cleanup tracker. That exact committed revision has merged the
+  cleanup tracker's `fe2d0c6` main baseline;
 - cleanup implementation owner: this branch
   `codex/clean-software-factory`, initially based on the exact main revision
   above; and
@@ -143,6 +146,14 @@ roots, and exact entry counts. A missing field, wrong type, unknown enum,
 duplicate, orphan dependency, caller-provided derived root, or non-monotonic
 transition rejects the record rather than defaulting it.
 
+`repository-reconciliation-schema-v1.json` is the executable schema authority
+for the exact field names, primitive or collection types, formats, item keys,
+cardinalities, phase assignments, and dependency roots summarized above. The
+Markdown tables explain that machine-readable contract; they cannot weaken or
+add fields to it. `source-adaptation-currentness-v1.json` records the exact
+implementation-time Git, worktree, provider, release, and active-owner
+observation envelope. Neither file is reusable authority for a later live run.
+
 Records store content roots of other records, not mutable path assertions.
 Packages may contain sensitive or ignored bytes only locally. Unknown bytes are
 never pushed merely to improve durability.
@@ -211,7 +222,11 @@ automatically.
 | Functional equivalence/supersession | distinct semantic reviewer | provide exact-revision disposition |
 | Deletion eligibility | deterministic manifest plus distinct semantic reviewer and current supervisor deletion gate | eligible only when all three agree on the same roots |
 | Successor plan after invalidation | deterministic cleanup helper from newly read owners | append a replan; never replay a stale gate |
-| Integration, validation, publication, retirement | cleanup writer using Git/provider/test owners | execute only after the applicable current gate |
+| Accepted-source selection and integration | cleanup writer using Git plus tracker/review acceptance owners | integrate only exact current accepted sources after quiescence |
+| Conflict resolution | cleanup writer using source-contract owners plus distinct semantic reviewer | correct affected behavior and refresh capability coverage |
+| Candidate validation and exact review | repository test/build owners plus distinct exact-revision reviewer | freeze and prove the aggregate candidate without publishing it |
+| Canonical main and PR publication | cleanup writer through Git and configured hosting provider | use current protection-aware non-force operations after validation |
+| Exact branch/worktree/PR retirement effects | cleanup writer through Git/provider after deletion eligibility and gate | revalidate and execute one named target at a time without force |
 | Restart or dormant-path selection | existing tracker/range/task owners coordinated by supervisor | preserve the exact mission and dependency frontier |
 | Skill activation and rollback | `scripts/skill_release.py` | invoke owner; never edit pointers/links manually |
 | Final capability outcome | supervisor outcome review plus current repository/task readback | close only from observed effects |
