@@ -1177,6 +1177,12 @@ map, replacement tracker, release label, routed packet, or stale mission root is
 never amendment provenance. The legacy one-to-one
 `implementation-tracker-amendment` event remains readable only for already
 accepted range history. New structural work uses the program-revision path.
+The immutable reviewed tracker-authoring profile is resolved from its exact
+revision and blob in the maintained Software Factory source repository, not
+from the adaptive target repository. The adaptive target repository need not
+copy that profile: it remains independently authoritative for decision
+evidence, the proposal packet, application commit, tracker currentness,
+policy/event compare-and-swap checks, and append-only history.
 Policy history is version-contiguous and the
 event ledger is pinned by a separately current, self-hashed head anchor, so
 truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
