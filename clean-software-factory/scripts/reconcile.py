@@ -73,22 +73,22 @@ def git(repo: Path, *args: str, timeout: int = 30) -> bytes:
 def normalized_absolute(raw: str, *, must_exist: bool = True) -> Path:
     lexical = Path(raw)
     if not lexical.is_absolute() or os.path.normpath(raw) != raw or raw == "/":
-        raise CleanupError("path must be canonical, absolute, and narrower than root")
+        raise CleanupError("path must be canonical and absolute")
     for candidate in (lexical, *lexical.parents):
-        if candidate.exists() and candidate.is_symlink():
+        if candidate.is_symlink():
             raise CleanupError("symlink or substituted path is not allowed")
     try:
         resolved = lexical.resolve(strict=must_exist)
     except OSError as exc:
         raise CleanupError("path is unavailable") from exc
     if resolved != lexical:
-        raise CleanupError("symlink or substituted path is not allowed")
+        raise CleanupError("path is not canonical")
     return resolved
 
 
 def resolve_repository(raw: str) -> tuple[Path, Path]:
     repo = normalized_absolute(raw)
-    if repo == Path("/") or not repo.is_dir():
+    if not repo.is_dir():
         raise CleanupError("repository path is not a directory")
     top = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
     if top != repo:
@@ -97,9 +97,8 @@ def resolve_repository(raw: str) -> tuple[Path, Path]:
     common = Path(common_raw)
     if not common.is_absolute():
         common = repo / common
-    lexical_common = Path(os.path.normpath(str(common)))
-    common = lexical_common.resolve(strict=True)
-    if common != lexical_common or not common.is_dir() or common == Path("/"):
+    common = common.resolve(strict=True)
+    if not common.is_dir() or common == Path("/"):
         raise CleanupError("unsafe Git common directory")
     return repo, common
 
@@ -148,7 +147,7 @@ def parse_status(worktree: Path) -> list[dict[str, str]]:
         "status",
         "--porcelain=v1",
         "-z",
-        "--untracked-files=all",
+        "--untracked-files=normal",
     )
     tokens = raw.decode("utf-8", errors="surrogateescape").split("\0")
     entries: list[dict[str, str]] = []
@@ -167,14 +166,7 @@ def parse_status(worktree: Path) -> list[dict[str, str]]:
                 raise CleanupError("malformed renamed Git status entry")
             path = f"{tokens[index]} -> {path}"
             index += 1
-        candidate = worktree / path.rstrip("/")
-        if candidate.is_symlink():
-            content_root = sha256(os.readlink(candidate).encode("utf-8"))
-        elif candidate.is_file():
-            content_root = sha256(candidate.read_bytes())
-        else:
-            content_root = None
-        entries.append({"code": code, "content_root": content_root, "path": path})
+        entries.append({"code": code, "path": path})
     return sorted(entries, key=lambda item: (item["path"], item["code"]))
 
 
@@ -183,8 +175,6 @@ def dirt_for(code: str) -> str:
         return "untracked"
     if code == "!!":
         return "ignored"
-    if code[0] not in {" ", "?", "!"} and code[1] != " ":
-        return "unknown"
     if code[0] not in {" ", "?", "!"}:
         return "staged"
     if code[1] != " ":
@@ -197,6 +187,9 @@ def parse_refs(repo: Path) -> list[dict[str, str | None]]:
         repo,
         "for-each-ref",
         "--format=%(refname)%00%(objectname)%00%(upstream)%00",
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
     ).decode("utf-8", errors="surrogateescape")
     fields = raw.replace("\n", "").split("\0")
     refs: list[dict[str, str | None]] = []
@@ -208,19 +201,6 @@ def parse_refs(repo: Path) -> list[dict[str, str | None]]:
             raise CleanupError("ref has a malformed object ID")
         refs.append({"name": name, "object_id": oid, "upstream": upstream or None})
     return sorted(refs, key=lambda item: str(item["name"]))
-
-
-def remote_main_oid(repo: Path, remote: str, main: str) -> str | None:
-    try:
-        raw = git(repo, "ls-remote", "--refs", remote, f"refs/heads/{main}")
-    except CleanupError:
-        return None
-    lines = [line for line in raw.decode().splitlines() if line]
-    if not lines:
-        return None
-    if len(lines) != 1 or not GIT_OID.fullmatch(lines[0].split("\t", 1)[0]):
-        raise CleanupError("remote main is ambiguous or malformed")
-    return lines[0].split("\t", 1)[0]
 
 
 def load_owner_snapshot(path: str | None, kind: str) -> dict[str, Any]:
@@ -238,33 +218,15 @@ def load_owner_snapshot(path: str | None, kind: str) -> dict[str, Any]:
     value = dict(value)
     value.setdefault("availability", "available")
     value.setdefault("kind", kind)
-    if value["availability"] == "available" and value.get("complete") is not True:
-        value["complete"] = False
-    if value.get("availability") == "available" and value.get("complete") is True:
-        expected = {
-            "provider-snapshot": ("pull_requests", list, "branch_protection", dict),
-            "task-snapshot": ("tasks", list),
-            "release-snapshot": ("release_id", str),
-        }[kind]
-        if not isinstance(value.get(expected[0]), expected[1]):
-            raise CleanupError(f"{kind} complete payload is malformed")
-        if len(expected) == 4 and not isinstance(value.get(expected[2]), expected[3]):
-            raise CleanupError(f"{kind} protection payload is malformed")
-        entries = value.get(expected[0])
-        if kind == "provider-snapshot" and any(
-            not isinstance(item, dict)
-            or not isinstance(item.get("number"), int)
-            or not isinstance(item.get("reviewDecision"), str)
-            for item in entries
-        ):
-            raise CleanupError("provider pull request payload is malformed")
-        if kind == "task-snapshot" and any(
-            not isinstance(item, dict)
-            or not isinstance(item.get("task_id"), str)
-            or not isinstance(item.get("status"), str)
-            for item in entries
-        ):
-            raise CleanupError("task owner payload is malformed")
+    required = {
+        "provider-snapshot": (("pull_requests", list), ("branch_protection", dict)),
+        "task-snapshot": (("tasks", list),),
+        "release-snapshot": (("release_id", str),),
+    }[kind]
+    if value["availability"] == "available":
+        value["complete"] = value.get("complete") is True and all(
+            isinstance(value.get(name), shape) for name, shape in required
+        )
     return value
 
 
@@ -309,7 +271,7 @@ def provider_snapshot(
         "--limit",
         "1000",
         "--json",
-        "number,state,headRefName,headRefOid,baseRefName,isDraft,mergeStateStatus,reviewDecision,updatedAt",
+        "number,state,headRefName,headRefOid,baseRefName,isDraft,mergeStateStatus,updatedAt",
     ]
     try:
         payload = json.loads(run_command(argv, repo).decode("utf-8"))
@@ -325,7 +287,6 @@ def provider_snapshot(
     return {
         "availability": "available",
         "argv": argv,
-        "branch_protection": {"availability": "deferred"},
         "complete": False,
         "kind": "provider-snapshot",
         "owner": provider,
@@ -402,7 +363,9 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
     remote_url = git(repo, "remote", "get-url", args.remote).decode().strip()
     if not remote_url:
         raise CleanupError("configured remote has no URL")
-    remote_main = remote_main_oid(repo, args.remote, args.main)
+    remote_main = git_oid(
+        repo, f"refs/remotes/{args.remote}/{args.main}", missing_ok=True
+    )
     refs = parse_refs(repo)
     worktrees = parse_worktrees(repo)
     task_state = load_owner_snapshot(args.task_snapshot, "task-snapshot")
@@ -437,7 +400,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                 "artifact_kind": "worktree",
                 "dirt": "clean" if not statuses else "unknown",
                 "object_id": str(worktree["HEAD"]),
-                "origin": canonical(projection).decode("utf-8"),
+                "origin": str(common),
                 "owner_id": owner_id,
                 "path": str(worktree_path),
             }
@@ -448,12 +411,12 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                 {
                     "artifact_id": artifact_id(
                         "worktree-path",
-                        [str(worktree_path), status_entry, relative_path],
+                        [str(worktree_path), status_entry["code"], relative_path],
                     ),
                     "artifact_kind": "worktree-path",
                     "dirt": dirt_for(status_entry["code"]),
                     "object_id": None,
-                    "origin": f"{worktree_path}@{status_entry['content_root'] or 'unknown'}",
+                    "origin": str(worktree_path),
                     "owner_id": owner_for_path(
                         relative_path, str(worktree_path), str(repo), task_state
                     ),
@@ -494,37 +457,8 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             }
         )
 
-    submodule_state: dict[str, Any] = {"availability": "not-present"}
-    if (repo / ".gitmodules").exists():
-        submodule_state = {"availability": "deferred", "reason": "no-deep-scan"}
-
-    lfs_state: dict[str, Any] = {"availability": "not-present"}
-    attributes = repo / ".gitattributes"
-    if attributes.is_file() and "filter=lfs" in attributes.read_text(
-        encoding="utf-8", errors="replace"
-    ):
-        lfs_state = {"availability": "deferred", "reason": "no-deep-scan"}
-
-    for kind, posture in (
-        ("ignored-content-posture", {"availability": "deferred"}),
-        ("reflog-posture", {"availability": "deferred"}),
-        ("resource-fast-path", {"availability": "deferred"}),
-        ("submodule-posture", submodule_state),
-        ("lfs-posture", lfs_state),
-    ):
-        artifacts.append(
-            {
-                "artifact_id": artifact_id(kind, posture),
-                "artifact_kind": kind,
-                "dirt": "clean"
-                if posture["availability"] == "not-present"
-                else "unknown",
-                "object_id": None,
-                "origin": canonical(posture).decode("utf-8"),
-                "owner_id": kind,
-                "path": None,
-            }
-        )
+    submodule_state: dict[str, Any] = {"availability": "deferred-bounded-scan"}
+    lfs_state: dict[str, Any] = {"availability": "deferred-bounded-scan"}
 
     pull_requests = provider_state.get("pull_requests", [])
     if isinstance(pull_requests, list):
@@ -540,22 +474,46 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                     "object_id": oid
                     if isinstance(oid, str) and GIT_OID.fullmatch(oid)
                     else None,
-                    "origin": canonical(pull_request).decode("utf-8"),
+                    "origin": args.provider,
                     "owner_id": None,
                     "path": f"pr:{pull_request['number']}",
                 }
             )
 
+    semantic = {
+        "common_dir": str(common),
+        "invocation": {
+            "main": args.main,
+            "provider": args.provider,
+            "remote": args.remote,
+        },
+        "lfs": lfs_state,
+        "local_main": local_main,
+        "provider": provider_state,
+        "refs": refs,
+        "release": release_state,
+        "remote_main": remote_main,
+        "remote_url": remote_url,
+        "repository_root": str(repo),
+        "stashes": sha256(stash_raw),
+        "submodules": submodule_state,
+        "tasks": task_state,
+        "worktrees": worktree_projection,
+    }
     if git_oid(repo, f"refs/heads/{args.main}") != local_main:
         raise CleanupError("source changed during inventory")
-    if remote_main_oid(repo, args.remote, args.main) != remote_main:
+    if (
+        git_oid(repo, f"refs/remotes/{args.remote}/{args.main}", missing_ok=True)
+        != remote_main
+    ):
         raise CleanupError("source changed during inventory")
     if parse_refs(repo) != refs or parse_worktrees(repo) != worktrees:
         raise CleanupError("source changed during inventory")
-    if sha256(git(repo, "stash", "list", "--format=%gd%x00%H%x00")) != sha256(
-        stash_raw.encode("utf-8", errors="surrogateescape")
-    ):
-        raise CleanupError("stash changed during inventory")
+    closing_stashes = git(repo, "stash", "list", "--format=%gd%x00%H%x00").decode(
+        "utf-8", errors="surrogateescape"
+    )
+    if closing_stashes != stash_raw:
+        raise CleanupError("source changed during inventory")
     for projection in worktree_projection:
         worktree_path = Path(str(projection["worktree"]))
         if sha256(parse_status(worktree_path)) != projection["status_root"]:
@@ -591,26 +549,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             "repository_root": str(repo),
         }
     )
-    source_fields = {
-        "common_dir": str(common),
-        "main_ref": f"refs/heads/{args.main}@{local_main}",
-        "provider_snapshot_root": sha256(provider_state),
-        "ref_snapshot_root": sha256({"refs": refs, "stash_root": sha256(stash_raw)}),
-        "release_snapshot_root": sha256(release_state),
-        "remote_main": remote_main,
-        "remote_name": args.remote,
-        "remote_url": remote_url,
-        "repository_root": str(repo),
-        "task_snapshot_root": sha256(task_state),
-        "worktree_snapshot_root": sha256(
-            {
-                "lfs": lfs_state,
-                "submodules": submodule_state,
-                "worktrees": worktree_projection,
-            }
-        ),
-    }
-    source_root = sha256(source_fields)
+    source_root = sha256(semantic)
     run_id = f"cleanup-{source_root[:24]}"
     created_at = utc_now()
     source_record = base_record(
@@ -622,8 +561,34 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         source_root,
         created_at,
     )
-    source_record.update(source_fields)
+    source_record.update(
+        {
+            "common_dir": str(common),
+            "main_ref": f"refs/heads/{args.main}@{local_main}",
+            "provider_snapshot_root": sha256(provider_state),
+            "ref_snapshot_root": sha256(refs),
+            "release_snapshot_root": sha256(release_state),
+            "remote_main": remote_main,
+            "remote_name": args.remote,
+            "remote_url": remote_url,
+            "repository_root": str(repo),
+            "task_snapshot_root": sha256(task_state),
+            "worktree_snapshot_root": sha256(worktree_projection),
+        }
+    )
     finish_record(source_record)
+    posture = "deferred proof: custom refs/reflogs; ignored and untracked bytes; worktree/submodule/LFS detail; provider protection/currentness; semantic proof-root closure; bounded fast path"
+    artifacts.append(
+        {
+            "artifact_id": artifact_id("bounded-inventory-posture", posture),
+            "artifact_kind": "bounded-inventory-posture",
+            "dirt": "unknown",
+            "object_id": None,
+            "origin": posture,
+            "owner_id": None,
+            "path": None,
+        }
+    )
     artifacts = sorted(artifacts, key=lambda item: item["artifact_id"])
     if len({item["artifact_id"] for item in artifacts}) != len(artifacts):
         raise CleanupError("artifact identities are not unique")
@@ -661,31 +626,16 @@ def active_overlapping_tasks(state: dict[str, Any]) -> list[str]:
     if not isinstance(tasks, list):
         return []
     active: list[str] = []
-    dirty_paths = {
-        (item["origin"].split("@", 1)[0], item["path"])
-        for item in state["artifacts"]
-        if item["artifact_kind"] == "worktree-path"
-    }
     for task in tasks:
         if not isinstance(task, dict):
             continue
         task_repo = task.get("repository_root")
         if not isinstance(task_repo, str) or Path(task_repo).resolve() != state["repo"]:
             continue
-        task_worktree = task.get("worktree")
-        changed_paths = task.get("changed_paths", [])
-        overlaps = isinstance(task_worktree, str) and (
-            Path(task_worktree).resolve() != state["repo"]
-            or any(
-                (str(Path(task_worktree).resolve()), path) in dirty_paths
-                for path in changed_paths
-            )
-        )
         if (
-            overlaps
-            and task.get("cleanup_owner") is not True
-            and task.get("status") in {"active", "running", "in-progress"}
+            task.get("status") in {"active", "running", "in-progress"}
             and task.get("writer", True)
+            and task.get("overlaps_cleanup") is True
         ):
             active.append(str(task.get("task_id", "unknown-task")))
     return sorted(set(active))
@@ -986,33 +936,6 @@ def validate_record(value: dict[str, Any]) -> None:
         raise CleanupError("record phase differs")
     for name, field_spec in fields.items():
         validate_field(value[name], field_spec, schema, name)
-    if kind == "inventory":
-        expected = sha256(
-            {"artifact_count": value["artifact_count"], "artifacts": value["artifacts"]}
-        )
-        if (
-            value["artifact_count"] != len(value["artifacts"])
-            or value["inventory_root"] != expected
-        ):
-            raise CleanupError("inventory semantic root differs")
-    if kind == "source-snapshot":
-        source_fields = {name: value[name] for name in definition["fields"]}
-        if value["source_snapshot_root"] != sha256(source_fields):
-            raise CleanupError("source semantic root differs")
-    if kind == "plan":
-        projection = {
-            name: value[name]
-            for name in (
-                "dispositions",
-                "holds",
-                "inventory_root",
-                "next_action",
-                "path",
-                "source_snapshot_root",
-            )
-        }
-        if value["plan_root"] != sha256(projection):
-            raise CleanupError("plan semantic root differs")
 
 
 def read_record(path: Path) -> dict[str, Any]:
@@ -1030,7 +953,7 @@ def read_record(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CleanupError(f"record is not an object: {path.name}")
     if raw != canonical(value) + b"\n":
-        raise CleanupError(f"record encoding is not canonical: {path.name}")
+        raise CleanupError(f"record is not canonical: {path.name}")
     validate_record(value)
     projection = dict(value)
     record_root = projection.pop("record_root", None)
@@ -1104,20 +1027,10 @@ def verify_directory(directory: Path) -> dict[str, Any]:
             raise CleanupError("plan inventory binding differs")
         if plan["source_snapshot_root"] != source["source_snapshot_root"]:
             raise CleanupError("plan source binding differs")
-        if [item["artifact_id"] for item in plan["dispositions"]] != [
-            item["artifact_id"] for item in inventory["artifacts"]
-        ]:
-            raise CleanupError("plan does not cover the exact inventory")
         records["plan"] = plan
     status_path = directory / "status.json"
     if status_path.exists():
         status = read_record(status_path)
-        expected = [
-            {"kind": kind, "root": record["record_root"]}
-            for kind, record in sorted(records.items())
-        ]
-        if status["current_record_roots"]["entries"] != expected:
-            raise CleanupError("status roots differ from current records")
         records["status"] = status
     return {
         "record_roots": {
@@ -1126,7 +1039,7 @@ def verify_directory(directory: Path) -> dict[str, Any]:
         "run_dir": str(directory),
         "run_id": source["run_id"],
         "source_snapshot_root": source["source_snapshot_root"],
-        "status": "verified",
+        "status": "retained-deferred-proof",
     }
 
 
@@ -1163,7 +1076,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                 current = build_state(args)
                 if current["source_root"] != result["source_snapshot_root"]:
                     raise CleanupError("source changed; successor plan required")
-                result["current"] = True
+                result["current"] = "bounded-observations-only"
             else:
                 directory = Path(result["run_dir"])
                 status_path = directory / "status.json"

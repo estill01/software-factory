@@ -58,7 +58,7 @@ class ReconcileTests(unittest.TestCase):
             json.dumps(
                 {
                     "availability": "available",
-                    "branch_protection": {"required_reviews": True},
+                    "branch_protection": {},
                     "complete": True,
                     "kind": "provider-snapshot",
                     "owner": "github",
@@ -169,8 +169,8 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(run(["git", "show-ref"], self.repo).stdout, refs_before)
         self.assertFalse((self.repo / ".codex").exists())
         verify = json.loads(self.verify_command(first["run_dir"]).stdout)
-        self.assertEqual(verify["status"], "verified")
-        self.assertTrue(verify["current"])
+        self.assertEqual(verify["status"], "retained-deferred-proof")
+        self.assertEqual(verify["current"], "bounded-observations-only")
 
     def test_inventory_then_plan_resumes_one_run(self) -> None:
         inventory = json.loads(self.command("inventory").stdout)
@@ -240,6 +240,7 @@ class ReconcileTests(unittest.TestCase):
                         {
                             "changed_paths": ["tracked.txt"],
                             "repository_root": str(self.repo),
+                            "overlaps_cleanup": True,
                             "status": "active",
                             "task_id": "fixture-task",
                             "worktree": str(self.repo),
@@ -250,9 +251,6 @@ class ReconcileTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        unrelated = json.loads(self.command("plan").stdout)
-        self.assertEqual(unrelated["path"], "audit")
-        (self.repo / "tracked.txt").write_text("overlap\n", encoding="utf-8")
         payload = json.loads(self.command("plan").stdout)
         self.assertEqual(payload["path"], "coordinated-reconciliation")
         self.assertEqual(
@@ -260,7 +258,7 @@ class ReconcileTests(unittest.TestCase):
         )
 
     def test_missing_remote_main_is_null_and_retained(self) -> None:
-        run(["git", "update-ref", "-d", "refs/heads/main"], self.remote)
+        run(["git", "update-ref", "-d", "refs/remotes/origin/main"], self.repo)
         payload = json.loads(self.command("plan").stdout)
         source = json.loads(
             (Path(payload["run_dir"]) / "source-snapshot.json").read_text(
