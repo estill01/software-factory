@@ -9963,40 +9963,44 @@ def retained_full_tracker_authority(
         if current_mission is not None
         else {}
     )
-    delegated = any(
-        item.get("source_record") == source_record
-        and item.get("source_sha256") == source_sha256
-        and item.get("provenance_status") == "verified-delegated-before-entry"
-        for item in all_events
-    )
-    if (
-        current_mission is None
-        or (
-            not delegated
-            and (
-                source_record == current_mission.get("mission_source_record")
-                or source_record == controlling.get("record")
-                or source_sha256 == controlling.get("sha256")
-            )
-        )
-    ):
+    if current_mission is None:
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
         )
+    source_is_mission_identity = (
+        source_record == current_mission.get("mission_source_record")
+        or source_record == controlling.get("record")
+        or source_sha256 == controlling.get("sha256")
+    )
+    source_is_exact_direct_mission_source = (
+        controlling.get("class") == "direct-user"
+        and source_record == current_mission.get("mission_source_record")
+        and source_record == controlling.get("record")
+        and source_sha256 == controlling.get("sha256")
+    )
     receipts = [
         item
         for item in policy.get("direct_authority_receipts", [])
         if isinstance(item, Mapping)
-        and item.get("accepted") is True
-        and item.get("source_class") == "direct-user"
         and item.get("source_record") == source_record
         and item.get("source_sha256") == source_sha256
     ]
     if len(receipts) != 1:
+        if not receipts and source_is_mission_identity:
+            raise SupervisionLogError(
+                "Mission controlling source is identity only, not range authority"
+            )
         raise SupervisionLogError(
             "Fresh implementation range requires one exact retained authority receipt"
         )
     receipt = dict(receipts[0])
+    if (
+        receipt.get("accepted") is not True
+        or receipt.get("source_class") != "direct-user"
+    ):
+        raise SupervisionLogError(
+            "Fresh implementation range requires one exact retained authority receipt"
+        )
     if require_current_receipt and receipt.get(
         "accepted_policy_version"
     ) != policy.get("policy_version"):
@@ -10010,6 +10014,20 @@ def retained_full_tracker_authority(
         policy_history=policy_history,
         require_current_route_source=require_current_receipt,
     )
+    validate_direct_authority_receipts(
+        policy,
+        all_events=all_events,
+        policy_history=policy_history,
+    )
+    if (
+        source_is_mission_identity
+        and source_event.get("provenance_status")
+        != "verified-delegated-before-entry"
+        and not source_is_exact_direct_mission_source
+    ):
+        raise SupervisionLogError(
+            "Mission controlling source is identity only, not range authority"
+        )
     evidence = source_event["evidence"]
     receipt_evidence = receipt.get("evidence")
     if any(
@@ -10126,14 +10144,6 @@ def retained_full_tracker_authority(
         or source_mission is None
         or mission_binding_identity(current_mission)
         != mission_binding_identity(source_mission)
-        or (
-            not delegated
-            and (
-                source_record == current_mission.get("mission_source_record")
-                or source_record == controlling.get("record")
-                or source_sha256 == controlling.get("sha256")
-            )
-        )
         or (
             not delegated
             and source_event.get("source_task_id")

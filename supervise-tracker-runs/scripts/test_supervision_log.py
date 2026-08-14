@@ -3265,6 +3265,37 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         return ingested, receipt
 
+    def retain_same_mission_legacy_range_authority(
+        self,
+        *,
+        source_record: str,
+        request_text: str,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        """Reproduce a canonical receipt retained from the pre-rejection helper."""
+        directory = self.root / self.target
+        provenance = self.append_successor_range_authority_review(
+            source_record=source_record,
+            request_text=request_text,
+        )
+        all_events = supervision_log.events(directory / "events.jsonl")
+        authorization = all_events[-1]
+        source_event = {
+            "record_id": f"EVT-{len(all_events) + 1:06d}",
+            "timestamp": supervision_log.utc_now(),
+            **supervision_log.retained_direct_authority_event_material(
+                provenance, authorization
+            ),
+        }
+        supervision_log.append_raw(directory / "events.jsonl", source_event)
+        receipt_result = self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(source_event["record_id"]),
+        )
+        return source_event, dict(receipt_result["receipt"])
+
     def retain_legacy_app_readback_authority(
         self,
         *,
@@ -3701,6 +3732,163 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertTrue(current["range_binding_current"])
         self.assertEqual(current["range_state"]["accepted_blocks"], [0])
 
+    def test_same_mission_receipt_remains_current_after_range_history_updates(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record="item-1678",
+            mission_source_sha256=self.successor_range_sha,
+        )[:3]
+        source_event, receipt = self.retain_same_mission_legacy_range_authority(
+            source_record="item-1678",
+            request_text=self.successor_range_request,
+        )
+        directory = self.root / self.target
+        self.tracker = self.root / "item-1678-successor-tracker.md"
+        self.write_tracker(["not-started"] * 9)
+
+        bound = self.admit(
+            include_binding_inputs=True,
+            range_id="RANGE-ITEM-1678",
+            rollover_records=records,
+            source_record="item-1678",
+            source_sha256=self.successor_range_sha,
+            request_text=self.successor_range_request,
+        )
+        self.write_tracker(["completed", *("not-started" for _ in range(8))])
+        amended = self.admit()
+        admitted = self.admit()
+        current = self.gate("final-response")
+        policy = supervision_log.read_json(directory / "policy.json")
+
+        self.assertEqual(receipt["source_record"], "item-1678")
+        self.assertEqual(receipt["source_event_record_id"], source_event["record_id"])
+        self.assertEqual(
+            policy["mission_binding"]["mission_source_record"], "item-1678"
+        )
+        self.assertEqual(bound["binding"]["range_id"], "RANGE-ITEM-1678")
+        self.assertEqual(bound["binding"]["tracker_blocks"], list(range(9)))
+        self.assertEqual(len(amended["binding"]["history"]), 2)
+        self.assertEqual(
+            amended["binding"]["history"][-1]["operation"], "tracker-amended"
+        )
+        self.assertTrue(current["range_binding_current"])
+        self.assertTrue(admitted["implementation_start_permitted"])
+        self.assertEqual(current["accepted_blocks"], [0])
+        self.assertEqual(current["eligible_blocks"], [1])
+
+    def test_same_mission_receipt_rejects_duplicate_and_changed_owner_evidence(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record="item-1678",
+            mission_source_sha256=self.successor_range_sha,
+        )
+        self.retain_same_mission_legacy_range_authority(
+            source_record="item-1678",
+            request_text=self.successor_range_request,
+        )
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        all_events = supervision_log.events(directory / "events.jsonl")
+        policy_history = supervision_log.events(
+            directory / "policy-history.jsonl"
+        )
+        protected = {
+            name: (directory / name).read_bytes()
+            for name in ("policy.json", "policy-history.jsonl", "events.jsonl")
+        }
+
+        attacks: dict[str, object] = {
+            "duplicate-receipt": lambda candidate_policy, _events: candidate_policy[
+                "direct_authority_receipts"
+            ].append(
+                copy.deepcopy(candidate_policy["direct_authority_receipts"][-1])
+            ),
+            "changed-receipt-event-hash": lambda candidate_policy, _events: (
+                candidate_policy["direct_authority_receipts"][-1].__setitem__(
+                    "source_event_sha256", "f" * 64
+                )
+            ),
+            "changed-receipt-task": lambda candidate_policy, _events: (
+                candidate_policy["direct_authority_receipts"][-1].__setitem__(
+                    "source_task_id", "wrong-target-1234"
+                )
+            ),
+            "stale-current-receipt": lambda candidate_policy, _events: (
+                candidate_policy.__setitem__(
+                    "policy_version", candidate_policy["policy_version"] + 1
+                )
+            ),
+            "changed-source-policy": lambda candidate_policy, _events: (
+                candidate_policy["direct_authority_receipts"][-1].__setitem__(
+                    "source_policy_sha256", "f" * 64
+                )
+            ),
+            "changed-owner-event": lambda _policy, candidate_events: next(
+                item
+                for item in candidate_events
+                if item.get("kind") == supervision_log.DIRECT_AUTHORITY_EVENT_KIND
+                and item.get("source_record") == "item-1678"
+            ).__setitem__("evidence", ["classification:explicit-blocks"]),
+            "changed-source-item": lambda _policy, candidate_events: next(
+                item
+                for item in candidate_events
+                if item.get("kind") == supervision_log.DIRECT_AUTHORITY_EVENT_KIND
+                and item.get("source_record") == "item-1678"
+            ).__setitem__("source_item_id", "wrong-item-1678"),
+            "invalid-independent-review": lambda _policy, candidate_events: next(
+                item
+                for item in candidate_events
+                if item.get("kind") == "meta-review"
+                and item.get("category")
+                == supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY
+                and "source-item:item-1678" in item.get("evidence", [])
+            ).__setitem__("status", "rejected"),
+        }
+        for name, attack in attacks.items():
+            with self.subTest(name=name):
+                candidate_policy = copy.deepcopy(policy)
+                candidate_events = copy.deepcopy(all_events)
+                attack(candidate_policy, candidate_events)
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    supervision_log.retained_full_tracker_authority(
+                        candidate_policy,
+                        all_events=candidate_events,
+                        policy_history=policy_history,
+                        source_record="item-1678",
+                        source_sha256=self.successor_range_sha,
+                        require_current_receipt=True,
+                        request_text=self.successor_range_request,
+                    )
+
+        for source_record, source_sha256 in (
+            ("item-1678", "f" * 64),
+            ("changed-item-1678", self.successor_range_sha),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "identity only, not range authority",
+            ):
+                supervision_log.retained_full_tracker_authority(
+                    policy,
+                    all_events=all_events,
+                    policy_history=policy_history,
+                    source_record=source_record,
+                    source_sha256=source_sha256,
+                    require_current_receipt=True,
+                    request_text=self.successor_range_request,
+                )
+
+        for name, raw in protected.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
+
     def test_admission_fails_closed_on_unaccepted_structural_change(self) -> None:
         self.write_tracker(["not-started", "not-started"])
         self.bind()
@@ -3787,7 +3975,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.write_tracker(["completed"])
         self.bind()
         records = self.complete_predecessor_and_start_successor(
-            retain_range_authority=False
+            retain_range_authority=False,
+            mission_source_record="item-1678",
+            mission_source_sha256=self.successor_range_sha,
         )[:3]
         directory = self.root / self.target
         policy_before = (directory / "policy.json").read_bytes()
@@ -3802,9 +3992,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
             self.admit(
                 include_binding_inputs=True,
                 rollover_records=records,
-                source_record=self.successor_source,
-                source_sha256=self.successor_mission_sha,
-                request_text=self.successor_mission_request,
+                source_record="item-1678",
+                source_sha256=self.successor_range_sha,
+                request_text=self.successor_range_request,
             )
 
         self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
