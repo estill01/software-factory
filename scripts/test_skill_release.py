@@ -457,6 +457,30 @@ class SkillReleaseTests(unittest.TestCase):
         ):
             skill_release.run_automated_checks(self.repo.resolve(), commit, commit)
 
+    def test_automated_suite_uses_the_maintained_runtime_ceiling(self) -> None:
+        completed = mock.Mock(
+            returncode=0,
+            stdout=b"Ran 1 test in 0.001s\n",
+            stderr=b"",
+        )
+        with mock.patch.object(
+            skill_release.subprocess, "run", return_value=completed
+        ) as runner:
+            count, failures, _output = skill_release.run_automated_suite(
+                self.repo,
+                runner=Path("/usr/bin/python3"),
+                check_id="release-owner",
+                directory="scripts",
+                pattern="test_skill_release.py",
+                runtime="system",
+            )
+        self.assertEqual(count, 1)
+        self.assertEqual(failures, set())
+        self.assertEqual(
+            runner.call_args.kwargs["timeout"],
+            skill_release.AUTOMATED_CHECK_TIMEOUT_SECONDS,
+        )
+
     def test_stage_activate_second_release_and_rollback(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         original_targets = {
