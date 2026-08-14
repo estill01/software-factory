@@ -708,7 +708,10 @@ reserved deferrals, safe frontier, and application posture.
   promotion history count, reread live owner status, and pass the exact
   candidate release plus activation-record HMAC to the release owner's locked
   expected-current guard. A same-ID reactivation is not the original
-  promotion; never overwrite it or another newer valid release. A supervisor
+  promotion; never overwrite it or another newer valid release. When a
+  preserved schema-v1 rollback health record already matches the live restored
+  release, rehydrate that terminal result without another owner effect or an
+  incompatible schema-v2 duplicate. A supervisor
   may never create, select among
   ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer

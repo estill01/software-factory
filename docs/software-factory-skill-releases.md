@@ -193,6 +193,9 @@ the correction even when the policy or range changed. Rollback then requires
 both the original promotion history count and an expected-current owner guard.
 A same-ID reactivation or newer unrelated release is never rolled back; an
 already-restored prior release is recorded without a second owner effect.
+Preserved schema-v1 rollback health remains a terminal historical result: a
+retry rehydrates its exact record after proving the live prior-release identity
+instead of synthesizing an incompatible schema-v2 duplicate.
 
 ## Independent acceptance and optional release-owner evidence
 

@@ -5581,7 +5581,11 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         automation_root: Path,
         *,
         owner: object | None = None,
+        range_state: object | None = None,
     ) -> dict[str, object]:
+        selected_range_state = range_state or {
+            "range_id": "release-refresh-range-1234"
+        }
         with (
             mock.patch.object(
                 supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
@@ -5594,7 +5598,12 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             mock.patch.object(
                 supervision_log,
                 "implementation_range_state",
-                return_value={"range_id": "release-refresh-range-1234"},
+                side_effect=(
+                    selected_range_state
+                    if callable(selected_range_state)
+                    else None
+                ),
+                return_value=selected_range_state,
             ),
         ):
             return self.call(
@@ -7049,6 +7058,14 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             prior_release, source_commit="7" * 40
         )
         rolled_back = False
+        prior_range = {"range_id": "release-refresh-range-prior-1234"}
+        current_range = {"range_id": "release-refresh-range-current-1234"}
+        range_reads = 0
+
+        def current_range_state(_policy: object) -> dict[str, str]:
+            nonlocal range_reads
+            range_reads += 1
+            return copy.deepcopy(prior_range if range_reads == 1 else current_range)
 
         def owner(
             _repository: Path,
@@ -7098,6 +7115,7 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 str(promoted["promotion"]["record_id"]),
                 Path(self.temporary.name) / "automations",
                 owner=owner,
+                range_state=current_range_state,
             )
         health = [
             item
@@ -7117,6 +7135,97 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.assertNotEqual(health[0]["policy_sha256"], health[1]["policy_sha256"])
         self.assertEqual(health[1]["policy_sha256"], current_policy["policy_sha256"])
         self.assertEqual(result["health"]["policy_sha256"], current_policy["policy_sha256"])
+        self.assertEqual(
+            health[0]["implementation_range_root_sha256"],
+            supervision_log.digest(prior_range),
+        )
+        self.assertEqual(
+            health[1]["implementation_range_root_sha256"],
+            supervision_log.digest(current_range),
+        )
+        self.assertEqual(
+            result["health"]["implementation_range_root_sha256"],
+            supervision_log.digest(current_range),
+        )
+
+    def test_refresh_health_rehydrates_schema_one_rollback_without_owner_effect(
+        self,
+    ) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        promotion = promoted["promotion"]
+        directory = self.root / self.target
+        policy = json.loads(
+            directory.joinpath("policy.json").read_text(encoding="utf-8")
+        )
+        prior_release = str(promotion["previous_release_id"])
+        prior_active = supervision_log.software_factory_current_health_identity(
+            self.prior_status, release_id=prior_release
+        )
+        existing = supervision_log.events(directory / "events.jsonl")
+        legacy = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(existing) + 1:06d}",
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target,
+            "kind": supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND,
+            "policy_sha256": policy["policy_sha256"],
+            "promotion_record_id": promotion["record_id"],
+            "promotion_result_root_sha256": promotion["result_root_sha256"],
+            "outcome": "rolled-back",
+            "active_release_id": prior_active["active_release_id"],
+            "active_source_commit": prior_active["active_source_commit"],
+            "installed_roots": prior_active["installed_roots"],
+            "verification_root_sha256": prior_active[
+                "verification_root_sha256"
+            ],
+            "automation_config_roots": {},
+            "control_posture_root_sha256": None,
+            "reason": "Historical schema-one rollback was retained.",
+        }
+        legacy["health_result_root_sha256"] = supervision_log.digest(
+            supervision_log.software_factory_refresh_health_material(legacy)
+        )
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "software-factory-supervisor-refresh-health",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--promotion-record",
+                str(promotion["record_id"]),
+            ]
+        )
+        supervision_log.append_event_locked(args, directory, legacy)
+        self.owner_promoted = False
+
+        for _attempt in range(2):
+            result = self.refresh_health(
+                str(promotion["record_id"]),
+                Path(self.temporary.name) / "automations",
+                owner=self.fake_owner,
+            )
+            self.assertTrue(result["duplicate"])
+            self.assertEqual(result["health"]["schema_version"], 1)
+            self.assertEqual(result["health"]["record_id"], legacy["record_id"])
+        self.assertEqual(self.owner_actions, ["status", "status"])
+        rolled_back = [
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+            and item.get("outcome") == "rolled-back"
+        ]
+        self.assertEqual(len(rolled_back), 1)
 
     def test_refresh_health_rejects_same_release_reactivation_history(self) -> None:
         accepted = self.acceptance()

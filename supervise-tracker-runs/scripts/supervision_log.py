@@ -13438,6 +13438,50 @@ def cmd_software_factory_supervisor_refresh_health(
         active = software_factory_current_health_identity(
             status, release_id=str(prior_release)
         )
+        retained_rollbacks = [
+            validate_software_factory_refresh_health_record(item)
+            for item in all_events
+            if item.get("kind") == SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+            and item.get("promotion_record_id") == promotion["record_id"]
+            and item.get("outcome") == "rolled-back"
+        ]
+        if len(retained_rollbacks) > 1:
+            raise SupervisionLogError(
+                "Software Factory supervisor refresh health is duplicated"
+            )
+        if retained_rollbacks:
+            retained = retained_rollbacks[0]
+            identity_fields = (
+                "active_release_id",
+                "active_source_commit",
+                "installed_roots",
+                "verification_root_sha256",
+            )
+            if (
+                retained.get("target_thread_id") != args.target_thread
+                or retained.get("promotion_result_root_sha256")
+                != promotion["result_root_sha256"]
+                or any(retained.get(key) != active[key] for key in identity_fields)
+                or (
+                    retained.get("schema_version") == 2
+                    and any(
+                        retained.get(key) != active[key]
+                        for key in (
+                            "activation_history_records",
+                            "activation_record_hmac_sha256",
+                        )
+                    )
+                )
+            ):
+                raise SupervisionLogError(
+                    "Stored Software Factory refresh health differs"
+                )
+            print(
+                json.dumps(
+                    {"duplicate": True, "health": retained}, sort_keys=True
+                )
+            )
+            return
         current_range = implementation_range_state(policy)
         duplicate, record = append_software_factory_refresh_health(
             args,
@@ -13645,8 +13689,7 @@ def cmd_software_factory_supervisor_refresh_health(
             ),
             control_posture_root_sha256=None,
             implementation_range_root_sha256=(
-                range_root
-                or (digest(current_range) if current_range is not None else None)
+                digest(current_range) if current_range is not None else None
             ),
             reason=(
                 "Verified refresh health lost currentness at its append boundary: "

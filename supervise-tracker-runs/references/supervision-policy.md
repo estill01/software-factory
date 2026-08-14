@@ -1375,7 +1375,10 @@ requires the original promotion history count, rereads owner status, and
 supplies the exact candidate release and activation-record HMAC to the release
 owner's locked expected-current guard. An already-restored prior release is
 recorded without a second effect; a same-ID reactivation or newer unrelated
-release is never overwritten.
+release is never overwritten. A preserved schema-v1 rollback health record is
+rehydrated as the terminal historical result after exact live restored-release
+identity proof; retry must not create an incompatible schema-v2 duplicate or a
+second owner effect.
 
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.
