@@ -313,7 +313,7 @@ that existing generic event projection cannot represent the cleanup outcome.
 |---:|---|---:|---|
 | 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `completed` |
 | 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `completed` |
-| 2 | Implement no-loss preservation and functional coverage proof | 1 | `in-progress` |
+| 2 | Implement no-loss preservation and functional coverage proof | 1 | `completed` |
 | 3 | Add supervisor reconciliation coordination and monitoring gates | 2 | `not-started` |
 | 4 | Implement accepted integration, PR disposition, validation, and main publication | 3 | `not-started` |
 | 5 | Implement independently gated branch/worktree retirement | 4 | `not-started` |
@@ -610,7 +610,7 @@ Stop before preserving candidate bytes or asking the supervisor for quiescence.
 
 ## Block 2 — Implement no-loss preservation and functional coverage proof
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -700,7 +700,41 @@ route/API/config/migration/UI/test/evidence and unknown-retain cases.
 
 ### Completion evidence
 
-Pending.
+- Accepted implementation checkpoint:
+  `3be858f054d6d595023de555a7e01ac1120b0b26` (accepted base
+  `4c42fd90e91c5ad1e1a95493f35b7b841ecde43b`). Earlier candidates
+  `2828f42`, `aa9b1bc95177134ac89a5063387872ce4de0c6f0`, and
+  `c7edbb4f7b1d0de27d4570078ff766b16efc145b` remain preserved in branch
+  history and were not treated as accepted.
+- The no-loss planner now inventories staged, unstaged, untracked, ignored,
+  ref, stash, task, PR, and tracker evidence; every unresolved artifact is
+  retained with `deletion_eligible=false`, and no cleanup deletion path exists
+  in this Block.
+- Dirty preservation is byte-bound to its opening and closing source snapshot.
+  A same-status byte-change reproduction fails closed with
+  `source changed; successor plan required`; ignored and nested-untracked files
+  are inventory- and package-bound.
+- Locally available Git objects are written to one content-addressed local pack.
+  The restore drill imported the exact feature OID into a disposable bare
+  repository and `git fsck --full --no-reflogs --unreachable --no-progress`
+  passed. Raw retained bytes stay out of JSON and remote pushes.
+- Capability candidates are keyed by exact tree identity, so distinct commits
+  with identical trees receive one semantic review. Bounded main-tree to
+  candidate-tree paths drive affected-surface evidence; the regression fixture
+  maps committed `api-route.py` to both `api` and `route` surfaces and proves
+  semantic keys are unique.
+- Exact-candidate validation passed: 25/25 no-loss and restore tests,
+  `py_compile`, Ruff check and format for changed code, tracker full-profile
+  validation, skill validation, and `git diff --check`. Bounded command-output
+  overflow is rejected promptly.
+- Independent exact-delta review accepted `3be858f` with no findings; the
+  supervisor recorded the terminal disposition as `EVT-000039`. A distinct
+  read-only reviewer independently reproduced the same recovery, retention,
+  deletion-blocking, semantic-deduplication, and surface results without
+  changing the candidate.
+- Post-block audit: accepted. The Block 2 Stop was observed; no supervisor
+  quiescence, canonical-history mutation, merge, deletion, release, or live
+  task effect occurred.
 
 ### Stop
 
