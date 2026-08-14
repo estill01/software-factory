@@ -1999,7 +1999,7 @@ def status_record(state: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]
             "gate_posture": {
                 "deletion": "not-requested",
                 "outcome": "not-requested",
-                "plan": "permitted",
+                "plan": "not-requested",
                 "quiescence": "not-requested",
             },
             "next_action": plan["next_action"],
@@ -2180,6 +2180,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                             "current_phase": "preserve"
                             if preserved
                             else status["current_phase"],
+                            "gate_posture": status["gate_posture"],
                             "next_action": (
                                 "obtain-independent-semantic-coverage-before-non-retain-disposition"
                                 if preserved

@@ -183,6 +183,15 @@ class ReconcileTests(unittest.TestCase):
             ).stdout
         )
         self.assertEqual(status["current_phase"], "plan")
+        self.assertEqual(
+            status["gate_posture"],
+            {
+                "deletion": "not-requested",
+                "outcome": "not-requested",
+                "plan": "not-requested",
+                "quiescence": "not-requested",
+            },
+        )
 
     def test_dirty_untracked_and_ignored_state_is_retained(self) -> None:
         (self.repo / ".gitignore").write_text("ignored.txt\n", encoding="utf-8")
