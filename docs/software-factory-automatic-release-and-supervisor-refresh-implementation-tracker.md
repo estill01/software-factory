@@ -188,7 +188,7 @@ make their composition automatic and fail closed.
 | 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `completed` |
-| 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
+| 7 | Refresh real monitors and prove effective automatic operation | 6 | `in-progress` |
 
 Required order:
 
@@ -1103,7 +1103,7 @@ Stop before mutating live supervisor automations/policies.
 
 ## Block 7 — Refresh real monitors and prove effective automatic operation
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
