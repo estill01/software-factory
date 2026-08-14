@@ -2051,6 +2051,22 @@ def bootstrap_release(
 
 def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
+    expected_current_release = getattr(args, "expected_current_release", None)
+    expected_current_activation = getattr(
+        args, "expected_current_activation_record", None
+    )
+    if bool(expected_current_release) != bool(expected_current_activation):
+        raise ReleaseError(
+            "Expected-current rollback guard requires both release and activation identities"
+        )
+    if expected_current_release is not None:
+        expected_current_release = bounded_id(
+            str(expected_current_release), label="expected current release ID"
+        )
+        expected_current_activation = exact_sha256(
+            str(expected_current_activation),
+            label="expected current activation record",
+        )
     records = history(release_root)
     current = current_release_id(release_root)
     prior_ids = [
@@ -2067,7 +2083,14 @@ def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
         if not selected:
             raise ReleaseError("No prior accepted active release is available")
     args.release_id = selected
-    return activate_release(args, action="rollback")
+    return activate_release(
+        args,
+        action="rollback",
+        expected_previous_release_id=expected_current_release,
+        expected_previous_activation_record_hmac_sha256=(
+            expected_current_activation
+        ),
+    )
 
 
 def promote_release(args: argparse.Namespace) -> dict[str, Any]:
@@ -2388,6 +2411,10 @@ def parser() -> argparse.ArgumentParser:
     rollback = subcommands.add_parser("rollback", help="restore a prior accepted release")
     rollback.add_argument("release_id", nargs="?")
     rollback.add_argument("--quiescent-evidence")
+    rollback.add_argument("--expected-current-release", help=argparse.SUPPRESS)
+    rollback.add_argument(
+        "--expected-current-activation-record", help=argparse.SUPPRESS
+    )
     rollback.set_defaults(func=rollback_release)
 
     promote = subcommands.add_parser(

@@ -11553,7 +11553,7 @@ def validate_software_factory_installed_result(
     return normalized, verification_root
 
 
-def validate_software_factory_owner_result(
+def _validate_software_factory_owner_result(
     promotion: Any, status: Any, *, source_commit: str
 ) -> dict[str, Any]:
     if not isinstance(promotion, Mapping) or set(promotion) != {
@@ -11751,6 +11751,47 @@ def validate_software_factory_owner_result(
     }
 
 
+def validate_software_factory_owner_result(
+    promotion: Any, status: Any, *, source_commit: str
+) -> dict[str, Any]:
+    return _validate_software_factory_owner_result(
+        promotion, status, source_commit=source_commit
+    )
+
+
+def validate_software_factory_owner_effect(
+    promotion: Any, *, source_commit: str
+) -> dict[str, Any]:
+    """Validate the owner's returned effect without assuming later live status."""
+
+    if not isinstance(promotion, Mapping):
+        raise SupervisionLogError("Software Factory release owner result shape differs")
+    activation = promotion.get("activation")
+    if not isinstance(activation, Mapping):
+        raise SupervisionLogError("Software Factory activation result is missing")
+    release_id = str(promotion.get("release_id", ""))
+    installed = activation.get("installed")
+    roots, _verification = validate_software_factory_installed_result(
+        installed, release_id=release_id
+    )
+    synthetic_status = {
+        "active_release_id": release_id,
+        "source_commit": source_commit,
+        "installed_complete": True,
+        "installed_links": {
+            name: {"stable": True} for name in SOFTWARE_FACTORY_RELEASE_SKILLS
+        },
+        "skills": {
+            name: {"content_root_sha256": root}
+            for name, root in roots.items()
+        },
+        "current_verification": installed,
+    }
+    return _validate_software_factory_owner_result(
+        promotion, synthetic_status, source_commit=source_commit
+    )
+
+
 def validate_software_factory_release_live_status(
     status: Any, *, source_commit: str
 ) -> dict[str, Any]:
@@ -11803,9 +11844,18 @@ def run_software_factory_release_owner(
     source_commit: str,
     action: str,
     release_id: str | None = None,
+    expected_current_release_id: str | None = None,
+    expected_current_activation_record: str | None = None,
 ) -> dict[str, Any]:
     owner = repository / "scripts" / "skill_release.py"
     command = ["/usr/bin/python3", str(owner)]
+    if action != "rollback" and (
+        expected_current_release_id is not None
+        or expected_current_activation_record is not None
+    ):
+        raise SupervisionLogError(
+            "Software Factory expected-current guard is rollback-only"
+        )
     if action == "promote":
         command.extend(
             [
@@ -11825,7 +11875,30 @@ def run_software_factory_release_owner(
             raise SupervisionLogError(
                 "Software Factory rollback release is invalid"
             )
+        if (
+            expected_current_release_id is None
+            or re.fullmatch(
+                r"[0-9a-f]{12}-[0-9a-f]{12}",
+                expected_current_release_id,
+            )
+            is None
+        ):
+            raise SupervisionLogError(
+                "Software Factory rollback expected-current release is invalid"
+            )
+        exact_sha256(
+            str(expected_current_activation_record or ""),
+            label="Software Factory rollback expected-current activation record",
+        )
         command.extend(["rollback", release_id])
+        command.extend(
+            [
+                "--expected-current-release",
+                expected_current_release_id,
+                "--expected-current-activation-record",
+                str(expected_current_activation_record),
+            ]
+        )
     else:
         raise SupervisionLogError("Unsupported Software Factory release owner action")
     try:
@@ -12307,8 +12380,46 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                         for key in observed_prior
                     }
                     if observed_prior != expected_prior:
+                        rejected: dict[str, Any] = {
+                            "schema_version": 1,
+                            "record_id": f"EVT-{len(all_events) + 1:06d}",
+                            "timestamp": utc_now(),
+                            "target_thread_id": args.target_thread,
+                            "kind": SOFTWARE_FACTORY_RELEASE_REJECTED_KIND,
+                            "policy_sha256": policy["policy_sha256"],
+                            "acceptance_record_id": required_acceptance[
+                                "record_id"
+                            ],
+                            "acceptance_record_sha256": required_acceptance[
+                                "record_sha256"
+                            ],
+                            "required_record_id": required["record_id"],
+                            "required_record_sha256": required["record_sha256"],
+                            "source_commit": args.source_commit,
+                            "source_tree": source_tree,
+                            "release_id": observed_prior["prior_release_id"],
+                            "previous_release_id": required["prior_release_id"],
+                            "action": "activate",
+                            "installed_roots": observed_prior[
+                                "prior_installed_roots"
+                            ],
+                            "verification_root_sha256": observed_prior[
+                                "prior_verification_root_sha256"
+                            ],
+                            "activation_history_records": observed_prior[
+                                "prior_activation_history_records"
+                            ],
+                        }
+                        rejected["result_root_sha256"] = digest(
+                            software_factory_release_promotion_material(rejected)
+                        )
+                        validate_software_factory_release_promotion_record(
+                            rejected,
+                            expected_kind=SOFTWARE_FACTORY_RELEASE_REJECTED_KIND,
+                        )
+                        append_event_locked(args, directory, rejected)
                         raise SupervisionLogError(
-                            "Software Factory promotion requirement prior state differs"
+                            "Software Factory promotion requirement prior state differs; currentness rejection retained"
                         )
                 if (
                     required["acceptance_record_id"]
@@ -12495,29 +12606,52 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                         source_commit=args.source_commit,
                         action="promote",
                     )
+                    owner_effect = validate_software_factory_owner_effect(
+                        promotion_result, source_commit=args.source_commit
+                    )
                     status_result = run_software_factory_release_owner(
                         owner_repository,
                         source_commit=args.source_commit,
                         action="status",
                     )
-                    verified = validate_software_factory_owner_result(
-                        promotion_result,
-                        status_result,
-                        source_commit=args.source_commit,
-                    )
-            live = validate_software_factory_release_live_status(
-                status_result, source_commit=args.source_commit
-            )
+                    try:
+                        verified = validate_software_factory_owner_result(
+                            promotion_result,
+                            status_result,
+                            source_commit=args.source_commit,
+                        )
+                    except SupervisionLogError:
+                        # The owner effect is independently exact. Preserve it
+                        # as a currentness rejection even if another release
+                        # wins before the following status observation.
+                        try:
+                            validate_software_factory_release_live_status(
+                                status_result, source_commit=args.source_commit
+                            )
+                        except SupervisionLogError:
+                            verified = owner_effect
+                        else:
+                            raise
+            try:
+                live = validate_software_factory_release_live_status(
+                    status_result, source_commit=args.source_commit
+                )
+            except SupervisionLogError:
+                live = None
             expected_history = int(required["prior_activation_history_records"])
             if verified["action"] == "activate":
                 expected_history += 1
             owner_transition_current = (
-                verified["previous_release_id"] == required["prior_release_id"]
+                live is not None
+                and verified["previous_release_id"]
+                == required["prior_release_id"]
                 and live["activation_history_records"] == expected_history
             )
-            verified["activation_history_records"] = live[
-                "activation_history_records"
-            ]
+            verified["activation_history_records"] = (
+                live["activation_history_records"]
+                if live is not None
+                else expected_history
+            )
             try:
                 current_repository, current_tree, current_committed_at = (
                     software_factory_release_source(args.repo, args.source_commit)
@@ -12832,6 +12966,10 @@ def build_software_factory_supervisor_refresh_plan(
                 }
             )
     range_state = implementation_range_state(policy)
+    if range_state is None:
+        raise SupervisionLogError(
+            "Software Factory supervisor refresh requires the canonical implementation range"
+        )
     material = {
         "schema_version": 1,
         "kind": SOFTWARE_FACTORY_SUPERVISOR_REFRESH_PLAN_KIND,
@@ -12903,6 +13041,29 @@ def validate_software_factory_current_status(
             "Software Factory current release status is inconsistent"
         )
     return source_commit, roots, verification_root
+
+
+def software_factory_current_activation_guard(
+    status: Any, *, release_id: str
+) -> str:
+    validate_software_factory_current_status(status, release_id=release_id)
+    if not isinstance(status, Mapping):
+        raise SupervisionLogError(
+            "Software Factory rollback current status is missing"
+        )
+    activation = status.get("activation_record")
+    if (
+        not isinstance(activation, Mapping)
+        or activation.get("release_id") != release_id
+        or activation.get("record_hmac_sha256") is None
+    ):
+        raise SupervisionLogError(
+            "Software Factory rollback current activation identity is missing"
+        )
+    return exact_sha256(
+        str(activation["record_hmac_sha256"]),
+        label="Software Factory rollback current activation record",
+    )
 
 
 def validate_software_factory_rollback_result(
@@ -12985,6 +13146,67 @@ def software_factory_control_health_root(control: Mapping[str, Any]) -> str:
     return digest(material)
 
 
+def require_software_factory_refresh_health_current(
+    args: argparse.Namespace,
+    *,
+    promotion: Mapping[str, Any],
+    policy_sha256: str,
+    automation_config_roots: Mapping[str, str],
+    control_posture_root_sha256: str,
+) -> None:
+    directory, policy = load_policy(args)
+    if policy.get("policy_sha256") != policy_sha256:
+        raise SupervisionLogError(
+            "Software Factory refresh policy changed at the health boundary"
+        )
+    if implementation_range_state(policy) is None:
+        raise SupervisionLogError(
+            "Software Factory refresh range disappeared at the health boundary"
+        )
+    all_events = events(directory / "events.jsonl")
+    matches = [
+        item
+        for item in all_events
+        if item.get("record_id") == promotion["record_id"]
+        and item.get("kind") == SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+    ]
+    if len(matches) != 1 or matches[0].get("record_sha256") != promotion.get(
+        "record_sha256"
+    ):
+        raise SupervisionLogError(
+            "Software Factory promotion changed at the health boundary"
+        )
+    plan = build_software_factory_supervisor_refresh_plan(args)
+    if plan["automation_updates"]:
+        raise SupervisionLogError(
+            "Software Factory automation refresh changed at the health boundary"
+        )
+    observed_automation_roots = {
+        str(item["automation_id"]): str(item["config_sha256"])
+        for category in (
+            "current_automations",
+            "manual_pins",
+            "paused_automations",
+        )
+        for item in plan[category]
+    }
+    if observed_automation_roots != dict(automation_config_roots):
+        raise SupervisionLogError(
+            "Software Factory automation state changed at the health boundary"
+        )
+    control = reduce_control_posture(
+        directory=directory,
+        policy=policy,
+        owner_events=all_events,
+    )
+    if control["issues"] or software_factory_control_health_root(
+        control
+    ) != control_posture_root_sha256:
+        raise SupervisionLogError(
+            "Software Factory control posture changed at the health boundary"
+        )
+
+
 def validate_software_factory_refresh_health_record(
     value: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -12998,7 +13220,8 @@ def validate_software_factory_refresh_health_record(
         or type(value.get("schema_version")) is not int
         or value.get("schema_version") != 1
         or value.get("kind") != SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
-        or value.get("outcome") not in {"verified", "rolled-back"}
+        or value.get("outcome")
+        not in {"verified", "rolled-back", "currentness-rejected"}
         or re.fullmatch(
             r"[0-9a-f]{12}-[0-9a-f]{12}",
             str(value.get("active_release_id", "")),
@@ -13159,32 +13382,41 @@ def cmd_software_factory_supervisor_refresh_health(
         )
     plan: dict[str, Any] | None = None
     failure = ""
-    try:
-        plan = build_software_factory_supervisor_refresh_plan(args)
-        if plan["automation_updates"]:
-            print(
-                json.dumps(
-                    {
-                        "duplicate": False,
-                        "outcome": "refresh-pending",
-                        "next_action": "apply-automation-owner-updates-at-next-wake",
-                        "refresh_plan": plan,
-                    },
-                    sort_keys=True,
+    health_history = [
+        item
+        for item in all_events
+        if item.get("kind") == SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+        and item.get("promotion_record_id") == promotion["record_id"]
+    ]
+    if health_history and health_history[-1].get("outcome") == "currentness-rejected":
+        failure = "prior verified refresh health lost append-boundary currentness"
+    if not failure:
+        try:
+            plan = build_software_factory_supervisor_refresh_plan(args)
+            if plan["automation_updates"]:
+                print(
+                    json.dumps(
+                        {
+                            "duplicate": False,
+                            "outcome": "refresh-pending",
+                            "next_action": "apply-automation-owner-updates-at-next-wake",
+                            "refresh_plan": plan,
+                        },
+                        sort_keys=True,
+                    )
                 )
+                return
+            control = reduce_control_posture(
+                directory=directory,
+                policy=policy,
+                owner_events=all_events,
             )
-            return
-        control = reduce_control_posture(
-            directory=directory,
-            policy=policy,
-            owner_events=all_events,
-        )
-        if control["issues"]:
-            raise SupervisionLogError(
-                "governing control posture is not current"
-            )
-    except SupervisionLogError as exc:
-        failure = str(exc)
+            if control["issues"]:
+                raise SupervisionLogError(
+                    "governing control posture is not current"
+                )
+        except SupervisionLogError as exc:
+            failure = str(exc)
     if not failure:
         assert plan is not None
         automation_roots = {
@@ -13216,8 +13448,39 @@ def cmd_software_factory_supervisor_refresh_health(
             control_posture_root_sha256=software_factory_control_health_root(control),
             reason="Installed roots, stable automation owners, and control posture are current.",
         )
-        print(json.dumps({"duplicate": duplicate, "health": record}, sort_keys=True))
-        return
+        try:
+            require_software_factory_refresh_health_current(
+                args,
+                promotion=promotion,
+                policy_sha256=str(policy["policy_sha256"]),
+                automation_config_roots=automation_roots,
+                control_posture_root_sha256=software_factory_control_health_root(
+                    control
+                ),
+            )
+        except SupervisionLogError as exc:
+            failure = str(exc)
+            append_software_factory_refresh_health(
+                args,
+                directory=directory,
+                policy=policy,
+                promotion=promotion,
+                outcome="currentness-rejected",
+                active=active,
+                automation_config_roots=automation_roots,
+                control_posture_root_sha256=None,
+                reason=(
+                    "Verified refresh health lost currentness at its append boundary: "
+                    + failure[:200]
+                ),
+            )
+        else:
+            print(
+                json.dumps(
+                    {"duplicate": duplicate, "health": record}, sort_keys=True
+                )
+            )
+            return
     if (
         prior_release is None
         or prior_release == promotion["release_id"]
@@ -13230,11 +13493,65 @@ def cmd_software_factory_supervisor_refresh_health(
     with software_factory_release_exact_checkout(
         repository, str(promotion["source_commit"])
     ) as owner_repository:
+        rollback_guard_status = run_software_factory_release_owner(
+            owner_repository,
+            source_commit=str(promotion["source_commit"]),
+            action="status",
+        )
+        guarded_release = str(rollback_guard_status.get("active_release_id", ""))
+        if guarded_release == str(prior_release):
+            source, roots, verification = validate_software_factory_current_status(
+                rollback_guard_status, release_id=str(prior_release)
+            )
+            active = {
+                "active_release_id": str(prior_release),
+                "active_source_commit": source,
+                "installed_roots": roots,
+                "verification_root_sha256": verification,
+            }
+            duplicate, record = append_software_factory_refresh_health(
+                args,
+                directory=directory,
+                policy=policy,
+                promotion=promotion,
+                outcome="rolled-back",
+                active=active,
+                automation_config_roots={},
+                control_posture_root_sha256=None,
+                reason=(
+                    "Post-refresh verification did not remain current; the release "
+                    "owner restored or retained the prior release."
+                ),
+            )
+            print(
+                json.dumps(
+                    {
+                        "duplicate": duplicate,
+                        "health": record,
+                        "failure": failure,
+                        "next_action": (
+                            "route-role-refresh-for-restored-stable-release"
+                        ),
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        if guarded_release != str(promotion["release_id"]):
+            raise SupervisionLogError(
+                "Software Factory refresh active release changed before rollback"
+            )
+        expected_activation = software_factory_current_activation_guard(
+            rollback_guard_status,
+            release_id=str(promotion["release_id"]),
+        )
         rollback = run_software_factory_release_owner(
             owner_repository,
             source_commit=str(promotion["source_commit"]),
             action="rollback",
             release_id=str(prior_release),
+            expected_current_release_id=str(promotion["release_id"]),
+            expected_current_activation_record=expected_activation,
         )
         rollback_status = run_software_factory_release_owner(
             owner_repository,

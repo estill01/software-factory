@@ -111,6 +111,12 @@ accept a `promote` artifact as release evidence.
 the HMAC-authenticated, schema- and transition-validated activation history and
 whose canonical acceptance, manifest, and skill roots still validate. It uses
 the same one-pointer cutover and fresh-process verification as activation.
+The supervisor-owned health path also supplies the exact current release ID
+and current activation-record HMAC that it just observed. The release owner
+checks both under its release lock before changing the pointer, so a newer
+valid activation wins and a stale health rollback is rejected without
+overwriting it. These expected-current inputs are internal owner guards, not a
+caller-selectable release or rollback authority.
 `status` reports the source commit, manifest roots, exact discovery targets,
 current resolved roots, and history length without scanning unrelated skills
 or repositories.
@@ -153,7 +159,10 @@ owner. The event-owner lock serializes the bounded owner effect and result;
 an interrupted retry rehydrates the one completed transition from live owner
 status. A changed predecessor or activation-history count observed after the
 effect is retained as a canonical currentness rejection, so retry never performs
-a second promotion. The atomic `current` swap updates the
+a second promotion. The returned owner effect is validated before the live
+status observation; if a later activation wins between those calls, the exact
+effect is still durably recorded as rejected rather than being retried. The
+atomic `current` swap updates the
 next scheduled monitor wake while preserving its automation ID, target thread,
 schedule, model, reasoning, status, and notification posture. An already-running
 turn may finish with the instruction bytes loaded before the swap. Legacy
@@ -163,7 +172,9 @@ policy, mission, requested range, active frontier, and lifecycle posture from
 the current helper instead of trusting copied prompt values.
 
 `software-factory-supervisor-refresh-plan` reads only the exact automation IDs
-bound by the current supervisor policy. It verifies that each heartbeat belongs
+bound by the current supervisor policy. A canonical implementation range is
+mandatory; an absent range rejects the plan rather than treating an unbounded
+target as refreshable. It verifies that each heartbeat belongs
 to a configured runtime role, projects the prompt onto the three stable
 `current` paths, removes copied release hashes and policy/range/frontier claims,
 and emits the complete non-prompt configuration that the Codex automation owner
@@ -171,6 +182,14 @@ must preserve. Paused automations remain paused; explicit
 `manual-release-pin:<release-id>` prompts remain pinned. Already-running roles
 receive the same activated identity through the existing `role-refresh` route at
 their next message boundary.
+
+Refresh health appends `verified` only after checking the installed release,
+stable automation-owner bytes, and governing control posture. It then rereads
+the policy and range, promotion, complete refresh plan, automation-owner roots,
+and control posture at the append boundary. Drift is retained as a successor
+`currentness-rejected` event and triggers only an expected-current guarded
+rollback. A newer unrelated release is never rolled back; an already-restored
+prior release is recorded without a second owner effect.
 
 ## Independent acceptance and optional release-owner evidence
 

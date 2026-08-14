@@ -5285,6 +5285,10 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.prior_status["active_release_id"] = prior_release
         self.prior_status["source_commit"] = "a" * 40
         self.prior_status["activation_history_records"] = 1
+        self.prior_status["activation_record"] = {
+            "release_id": prior_release,
+            "record_hmac_sha256": "f" * 64,
+        }
         prior_installed = {
             **self.prior_status["current_verification"],
             "release_id": prior_release,
@@ -5386,6 +5390,10 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             },
             "installed_complete": True,
             "activation_history_records": 2,
+            "activation_record": {
+                "release_id": release_id,
+                "record_hmac_sha256": "e" * 64,
+            },
             "current_verification": installed,
         }
         return promotion, status
@@ -5456,9 +5464,13 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         source_commit: str,
         action: str,
         release_id: str | None = None,
+        expected_current_release_id: str | None = None,
+        expected_current_activation_record: str | None = None,
     ) -> dict[str, object]:
         self.assertEqual(source_commit, self.source)
         self.assertIsNone(release_id)
+        self.assertIsNone(expected_current_release_id)
+        self.assertIsNone(expected_current_activation_record)
         self.owner_actions.append(action)
         if action == "promote":
             self.owner_promoted = True
@@ -5547,6 +5559,11 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 "run_software_factory_release_owner",
                 side_effect=self.fake_owner,
             ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_state",
+                return_value={"range_id": "release-refresh-range-1234"},
+            ),
         ):
             return self.call(
                 "software-factory-supervisor-refresh-plan",
@@ -5573,6 +5590,11 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 supervision_log,
                 "run_software_factory_release_owner",
                 side_effect=owner or self.fake_owner,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_state",
+                return_value={"range_id": "release-refresh-range-1234"},
             ),
         ):
             return self.call(
@@ -5612,6 +5634,10 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             "installed_links": {name: {"stable": True} for name in roots},
             "installed_complete": True,
             "activation_history_records": 2,
+            "activation_record": {
+                "release_id": release_id,
+                "record_hmac_sha256": "d" * 64,
+            },
             "current_verification": installed,
         }
 
@@ -6276,7 +6302,7 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 supervision_log.SupervisionLogError, "assurance check is invalid"
             ):
                 self.promote(accepted)
-        self.assertEqual(self.owner_actions, ["status", "promote", "status"])
+        self.assertEqual(self.owner_actions, ["status", "promote"])
 
     def test_changed_source_or_tree_rejects_before_owner(self) -> None:
         wrong_tree = self.acceptance(tree="f" * 40)
@@ -6517,7 +6543,7 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             side_effect=owner,
         ):
             with self.assertRaisesRegex(
-                supervision_log.SupervisionLogError, "live status differs"
+                supervision_log.SupervisionLogError, "effect was retained"
             ):
                 self.promote(accepted)
         records = supervision_log.events(
@@ -6647,6 +6673,44 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             f"{'a' * 12}-{'b' * 12}",
         )
 
+    def test_refresh_plan_rejects_an_absent_implementation_range(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        automation_root = Path(self.temporary.name) / "automations"
+        with (
+            mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+            ),
+            mock.patch.object(
+                supervision_log,
+                "run_software_factory_release_owner",
+                side_effect=self.fake_owner,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "requires the canonical implementation range",
+            ),
+        ):
+            self.call(
+                "software-factory-supervisor-refresh-plan",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--promotion-record",
+                str(promoted["promotion"]["record_id"]),
+            )
+
     def test_refresh_plan_rejects_foreign_automation_role(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(
@@ -6753,6 +6817,8 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             source_commit: str,
             action: str,
             release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_current_activation_record: str | None = None,
         ) -> dict[str, object]:
             nonlocal rolled_back
             self.assertEqual(source_commit, self.source)
@@ -6761,6 +6827,10 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 return copy.deepcopy(prior_status if rolled_back else self.status)
             self.assertEqual(action, "rollback")
             self.assertEqual(release_id, prior_release)
+            self.assertEqual(
+                expected_current_release_id, self.promotion["release_id"]
+            )
+            self.assertEqual(expected_current_activation_record, "e" * 64)
             rolled_back = True
             return {
                 "action": "rollback",
@@ -6780,7 +6850,7 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         )
         self.assertEqual(
             self.owner_actions,
-            ["status", "status", "rollback", "status", "status"],
+            ["status", "status", "status", "rollback", "status", "status"],
         )
         self.assertEqual(first["health"]["outcome"], "rolled-back")
         self.assertEqual(
@@ -6813,6 +6883,8 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             source_commit: str,
             action: str,
             release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_current_activation_record: str | None = None,
         ) -> dict[str, object]:
             self.assertEqual(source_commit, self.source)
             if action == "status":
@@ -6820,6 +6892,10 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                     self.status if release_id is None else prior_status
                 )
             self.assertEqual(action, "rollback")
+            self.assertEqual(
+                expected_current_release_id, self.promotion["release_id"]
+            )
+            self.assertEqual(expected_current_activation_record, "e" * 64)
             return {
                 "action": "rollback",
                 "active_release_id": prior_release,
@@ -6836,6 +6912,124 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                 Path(self.temporary.name) / "automations",
                 owner=owner,
             )
+
+    def test_refresh_health_never_rolls_back_over_a_newer_release(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.write_automation(
+            self.pinned_automation_prompt(),
+            target_thread_id="foreign-role-thread-1234",
+        )
+        unrelated = self.status_for_release(
+            f"{'8' * 12}-{'9' * 12}", source_commit="8" * 40
+        )
+        actions: list[str] = []
+
+        def owner(
+            _repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_current_activation_record: str | None = None,
+        ) -> dict[str, object]:
+            self.assertEqual(source_commit, self.source)
+            actions.append(action)
+            self.assertEqual(action, "status")
+            self.assertIsNone(release_id)
+            self.assertIsNone(expected_current_release_id)
+            self.assertIsNone(expected_current_activation_record)
+            return copy.deepcopy(unrelated if len(actions) >= 3 else self.status)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "active release changed before rollback",
+        ):
+            self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                Path(self.temporary.name) / "automations",
+                owner=owner,
+            )
+        self.assertEqual(actions, ["status", "status", "status"])
+
+    def test_refresh_health_corrects_append_boundary_drift_before_rollback(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        prior_release = str(self.promotion["activation"]["previous_release_id"])
+        prior_status = self.status_for_release(
+            prior_release, source_commit="7" * 40
+        )
+        rolled_back = False
+
+        def owner(
+            _repository: Path,
+            *,
+            source_commit: str,
+            action: str,
+            release_id: str | None = None,
+            expected_current_release_id: str | None = None,
+            expected_current_activation_record: str | None = None,
+        ) -> dict[str, object]:
+            nonlocal rolled_back
+            self.assertEqual(source_commit, self.source)
+            self.owner_actions.append(action)
+            if action == "status":
+                return copy.deepcopy(prior_status if rolled_back else self.status)
+            self.assertEqual(action, "rollback")
+            self.assertEqual(release_id, prior_release)
+            self.assertEqual(
+                expected_current_release_id, self.promotion["release_id"]
+            )
+            self.assertEqual(expected_current_activation_record, "e" * 64)
+            rolled_back = True
+            return {
+                "action": "rollback",
+                "active_release_id": prior_release,
+                "previous_release_id": self.promotion["release_id"],
+                "installed": copy.deepcopy(prior_status["current_verification"]),
+                "activation_record": {"record_id": "rollback-owner-record-1234"},
+            }
+
+        with mock.patch.object(
+            supervision_log,
+            "require_software_factory_refresh_health_current",
+            side_effect=supervision_log.SupervisionLogError(
+                "automation changed during append"
+            ),
+        ):
+            result = self.refresh_health(
+                str(promoted["promotion"]["record_id"]),
+                Path(self.temporary.name) / "automations",
+                owner=owner,
+            )
+        self.assertEqual(result["health"]["outcome"], "rolled-back")
+        outcomes = [
+            item["outcome"]
+            for item in supervision_log.events(
+                self.root / self.target / "events.jsonl"
+            )
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+        ]
+        self.assertEqual(
+            outcomes, ["verified", "currentness-rejected", "rolled-back"]
+        )
 
 
 class LegacyDirectAuthorityIngestTests(unittest.TestCase):

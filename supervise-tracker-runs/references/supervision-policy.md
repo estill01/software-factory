@@ -1342,7 +1342,11 @@ An interrupted retry rehydrates an already completed one-transition effect
 from live owner status; changed currentness is retained as a rejection, never a
 successful promotion. A changed predecessor or activation-history count after
 the effect is also retained as a currentness rejection and cannot trigger a
-second owner call. The release owner retains the previous release, validates the exact commit, atomically changes only the
+second owner call. Validate the returned owner effect before the following
+live-status call. If a later activation wins between those calls, retain the
+exact effect as rejected rather than leaving an effect with no durable outcome.
+The release owner retains the previous release, validates the exact commit,
+atomically changes only the
 stable `current` pointer, verifies the installed roots in a fresh process, and
 restores the prior pointer on failure. Existing scheduled automations must refer
 to the stable `current` skill, policy, and helper paths. A legacy prompt that
@@ -1352,13 +1356,23 @@ and notification posture. Derive the exact update through
 `software-factory-supervisor-refresh-plan --target-thread <target> --repo <repo>
 --promotion-record <event>`, then apply its full preserved configuration only
 through the Codex automation owner. The plan rejects foreign role ownership,
-mixed release identities, unsupported copied authority, or a stale activated
-release; a maintained `manual-release-pin:<release-id>` remains unchanged.
+mixed release identities, unsupported copied authority, a missing canonical
+implementation range, or a stale activated release; a maintained
+`manual-release-pin:<release-id>` remains unchanged.
 Already-running role context receives the plan's ordinary gated `role-refresh`;
 the next scheduled wake or role message boundary resolves the new release
 without a per-release prompt rewrite. Every wake rehydrates mission, policy,
 event head, range, dependency-safe frontier, cursors, and lifecycle posture from
 the current helper rather than copied prompt prose.
+
+A `verified` health append is followed by a boundary reread of the same policy
+and implementation range, promotion, complete refresh plan, automation-owner
+roots, and governing control posture. Drift is retained as a successor
+`currentness-rejected` event. Any resulting rollback first rereads owner status
+and supplies the exact candidate release and activation-record HMAC to the
+release owner's locked expected-current guard. An already-restored prior
+release is recorded without a second effect, and a newer unrelated release is
+never overwritten.
 
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.

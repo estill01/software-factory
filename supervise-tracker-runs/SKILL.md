@@ -681,7 +681,10 @@ reserved deferrals, safe frontier, and application posture.
   acceptance/policy events; an interrupted retry rehydrates the one owner
   transition from live status. A changed predecessor or activation-history
   count after the effect is retained as a canonical currentness rejection and
-  cannot trigger another promotion. The release owner must run exact-commit checks, retain the
+  cannot trigger another promotion. Validate the returned owner effect before
+  the following live-status observation; if another activation wins between
+  those calls, retain that exact effect as rejected so retry cannot promote it
+  again. The release owner must run exact-commit checks, retain the
   prior release, atomically swap the active pointer, verify it in a fresh
   process, and restore the prior pointer on failure. The signed acceptance is
   the independent acceptance itself, not a second promotion or quiescence
@@ -689,13 +692,20 @@ reserved deferrals, safe frontier, and application posture.
   the stable `current` paths, so verified activation updates their next wakes
   without rewriting schedules or identities. After promotion, run
   `software-factory-supervisor-refresh-plan` with the exact promotion record.
-  It reads the configured automation owner files, rejects foreign roles or mixed
+  It requires the canonical implementation range, reads the configured
+  automation owner files, rejects foreign roles or mixed
   release identities, emits one full field-preserving migration for each
   maintained release-pinned prompt, and retains explicit manual pins. Apply each
   update only through the Codex automation owner; the next scheduled wake is the
   safe runtime boundary. Route already-running role context through the plan's
   existing `role-refresh` gates, which deliver at role message boundaries. A
-  supervisor may never create, select among
+  `verified` refresh-health append is provisional until a boundary reread
+  confirms the same policy and range, promotion, complete refresh plan,
+  automation-owner roots, and governing control posture. Retain drift as a
+  successor `currentness-rejected` event. Before rollback, reread live owner
+  status and pass the exact candidate release plus activation-record HMAC to
+  the release owner's locked expected-current guard; never overwrite a newer
+  valid release. A supervisor may never create, select among
   ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
