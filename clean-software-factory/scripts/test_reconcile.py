@@ -37,7 +37,7 @@ def run(
 
 class ReconcileTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
+        self.temporary = tempfile.TemporaryDirectory(dir="/private/tmp")
         self.root = Path(self.temporary.name)
         self.remote = self.root / "remote.git"
         self.repo = self.root / "repo"
@@ -160,8 +160,8 @@ class ReconcileTests(unittest.TestCase):
         first = json.loads(self.command("plan").stdout)
         second = json.loads(self.command("plan").stdout)
         self.assertEqual(first, second)
-        self.assertEqual(first["path"], "safe-cleanup")
-        self.assertEqual(first["hold_count"], 0)
+        self.assertEqual(first["path"], "audit")
+        self.assertGreater(first["hold_count"], 0)
         self.assertEqual(
             run(["git", "status", "--porcelain=v2", "--branch"], self.repo).stdout,
             before,
@@ -198,7 +198,7 @@ class ReconcileTests(unittest.TestCase):
         run_dir = Path(result["run_dir"])
         inventory = json.loads((run_dir / "inventory.json").read_text())
         dirt = {item["dirt"] for item in inventory["artifacts"]}
-        self.assertTrue({"unstaged", "untracked", "ignored"} <= dirt)
+        self.assertTrue({"unstaged", "untracked", "unknown"} <= dirt)
         all_records = "".join(path.read_text() for path in run_dir.glob("*.json"))
         self.assertNotIn("private-local-byte", all_records)
         self.assertNotIn("ignored-local-byte", all_records)
@@ -251,7 +251,7 @@ class ReconcileTests(unittest.TestCase):
             encoding="utf-8",
         )
         unrelated = json.loads(self.command("plan").stdout)
-        self.assertEqual(unrelated["path"], "safe-cleanup")
+        self.assertEqual(unrelated["path"], "audit")
         (self.repo / "tracked.txt").write_text("overlap\n", encoding="utf-8")
         payload = json.loads(self.command("plan").stdout)
         self.assertEqual(payload["path"], "coordinated-reconciliation")

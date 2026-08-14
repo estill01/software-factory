@@ -71,22 +71,24 @@ def git(repo: Path, *args: str, timeout: int = 30) -> bytes:
 
 
 def normalized_absolute(raw: str, *, must_exist: bool = True) -> Path:
-    lexical = Path(raw).expanduser()
-    if not lexical.is_absolute():
-        raise CleanupError("path must be absolute")
-    lexical = Path(os.path.normpath(str(lexical)))
+    lexical = Path(raw)
+    if not lexical.is_absolute() or os.path.normpath(raw) != raw or raw == "/":
+        raise CleanupError("path must be canonical, absolute, and narrower than root")
+    for candidate in (lexical, *lexical.parents):
+        if candidate.exists() and candidate.is_symlink():
+            raise CleanupError("symlink or substituted path is not allowed")
     try:
         resolved = lexical.resolve(strict=must_exist)
     except OSError as exc:
         raise CleanupError("path is unavailable") from exc
-    if must_exist and lexical.is_symlink():
+    if resolved != lexical:
         raise CleanupError("symlink or substituted path is not allowed")
     return resolved
 
 
 def resolve_repository(raw: str) -> tuple[Path, Path]:
     repo = normalized_absolute(raw)
-    if not repo.is_dir():
+    if repo == Path("/") or not repo.is_dir():
         raise CleanupError("repository path is not a directory")
     top = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
     if top != repo:
@@ -95,8 +97,9 @@ def resolve_repository(raw: str) -> tuple[Path, Path]:
     common = Path(common_raw)
     if not common.is_absolute():
         common = repo / common
-    common = common.resolve(strict=True)
-    if not common.is_dir() or common == Path("/"):
+    lexical_common = Path(os.path.normpath(str(common)))
+    common = lexical_common.resolve(strict=True)
+    if common != lexical_common or not common.is_dir() or common == Path("/"):
         raise CleanupError("unsafe Git common directory")
     return repo, common
 
@@ -146,7 +149,6 @@ def parse_status(worktree: Path) -> list[dict[str, str]]:
         "--porcelain=v1",
         "-z",
         "--untracked-files=all",
-        "--ignored=matching",
     )
     tokens = raw.decode("utf-8", errors="surrogateescape").split("\0")
     entries: list[dict[str, str]] = []
@@ -181,6 +183,8 @@ def dirt_for(code: str) -> str:
         return "untracked"
     if code == "!!":
         return "ignored"
+    if code[0] not in {" ", "?", "!"} and code[1] != " ":
+        return "unknown"
     if code[0] not in {" ", "?", "!"}:
         return "staged"
     if code[1] != " ":
@@ -193,9 +197,6 @@ def parse_refs(repo: Path) -> list[dict[str, str | None]]:
         repo,
         "for-each-ref",
         "--format=%(refname)%00%(objectname)%00%(upstream)%00",
-        "refs/heads",
-        "refs/remotes",
-        "refs/tags",
     ).decode("utf-8", errors="surrogateescape")
     fields = raw.replace("\n", "").split("\0")
     refs: list[dict[str, str | None]] = []
@@ -249,6 +250,21 @@ def load_owner_snapshot(path: str | None, kind: str) -> dict[str, Any]:
             raise CleanupError(f"{kind} complete payload is malformed")
         if len(expected) == 4 and not isinstance(value.get(expected[2]), expected[3]):
             raise CleanupError(f"{kind} protection payload is malformed")
+        entries = value.get(expected[0])
+        if kind == "provider-snapshot" and any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("number"), int)
+            or not isinstance(item.get("reviewDecision"), str)
+            for item in entries
+        ):
+            raise CleanupError("provider pull request payload is malformed")
+        if kind == "task-snapshot" and any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("task_id"), str)
+            or not isinstance(item.get("status"), str)
+            for item in entries
+        ):
+            raise CleanupError("task owner payload is malformed")
     return value
 
 
@@ -421,7 +437,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                 "artifact_kind": "worktree",
                 "dirt": "clean" if not statuses else "unknown",
                 "object_id": str(worktree["HEAD"]),
-                "origin": str(common),
+                "origin": canonical(projection).decode("utf-8"),
                 "owner_id": owner_id,
                 "path": str(worktree_path),
             }
@@ -480,24 +496,35 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
 
     submodule_state: dict[str, Any] = {"availability": "not-present"}
     if (repo / ".gitmodules").exists():
-        try:
-            output = git(
-                repo, "submodule", "status", "--recursive", timeout=60
-            ).decode()
-            submodule_state = {"availability": "available", "root": sha256(output)}
-        except CleanupError:
-            submodule_state = {"availability": "unavailable"}
+        submodule_state = {"availability": "deferred", "reason": "no-deep-scan"}
 
     lfs_state: dict[str, Any] = {"availability": "not-present"}
     attributes = repo / ".gitattributes"
     if attributes.is_file() and "filter=lfs" in attributes.read_text(
         encoding="utf-8", errors="replace"
     ):
-        try:
-            output = git(repo, "lfs", "ls-files", "--long", timeout=60)
-            lfs_state = {"availability": "available", "root": sha256(output)}
-        except CleanupError:
-            lfs_state = {"availability": "unavailable"}
+        lfs_state = {"availability": "deferred", "reason": "no-deep-scan"}
+
+    for kind, posture in (
+        ("ignored-content-posture", {"availability": "deferred"}),
+        ("reflog-posture", {"availability": "deferred"}),
+        ("resource-fast-path", {"availability": "deferred"}),
+        ("submodule-posture", submodule_state),
+        ("lfs-posture", lfs_state),
+    ):
+        artifacts.append(
+            {
+                "artifact_id": artifact_id(kind, posture),
+                "artifact_kind": kind,
+                "dirt": "clean"
+                if posture["availability"] == "not-present"
+                else "unknown",
+                "object_id": None,
+                "origin": canonical(posture).decode("utf-8"),
+                "owner_id": kind,
+                "path": None,
+            }
+        )
 
     pull_requests = provider_state.get("pull_requests", [])
     if isinstance(pull_requests, list):
@@ -513,7 +540,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                     "object_id": oid
                     if isinstance(oid, str) and GIT_OID.fullmatch(oid)
                     else None,
-                    "origin": args.provider,
+                    "origin": canonical(pull_request).decode("utf-8"),
                     "owner_id": None,
                     "path": f"pr:{pull_request['number']}",
                 }
@@ -996,11 +1023,14 @@ def read_record(path: Path) -> dict[str, Any]:
     ):
         raise CleanupError(f"record is missing or unsafe: {path.name}")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
+        value = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CleanupError(f"record is malformed: {path.name}") from exc
     if not isinstance(value, dict):
         raise CleanupError(f"record is not an object: {path.name}")
+    if raw != canonical(value) + b"\n":
+        raise CleanupError(f"record encoding is not canonical: {path.name}")
     validate_record(value)
     projection = dict(value)
     record_root = projection.pop("record_root", None)
