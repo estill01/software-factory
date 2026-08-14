@@ -160,8 +160,8 @@ class ReconcileTests(unittest.TestCase):
         first = json.loads(self.command("plan").stdout)
         second = json.loads(self.command("plan").stdout)
         self.assertEqual(first, second)
-        self.assertEqual(first["path"], "safe-cleanup")
-        self.assertEqual(first["hold_count"], 0)
+        self.assertEqual(first["path"], "audit")
+        self.assertGreater(first["hold_count"], 0)
         self.assertEqual(
             run(["git", "status", "--porcelain=v2", "--branch"], self.repo).stdout,
             before,
@@ -290,7 +290,7 @@ class ReconcileTests(unittest.TestCase):
         third = json.loads(self.command("plan").stdout)
         self.assertNotEqual(second["run_id"], third["run_id"])
 
-    def test_exhaustive_ref_reflog_and_dual_dirty_dimensions(self) -> None:
+    def test_exhaustive_refs_deferred_reflog_and_dual_dirty_dimensions(self) -> None:
         head = run(["git", "rev-parse", "HEAD"], self.repo).stdout.strip()
         run(["git", "update-ref", "refs/custom/preserve", head], self.repo)
         (self.repo / "tracked.txt").write_text("staged\n", encoding="utf-8")
@@ -309,7 +309,7 @@ class ReconcileTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                item["artifact_kind"] == "reflog-candidate"
+                item["artifact_kind"] == "reflog-posture" and item["dirt"] == "unknown"
                 for item in inventory["artifacts"]
             )
         )

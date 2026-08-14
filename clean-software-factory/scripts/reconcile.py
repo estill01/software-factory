@@ -148,46 +148,47 @@ def parse_worktrees(repo: Path) -> list[dict[str, Any]]:
     return sorted(records, key=lambda item: str(item["worktree"]))
 
 
-def safe_content_root(worktree: Path, relative: str) -> str:
-    """Hash an untracked/ignored path without copying its bytes into evidence."""
+def safe_content_evidence(worktree: Path, relative: str) -> dict[str, Any]:
+    """Hash one dirty path; retain directories as unknown without recursion."""
     candidate = worktree / relative.rstrip("/")
     lexical = Path(os.path.normpath(str(candidate)))
     if lexical != candidate or worktree != lexical and worktree not in lexical.parents:
         raise CleanupError("status path escapes its worktree")
     if not candidate.exists() and not candidate.is_symlink():
-        return sha256({"kind": "missing", "path": relative})
-    entries: list[dict[str, Any]] = []
-    paths = [candidate]
-    if candidate.is_dir() and not candidate.is_symlink():
-        paths.extend(sorted(candidate.rglob("*"), key=lambda item: str(item)))
-    for path in paths:
-        relative_path = str(path.relative_to(worktree))
-        stat = path.lstat()
-        if path.is_symlink():
-            payload_root = sha256(os.readlink(path).encode("utf-8", "surrogateescape"))
-            kind = "symlink"
-        elif path.is_file():
-            digest = hashlib.sha256()
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            payload_root = digest.hexdigest()
-            kind = "file"
-        elif path.is_dir():
-            payload_root = sha256(b"")
-            kind = "directory"
-        else:
-            payload_root = sha256(b"")
-            kind = "special"
-        entries.append(
-            {
-                "kind": kind,
-                "mode": stat.st_mode & 0o777777,
-                "path": relative_path,
-                "payload_root": payload_root,
-            }
-        )
-    return sha256(entries)
+        evidence = {"complete": True, "kind": "missing", "path": relative}
+        return {**evidence, "root": sha256(evidence)}
+    stat = candidate.lstat()
+    if candidate.is_symlink():
+        payload_root = sha256(os.readlink(candidate).encode("utf-8", "surrogateescape"))
+        kind = "symlink"
+        complete = True
+    elif candidate.is_file():
+        digest = hashlib.sha256()
+        with candidate.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        payload_root = digest.hexdigest()
+        kind = "file"
+        complete = True
+    elif candidate.is_dir():
+        payload_root = None
+        kind = "directory-deferred"
+        complete = False
+    else:
+        payload_root = None
+        kind = "special-deferred"
+        complete = False
+    evidence = {
+        "complete": complete,
+        "ctime_ns": stat.st_ctime_ns,
+        "kind": kind,
+        "mode": stat.st_mode & 0o777777,
+        "mtime_ns": stat.st_mtime_ns,
+        "path": relative,
+        "payload_root": payload_root,
+        "size": stat.st_size,
+    }
+    return {**evidence, "root": sha256(evidence)}
 
 
 def parse_status(
@@ -224,7 +225,9 @@ def parse_status(
             path = f"{tokens[index]} -> {path}"
             index += 1
         entry = {"code": code, "path": path}
-        entry["content_root"] = safe_content_root(worktree, physical_path)
+        evidence = safe_content_evidence(worktree, physical_path)
+        entry["content_complete"] = evidence["complete"]
+        entry["content_root"] = evidence["root"]
         entries.append(entry)
     return sorted(entries, key=lambda item: (item["path"], item["code"]))
 
@@ -274,25 +277,6 @@ def parse_stashes(repo: Path) -> list[dict[str, str]]:
             raise CleanupError("stash has a malformed object ID")
         stashes.append({"name": name, "object_id": oid})
     return sorted(stashes, key=lambda item: item["name"])
-
-
-def parse_reflog_candidates(repo: Path) -> list[dict[str, str]]:
-    try:
-        raw = git(repo, "reflog", "show", "--all", "--format=%H%x00%gD%x00").decode(
-            "utf-8", errors="surrogateescape"
-        )
-    except CleanupError:
-        return []
-    fields = raw.replace("\n", "").split("\0")
-    candidates: dict[tuple[str, str], dict[str, str]] = {}
-    for offset in range(0, len(fields) - 1, 2):
-        oid, selector = fields[offset : offset + 2]
-        if not oid:
-            continue
-        if not GIT_OID.fullmatch(oid) or not selector:
-            raise CleanupError("reflog candidate is malformed")
-        candidates[(selector, oid)] = {"object_id": oid, "selector": selector}
-    return [candidates[key] for key in sorted(candidates)]
 
 
 def remote_snapshot(repo: Path, remote: str, main: str) -> dict[str, Any]:
@@ -559,13 +543,18 @@ def submodule_snapshot(repo: Path) -> dict[str, Any]:
     if not (repo / ".gitmodules").exists():
         return {"availability": "not-present", "entries": []}
     try:
-        output = git(repo, "submodule", "status", "--recursive", timeout=60).decode(
+        output = git(repo, "submodule", "status", timeout=60).decode(
             "utf-8", errors="surrogateescape"
         )
     except CleanupError:
         return {"availability": "unavailable", "entries": []}
     entries = sorted(line for line in output.splitlines() if line)
-    return {"availability": "available", "entries": entries, "root": sha256(entries)}
+    return {
+        "availability": "partial",
+        "entries": entries,
+        "recursive_inventory": "deferred",
+        "root": sha256(entries),
+    }
 
 
 def lfs_snapshot(repo: Path) -> dict[str, Any]:
@@ -621,7 +610,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
     )
     refs = parse_refs(repo)
     stashes = parse_stashes(repo)
-    reflog_candidates = parse_reflog_candidates(repo)
     remote_state = remote_snapshot(repo, args.remote, args.main)
     remote_main = remote_state["main"]
     worktrees = parse_worktrees(repo)
@@ -662,7 +650,12 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         )
         for status_entry in statuses:
             relative_path = status_entry["path"]
-            for dirt in dirt_dimensions(status_entry["code"]):
+            for dimension in dirt_dimensions(status_entry["code"]):
+                dirt = (
+                    dimension
+                    if status_entry.get("content_complete") is True
+                    else "unknown"
+                )
                 artifacts.append(
                     {
                         "artifact_id": artifact_id(
@@ -671,7 +664,8 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                                 str(worktree_path),
                                 status_entry["code"],
                                 relative_path,
-                                dirt,
+                                dimension,
+                                status_entry.get("content_complete"),
                                 status_entry.get("content_root"),
                             ],
                         ),
@@ -681,6 +675,10 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                         "origin": canonical(
                             {
                                 "content_root": status_entry.get("content_root"),
+                                "content_complete": status_entry.get(
+                                    "content_complete"
+                                ),
+                                "dirt_dimension": dimension,
                                 "status_code": status_entry["code"],
                                 "worktree": str(worktree_path),
                             }
@@ -705,6 +703,22 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             }
         )
 
+    reflog_state = {
+        "availability": "deferred",
+        "reason": "bounded-block-1-no-reflog-scan",
+    }
+    artifacts.append(
+        {
+            "artifact_id": artifact_id("reflog-posture", reflog_state),
+            "artifact_kind": "reflog-posture",
+            "dirt": "unknown",
+            "object_id": None,
+            "origin": canonical(reflog_state).decode("utf-8"),
+            "owner_id": "git-reflog",
+            "path": None,
+        }
+    )
+
     for stash in stashes:
         artifacts.append(
             {
@@ -713,19 +727,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                 "dirt": "clean",
                 "object_id": stash["object_id"],
                 "origin": stash["name"],
-                "owner_id": None,
-                "path": None,
-            }
-        )
-
-    for candidate in reflog_candidates:
-        artifacts.append(
-            {
-                "artifact_id": artifact_id("reflog-candidate", candidate),
-                "artifact_kind": "reflog-candidate",
-                "dirt": "clean",
-                "object_id": candidate["object_id"],
-                "origin": candidate["selector"],
                 "owner_id": None,
                 "path": None,
             }
@@ -754,9 +755,9 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             {
                 "artifact_id": artifact_id(kind, posture),
                 "artifact_kind": kind,
-                "dirt": "unknown"
-                if posture["availability"] == "unavailable"
-                else "clean",
+                "dirt": "clean"
+                if posture["availability"] in {"available", "not-present"}
+                else "unknown",
                 "object_id": None,
                 "origin": canonical(posture).decode("utf-8"),
                 "owner_id": kind,
@@ -794,7 +795,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
     if (
         parse_refs(repo) != refs
         or parse_stashes(repo) != stashes
-        or parse_reflog_candidates(repo) != reflog_candidates
         or parse_worktrees(repo) != worktrees
         or remote_snapshot(repo, args.remote, args.main) != remote_state
     ):
@@ -844,7 +844,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
     ref_snapshot_root = sha256(
         {
             "local": refs,
-            "reflog": reflog_candidates,
+            "reflog": reflog_state,
             "remote": remote_state,
             "stashes": stashes,
         }
@@ -967,8 +967,8 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
         add_hold("release-owner-unavailable")
     elif state["release"].get("complete") is not True:
         add_hold("release-inventory-incomplete")
-    if state["submodules"].get("availability") == "unavailable":
-        add_hold("submodule-owner-unavailable")
+    if state["submodules"].get("availability") not in {"available", "not-present"}:
+        add_hold("submodule-owner-incomplete")
     if state["lfs"].get("availability") == "unavailable":
         add_hold("lfs-owner-unavailable")
     dirty = [item for item in state["artifacts"] if item["dirt"] != "clean"]
