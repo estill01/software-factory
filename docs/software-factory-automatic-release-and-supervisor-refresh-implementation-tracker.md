@@ -1175,7 +1175,81 @@ Independent readback of live roots, automation definitions, and supervisor healt
 
 ### Completion evidence
 
-Pending.
+- Preserved release history: exact `3115d4d` was independently accepted and
+  active before this Block, but the first target-local orchestration call
+  created a second same-source release `3115d4da41b0-abffa120628b` at
+  `ACTIVATION-35`. That observed replay is retained as a live rejection of the
+  original same-source behavior; acceptance was not inferred from its merge,
+  tests, or release state.
+- Accepted replay/currentness remediation: `214ad59828826e10d5c1d0780f1752f55d46e55d`,
+  tree `3d21395a531a0cf24371bf20f6d80ca2ff50fad1`, records same-source promotion
+  as `already-active`, binds refresh checks to each exact automation owner, and
+  rejects copied authority/wrong-target stable prompts. Focused combined proof
+  passed `41/41`; the complete dependency-qualified supervision aggregate
+  passed `542/542`; the configured independent Reviewer accepted the exact
+  clean revision with `review-findings:none`. The release owner activated it as
+  `214ad5982882-05e6df9b565d` / `ACTIVATION-36`.
+- Cross-target reconciliation: divergent accepted sibling `f8bbf3c` was stopped
+  before a competing activation, preserved, and integrated without rewriting
+  either parent. Merge `86a1e24f2cca0964d51cb56b892966cd96967e9c`, tree
+  `27878482114accd71ab54a4b38838c0b6e0c44c1`, has exact parents `214ad59`
+  and `f8bbf3c`. Focused combined proof passed `41/41`, the complete
+  dependency-qualified supervision aggregate passed `544/544`, and signed
+  independent acceptance root
+  `9b6de03a644ac07afdd898ca97a2201b080202164ccffcd0303b668be595ff1f`
+  records `review-findings:none` for that exact commit/tree.
+- Final accepted-source activation initially reconciled clean `origin/main`,
+  the feature branch, source, and release at `86a1e24`; promotion
+  `EVT-001765` returned release `86a1e24f2cca-ff32bc4df5aa`,
+  `ACTIVATION-37`, verification root
+  `2763cfc14cc1599481f676a4b0a6063759fb1c26064dbeb0943dd2463d3a1f48`,
+  and installed roots `1ddeb470...d2d3`, `463b89f0...6ba`, and
+  `ad9af569...a233` for authoring, implementation, and supervision.
+- Live refresh plan root
+  `99bac38c2dca2b9dbd4a9ddf10d5449ed28b463bf154729e03efa3f5b3140f09`
+  required no automation mutation: all four owner-read definitions already used
+  stable `current` paths and retained roots `6fd6e9dd...5913`,
+  `a4c1179c...b615`, `8ce4a897...309c`, and `b7a5e90e...654f`.
+  Seven individually gated message-boundary role refreshes acknowledged the
+  exact release while preserving policy v39, mission root `2c874d72...ccf6`,
+  the full Blocks 0–22 range, cursor/lifecycle state, and `in-progress` posture.
+- Actual next-wake observation: scheduled watcher heartbeat turn
+  `01a00062-1350-7201-9c97-27e00ba54753` ran at
+  `2026-08-14T13:07:02.607Z` from the stable `current` contract. It returned
+  `DONT_NOTIFY` because neither target nor maintained-release identity had
+  changed, and made no compact read, record, target prompt, or replayed effect.
+- Initial health receipt `EVT-001768` verified the four automation roots,
+  control-posture root `bd398221...befd`, range root `8bb90959...c13e`, and
+  the `86a1e24` release/installed roots. The named target remained incomplete
+  and in progress; no terminal report delivery, shutdown, or supervision pause
+  occurred.
+- Isolated effectiveness proof: dogfood result root
+  `fc5c408be37aa7857a30a5df1dddccd76f7874b2cb29c0984bddb333e5d83c0f`
+  and evidence root
+  `ecc5b3486328f7ada13079abc2c3b3f2a7ba1e6c0da23d1a414feafbfe55eade`
+  cover one temporary adoption, one rejection, and an unchanged consumed
+  checkpoint no-op without live release, policy, lifecycle, Gmail, deployment,
+  or external effects. The isolated release-owner rollback/rehydration test
+  passed `1/1`; the stable-no-op, manual-pin, absent-range, foreign-role,
+  no-rollback-over-newer-release, and role-limit negative matrix passed `6/6`.
+- Reopened live finding: the post-wake currentness read did not remain a no-op.
+  Normal append-only target supervision activity after `EVT-001768` changed the
+  control-posture append boundary; health `EVT-001781` therefore rejected prior
+  verified material and the release owner rolled back once as `EVT-001782` /
+  `ACTIVATION-38` to prior release `214ad5982882-05e6df9b565d`. The active
+  source is consequently `214ad59`, while clean `origin/main` remains
+  `86a1e24`. This is a truthful rollback outcome and blocks Block acceptance;
+  it is not converted into acceptance by the earlier tests, review, merge, or
+  initial health receipt.
+- Retained open work and ownership: executable supervisor plan `EVT-000045`
+  has assigned one separate fix executor sole write ownership of
+  `supervision-policy.md`, `supervision_log.py`, and `test_supervision_log.py`
+  from exact `86a1e24`. This lane has not edited those files or started the
+  systemic-recovery/product-program trackers. Revisit Block 7 only after that
+  candidate is frozen, independently accepted, and integrated; then promote the
+  exact integrated source once, refresh from its owner record, observe a
+  distinct scheduled wake, and prove repeated health/currentness does not roll
+  back solely because unrelated append-only supervision state advanced.
 
 ### Stop
 
