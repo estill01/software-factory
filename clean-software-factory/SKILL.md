@@ -60,7 +60,9 @@ The helper verifies their hashes with a disposable restore drill, maps every
 inventoried artifact to an explicit capability candidate, and leaves every
 candidate `unknown` and retained until a distinct semantic reviewer supplies
 current coverage. It does not push package bytes or make anything eligible for
-deletion.
+deletion. Bounded staged, unstaged, untracked, and ignored content contributes
+to the source identity, while reachable Git objects are stored once in a local
+pack and restored into a disposable bare repository for connectivity proof.
 
 Restore one packaged artifact only to an explicit new local file after verifying
 the complete run:

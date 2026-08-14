@@ -158,6 +158,13 @@ Records store content roots of other records, not mutable path assertions.
 Packages may contain sensitive or ignored bytes only locally. Unknown bytes are
 never pushed merely to improve durability.
 
+The worktree snapshot binds the bounded content roots for staged and unstaged
+binary deltas plus individually enumerated untracked and ignored regular files.
+Oversized, nonregular, submodule, or otherwise unreadable material is recorded
+as incomplete and remains retained. Preservation stores reachable Git history
+once in a local pack, verifies it in a disposable bare repository, and keeps
+every semantically unknown candidate explicitly deletion-ineligible.
+
 ## Artifact inventory and disposition
 
 Inventory is exhaustive across:

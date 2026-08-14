@@ -15,7 +15,7 @@ CONTRACT = ROOT / "references" / "repository-reconciliation-contract.md"
 FIXTURE = ROOT / "fixtures" / "repository_reconciliation_v1.json"
 SCHEMA = ROOT / "references" / "repository-reconciliation-schema-v1.json"
 CURRENTNESS = ROOT / "references" / "source-adaptation-currentness-v1.json"
-SCHEMA_CANONICAL_SHA256 = "df766b0288511ed9071941c393b641502cf502db51af1aa88f73d5bb927c4a85"
+SCHEMA_CANONICAL_SHA256 = "680abc108146c584588c78ff2fafe4f6d0c84f29b969adfddf5f614dbbb2104b"
 CURRENTNESS_CANONICAL_SHA256 = "958c6abafac2b1d2da2bfd4267fd193ea993a8eb71516504e758e4d4ea8c7c11"
 DISPOSITIONS = {
     "integrated",

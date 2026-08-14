@@ -478,12 +478,115 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("preservation package bytes differ", result.stdout)
 
+    def test_verify_rejects_tampered_git_object_pack(self) -> None:
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        pack = next((Path(plan["run_dir"]) / "packages").glob("*/objects.pack"))
+        pack.write_bytes(b"tampered-pack\n")
+        result = self.verify_command(plan["run_dir"], check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("object package bytes differ", result.stdout)
+
     def test_preserve_rejects_moving_source(self) -> None:
         plan = json.loads(self.command("plan").stdout)
         (self.repo / "tracked.txt").write_text("moved\n", encoding="utf-8")
         result = self.command("preserve", "--run-dir", plan["run_dir"], check=False)
         self.assertEqual(result.returncode, 2)
         self.assertIn("successor plan required", result.stdout)
+
+    def test_verify_rejects_same_status_dirty_byte_drift(self) -> None:
+        local = self.repo / "untracked.txt"
+        local.write_text("version-one\n", encoding="utf-8")
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        local.write_text("version-two\n", encoding="utf-8")
+        result = self.verify_command(plan["run_dir"], check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("successor plan required", result.stdout)
+
+    def test_ignored_and_nested_untracked_bytes_are_explicitly_packaged(self) -> None:
+        (self.repo / ".gitignore").write_text("ignored-secret.txt\n", encoding="utf-8")
+        (self.repo / "ignored-secret.txt").write_text(
+            "ignored-local-byte\n", encoding="utf-8"
+        )
+        nested = self.repo / "local-dir"
+        nested.mkdir()
+        (nested / "useful.py").write_text("useful = True\n", encoding="utf-8")
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        run_dir = Path(plan["run_dir"])
+        inventory = json.loads((run_dir / "inventory.json").read_text())
+        preservation = json.loads((run_dir / "preservation.json").read_text())
+        by_path = {
+            item["path"]: item["artifact_id"]
+            for item in inventory["artifacts"]
+            if item["artifact_kind"] == "worktree-path"
+        }
+        self.assertIn("ignored-secret.txt", by_path)
+        self.assertIn("local-dir/useful.py", by_path)
+        packaged = {item["artifact_id"] for item in preservation["byte_entries"]}
+        self.assertIn(by_path["ignored-secret.txt"], packaged)
+        self.assertIn(by_path["local-dir/useful.py"], packaged)
+        public_records = "".join(path.read_text() for path in run_dir.glob("*.json"))
+        self.assertNotIn("ignored-local-byte", public_records)
+        self.assertNotIn("useful = True", public_records)
+
+    def test_git_objects_restore_from_one_local_pack(self) -> None:
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        run_dir = Path(plan["run_dir"])
+        inventory = json.loads((run_dir / "inventory.json").read_text())
+        preservation = json.loads((run_dir / "preservation.json").read_text())
+        coverage = json.loads((run_dir / "capability-coverage.json").read_text())
+        object_packages = [
+            item
+            for item in preservation["packages"]
+            if item["package_kind"] == "git-objects"
+        ]
+        self.assertEqual(len(object_packages), 1)
+        reference = next(
+            item
+            for item in inventory["artifacts"]
+            if item["artifact_kind"] == "ref" and item["origin"] == "refs/heads/main"
+        )
+        destination = self.root / "restored-objects.git"
+        restored = json.loads(
+            run(
+                [
+                    "python3",
+                    str(SCRIPT),
+                    "restore",
+                    "--run-dir",
+                    plan["run_dir"],
+                    "--artifact-id",
+                    reference["artifact_id"],
+                    "--destination",
+                    str(destination),
+                ],
+                self.repo,
+            ).stdout
+        )
+        self.assertEqual(restored["object_id"], reference["object_id"])
+        run(["git", "cat-file", "-e", reference["object_id"]], destination)
+        self.assertTrue(
+            any(len(item["source_artifact_ids"]) > 1 for item in coverage["candidates"])
+        )
+        self.assertTrue(
+            all(not item["deletion_eligible"] for item in coverage["candidates"])
+        )
+
+    def test_command_output_bound_rejects_stdout_and_stderr(self) -> None:
+        for stream in ("stdout", "stderr"):
+            with self.assertRaises(reconcile.CleanupError):
+                reconcile.run_command(
+                    [
+                        "python3",
+                        "-c",
+                        f"import sys; sys.{stream}.write('x' * 4096)",
+                    ],
+                    self.root,
+                    max_output_bytes=32,
+                )
 
     def test_preserve_resumes_an_interrupted_record_pair(self) -> None:
         (self.repo / "untracked.txt").write_text("keep me\n", encoding="utf-8")

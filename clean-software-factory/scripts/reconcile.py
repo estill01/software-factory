@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -58,31 +59,53 @@ def run_command(
     *,
     timeout: int = 30,
     max_output_bytes: int = MAX_COMMAND_OUTPUT_BYTES,
+    input_bytes: bytes = b"",
 ) -> bytes:
     environment = os.environ.copy()
     environment.update({"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "LANG": "C"})
     try:
-        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-            completed = subprocess.run(
+        with (
+            tempfile.TemporaryFile() as stdin,
+            tempfile.TemporaryFile() as stdout,
+            tempfile.TemporaryFile() as stderr,
+        ):
+            stdin.write(input_bytes)
+            stdin.seek(0)
+            process = subprocess.Popen(
                 argv,
                 cwd=cwd,
                 env=environment,
+                stdin=stdin,
                 stdout=stdout,
                 stderr=stderr,
-                check=False,
-                timeout=timeout,
             )
+            deadline = time.monotonic() + timeout
+            while process.poll() is None:
+                if (
+                    os.fstat(stdout.fileno()).st_size > max_output_bytes
+                    or os.fstat(stderr.fileno()).st_size > max_output_bytes
+                ):
+                    process.kill()
+                    process.wait()
+                    raise CleanupError(f"command output exceeds bound: {argv[0]}")
+                if time.monotonic() >= deadline:
+                    process.kill()
+                    process.wait()
+                    raise CleanupError(f"command timed out: {argv[0]}")
+                time.sleep(0.01)
             if (
                 os.fstat(stdout.fileno()).st_size > max_output_bytes
                 or os.fstat(stderr.fileno()).st_size > max_output_bytes
             ):
                 raise CleanupError(f"command output exceeds bound: {argv[0]}")
+            if process.returncode != 0:
+                raise CleanupError(f"command failed ({process.returncode}): {argv[0]}")
             stdout.seek(0)
             output = stdout.read(max_output_bytes + 1)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+            if len(output) > max_output_bytes:
+                raise CleanupError(f"command output exceeds bound: {argv[0]}")
+    except OSError as exc:
         raise CleanupError(f"command unavailable: {argv[0]}") from exc
-    if completed.returncode != 0:
-        raise CleanupError(f"command failed ({completed.returncode}): {argv[0]}")
     return output
 
 
@@ -167,7 +190,8 @@ def parse_status(worktree: Path) -> list[dict[str, str]]:
         "status",
         "--porcelain=v1",
         "-z",
-        "--untracked-files=normal",
+        "--untracked-files=all",
+        "--ignored=no",
     )
     tokens = raw.decode("utf-8", errors="surrogateescape").split("\0")
     entries: list[dict[str, str]] = []
@@ -187,7 +211,17 @@ def parse_status(worktree: Path) -> list[dict[str, str]]:
             path = f"{tokens[index]} -> {path}"
             index += 1
         entries.append({"code": code, "path": path})
-    return sorted(entries, key=lambda item: (item["path"], item["code"]))
+    ignored = git(
+        worktree,
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+    ).decode("utf-8", errors="surrogateescape")
+    entries.extend({"code": "!!", "path": path} for path in ignored.split("\0") if path)
+    unique = {(item["code"], item["path"]): item for item in entries}
+    return sorted(unique.values(), key=lambda item: (item["path"], item["code"]))
 
 
 def dirt_for(code: str) -> str:
@@ -389,21 +423,39 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
 
     artifacts: list[dict[str, Any]] = []
     worktree_projection: list[dict[str, Any]] = []
+    preservation_files: dict[str, list[dict[str, Any]]] = {}
     for worktree in worktrees:
         worktree_path = Path(str(worktree["worktree"]))
         statuses = parse_status(worktree_path)
+        child_ids = {
+            (item["code"], item["path"]): artifact_id(
+                "worktree-path",
+                [str(worktree_path), item["code"], item["path"]],
+            )
+            for item in statuses
+        }
+        files, content_root, content_complete = capture_worktree_material(
+            worktree_path, statuses, child_ids
+        )
         status_root = sha256(statuses)
         projection = dict(worktree)
         projection.update(
             {
+                "content_complete": content_complete,
+                "content_root": content_root,
                 "status_root": status_root,
             }
         )
         worktree_projection.append(projection)
         owner_id = owner_for_path("", str(worktree_path), str(repo), task_state)
+        worktree_id = artifact_id("worktree", projection)
+        for item in files:
+            if item["artifact_id"] is None:
+                item["artifact_id"] = worktree_id
+        preservation_files[str(worktree_path)] = files
         artifacts.append(
             {
-                "artifact_id": artifact_id("worktree", projection),
+                "artifact_id": worktree_id,
                 "artifact_kind": "worktree",
                 "dirt": "clean" if not statuses else "unknown",
                 "object_id": str(worktree["HEAD"]),
@@ -416,10 +468,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             relative_path = status_entry["path"]
             artifacts.append(
                 {
-                    "artifact_id": artifact_id(
-                        "worktree-path",
-                        [str(worktree_path), status_entry["code"], relative_path],
-                    ),
+                    "artifact_id": child_ids[(status_entry["code"], relative_path)],
                     "artifact_kind": "worktree-path",
                     "dirt": dirt_for(status_entry["code"]),
                     "object_id": None,
@@ -517,7 +566,22 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         raise CleanupError("source changed during inventory")
     for projection in worktree_projection:
         worktree_path = Path(str(projection["worktree"]))
-        if sha256(parse_status(worktree_path)) != projection["status_root"]:
+        closing_statuses = parse_status(worktree_path)
+        closing_ids = {
+            (item["code"], item["path"]): artifact_id(
+                "worktree-path",
+                [str(worktree_path), item["code"], item["path"]],
+            )
+            for item in closing_statuses
+        }
+        _, closing_content_root, closing_content_complete = capture_worktree_material(
+            worktree_path, closing_statuses, closing_ids
+        )
+        if (
+            sha256(closing_statuses) != projection["status_root"]
+            or closing_content_root != projection["content_root"]
+            or closing_content_complete != projection["content_complete"]
+        ):
             raise CleanupError("source changed during inventory")
     if args.task_snapshot and sha256(
         load_owner_snapshot(args.task_snapshot, "task-snapshot")
@@ -568,7 +632,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         }
     )
     finish_record(source_record)
-    posture = "deferred proof: custom refs/reflogs; ignored/untracked bytes; worktree/stash/submodule/LFS detail; owner/remote completeness/currentness; overlap; canonical/proof-root closure; bounded fast path"
+    posture = "deferred proof: custom refs/reflogs; oversized or nonregular local bytes; submodule/LFS detail; owner/remote completeness/currentness; overlap; canonical/proof-root closure; bounded preservation path"
     artifacts.append(
         {
             "artifact_id": artifact_id("bounded-inventory-posture", posture),
@@ -602,6 +666,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         "identity": identity,
         "inventory": inventory_record,
         "provider": provider_state,
+        "preservation_files": preservation_files,
         "release": release_state,
         "repo": repo,
         "remote_main": remote_main,
@@ -735,7 +800,9 @@ def safe_status_path(raw: str) -> PurePosixPath | None:
     return path
 
 
-def read_regular_file(path: Path) -> tuple[bytes, str]:
+def read_regular_file(
+    path: Path, *, limit: int = MAX_PRESERVATION_FILE_BYTES
+) -> tuple[bytes, str]:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
@@ -743,10 +810,7 @@ def read_regular_file(path: Path) -> tuple[bytes, str]:
         raise CleanupError("preservation source is unavailable") from exc
     try:
         before = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_size > MAX_PRESERVATION_FILE_BYTES
-        ):
+        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
             raise CleanupError("preservation source is nonregular or oversized")
         chunks: list[bytes] = []
         remaining = before.st_size
@@ -773,6 +837,118 @@ def read_regular_file(path: Path) -> tuple[bytes, str]:
     if identity(before) != identity(after):
         raise CleanupError("preservation source changed while reading")
     return b"".join(chunks), f"{before.st_mode:06o}"[-6:]
+
+
+def path_observation(path: Path) -> dict[str, Any]:
+    try:
+        value = os.lstat(path)
+    except OSError:
+        return {"result": "absent"}
+    return {
+        "device": value.st_dev,
+        "inode": value.st_ino,
+        "mode": f"{value.st_mode:06o}"[-6:],
+        "modified_ns": value.st_mtime_ns,
+        "result": "metadata-only",
+        "size": value.st_size,
+    }
+
+
+def capture_worktree_material(
+    worktree: Path,
+    statuses: list[dict[str, str]],
+    child_ids: dict[tuple[str, str], str],
+) -> tuple[list[dict[str, Any]], str, bool]:
+    staged = git(worktree, "diff", "--binary", "--cached", "--no-ext-diff")
+    unstaged = git(worktree, "diff", "--binary", "--no-ext-diff")
+    files: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = [
+        {"kind": "staged-delta", "sha256": sha256(staged), "size": len(staged)},
+        {
+            "kind": "unstaged-delta",
+            "sha256": sha256(unstaged),
+            "size": len(unstaged),
+        },
+    ]
+    total = 0
+    if staged or unstaged:
+        delta = (
+            canonical(
+                {
+                    "staged": base64.b64encode(staged).decode("ascii"),
+                    "unstaged": base64.b64encode(unstaged).decode("ascii"),
+                }
+            )
+            + b"\n"
+        )
+        if len(delta) <= MAX_PRESERVATION_FILE_BYTES:
+            files.append(
+                {
+                    "artifact_id": None,
+                    "mode": "100600",
+                    "path": ".git-deltas.json",
+                    "payload": delta,
+                }
+            )
+            total = len(delta)
+    complete = not (staged or unstaged) or bool(files)
+    for status_entry in statuses:
+        code = status_entry["code"]
+        raw_path = status_entry["path"]
+        observation: dict[str, Any] = {"code": code, "path": raw_path}
+        relative = safe_status_path(raw_path)
+        if relative is None:
+            observation["capture"] = (
+                "delta-only" if code not in {"??", "!!"} else "unknown"
+            )
+            complete = complete and code not in {"??", "!!"}
+            observations.append(observation)
+            continue
+        candidate = worktree.joinpath(*relative.parts)
+        metadata = path_observation(candidate)
+        observation["source"] = metadata
+        size = metadata.get("size")
+        if (
+            metadata["result"] != "metadata-only"
+            or not stat.S_ISREG(int(metadata["mode"], 8))
+            or not isinstance(size, int)
+            or size > MAX_PRESERVATION_FILE_BYTES
+            or total + size > MAX_PRESERVATION_PACKAGE_BYTES
+        ):
+            observation["capture"] = (
+                "delta-only" if code not in {"??", "!!"} else "unknown"
+            )
+            complete = complete and code not in {"??", "!!"}
+            observations.append(observation)
+            continue
+        try:
+            payload, mode = read_regular_file(candidate)
+        except CleanupError:
+            observation["capture"] = (
+                "delta-only" if code not in {"??", "!!"} else "unknown"
+            )
+            complete = complete and code not in {"??", "!!"}
+            observations.append(observation)
+            continue
+        observation.update(
+            {
+                "capture": "bytes",
+                "mode": mode,
+                "sha256": sha256(payload),
+                "size": len(payload),
+            }
+        )
+        files.append(
+            {
+                "artifact_id": child_ids[(code, raw_path)],
+                "mode": mode,
+                "path": str(relative),
+                "payload": payload,
+            }
+        )
+        total += len(payload)
+        observations.append(observation)
+    return files, sha256(observations), complete
 
 
 def restore_drill(payload: bytes) -> str:
@@ -828,7 +1004,7 @@ def write_local_package(
     manifest = {
         "artifact_ids": artifact_ids,
         "files": rows,
-        "kind": "local-preservation-package",
+        "kind": "worktree-preservation-package",
         "schema_version": SCHEMA_VERSION,
     }
     manifest_payload = canonical(manifest) + b"\n"
@@ -839,11 +1015,125 @@ def write_local_package(
         {
             "artifact_ids": artifact_ids,
             "local_only": True,
+            "package_kind": "worktree-bytes",
             "package_id": package_id,
             "package_root": sha256(manifest_payload),
             "path": str(package_path),
         },
         byte_entries,
+    )
+
+
+def restore_object_pack(payload: bytes, object_ids: list[str]) -> str:
+    with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+        restored = Path(temporary) / "objects.git"
+        run_command(["git", "init", "--bare", str(restored)], Path(temporary))
+        run_command(
+            ["git", "index-pack", "--stdin", "--fix-thin"],
+            restored,
+            timeout=120,
+            input_bytes=payload,
+        )
+        for oid in object_ids:
+            git(restored, "cat-file", "-e", oid)
+        git(
+            restored, "fsck", "--full", "--no-reflogs", "--unreachable", "--no-progress"
+        )
+    return sha256(payload)
+
+
+def write_object_package(
+    state: dict[str, Any], directory: Path
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str | None]:
+    artifacts_by_oid: dict[str, list[dict[str, Any]]] = {}
+    object_types: dict[str, str] = {}
+    for artifact in state["artifacts"]:
+        oid = artifact["object_id"]
+        if not isinstance(oid, str):
+            continue
+        try:
+            object_type = git(state["repo"], "cat-file", "-t", oid).decode().strip()
+        except CleanupError:
+            continue
+        if object_type not in {"commit", "tree", "blob", "tag"}:
+            continue
+        artifacts_by_oid.setdefault(oid, []).append(artifact)
+        object_types[oid] = object_type
+    object_ids = sorted(artifacts_by_oid)
+    if not object_ids:
+        return None, [], None
+    try:
+        pack = run_command(
+            ["git", "pack-objects", "--revs", "--stdout"],
+            state["repo"],
+            timeout=120,
+            max_output_bytes=MAX_PRESERVATION_PACKAGE_BYTES,
+            input_bytes=("\n".join(object_ids) + "\n").encode("ascii"),
+        )
+    except CleanupError:
+        return None, [], None
+    if not pack or len(pack) > MAX_PRESERVATION_PACKAGE_BYTES:
+        return None, [], None
+    pack_root = restore_object_pack(pack, object_ids)
+    package_id = artifact_id("object-package", [state["source_root"], object_ids])
+    package_path = directory / "packages" / package_id
+    package_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if package_path.is_symlink() or package_path.resolve(strict=True) != package_path:
+        raise CleanupError("object package path is unsafe")
+    write_immutable_bytes(
+        package_path / "objects.pack", pack, MAX_PRESERVATION_PACKAGE_BYTES
+    )
+    artifact_ids = sorted(
+        artifact["artifact_id"]
+        for artifacts in artifacts_by_oid.values()
+        for artifact in artifacts
+    )
+    manifest = {
+        "artifact_ids": artifact_ids,
+        "files": [
+            {
+                "mode": "100600",
+                "name": "objects.pack",
+                "object_ids": object_ids,
+                "sha256": pack_root,
+                "size": len(pack),
+            }
+        ],
+        "kind": "git-object-preservation-package",
+        "schema_version": SCHEMA_VERSION,
+    }
+    manifest_payload = canonical(manifest) + b"\n"
+    write_immutable_bytes(
+        package_path / "manifest.json", manifest_payload, MAX_RECORD_BYTES
+    )
+    entries = [
+        {
+            "artifact_id": artifact["artifact_id"],
+            "object_id": oid,
+            "object_type": (
+                "stash" if artifact["artifact_kind"] == "stash" else object_types[oid]
+            ),
+            "package_id": package_id,
+            "path": "objects.pack",
+            "sha256": pack_root,
+            "size": len(pack),
+        }
+        for oid in object_ids
+        for artifact in sorted(
+            artifacts_by_oid[oid], key=lambda item: item["artifact_id"]
+        )
+    ]
+    return (
+        {
+            "artifact_ids": artifact_ids,
+            "local_only": True,
+            "package_kind": "git-objects",
+            "package_id": package_id,
+            "package_root": sha256(manifest_payload),
+            "path": str(package_path),
+        },
+        entries,
+        pack_root,
     )
 
 
@@ -874,6 +1164,21 @@ def surface_kinds(path: str | None) -> list[str]:
     return kinds
 
 
+def candidate_source_groups(artifacts: list[dict[str, Any]]) -> list[list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for item in artifacts:
+        key = (
+            f"object:{item['object_id']}"
+            if item["artifact_kind"] in {"pull-request", "ref", "stash"}
+            and item["object_id"] is not None
+            else f"artifact:{item['artifact_id']}"
+        )
+        grouped.setdefault(key, []).append(item["artifact_id"])
+    return sorted(
+        (sorted(values) for values in grouped.values()), key=lambda item: item
+    )
+
+
 def build_preservation(
     state: dict[str, Any], plan: dict[str, Any], directory: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -888,93 +1193,19 @@ def build_preservation(
     packages: list[dict[str, Any]] = []
     byte_entries: list[dict[str, Any]] = []
     proof_roots: dict[str, list[str]] = {}
-    object_cache: dict[str, tuple[str, str]] = {}
-    for artifact in state["artifacts"]:
-        oid = artifact["object_id"]
-        if not isinstance(oid, str):
-            continue
-        cached = object_cache.get(oid)
-        if cached is None:
-            try:
-                raw_type = git(state["repo"], "cat-file", "-t", oid).decode().strip()
-                payload = git(state["repo"], "cat-file", "-p", oid)
-            except CleanupError:
-                continue
-            if len(payload) > MAX_PRESERVATION_FILE_BYTES or raw_type not in {
-                "commit",
-                "tree",
-                "blob",
-                "tag",
-            }:
-                continue
-            cached = (raw_type, restore_drill(payload))
-            object_cache[oid] = cached
-        object_type, payload_root = cached
-        if artifact["artifact_kind"] == "stash":
-            object_type = "stash"
-        object_entries.append(
-            {
-                "artifact_id": artifact["artifact_id"],
-                "object_id": oid,
-                "object_type": object_type,
-            }
-        )
-        proof_roots.setdefault(artifact["artifact_id"], []).append(payload_root)
+    object_package, object_entries, object_pack_root = write_object_package(
+        state, directory
+    )
+    if object_package is not None and object_pack_root is not None:
+        packages.append(object_package)
+        for item in object_entries:
+            proof_roots.setdefault(item["artifact_id"], []).append(object_pack_root)
 
     for worktree in (
         item for item in state["artifacts"] if item["artifact_kind"] == "worktree"
     ):
         worktree_path = Path(str(worktree["path"]))
-        children = [
-            item
-            for item in state["artifacts"]
-            if item["artifact_kind"] == "worktree-path"
-            and item["origin"] == str(worktree_path)
-        ]
-        if not children:
-            continue
-        files: list[dict[str, Any]] = []
-        try:
-            staged = git(worktree_path, "diff", "--binary", "--cached", "--no-ext-diff")
-            unstaged = git(worktree_path, "diff", "--binary", "--no-ext-diff")
-            delta = (
-                canonical(
-                    {
-                        "staged": base64.b64encode(staged).decode("ascii"),
-                        "unstaged": base64.b64encode(unstaged).decode("ascii"),
-                    }
-                )
-                + b"\n"
-            )
-            if len(delta) > MAX_PRESERVATION_FILE_BYTES:
-                raise CleanupError("worktree delta package is oversized")
-            files.append(
-                {
-                    "artifact_id": worktree["artifact_id"],
-                    "mode": "100600",
-                    "path": ".git-deltas.json",
-                    "payload": delta,
-                }
-            )
-        except CleanupError:
-            pass
-        for child in children:
-            relative = safe_status_path(str(child["path"]))
-            if relative is None:
-                continue
-            candidate = worktree_path.joinpath(*relative.parts)
-            try:
-                payload, mode = read_regular_file(candidate)
-            except CleanupError:
-                continue
-            files.append(
-                {
-                    "artifact_id": child["artifact_id"],
-                    "mode": mode,
-                    "path": str(relative),
-                    "payload": payload,
-                }
-            )
+        files = state["preservation_files"].get(str(worktree_path), [])
         if not files:
             continue
         package_id = artifact_id(
@@ -1030,45 +1261,77 @@ def build_preservation(
     )
     finish_record(preservation)
 
-    candidates = [
-        {
-            "candidate_id": f"candidate-{item['artifact_id']}",
-            "source_artifact_ids": [item["artifact_id"]],
-            "status": "unknown",
-        }
-        for item in state["artifacts"]
-    ]
+    candidates: list[dict[str, Any]] = []
+    for source_ids in candidate_source_groups(state["artifacts"]):
+        candidate_id = artifact_id("candidate", source_ids)
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "deletion_eligible": False,
+                "source_artifact_ids": source_ids,
+                "status": "unknown",
+            }
+        )
+    candidates.sort(key=lambda item: item["candidate_id"])
     byte_roots = {item["artifact_id"]: item["sha256"] for item in byte_entries}
     object_roots = {item["artifact_id"]: item["object_id"] for item in object_entries}
     surfaces: list[dict[str, Any]] = []
-    for artifact in state["artifacts"]:
-        evidence_refs = []
-        if artifact["artifact_id"] in byte_roots:
-            evidence_refs.append(f"byte:{byte_roots[artifact['artifact_id']]}")
-        if artifact["artifact_id"] in object_roots:
-            evidence_refs.append(f"object:{object_roots[artifact['artifact_id']]}")
+    for candidate in candidates:
+        source_artifacts = [
+            item
+            for item in state["artifacts"]
+            if item["artifact_id"] in candidate["source_artifact_ids"]
+        ]
+        evidence_refs = sorted(
+            {
+                *(
+                    f"byte:{byte_roots[item['artifact_id']]}"
+                    for item in source_artifacts
+                    if item["artifact_id"] in byte_roots
+                ),
+                *(
+                    f"object:{object_roots[item['artifact_id']]}"
+                    for item in source_artifacts
+                    if item["artifact_id"] in object_roots
+                ),
+            }
+        )
         if not evidence_refs:
-            evidence_refs.append("retained:unknown")
-        for kind in surface_kinds(artifact["path"]):
+            evidence_refs = ["retained:unknown"]
+        kinds = sorted(
+            {kind for item in source_artifacts for kind in surface_kinds(item["path"])}
+        )
+        if not kinds:
+            kinds = ["deferred-option"]
+        for kind in kinds:
             surfaces.append(
                 {
-                    "candidate_id": f"candidate-{artifact['artifact_id']}",
+                    "candidate_id": candidate["candidate_id"],
                     "evidence_refs": evidence_refs,
                     "surface_id": artifact_id(
-                        "surface", [artifact["artifact_id"], kind]
+                        "surface", [candidate["candidate_id"], kind]
                     ),
                     "surface_kind": kind,
                 }
             )
     surfaces.sort(key=lambda item: item["surface_id"])
-    unknowns = [
-        {
-            "reason": "functional coverage requires independent semantic evidence",
-            "revisit_trigger": "before any non-retain disposition",
-            "subject_id": item["candidate_id"],
-        }
-        for item in candidates
-    ]
+    preserved_ids = set(byte_roots) | set(object_roots)
+    unknowns = []
+    for item in candidates:
+        byte_complete = set(item["source_artifact_ids"]) <= preserved_ids
+        reason = "functional coverage requires independent semantic evidence"
+        if not byte_complete:
+            reason = (
+                "byte or object preservation is incomplete; source remains retained; "
+                "functional coverage requires independent semantic evidence"
+            )
+        unknowns.append(
+            {
+                "reason": reason,
+                "revisit_trigger": "before any non-retain disposition",
+                "subject_id": item["candidate_id"],
+            }
+        )
     review_requirements = [
         {
             "candidate_id": item["candidate_id"],
@@ -1149,7 +1412,7 @@ def write_immutable_bytes(path: Path, payload: bytes, limit: int) -> None:
     try:
         descriptor = os.open(path, flags, 0o600)
     except FileExistsError:
-        existing, _ = read_regular_file(path)
+        existing, _ = read_regular_file(path, limit=limit)
         if len(existing) > limit or existing != payload:
             raise CleanupError(f"immutable record differs: {path.name}")
         return
@@ -1342,8 +1605,9 @@ def read_record(path: Path) -> dict[str, Any]:
 def verify_local_packages(
     directory: Path,
     preservation: dict[str, Any],
-) -> None:
+) -> dict[str, dict[str, Any]]:
     package_rows: dict[str, dict[str, Any]] = {}
+    object_packages: dict[str, dict[str, Any]] = {}
     for package in preservation["packages"]:
         package_path = normalized_absolute(package["path"])
         if (
@@ -1368,33 +1632,59 @@ def verify_local_packages(
             "schema_version",
         } or not isinstance(manifest["files"], list):
             raise CleanupError("preservation package manifest fields differ")
-        if (
-            manifest["kind"] != "local-preservation-package"
-            or manifest["schema_version"] != SCHEMA_VERSION
-        ):
+        if manifest["schema_version"] != SCHEMA_VERSION:
             raise CleanupError("preservation package manifest version differs")
         if manifest.get("artifact_ids") != package["artifact_ids"]:
             raise CleanupError("preservation package artifact set differs")
         expected_names = {"manifest.json"}
-        for row in manifest.get("files", []):
+        if package["package_kind"] == "worktree-bytes":
+            if manifest["kind"] != "worktree-preservation-package":
+                raise CleanupError("worktree package kind differs")
+            for row in manifest["files"]:
+                if not isinstance(row, dict) or set(row) != {
+                    "artifact_id",
+                    "mode",
+                    "name",
+                    "path",
+                    "sha256",
+                    "size",
+                }:
+                    raise CleanupError("preservation package row is malformed")
+                if row["artifact_id"] in package_rows:
+                    raise CleanupError("artifact appears in multiple package files")
+                if row["name"] != f"{row['artifact_id']}.bin":
+                    raise CleanupError("preservation package filename differs")
+                expected_names.add(row["name"])
+                payload, _ = read_regular_file(package_path / row["name"])
+                if len(payload) != row["size"] or sha256(payload) != row["sha256"]:
+                    raise CleanupError("preservation package bytes differ")
+                package_rows[row["artifact_id"]] = row
+        elif package["package_kind"] == "git-objects":
+            if (
+                manifest["kind"] != "git-object-preservation-package"
+                or len(manifest["files"]) != 1
+            ):
+                raise CleanupError("object package kind differs")
+            row = manifest["files"][0]
             if not isinstance(row, dict) or set(row) != {
-                "artifact_id",
                 "mode",
                 "name",
-                "path",
+                "object_ids",
                 "sha256",
                 "size",
             }:
-                raise CleanupError("preservation package row is malformed")
-            if row["artifact_id"] in package_rows:
-                raise CleanupError("artifact appears in multiple package files")
-            if row["name"] != f"{row['artifact_id']}.bin":
-                raise CleanupError("preservation package filename differs")
-            expected_names.add(row["name"])
-            payload, _ = read_regular_file(package_path / row["name"])
+                raise CleanupError("object package row is malformed")
+            if row["name"] != "objects.pack" or not isinstance(row["object_ids"], list):
+                raise CleanupError("object package filename differs")
+            expected_names.add("objects.pack")
+            payload, _ = read_regular_file(
+                package_path / "objects.pack", limit=MAX_PRESERVATION_PACKAGE_BYTES
+            )
             if len(payload) != row["size"] or sha256(payload) != row["sha256"]:
-                raise CleanupError("preservation package bytes differ")
-            package_rows[row["artifact_id"]] = row
+                raise CleanupError("object package bytes differ")
+            object_packages[package["package_id"]] = {**row, "payload": payload}
+        else:
+            raise CleanupError("preservation package kind is unknown")
         if {item.name for item in package_path.iterdir()} != expected_names:
             raise CleanupError("preservation package file set differs")
     for entry in preservation["byte_entries"]:
@@ -1407,6 +1697,7 @@ def verify_local_packages(
         item["artifact_id"] for item in preservation["byte_entries"]
     }:
         raise CleanupError("preservation package contains unbound bytes")
+    return object_packages
 
 
 def verify_preservation_records(
@@ -1432,12 +1723,30 @@ def verify_preservation_records(
     )
     if preservation["preservation_root"] != expected_preservation_root:
         raise CleanupError("preservation semantic root differs")
-    verify_local_packages(directory, preservation)
+    object_packages = verify_local_packages(directory, preservation)
     inventory_by_id = {item["artifact_id"]: item for item in inventory["artifacts"]}
     for entry in preservation["object_entries"]:
         artifact = inventory_by_id.get(entry["artifact_id"])
-        if artifact is None or artifact["object_id"] != entry["object_id"]:
+        package = object_packages.get(entry["package_id"])
+        if (
+            artifact is None
+            or artifact["object_id"] != entry["object_id"]
+            or package is None
+            or entry["object_id"] not in package["object_ids"]
+            or entry["path"] != package["name"]
+            or entry["sha256"] != package["sha256"]
+            or entry["size"] != package["size"]
+        ):
             raise CleanupError("preserved object differs from inventory")
+    for package in preservation["packages"]:
+        if package["package_kind"] == "git-objects" and set(
+            package["artifact_ids"]
+        ) != {
+            entry["artifact_id"]
+            for entry in preservation["object_entries"]
+            if entry["package_id"] == package["package_id"]
+        }:
+            raise CleanupError("object package artifact set differs")
     if any(
         entry["artifact_id"] not in inventory_by_id
         for entry in preservation["byte_entries"]
@@ -1483,9 +1792,14 @@ def verify_preservation_records(
     covered_ids = set(covered_list)
     unknown_ids = {item["subject_id"] for item in coverage["unknowns"]}
     candidate_ids = {item["candidate_id"] for item in coverage["candidates"]}
+    actual_groups = sorted(
+        (sorted(item["source_artifact_ids"]) for item in coverage["candidates"]),
+        key=lambda item: item,
+    )
     if (
         inventory_ids != covered_ids
         or len(covered_list) != len(inventory_ids)
+        or actual_groups != candidate_source_groups(inventory["artifacts"])
         or any(
             item["status"] != "unknown" or item["candidate_id"] not in unknown_ids
             for item in coverage["candidates"]
@@ -1493,9 +1807,7 @@ def verify_preservation_records(
         or unknown_ids != candidate_ids
         or {item["candidate_id"] for item in coverage["review_requirements"]}
         != candidate_ids
-        or any(
-            item["candidate_id"] not in candidate_ids for item in coverage["surfaces"]
-        )
+        or {item["candidate_id"] for item in coverage["surfaces"]} != candidate_ids
     ):
         raise CleanupError("capability coverage is not exhaustive and retained")
 
@@ -1507,7 +1819,7 @@ def restore_artifact(
     if verified["status"] != "preservation-retained-unknown":
         raise CleanupError("verified preservation is unavailable")
     preservation = read_record(directory / "preservation.json")
-    entry = next(
+    byte_entry = next(
         (
             item
             for item in preservation["byte_entries"]
@@ -1515,36 +1827,96 @@ def restore_artifact(
         ),
         None,
     )
+    object_entry = next(
+        (
+            item
+            for item in preservation["object_entries"]
+            if item["artifact_id"] == artifact_id_value
+        ),
+        None,
+    )
+    if byte_entry is None and object_entry is None:
+        raise CleanupError("artifact has no local preservation package")
     package = next(
         (
             item
             for item in preservation["packages"]
-            if artifact_id_value in item["artifact_ids"]
+            if (
+                byte_entry is not None
+                and artifact_id_value in item["artifact_ids"]
+                and item["package_kind"] == "worktree-bytes"
+            )
+            or (
+                object_entry is not None
+                and item["package_id"] == object_entry["package_id"]
+                and item["package_kind"] == "git-objects"
+            )
         ),
         None,
     )
-    if entry is None or package is None:
-        raise CleanupError("artifact has no local byte package")
+    if package is None:
+        raise CleanupError("artifact package binding differs")
     package_path = normalized_absolute(package["path"])
-    payload, _ = read_regular_file(package_path / f"{artifact_id_value}.bin")
-    if len(payload) != entry["size"] or sha256(payload) != entry["sha256"]:
-        raise CleanupError("artifact package bytes differ")
     restored = normalized_absolute(destination, must_exist=False)
     if restored.exists() or not restored.parent.is_dir():
-        raise CleanupError("restore destination must be a new file")
+        raise CleanupError("restore destination must be new")
+    if object_entry is not None:
+        payload, _ = read_regular_file(
+            package_path / object_entry["path"],
+            limit=MAX_PRESERVATION_PACKAGE_BYTES,
+        )
+        if (
+            len(payload) != object_entry["size"]
+            or sha256(payload) != object_entry["sha256"]
+        ):
+            raise CleanupError("object package bytes differ")
+        run_command(["git", "init", "--bare", str(restored)], restored.parent)
+        run_command(
+            ["git", "index-pack", "--stdin", "--fix-thin"],
+            restored,
+            timeout=120,
+            input_bytes=payload,
+        )
+        git(restored, "cat-file", "-e", object_entry["object_id"])
+        actual_type = (
+            git(restored, "cat-file", "-t", object_entry["object_id"]).decode().strip()
+        )
+        expected_type = (
+            "commit"
+            if object_entry["object_type"] == "stash"
+            else object_entry["object_type"]
+        )
+        if actual_type != expected_type:
+            raise CleanupError("restored object type differs")
+        git(
+            restored, "fsck", "--full", "--no-reflogs", "--unreachable", "--no-progress"
+        )
+        return {
+            "artifact_id": artifact_id_value,
+            "object_id": object_entry["object_id"],
+            "object_type": object_entry["object_type"],
+            "path": str(restored),
+            "sha256": object_entry["sha256"],
+            "status": "restored",
+        }
+    if byte_entry is None:
+        raise CleanupError("artifact byte package is unavailable")
+    payload, _ = read_regular_file(package_path / f"{artifact_id_value}.bin")
+    if len(payload) != byte_entry["size"] or sha256(payload) != byte_entry["sha256"]:
+        raise CleanupError("artifact package bytes differ")
     write_immutable_bytes(restored, payload, MAX_PRESERVATION_FILE_BYTES)
     try:
-        os.chmod(restored, int(entry["mode"], 8) & 0o7777)
+        os.chmod(restored, int(byte_entry["mode"], 8) & 0o7777)
     except (OSError, ValueError) as exc:
         raise CleanupError("restored mode could not be applied") from exc
     restored_payload, restored_mode = read_regular_file(restored)
-    if restored_payload != payload or restored_mode[-4:] != entry["mode"][-4:]:
+    if restored_payload != payload or restored_mode[-4:] != byte_entry["mode"][-4:]:
         raise CleanupError("restored artifact differs")
     return {
         "artifact_id": artifact_id_value,
-        "mode": entry["mode"],
+        "mode": byte_entry["mode"],
         "path": str(restored),
-        "sha256": entry["sha256"],
+        "sha256": byte_entry["sha256"],
         "status": "restored",
     }
 
