@@ -575,6 +575,47 @@ class ReconcileTests(unittest.TestCase):
             all(not item["deletion_eligible"] for item in coverage["candidates"])
         )
 
+    def test_semantic_candidates_dedupe_trees_and_map_committed_paths(self) -> None:
+        run(["git", "commit", "--allow-empty", "-m", "metadata only"], self.repo)
+        run(["git", "switch", "-c", "feature-route"], self.repo)
+        (self.repo / "api-route.py").write_text("route = True\n", encoding="utf-8")
+        run(["git", "add", "api-route.py"], self.repo)
+        run(["git", "commit", "-m", "add route"], self.repo)
+        run(["git", "switch", "main"], self.repo)
+        plan = json.loads(self.command("plan").stdout)
+        self.command("preserve", "--run-dir", plan["run_dir"])
+        run_dir = Path(plan["run_dir"])
+        inventory = json.loads((run_dir / "inventory.json").read_text())
+        coverage = json.loads((run_dir / "capability-coverage.json").read_text())
+        ref_ids = {
+            item["origin"]: item["artifact_id"]
+            for item in inventory["artifacts"]
+            if item["artifact_kind"] == "ref"
+        }
+        main_candidate = next(
+            item
+            for item in coverage["candidates"]
+            if ref_ids["refs/heads/main"] in item["source_artifact_ids"]
+        )
+        self.assertIn(
+            ref_ids["refs/remotes/origin/main"], main_candidate["source_artifact_ids"]
+        )
+        feature_candidate = next(
+            item
+            for item in coverage["candidates"]
+            if ref_ids["refs/heads/feature-route"] in item["source_artifact_ids"]
+        )
+        feature_surfaces = {
+            item["surface_kind"]
+            for item in coverage["surfaces"]
+            if item["candidate_id"] == feature_candidate["candidate_id"]
+        }
+        self.assertTrue({"api", "route"} <= feature_surfaces)
+        self.assertEqual(
+            len({item["semantic_key"] for item in coverage["candidates"]}),
+            len(coverage["candidates"]),
+        )
+
     def test_command_output_bound_rejects_stdout_and_stderr(self) -> None:
         for stream in ("stdout", "stderr"):
             with self.assertRaises(reconcile.CleanupError):

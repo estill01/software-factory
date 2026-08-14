@@ -164,6 +164,8 @@ Oversized, nonregular, submodule, or otherwise unreadable material is recorded
 as incomplete and remains retained. Preservation stores reachable Git history
 once in a local pack, verifies it in a disposable bare repository, and keeps
 every semantically unknown candidate explicitly deletion-ineligible.
+Committed candidates sharing an exact tree share one semantic-review packet;
+bounded main-to-candidate path deltas seed its affected-surface review inputs.
 
 ## Artifact inventory and disposition
 

@@ -665,6 +665,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         "created_at": created_at,
         "identity": identity,
         "inventory": inventory_record,
+        "local_main": local_main,
         "provider": provider_state,
         "preservation_files": preservation_files,
         "release": release_state,
@@ -1164,18 +1165,66 @@ def surface_kinds(path: str | None) -> list[str]:
     return kinds
 
 
-def candidate_source_groups(artifacts: list[dict[str, Any]]) -> list[list[str]]:
-    grouped: dict[str, list[str]] = {}
-    for item in artifacts:
-        key = (
-            f"object:{item['object_id']}"
-            if item["artifact_kind"] in {"pull-request", "ref", "stash"}
+def tree_oid(repo: Path, oid: str) -> str | None:
+    try:
+        value = git(repo, "rev-parse", "--verify", f"{oid}^{{tree}}").decode().strip()
+    except CleanupError:
+        return None
+    return value if GIT_OID.fullmatch(value) else None
+
+
+def semantic_candidate_groups(state: dict[str, Any]) -> list[dict[str, Any]]:
+    repo = state["repo"]
+    main_tree = tree_oid(repo, state["local_main"])
+    grouped: dict[str, dict[str, Any]] = {}
+    object_trees: dict[str, str | None] = {}
+    tree_paths: dict[str, list[str]] = {}
+    for item in state["artifacts"]:
+        semantic_tree = None
+        if (
+            item["artifact_kind"] in {"pull-request", "ref", "stash"}
             and item["object_id"] is not None
+        ):
+            if item["object_id"] not in object_trees:
+                object_trees[item["object_id"]] = tree_oid(repo, item["object_id"])
+            semantic_tree = object_trees[item["object_id"]]
+        semantic_key = (
+            f"tree:{semantic_tree}"
+            if semantic_tree is not None
             else f"artifact:{item['artifact_id']}"
         )
-        grouped.setdefault(key, []).append(item["artifact_id"])
+        group = grouped.setdefault(
+            semantic_key,
+            {
+                "semantic_key": semantic_key,
+                "source_artifact_ids": [],
+                "surface_paths": set(),
+            },
+        )
+        group["source_artifact_ids"].append(item["artifact_id"])
+        if item["path"]:
+            group["surface_paths"].add(item["path"])
+        if semantic_tree is not None and main_tree is not None:
+            if semantic_tree not in tree_paths:
+                raw = git(repo, "diff", "--name-only", "-z", main_tree, semantic_tree)
+                tree_paths[semantic_tree] = [
+                    path
+                    for path in raw.decode("utf-8", errors="surrogateescape").split(
+                        "\0"
+                    )
+                    if path
+                ]
+            group["surface_paths"].update(tree_paths[semantic_tree])
     return sorted(
-        (sorted(values) for values in grouped.values()), key=lambda item: item
+        (
+            {
+                "semantic_key": value["semantic_key"],
+                "source_artifact_ids": sorted(value["source_artifact_ids"]),
+                "surface_paths": sorted(value["surface_paths"]),
+            }
+            for value in grouped.values()
+        ),
+        key=lambda item: item["semantic_key"],
     )
 
 
@@ -1262,16 +1311,20 @@ def build_preservation(
     finish_record(preservation)
 
     candidates: list[dict[str, Any]] = []
-    for source_ids in candidate_source_groups(state["artifacts"]):
+    candidate_paths: dict[str, list[str]] = {}
+    for group in semantic_candidate_groups(state):
+        source_ids = group["source_artifact_ids"]
         candidate_id = artifact_id("candidate", source_ids)
         candidates.append(
             {
                 "candidate_id": candidate_id,
                 "deletion_eligible": False,
+                "semantic_key": group["semantic_key"],
                 "source_artifact_ids": source_ids,
                 "status": "unknown",
             }
         )
+        candidate_paths[candidate_id] = group["surface_paths"]
     candidates.sort(key=lambda item: item["candidate_id"])
     byte_roots = {item["artifact_id"]: item["sha256"] for item in byte_entries}
     object_roots = {item["artifact_id"]: item["object_id"] for item in object_entries}
@@ -1299,7 +1352,11 @@ def build_preservation(
         if not evidence_refs:
             evidence_refs = ["retained:unknown"]
         kinds = sorted(
-            {kind for item in source_artifacts for kind in surface_kinds(item["path"])}
+            {
+                kind
+                for path in candidate_paths[candidate["candidate_id"]]
+                for kind in surface_kinds(path)
+            }
         )
         if not kinds:
             kinds = ["deferred-option"]
@@ -1792,14 +1849,11 @@ def verify_preservation_records(
     covered_ids = set(covered_list)
     unknown_ids = {item["subject_id"] for item in coverage["unknowns"]}
     candidate_ids = {item["candidate_id"] for item in coverage["candidates"]}
-    actual_groups = sorted(
-        (sorted(item["source_artifact_ids"]) for item in coverage["candidates"]),
-        key=lambda item: item,
-    )
     if (
         inventory_ids != covered_ids
         or len(covered_list) != len(inventory_ids)
-        or actual_groups != candidate_source_groups(inventory["artifacts"])
+        or len({item["semantic_key"] for item in coverage["candidates"]})
+        != len(coverage["candidates"])
         or any(
             item["status"] != "unknown" or item["candidate_id"] not in unknown_ids
             for item in coverage["candidates"]
