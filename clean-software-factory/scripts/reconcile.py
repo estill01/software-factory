@@ -71,30 +71,22 @@ def git(repo: Path, *args: str, timeout: int = 30) -> bytes:
 
 
 def normalized_absolute(raw: str, *, must_exist: bool = True) -> Path:
-    lexical = Path(raw)
+    lexical = Path(raw).expanduser()
     if not lexical.is_absolute():
         raise CleanupError("path must be absolute")
-    normalized = os.path.normpath(raw)
-    if normalized != raw or raw == "/":
-        raise CleanupError("path must be canonical and narrower than root")
-    lexical = Path(raw)
-    current = Path(lexical.anchor)
-    for part in lexical.parts[1:]:
-        current /= part
-        if current.exists() and current.is_symlink():
-            raise CleanupError("symlink or substituted path is not allowed")
+    lexical = Path(os.path.normpath(str(lexical)))
     try:
         resolved = lexical.resolve(strict=must_exist)
     except OSError as exc:
         raise CleanupError("path is unavailable") from exc
-    if resolved != lexical:
+    if must_exist and lexical.is_symlink():
         raise CleanupError("symlink or substituted path is not allowed")
     return resolved
 
 
 def resolve_repository(raw: str) -> tuple[Path, Path]:
     repo = normalized_absolute(raw)
-    if repo == Path("/") or not repo.is_dir():
+    if not repo.is_dir():
         raise CleanupError("repository path is not a directory")
     top = Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve()
     if top != repo:
@@ -103,9 +95,8 @@ def resolve_repository(raw: str) -> tuple[Path, Path]:
     common = Path(common_raw)
     if not common.is_absolute():
         common = repo / common
-    common_lexical = Path(os.path.normpath(str(common)))
-    common = common_lexical.resolve(strict=True)
-    if common != common_lexical or not common.is_dir() or common == Path("/"):
+    common = common.resolve(strict=True)
+    if not common.is_dir() or common == Path("/"):
         raise CleanupError("unsafe Git common directory")
     return repo, common
 
@@ -148,63 +139,14 @@ def parse_worktrees(repo: Path) -> list[dict[str, Any]]:
     return sorted(records, key=lambda item: str(item["worktree"]))
 
 
-def safe_content_evidence(worktree: Path, relative: str) -> dict[str, Any]:
-    """Hash one dirty path; retain directories as unknown without recursion."""
-    candidate = worktree / relative.rstrip("/")
-    lexical = Path(os.path.normpath(str(candidate)))
-    if lexical != candidate or worktree != lexical and worktree not in lexical.parents:
-        raise CleanupError("status path escapes its worktree")
-    if not candidate.exists() and not candidate.is_symlink():
-        evidence = {"complete": True, "kind": "missing", "path": relative}
-        return {**evidence, "root": sha256(evidence)}
-    stat = candidate.lstat()
-    if candidate.is_symlink():
-        payload_root = sha256(os.readlink(candidate).encode("utf-8", "surrogateescape"))
-        kind = "symlink"
-        complete = True
-    elif candidate.is_file():
-        digest = hashlib.sha256()
-        with candidate.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        payload_root = digest.hexdigest()
-        kind = "file"
-        complete = True
-    elif candidate.is_dir():
-        payload_root = None
-        kind = "directory-deferred"
-        complete = False
-    else:
-        payload_root = None
-        kind = "special-deferred"
-        complete = False
-    evidence = {
-        "complete": complete,
-        "ctime_ns": stat.st_ctime_ns,
-        "kind": kind,
-        "mode": stat.st_mode & 0o777777,
-        "mtime_ns": stat.st_mtime_ns,
-        "path": relative,
-        "payload_root": payload_root,
-        "size": stat.st_size,
-    }
-    return {**evidence, "root": sha256(evidence)}
-
-
-def parse_status(
-    worktree: Path, *, include_ignored: bool = False
-) -> list[dict[str, str]]:
-    argv = [
+def parse_status(worktree: Path) -> list[dict[str, str]]:
+    raw = git(
+        worktree,
         "status",
         "--porcelain=v1",
         "-z",
         "--untracked-files=all",
-    ]
-    if include_ignored:
-        argv.append("--ignored=matching")
-    raw = git(
-        worktree,
-        *argv,
+        "--ignored=matching",
     )
     tokens = raw.decode("utf-8", errors="surrogateescape").split("\0")
     entries: list[dict[str, str]] = []
@@ -218,31 +160,32 @@ def parse_status(
             raise CleanupError("malformed Git status entry")
         code = token[:2]
         path = token[3:]
-        physical_path = path
         if "R" in code or "C" in code:
             if index >= len(tokens) or not tokens[index]:
                 raise CleanupError("malformed renamed Git status entry")
             path = f"{tokens[index]} -> {path}"
             index += 1
-        entry = {"code": code, "path": path}
-        evidence = safe_content_evidence(worktree, physical_path)
-        entry["content_complete"] = evidence["complete"]
-        entry["content_root"] = evidence["root"]
-        entries.append(entry)
+        candidate = worktree / path.rstrip("/")
+        if candidate.is_symlink():
+            content_root = sha256(os.readlink(candidate).encode("utf-8"))
+        elif candidate.is_file():
+            content_root = sha256(candidate.read_bytes())
+        else:
+            content_root = None
+        entries.append({"code": code, "content_root": content_root, "path": path})
     return sorted(entries, key=lambda item: (item["path"], item["code"]))
 
 
-def dirt_dimensions(code: str) -> list[str]:
+def dirt_for(code: str) -> str:
     if code == "??":
-        return ["untracked"]
+        return "untracked"
     if code == "!!":
-        return ["ignored"]
-    dimensions: list[str] = []
+        return "ignored"
     if code[0] not in {" ", "?", "!"}:
-        dimensions.append("staged")
+        return "staged"
     if code[1] != " ":
-        dimensions.append("unstaged")
-    return dimensions or ["unknown"]
+        return "unstaged"
+    return "unknown"
 
 
 def parse_refs(repo: Path) -> list[dict[str, str | None]]:
@@ -250,6 +193,9 @@ def parse_refs(repo: Path) -> list[dict[str, str | None]]:
         repo,
         "for-each-ref",
         "--format=%(refname)%00%(objectname)%00%(upstream)%00",
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
     ).decode("utf-8", errors="surrogateescape")
     fields = raw.replace("\n", "").split("\0")
     refs: list[dict[str, str | None]] = []
@@ -263,136 +209,44 @@ def parse_refs(repo: Path) -> list[dict[str, str | None]]:
     return sorted(refs, key=lambda item: str(item["name"]))
 
 
-def parse_stashes(repo: Path) -> list[dict[str, str]]:
-    raw = git(repo, "stash", "list", "--format=%gd%x00%H%x00").decode(
-        "utf-8", errors="surrogateescape"
-    )
-    fields = raw.replace("\n", "").split("\0")
-    stashes: list[dict[str, str]] = []
-    for offset in range(0, len(fields) - 1, 2):
-        name, oid = fields[offset : offset + 2]
-        if not name:
-            continue
-        if not GIT_OID.fullmatch(oid):
-            raise CleanupError("stash has a malformed object ID")
-        stashes.append({"name": name, "object_id": oid})
-    return sorted(stashes, key=lambda item: item["name"])
-
-
-def remote_snapshot(repo: Path, remote: str, main: str) -> dict[str, Any]:
+def remote_main_oid(repo: Path, remote: str, main: str) -> str | None:
     try:
-        raw = git(repo, "ls-remote", "--refs", remote, timeout=60).decode(
-            "utf-8", errors="surrogateescape"
-        )
+        raw = git(repo, "ls-remote", "--refs", remote, f"refs/heads/{main}")
     except CleanupError:
-        return {
-            "availability": "unavailable",
-            "main": None,
-            "refs": [],
-            "remote": remote,
-        }
-    refs: list[dict[str, str]] = []
-    for line in raw.splitlines():
-        oid, separator, name = line.partition("\t")
-        if not separator or not GIT_OID.fullmatch(oid) or not name.startswith("refs/"):
-            raise CleanupError("remote returned a malformed ref")
-        refs.append({"name": name, "object_id": oid})
-    refs.sort(key=lambda item: item["name"])
-    matches = [
-        item["object_id"] for item in refs if item["name"] == f"refs/heads/{main}"
-    ]
-    if len(matches) > 1:
-        raise CleanupError("remote main is ambiguous")
-    return {
-        "availability": "available",
-        "main": matches[0] if matches else None,
-        "refs": refs,
-        "remote": remote,
-    }
-
-
-def strict_json_object(path: Path, subject: str, maximum: int) -> dict[str, Any]:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
-        raise CleanupError(f"{subject} is missing or oversized")
-    try:
-        raw = path.read_text(encoding="utf-8")
-
-        def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-            result: dict[str, Any] = {}
-            for key, value in pairs:
-                if key in result:
-                    raise CleanupError(f"{subject} contains duplicate keys")
-                result[key] = value
-            return result
-
-        value = json.loads(raw, object_pairs_hook=reject_duplicates)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise CleanupError(f"{subject} is malformed") from exc
-    if not isinstance(value, dict):
-        raise CleanupError(f"{subject} must be an object")
-    return value
-
-
-def validate_owner_snapshot(value: dict[str, Any], kind: str) -> None:
-    availability = value.get("availability")
-    if availability not in {"available", "unavailable"}:
-        raise CleanupError(f"{kind} snapshot availability is malformed")
-    if value.get("kind") != kind:
-        raise CleanupError(f"{kind} snapshot kind differs")
-    if availability == "unavailable":
-        return
-    if value.get("complete") is not True:
-        return
-    if kind == "provider-snapshot":
-        if not isinstance(value.get("owner"), str):
-            raise CleanupError("provider snapshot owner is malformed")
-        if not isinstance(value.get("pull_requests"), list):
-            raise CleanupError("provider snapshot pull requests are malformed")
-        if not isinstance(value.get("branch_protection"), dict):
-            raise CleanupError("provider snapshot branch protection is malformed")
-        required = {
-            "baseRefName": str,
-            "headRefName": str,
-            "headRefOid": str,
-            "isDraft": bool,
-            "mergeStateStatus": str,
-            "number": int,
-            "reviewDecision": str,
-            "state": str,
-            "updatedAt": str,
-        }
-        for pull_request in value["pull_requests"]:
-            if not isinstance(pull_request, dict) or any(
-                not isinstance(pull_request.get(field), expected)
-                or (
-                    field == "headRefOid" and not GIT_OID.fullmatch(pull_request[field])
-                )
-                for field, expected in required.items()
-            ):
-                raise CleanupError("provider pull request is malformed")
-    elif kind == "task-snapshot":
-        if not isinstance(value.get("tasks"), list):
-            raise CleanupError("task snapshot tasks are malformed")
-        for task in value["tasks"]:
-            if not isinstance(task, dict) or not isinstance(task.get("task_id"), str):
-                raise CleanupError("task snapshot entry is malformed")
-            if "changed_paths" in task and not isinstance(task["changed_paths"], list):
-                raise CleanupError("task changed paths are malformed")
-    elif kind == "release-snapshot" and not isinstance(value.get("release_id"), str):
-        raise CleanupError("release snapshot identity is malformed")
+        return None
+    lines = [line for line in raw.decode().splitlines() if line]
+    if not lines:
+        return None
+    if len(lines) != 1 or not GIT_OID.fullmatch(lines[0].split("\t", 1)[0]):
+        raise CleanupError("remote main is ambiguous or malformed")
+    return lines[0].split("\t", 1)[0]
 
 
 def load_owner_snapshot(path: str | None, kind: str) -> dict[str, Any]:
     if path is None:
         return {"availability": "unavailable", "kind": kind}
     source = normalized_absolute(path)
-    value = strict_json_object(source, f"{kind} snapshot", MAX_OWNER_SNAPSHOT_BYTES)
+    if not source.is_file() or source.stat().st_size > MAX_OWNER_SNAPSHOT_BYTES:
+        raise CleanupError(f"{kind} snapshot is missing or oversized")
+    try:
+        value = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CleanupError(f"{kind} snapshot is malformed") from exc
+    if not isinstance(value, dict):
+        raise CleanupError(f"{kind} snapshot must be an object")
     value = dict(value)
     value.setdefault("availability", "available")
     value.setdefault("kind", kind)
     if value["availability"] == "available" and value.get("complete") is not True:
         value["complete"] = False
-    validate_owner_snapshot(value, kind)
+    if value.get("availability") == "available" and value.get("complete") is True:
+        expected = {
+            "provider-snapshot": ("pull_requests", list),
+            "task-snapshot": ("tasks", list),
+            "release-snapshot": ("release_id", str),
+        }[kind]
+        if not isinstance(value.get(expected[0]), expected[1]):
+            raise CleanupError(f"{kind} complete payload is malformed")
     return value
 
 
@@ -404,11 +258,7 @@ def github_slug(remote_url: str) -> str | None:
 
 
 def provider_snapshot(
-    repo: Path,
-    provider: str,
-    remote_url: str,
-    main: str,
-    frozen_path: str | None,
+    repo: Path, provider: str, remote_url: str, frozen_path: str | None
 ) -> dict[str, Any]:
     if frozen_path:
         value = load_owner_snapshot(frozen_path, "provider-snapshot")
@@ -454,30 +304,14 @@ def provider_snapshot(
         }
     if not isinstance(payload, list):
         raise CleanupError("provider returned a malformed result")
-    protection_argv = ["gh", "api", f"repos/{slug}/branches/{main}/protection"]
-    try:
-        branch_protection = json.loads(
-            run_command(protection_argv, repo).decode("utf-8")
-        )
-    except (CleanupError, UnicodeError, json.JSONDecodeError):
-        branch_protection = {
-            "availability": "unavailable",
-            "reason": "owner-query-failed",
-        }
-    if not isinstance(branch_protection, dict):
-        raise CleanupError("provider returned malformed branch protection")
-    value = {
+    return {
         "availability": "available",
         "argv": argv,
-        "branch_protection": branch_protection,
-        "complete": len(payload) < 1000
-        and branch_protection.get("availability") != "unavailable",
+        "complete": len(payload) < 1000,
         "kind": "provider-snapshot",
         "owner": provider,
         "pull_requests": sorted(payload, key=lambda item: int(item["number"])),
     }
-    validate_owner_snapshot(value, "provider-snapshot")
-    return value
 
 
 def artifact_id(kind: str, identity: Any) -> str:
@@ -539,62 +373,6 @@ def finish_record(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def submodule_snapshot(repo: Path) -> dict[str, Any]:
-    if not (repo / ".gitmodules").exists():
-        return {"availability": "not-present", "entries": []}
-    try:
-        output = git(repo, "submodule", "status", timeout=60).decode(
-            "utf-8", errors="surrogateescape"
-        )
-    except CleanupError:
-        return {"availability": "unavailable", "entries": []}
-    entries = sorted(line for line in output.splitlines() if line)
-    return {
-        "availability": "partial",
-        "entries": entries,
-        "recursive_inventory": "deferred",
-        "root": sha256(entries),
-    }
-
-
-def lfs_snapshot(repo: Path) -> dict[str, Any]:
-    attributes = git(
-        repo, "ls-files", "--", "*.gitattributes", ".gitattributes"
-    ).decode("utf-8", errors="surrogateescape")
-    attribute_paths = sorted(set(filter(None, attributes.splitlines())))
-    present = False
-    for relative in attribute_paths:
-        candidate = repo / relative
-        if candidate.is_file() and "filter=lfs" in candidate.read_text(
-            encoding="utf-8", errors="replace"
-        ):
-            present = True
-            break
-    if not present:
-        return {"availability": "not-present", "entries": []}
-    try:
-        output = git(repo, "lfs", "ls-files", "--long", timeout=60).decode(
-            "utf-8", errors="surrogateescape"
-        )
-    except CleanupError:
-        return {"availability": "unavailable", "entries": []}
-    entries = sorted(line for line in output.splitlines() if line)
-    return {"availability": "available", "entries": entries, "root": sha256(entries)}
-
-
-def index_snapshot_root(worktree: Path) -> str:
-    raw = git(worktree, "rev-parse", "--git-path", "index").decode().strip()
-    index = Path(raw)
-    if not index.is_absolute():
-        index = worktree / index
-    index = index.resolve(strict=True)
-    digest = hashlib.sha256()
-    with index.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def build_state(args: argparse.Namespace) -> dict[str, Any]:
     repo, common = resolve_repository(args.repo)
     if not re.fullmatch(r"[A-Za-z0-9._/-]+", args.main) or args.main.startswith("-"):
@@ -605,34 +383,31 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
     remote_url = git(repo, "remote", "get-url", args.remote).decode().strip()
     if not remote_url:
         raise CleanupError("configured remote has no URL")
-    tracking_main = git_oid(
-        repo, f"refs/remotes/{args.remote}/{args.main}", missing_ok=True
-    )
+    remote_main = remote_main_oid(repo, args.remote, args.main)
     refs = parse_refs(repo)
-    stashes = parse_stashes(repo)
-    remote_state = remote_snapshot(repo, args.remote, args.main)
-    remote_main = remote_state["main"]
     worktrees = parse_worktrees(repo)
     task_state = load_owner_snapshot(args.task_snapshot, "task-snapshot")
     release_state = load_owner_snapshot(args.release_snapshot, "release-snapshot")
     provider_state = provider_snapshot(
-        repo, args.provider, remote_url, args.main, args.provider_snapshot
+        repo, args.provider, remote_url, args.provider_snapshot
     )
 
     artifacts: list[dict[str, Any]] = []
     worktree_projection: list[dict[str, Any]] = []
     for worktree in worktrees:
         worktree_path = Path(str(worktree["worktree"]))
-        branch = str(worktree.get("branch", ""))
-        include_ignored = worktree_path != repo or branch != f"refs/heads/{args.main}"
-        statuses = parse_status(worktree_path, include_ignored=include_ignored)
+        statuses = parse_status(worktree_path)
         status_root = sha256(statuses)
+        staged_root = sha256(
+            git(worktree_path, "diff", "--binary", "--cached", "--no-ext-diff")
+        )
+        unstaged_root = sha256(git(worktree_path, "diff", "--binary", "--no-ext-diff"))
         projection = dict(worktree)
         projection.update(
             {
-                "ignored_inventory": include_ignored,
-                "index_snapshot_root": index_snapshot_root(worktree_path),
+                "staged_diff_root": staged_root,
                 "status_root": status_root,
+                "unstaged_diff_root": unstaged_root,
             }
         )
         worktree_projection.append(projection)
@@ -643,52 +418,29 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                 "artifact_kind": "worktree",
                 "dirt": "clean" if not statuses else "unknown",
                 "object_id": str(worktree["HEAD"]),
-                "origin": canonical(projection).decode("utf-8"),
+                "origin": str(common),
                 "owner_id": owner_id,
                 "path": str(worktree_path),
             }
         )
         for status_entry in statuses:
             relative_path = status_entry["path"]
-            for dimension in dirt_dimensions(status_entry["code"]):
-                dirt = (
-                    dimension
-                    if status_entry.get("content_complete") is True
-                    else "unknown"
-                )
-                artifacts.append(
-                    {
-                        "artifact_id": artifact_id(
-                            "worktree-path",
-                            [
-                                str(worktree_path),
-                                status_entry["code"],
-                                relative_path,
-                                dimension,
-                                status_entry.get("content_complete"),
-                                status_entry.get("content_root"),
-                            ],
-                        ),
-                        "artifact_kind": "worktree-path",
-                        "dirt": dirt,
-                        "object_id": None,
-                        "origin": canonical(
-                            {
-                                "content_root": status_entry.get("content_root"),
-                                "content_complete": status_entry.get(
-                                    "content_complete"
-                                ),
-                                "dirt_dimension": dimension,
-                                "status_code": status_entry["code"],
-                                "worktree": str(worktree_path),
-                            }
-                        ).decode("utf-8"),
-                        "owner_id": owner_for_path(
-                            relative_path, str(worktree_path), str(repo), task_state
-                        ),
-                        "path": relative_path,
-                    }
-                )
+            artifacts.append(
+                {
+                    "artifact_id": artifact_id(
+                        "worktree-path",
+                        [str(worktree_path), status_entry, relative_path],
+                    ),
+                    "artifact_kind": "worktree-path",
+                    "dirt": dirt_for(status_entry["code"]),
+                    "object_id": None,
+                    "origin": f"{worktree_path}@{status_entry['content_root'] or 'unknown'}",
+                    "owner_id": owner_for_path(
+                        relative_path, str(worktree_path), str(repo), task_state
+                    ),
+                    "path": relative_path,
+                }
+            )
 
     for ref in refs:
         artifacts.append(
@@ -703,67 +455,46 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             }
         )
 
-    reflog_state = {
-        "availability": "deferred",
-        "reason": "bounded-block-1-no-reflog-scan",
-    }
-    artifacts.append(
-        {
-            "artifact_id": artifact_id("reflog-posture", reflog_state),
-            "artifact_kind": "reflog-posture",
-            "dirt": "unknown",
-            "object_id": None,
-            "origin": canonical(reflog_state).decode("utf-8"),
-            "owner_id": "git-reflog",
-            "path": None,
-        }
+    stash_raw = git(repo, "stash", "list", "--format=%gd%x00%H%x00").decode(
+        "utf-8", errors="surrogateescape"
     )
-
-    for stash in stashes:
+    stash_fields = stash_raw.replace("\n", "").split("\0")
+    for offset in range(0, len(stash_fields) - 1, 2):
+        name, oid = stash_fields[offset : offset + 2]
+        if not name:
+            continue
         artifacts.append(
             {
-                "artifact_id": artifact_id("stash", stash),
+                "artifact_id": artifact_id("stash", [name, oid]),
                 "artifact_kind": "stash",
                 "dirt": "clean",
-                "object_id": stash["object_id"],
-                "origin": stash["name"],
+                "object_id": oid if GIT_OID.fullmatch(oid) else None,
+                "origin": name,
                 "owner_id": None,
                 "path": None,
             }
         )
 
-    for remote_ref in remote_state["refs"]:
-        artifacts.append(
-            {
-                "artifact_id": artifact_id("remote-ref", remote_ref),
-                "artifact_kind": "remote-ref",
-                "dirt": "clean",
-                "object_id": remote_ref["object_id"],
-                "origin": f"{args.remote}:{remote_ref['name']}",
-                "owner_id": args.remote,
-                "path": None,
-            }
-        )
+    submodule_state: dict[str, Any] = {"availability": "not-present"}
+    if (repo / ".gitmodules").exists():
+        try:
+            output = git(
+                repo, "submodule", "status", "--recursive", timeout=60
+            ).decode()
+            submodule_state = {"availability": "available", "root": sha256(output)}
+        except CleanupError:
+            submodule_state = {"availability": "unavailable"}
 
-    submodule_state = submodule_snapshot(repo)
-    lfs_state = lfs_snapshot(repo)
-    for kind, posture in (
-        ("submodule-posture", submodule_state),
-        ("lfs-posture", lfs_state),
+    lfs_state: dict[str, Any] = {"availability": "not-present"}
+    attributes = repo / ".gitattributes"
+    if attributes.is_file() and "filter=lfs" in attributes.read_text(
+        encoding="utf-8", errors="replace"
     ):
-        artifacts.append(
-            {
-                "artifact_id": artifact_id(kind, posture),
-                "artifact_kind": kind,
-                "dirt": "clean"
-                if posture["availability"] in {"available", "not-present"}
-                else "unknown",
-                "object_id": None,
-                "origin": canonical(posture).decode("utf-8"),
-                "owner_id": kind,
-                "path": None,
-            }
-        )
+        try:
+            output = git(repo, "lfs", "ls-files", "--long", timeout=60)
+            lfs_state = {"availability": "available", "root": sha256(output)}
+        except CleanupError:
+            lfs_state = {"availability": "unavailable"}
 
     pull_requests = provider_state.get("pull_requests", [])
     if isinstance(pull_requests, list):
@@ -779,38 +510,55 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
                     "object_id": oid
                     if isinstance(oid, str) and GIT_OID.fullmatch(oid)
                     else None,
-                    "origin": canonical(pull_request).decode("utf-8"),
+                    "origin": args.provider,
                     "owner_id": None,
                     "path": f"pr:{pull_request['number']}",
                 }
             )
 
+    semantic = {
+        "common_dir": str(common),
+        "invocation": {
+            "main": args.main,
+            "provider": args.provider,
+            "remote": args.remote,
+        },
+        "lfs": lfs_state,
+        "local_main": local_main,
+        "provider": provider_state,
+        "refs": refs,
+        "release": release_state,
+        "remote_main": remote_main,
+        "remote_url": remote_url,
+        "stash_root": sha256(stash_raw),
+        "repository_root": str(repo),
+        "submodules": submodule_state,
+        "tasks": task_state,
+        "worktrees": worktree_projection,
+    }
     if git_oid(repo, f"refs/heads/{args.main}") != local_main:
         raise CleanupError("source changed during inventory")
-    if (
-        git_oid(repo, f"refs/remotes/{args.remote}/{args.main}", missing_ok=True)
-        != tracking_main
-    ):
+    if remote_main_oid(repo, args.remote, args.main) != remote_main:
         raise CleanupError("source changed during inventory")
-    if (
-        parse_refs(repo) != refs
-        or parse_stashes(repo) != stashes
-        or parse_worktrees(repo) != worktrees
-        or remote_snapshot(repo, args.remote, args.main) != remote_state
-    ):
+    if parse_refs(repo) != refs or parse_worktrees(repo) != worktrees:
         raise CleanupError("source changed during inventory")
+    if sha256(git(repo, "stash", "list", "--format=%gd%x00%H%x00")) != sha256(
+        stash_raw.encode("utf-8", errors="surrogateescape")
+    ):
+        raise CleanupError("stash changed during inventory")
     for projection in worktree_projection:
         worktree_path = Path(str(projection["worktree"]))
+        if sha256(parse_status(worktree_path)) != projection["status_root"]:
+            raise CleanupError("source changed during inventory")
         if (
-            sha256(
-                parse_status(
-                    worktree_path, include_ignored=projection["ignored_inventory"]
-                )
-            )
-            != projection["status_root"]
+            sha256(git(worktree_path, "diff", "--binary", "--cached", "--no-ext-diff"))
+            != projection["staged_diff_root"]
         ):
             raise CleanupError("source changed during inventory")
-        if index_snapshot_root(worktree_path) != projection["index_snapshot_root"]:
+        if (
+            sha256(git(worktree_path, "diff", "--binary", "--no-ext-diff"))
+            != projection["unstaged_diff_root"]
+        ):
             raise CleanupError("source changed during inventory")
     if args.task_snapshot and sha256(
         load_owner_snapshot(args.task_snapshot, "task-snapshot")
@@ -824,14 +572,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         load_owner_snapshot(args.provider_snapshot, "provider-snapshot")
     ) != sha256(provider_state):
         raise CleanupError("provider owner changed during inventory")
-    if (
-        not args.provider_snapshot
-        and provider_snapshot(repo, args.provider, remote_url, args.main, None)
-        != provider_state
-    ):
-        raise CleanupError("provider owner changed during inventory")
-    if submodule_snapshot(repo) != submodule_state or lfs_snapshot(repo) != lfs_state:
-        raise CleanupError("submodule or LFS owner changed during inventory")
     identity = sha256(
         {
             "common_dir": str(common),
@@ -841,35 +581,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
             "repository_root": str(repo),
         }
     )
-    ref_snapshot_root = sha256(
-        {
-            "local": refs,
-            "reflog": reflog_state,
-            "remote": remote_state,
-            "stashes": stashes,
-        }
-    )
-    worktree_snapshot_root = sha256(
-        {
-            "lfs": lfs_state,
-            "submodules": submodule_state,
-            "worktrees": worktree_projection,
-        }
-    )
-    source_fields = {
-        "common_dir": str(common),
-        "main_ref": f"refs/heads/{args.main}@{local_main}",
-        "provider_snapshot_root": sha256(provider_state),
-        "ref_snapshot_root": ref_snapshot_root,
-        "release_snapshot_root": sha256(release_state),
-        "remote_main": remote_main,
-        "remote_name": args.remote,
-        "remote_url": remote_url,
-        "repository_root": str(repo),
-        "task_snapshot_root": sha256(task_state),
-        "worktree_snapshot_root": worktree_snapshot_root,
-    }
-    source_root = sha256(source_fields)
+    source_root = sha256(semantic)
     run_id = f"cleanup-{source_root[:24]}"
     created_at = utc_now()
     source_record = base_record(
@@ -881,7 +593,21 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         source_root,
         created_at,
     )
-    source_record.update(source_fields)
+    source_record.update(
+        {
+            "common_dir": str(common),
+            "main_ref": f"refs/heads/{args.main}@{local_main}",
+            "provider_snapshot_root": sha256(provider_state),
+            "ref_snapshot_root": sha256(refs),
+            "release_snapshot_root": sha256(release_state),
+            "remote_main": remote_main,
+            "remote_name": args.remote,
+            "remote_url": remote_url,
+            "repository_root": str(repo),
+            "task_snapshot_root": sha256(task_state),
+            "worktree_snapshot_root": sha256(worktree_projection),
+        }
+    )
     finish_record(source_record)
     artifacts = sorted(artifacts, key=lambda item: item["artifact_id"])
     if len({item["artifact_id"] for item in artifacts}) != len(artifacts):
@@ -912,9 +638,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         "source": source_record,
         "source_root": source_root,
         "tasks": task_state,
-        "lfs": lfs_state,
-        "remote": remote_state,
-        "submodules": submodule_state,
     }
 
 
@@ -923,14 +646,31 @@ def active_overlapping_tasks(state: dict[str, Any]) -> list[str]:
     if not isinstance(tasks, list):
         return []
     active: list[str] = []
+    dirty_paths = {
+        (item["origin"].split("@", 1)[0], item["path"])
+        for item in state["artifacts"]
+        if item["artifact_kind"] == "worktree-path"
+    }
     for task in tasks:
         if not isinstance(task, dict):
             continue
         task_repo = task.get("repository_root")
         if not isinstance(task_repo, str) or Path(task_repo).resolve() != state["repo"]:
             continue
-        if task.get("status") in {"active", "running", "in-progress"} and task.get(
-            "writer", True
+        task_worktree = task.get("worktree")
+        changed_paths = task.get("changed_paths", [])
+        overlaps = isinstance(task_worktree, str) and (
+            Path(task_worktree).resolve() != state["repo"]
+            or any(
+                (str(Path(task_worktree).resolve()), path) in dirty_paths
+                for path in changed_paths
+            )
+        )
+        if (
+            overlaps
+            and task.get("cleanup_owner") is not True
+            and task.get("status") in {"active", "running", "in-progress"}
+            and task.get("writer", True)
         ):
             active.append(str(task.get("task_id", "unknown-task")))
     return sorted(set(active))
@@ -953,8 +693,6 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
 
     if state["remote_main"] is None:
         add_hold("remote-main-unavailable")
-    if state["remote"].get("availability") != "available":
-        add_hold("remote-owner-unavailable")
     if state["provider"].get("availability") != "available":
         add_hold("provider-owner-unavailable")
     elif state["provider"].get("complete") is not True:
@@ -967,10 +705,6 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
         add_hold("release-owner-unavailable")
     elif state["release"].get("complete") is not True:
         add_hold("release-inventory-incomplete")
-    if state["submodules"].get("availability") not in {"available", "not-present"}:
-        add_hold("submodule-owner-incomplete")
-    if state["lfs"].get("availability") == "unavailable":
-        add_hold("lfs-owner-unavailable")
     dirty = [item for item in state["artifacts"] if item["dirt"] != "clean"]
     if dirty:
         add_hold("dirty-or-unknown-worktree-state")
@@ -979,12 +713,28 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
         add_hold(f"active-writer:{task_id}")
 
     dispositions: list[dict[str, Any]] = []
+    canonical_oids = {
+        state["source"]["main_ref"].rsplit("@", 1)[-1],
+        state["remote_main"],
+    }
     for artifact in state["artifacts"]:
+        integrated = False and (
+            artifact["artifact_kind"] == "ref"
+            and artifact["object_id"] in canonical_oids
+            and artifact["origin"]
+            in {
+                state["source"]["main_ref"].rsplit("@", 1)[0],
+                f"refs/remotes/{state['source']['remote_name']}/"
+                f"{state['source']['main_ref'].split('@', 1)[0].split('/')[-1]}",
+            }
+        )
+        disposition = "integrated" if integrated else "retain"
+        proof = [state["source_root"]] if integrated else []
         dispositions.append(
             {
                 "artifact_id": artifact["artifact_id"],
-                "disposition": "retain",
-                "proof_refs": [],
+                "disposition": disposition,
+                "proof_refs": proof,
             }
         )
 
@@ -1237,51 +987,29 @@ def validate_record(value: dict[str, Any]) -> None:
         raise CleanupError("record phase differs")
     for name, field_spec in fields.items():
         validate_field(value[name], field_spec, schema, name)
-    if value["run_id"] != f"cleanup-{value['source_snapshot_root'][:24]}":
-        raise CleanupError("run identity differs from source root")
     if kind == "inventory":
-        artifacts = value["artifacts"]
-        if artifacts != sorted(artifacts, key=lambda item: item["artifact_id"]):
-            raise CleanupError("inventory artifacts are not canonically sorted")
-        if value["artifact_count"] != len(artifacts):
-            raise CleanupError("inventory count differs")
-        expected = sha256({"artifact_count": len(artifacts), "artifacts": artifacts})
-        if value["inventory_root"] != expected:
-            raise CleanupError("inventory root differs")
-    elif kind == "plan":
-        dispositions = value["dispositions"]
-        holds = value["holds"]
-        if dispositions != sorted(dispositions, key=lambda item: item["artifact_id"]):
-            raise CleanupError("plan dispositions are not canonically sorted")
-        if holds != sorted(holds, key=lambda item: item["hold_id"]):
-            raise CleanupError("plan holds are not canonically sorted")
         expected = sha256(
-            {
-                "dispositions": dispositions,
-                "holds": holds,
-                "inventory_root": value["inventory_root"],
-                "next_action": value["next_action"],
-                "path": value["path"],
-                "source_snapshot_root": value["source_snapshot_root"],
-            }
+            {"artifact_count": value["artifact_count"], "artifacts": value["artifacts"]}
         )
-        if value["plan_root"] != expected:
-            raise CleanupError("plan root differs")
-        if any(
-            entry["disposition"] != "retain" or entry["proof_refs"]
-            for entry in dispositions
+        if (
+            value["artifact_count"] != len(value["artifacts"])
+            or value["inventory_root"] != expected
         ):
-            raise CleanupError("planning cannot manufacture acceptance")
-        if any(hold["expiry_root"] != value["source_snapshot_root"] for hold in holds):
-            raise CleanupError("plan hold expiry differs from source")
-    elif kind == "source-snapshot":
-        source_fields = {name: value[name] for name in definition["fields"]}
-        if value["source_snapshot_root"] != sha256(source_fields):
-            raise CleanupError("source snapshot root differs")
-    elif kind == "status":
-        entries = value["current_record_roots"]["entries"]
-        if entries != sorted(entries, key=lambda item: item["kind"]):
-            raise CleanupError("status roots are not canonically sorted")
+            raise CleanupError("inventory semantic root differs")
+    if kind == "plan":
+        projection = {
+            name: value[name]
+            for name in (
+                "dispositions",
+                "holds",
+                "inventory_root",
+                "next_action",
+                "path",
+                "source_snapshot_root",
+            )
+        }
+        if value["plan_root"] != sha256(projection):
+            raise CleanupError("plan semantic root differs")
 
 
 def read_record(path: Path) -> dict[str, Any]:
@@ -1292,23 +1020,11 @@ def read_record(path: Path) -> dict[str, Any]:
     ):
         raise CleanupError(f"record is missing or unsafe: {path.name}")
     try:
-        raw = path.read_bytes()
-
-        def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-            result: dict[str, Any] = {}
-            for key, item in pairs:
-                if key in result:
-                    raise CleanupError(f"record contains duplicate keys: {path.name}")
-                result[key] = item
-            return result
-
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=reject_duplicates)
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CleanupError(f"record is malformed: {path.name}") from exc
     if not isinstance(value, dict):
         raise CleanupError(f"record is not an object: {path.name}")
-    if raw != canonical(value) + b"\n":
-        raise CleanupError(f"record encoding is not canonical: {path.name}")
     validate_record(value)
     projection = dict(value)
     record_root = projection.pop("record_root", None)
@@ -1372,10 +1088,8 @@ def verify_directory(directory: Path) -> dict[str, Any]:
     inventory = read_record(directory / "inventory.json")
     if inventory["source_snapshot_root"] != source["source_snapshot_root"]:
         raise CleanupError("inventory source binding differs")
-    common_fields = ("repository_identity", "run_id", "source_snapshot_root")
-    for field in common_fields:
-        if inventory[field] != source[field]:
-            raise CleanupError(f"inventory {field} binding differs")
+    if inventory["artifact_count"] != len(inventory["artifacts"]):
+        raise CleanupError("inventory count differs")
     records = {"inventory": inventory, "source-snapshot": source}
     plan_path = directory / "plan.json"
     if plan_path.exists():
@@ -1384,31 +1098,20 @@ def verify_directory(directory: Path) -> dict[str, Any]:
             raise CleanupError("plan inventory binding differs")
         if plan["source_snapshot_root"] != source["source_snapshot_root"]:
             raise CleanupError("plan source binding differs")
-        for field in common_fields:
-            if plan[field] != source[field]:
-                raise CleanupError(f"plan {field} binding differs")
-        inventory_ids = [item["artifact_id"] for item in inventory["artifacts"]]
-        disposition_ids = [item["artifact_id"] for item in plan["dispositions"]]
-        if disposition_ids != inventory_ids:
-            raise CleanupError("plan dispositions do not exhaust the inventory")
+        if [item["artifact_id"] for item in plan["dispositions"]] != [
+            item["artifact_id"] for item in inventory["artifacts"]
+        ]:
+            raise CleanupError("plan does not cover the exact inventory")
         records["plan"] = plan
     status_path = directory / "status.json"
     if status_path.exists():
         status = read_record(status_path)
-        for field in common_fields:
-            if status[field] != source[field]:
-                raise CleanupError(f"status {field} binding differs")
-        expected_roots = [
+        expected = [
             {"kind": kind, "root": record["record_root"]}
             for kind, record in sorted(records.items())
         ]
-        if status["current_record_roots"]["entries"] != expected_roots:
-            raise CleanupError("status record roots differ")
-        if "plan" in records:
-            if status["active_holds"] != records["plan"]["holds"]:
-                raise CleanupError("status holds differ from plan")
-            if status["next_action"] != records["plan"]["next_action"]:
-                raise CleanupError("status action differs from plan")
+        if status["current_record_roots"]["entries"] != expected:
+            raise CleanupError("status roots differ from current records")
         records["status"] = status
     return {
         "record_roots": {

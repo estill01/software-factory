@@ -44,17 +44,6 @@ provider result. The helper writes only to its bounded local run-artifact root;
 the repository, provider, tasks, and supervision state remain read-only during
 inventory and planning.
 
-The helper's source fingerprint uses all ordinary refs, stashes,
-worktree/index/status roots, and hashes of individual dirty files. It does not
-create binary diffs or recursively read directory contents merely to detect an
-unchanged run. Reflog-dependent and recursive-directory candidates are marked
-as deferred unknowns and retained; later preservation work may widen them under
-its own bound. Ignored-file discovery widens only for noncanonical worktrees
-that could later be retirement candidates. Frozen owner snapshots are compact
-single reads; live remote and provider owners are reread once to reject
-movement. Repeated identical observations therefore resolve to the same
-immutable run instead of duplicating artifacts.
-
 ## Choose the path from evidence
 
 - `audit`: use when any owner is unavailable, state is ambiguous or moving, or
