@@ -186,7 +186,7 @@ make their composition automatic and fail closed.
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
-| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `in-progress` |
+| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
 
@@ -851,7 +851,7 @@ Stop before final integrated release/promotion.
 
 ## Block 5 — Integrate terminal report delivery, readback, and shutdown defaults
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -931,6 +931,45 @@ Focused terminal/Gmail/shutdown suite plus full supervision mapping.
   Blocks 3–4; final mapped proof and exact integrated review remain required in
   consolidation Block 4 before this Block can be marked completed.
 - No Gmail, automation, release, lifecycle, or pointer effect was taken.
+- Consolidation truth: the statement above was pending evidence, not acceptance.
+  Exact review of integrated `f4e9108c25cb53ffa65396b5739dedaa2e882cd8`
+  rejected the Block because the consolidation had regressed both prior
+  `B5-F1`/`B5-F2` fixes: a generic record could occupy the terminal-delivery
+  category and status could retain shutdown evidence after lifecycle/report
+  drift. The review also found that delivery-only retries regenerated PDFs.
+  This rejection does not alter the historical `d398d10` acceptance/reopen,
+  `ba9d801` rejection, or accepted `ccb8e7e` remediation.
+- Accepted corrective checkpoint:
+  `b64c0833a84be014a988258f8165e3a60335ff0b`, tree
+  `050c4fa67ca3dcd68f63eda3a79eea513030eb1d`. It reserves terminal delivery,
+  verification, shutdown, and shutdown-rejection categories; re-establishes
+  current range/control, lifecycle, report, delivery, policy, and live owner
+  state before projecting shutdown; and records a rooted verification receipt
+  so later delivery/status/shutdown checks reuse the verified report bytes.
+- Product-capability review: frozen tracker-level frame
+  `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`.
+  The selected lowest-complexity path extends the existing supervision event,
+  completion/control, Gmail, and automation owners. Repeated local rerendering
+  was rejected because it violates the economy contract; a generic evidence
+  service was rejected as unsupported architecture. Operator-visible reports,
+  range non-contraction, provider provenance, byte identity, and owner-backed
+  cost shutdown remain protected.
+- Validation: focused terminal/report/Gmail/shutdown `26/26`; mapped
+  supervision, terminal, and Factory-evolution admission `389/389`; Python 3.14
+  compile, supervision skill validation, and diff check passed. A broader
+  `526`-test diagnostic initially had `525` passes and one obsolete mocked
+  verification boundary; after binding that test to the new dedicated receipt
+  owner, its exact rerun and the complete affected mapped set passed.
+- Independent exact review: distinct read-only Sol xhigh review accepted exact
+  `b64c083` with no findings. It separately verified the exact clean tree,
+  reserved-owner categories, lifecycle/range/control/report/delivery/owner
+  drift exclusions, one render-enabled verification call versus eight explicit
+  no-render currentness/delivery calls, two-attachment provider readback, and
+  complete paused-owner shutdown. Its sandbox could not create temporary files,
+  so unavailable integration execution was reported rather than treated as a
+  pass; the implementation-owner proof above supplies that execution evidence.
+- No Gmail, automation, release, lifecycle, policy, or active-pointer effect was
+  taken in this corrective Block.
 
 ### Stop
 
