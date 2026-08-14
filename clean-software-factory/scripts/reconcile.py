@@ -72,7 +72,10 @@ def run_command(
                 check=False,
                 timeout=timeout,
             )
-            if os.fstat(stdout.fileno()).st_size > max_output_bytes:
+            if (
+                os.fstat(stdout.fileno()).st_size > max_output_bytes
+                or os.fstat(stderr.fileno()).st_size > max_output_bytes
+            ):
                 raise CleanupError(f"command output exceeds bound: {argv[0]}")
             stdout.seek(0)
             output = stdout.read(max_output_bytes + 1)
@@ -1531,11 +1534,11 @@ def restore_artifact(
         raise CleanupError("restore destination must be a new file")
     write_immutable_bytes(restored, payload, MAX_PRESERVATION_FILE_BYTES)
     try:
-        os.chmod(restored, int(entry["mode"], 8) & 0o777)
+        os.chmod(restored, int(entry["mode"], 8) & 0o7777)
     except (OSError, ValueError) as exc:
         raise CleanupError("restored mode could not be applied") from exc
     restored_payload, restored_mode = read_regular_file(restored)
-    if restored_payload != payload or restored_mode[-3:] != entry["mode"][-3:]:
+    if restored_payload != payload or restored_mode[-4:] != entry["mode"][-4:]:
         raise CleanupError("restored artifact differs")
     return {
         "artifact_id": artifact_id_value,
