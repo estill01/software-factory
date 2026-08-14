@@ -229,6 +229,18 @@ the completed program materially changes Software Factory.
 
 ### Planned
 
+- **Supervised repository cleanup and reconciliation skill.** A ten-Block
+  program plans one released `clean-software-factory` skill that inventories
+  repository/task/PR state, preserves every potentially useful candidate,
+  integrates only accepted work onto canonical main, safely retires redundant
+  branches and worktrees, and returns unfinished work to one current writer.
+  Direct users and the existing supervisor are the only initiators; other
+  Factory skills emit exact cleanup-needed signals. The supervisor coordinates
+  active-task checkpoints and independently gates quiescence, deletion,
+  no-loss/functionality preservation, outcome, and restart while remaining
+  read-only against the target repository. This is planning, not implemented
+  functionality; tracker:
+  [`docs/software-factory-cleanup-and-reconciliation-skill-implementation-tracker.md`](docs/software-factory-cleanup-and-reconciliation-skill-implementation-tracker.md).
 - **Adaptive implementation decision control and autonomous Factory
   evolution.** An eighteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
