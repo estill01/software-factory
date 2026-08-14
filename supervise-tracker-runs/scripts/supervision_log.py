@@ -13328,6 +13328,27 @@ def software_factory_control_health_root(control: Mapping[str, Any]) -> str:
         for key, value in control.items()
         if key != "governing_outcome_currentness_sha256"
     }
+    identities = material.get("identities")
+    if isinstance(identities, Mapping) and isinstance(
+        identities.get("members"), list
+    ):
+        material["identities"] = {
+            **identities,
+            "members": [
+                {
+                    **member,
+                    "active_block": {
+                        key: value
+                        for key, value in member["active_block"].items()
+                        if key != "source_record"
+                    },
+                }
+                if isinstance(member, Mapping)
+                and isinstance(member.get("active_block"), Mapping)
+                else member
+                for member in identities["members"]
+            ],
+        }
     return digest(material)
 
 

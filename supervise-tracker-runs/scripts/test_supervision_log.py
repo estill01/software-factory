@@ -7255,32 +7255,77 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.write_automation(stable)
         promotion_record = str(promoted["promotion"]["record_id"])
         automation_root = Path(self.temporary.name) / "automations"
-        before = self.refresh_plan(promotion_record, automation_root)
-        with redirect_stdout(io.StringIO()):
-            self.call(
-                "record",
-                "--target-thread",
-                self.target,
-                "--kind",
-                "check",
-                "--model",
-                "gpt-5.6-sol",
-                "--reasoning",
-                "xhigh",
-                "--state-fingerprint",
-                "f" * 64,
-                "--status",
-                "no-intervention",
-                "--evidence",
-                "unrelated-target-event",
-                "--summary",
-                "Unrelated append-only target supervision event.",
-            )
-        after = self.refresh_plan(promotion_record, automation_root)
-        self.assertNotIn("event_head_sha256", after)
+
+        def record_active_block(fingerprint: str, evidence: str) -> None:
+            with redirect_stdout(io.StringIO()):
+                self.call(
+                    "record",
+                    "--target-thread",
+                    self.target,
+                    "--kind",
+                    "check",
+                    "--model",
+                    "gpt-5.6-sol",
+                    "--reasoning",
+                    "xhigh",
+                    "--state-fingerprint",
+                    fingerprint,
+                    "--status",
+                    "no-intervention",
+                    "--active-block",
+                    "15",
+                    "--evidence",
+                    evidence,
+                    "--summary",
+                    "Ordinary append-only target supervision event.",
+                )
+
+        record_active_block("e" * 64, "baseline-target-event")
+        first = self.refresh_health(promotion_record, automation_root)
+        record_active_block("f" * 64, "unrelated-target-event")
+        second = self.refresh_health(promotion_record, automation_root)
+
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
         self.assertEqual(
-            before["refresh_plan_root_sha256"],
-            after["refresh_plan_root_sha256"],
+            first["health"]["record_id"], second["health"]["record_id"]
+        )
+        self.assertNotIn("rollback", self.owner_actions)
+        health_records = [
+            item
+            for item in supervision_log.events(
+                self.root / self.target / "events.jsonl"
+            )
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+        ]
+        self.assertEqual(
+            [item["outcome"] for item in health_records], ["verified"]
+        )
+
+        control = {
+            "identities": {"members": [{"active_block": {
+                "value": "15", "source_record": "EVT-000001"
+            }}]},
+            "governing_outcome_currentness_sha256": "a" * 64,
+        }
+        same_block = copy.deepcopy(control)
+        same_block["identities"]["members"][0]["active_block"][
+            "source_record"
+        ] = "EVT-000002"
+        different_block = copy.deepcopy(same_block)
+        different_block["identities"]["members"][0]["active_block"][
+            "value"
+        ] = "16"
+        self.assertEqual(
+            supervision_log.software_factory_control_health_root(control),
+            supervision_log.software_factory_control_health_root(same_block),
+        )
+        self.assertNotEqual(
+            supervision_log.software_factory_control_health_root(same_block),
+            supervision_log.software_factory_control_health_root(
+                different_block
+            ),
         )
 
         self.status["activation_history_records"] += 1
