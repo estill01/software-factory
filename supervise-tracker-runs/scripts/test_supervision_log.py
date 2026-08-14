@@ -7238,6 +7238,62 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.assertEqual(plan["automation_updates"], [])
         self.assertEqual(len(plan["current_automations"]), 1)
 
+    def test_refresh_plan_is_noop_for_shorthand_current_prompt(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        absolute = str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT) + "/current/"
+        shorthand = "~/.codex/software-factory-releases/current/"
+        prompt = stable.replace(absolute, shorthand)
+        self.assertEqual(prompt.count(shorthand), 3)
+        normalized, pin = supervision_log.software_factory_stable_automation_prompt(
+            prompt, target_thread=self.target
+        )
+        self.assertEqual(normalized, prompt)
+        self.assertIsNone(pin)
+        self.write_automation(prompt)
+        plan = self.refresh_plan(
+            str(promoted["promotion"]["record_id"]),
+            Path(self.temporary.name) / "automations",
+        )
+        self.assertEqual(plan["automation_updates"], [])
+        self.assertEqual(len(plan["current_automations"]), 1)
+
+    def test_stable_prompt_rejects_mixed_partial_and_tilde_pinned_forms(
+        self,
+    ) -> None:
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        absolute = str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT) + "/current/"
+        shorthand = "~/.codex/software-factory-releases/current/"
+        current = stable.replace(absolute, shorthand)
+        tilde_pinned = self.pinned_automation_prompt(manual_pin=True).replace(
+            str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT),
+            "~/.codex/software-factory-releases",
+        )
+        cases = {
+            "mixed": current.replace(shorthand, absolute, 1),
+            "partial": current.replace(shorthand, "", 1),
+            "tilde-pinned": tilde_pinned,
+        }
+        for name, prompt in cases.items():
+            with self.subTest(name=name), self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "maintained release channel",
+            ):
+                supervision_log.software_factory_stable_automation_prompt(
+                    prompt, target_thread=self.target
+                )
+
     def test_refresh_plan_ignores_unrelated_append_but_rejects_owner_drift(
         self,
     ) -> None:

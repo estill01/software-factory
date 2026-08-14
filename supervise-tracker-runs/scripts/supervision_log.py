@@ -12917,14 +12917,25 @@ def software_factory_stable_automation_prompt(
     )
     pinned_releases = pinned_pattern.findall(prompt)
     stable_prefix = release_root + "/current/"
+    shorthand_prefix = "~/.codex/software-factory-releases/current/"
+    shorthand_pinned_prefix = "~/.codex/software-factory-releases/releases/"
+
+    def current_channel_counts(value: str) -> tuple[int, int]:
+        return value.count(stable_prefix), value.count(shorthand_prefix)
+
     manual_pins = re.findall(
         r"manual-release-pin:([0-9a-f]{12}-[0-9a-f]{12})", prompt
     )
+    if shorthand_pinned_prefix in prompt:
+        raise SupervisionLogError(
+            "Software Factory automation prompt is not on a maintained release channel"
+        )
     if manual_pins:
         if (
             len(set(manual_pins)) != 1
             or not pinned_releases
             or set(pinned_releases) != set(manual_pins)
+            or current_channel_counts(prompt) != (0, 0)
         ):
             raise SupervisionLogError(
                 "Software Factory manual automation pin is inconsistent"
@@ -12934,7 +12945,10 @@ def software_factory_stable_automation_prompt(
         raise SupervisionLogError(
             "Software Factory automation prompt mixes release identities"
         )
-    if not pinned_releases and prompt.count(stable_prefix) != 3:
+    if not pinned_releases and current_channel_counts(prompt) not in {
+        (3, 0),
+        (0, 3),
+    }:
         raise SupervisionLogError(
             "Software Factory automation prompt is not on a maintained release channel"
         )
@@ -12972,7 +12986,7 @@ def software_factory_stable_automation_prompt(
     )
     if (
         any(item in value for item in forbidden)
-        or value.count(stable_prefix) != 3
+        or current_channel_counts(value) not in {(3, 0), (0, 3)}
         or value.count(target_thread) != 1
     ):
         raise SupervisionLogError(
