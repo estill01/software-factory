@@ -5205,6 +5205,26 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
 
         for request in (
+            "Do not, e.g. implement this tracker.",
+            "Do not, i.e. implement only Block 1.",
+            "For example, e.g. implement this tracker.",
+            "This is merely an example, i.e. implement Blocks 1-2.",
+        ):
+            with self.subTest(request=request):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "does not establish full-tracker or exact Block intent",
+                ):
+                    supervision_log.classify_implementation_request(request, blocks)
+        self.assertEqual(
+            supervision_log.classify_implementation_request(
+                "Do not, e.g. implement this tracker. Implement only Block 1.",
+                blocks,
+            ),
+            ("explicit-blocks", [1]),
+        )
+
+        for request in (
             "Implement this tracker. Implement only Block 1.",
             "Implement only Block 1. Implement this tracker.",
         ):

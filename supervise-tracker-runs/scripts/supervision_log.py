@@ -9134,8 +9134,10 @@ def classify_implementation_request(
     positive_explicit: list[list[int]] = []
     positive_full = False
     clauses = re.split(
-        r"\s*;\s*|\s*,\s*but\s+|(?<=[.!?])\s+",
+        r"\s*;\s*|\s*,\s*but\s+|"
+        r"(?<!e\.g\.)(?<!i\.e\.)(?<=[.!?])\s+",
         value,
+        flags=re.I,
     )
     for raw_clause in clauses:
         clause = raw_clause.strip()
