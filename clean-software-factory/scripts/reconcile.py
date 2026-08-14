@@ -218,15 +218,8 @@ def load_owner_snapshot(path: str | None, kind: str) -> dict[str, Any]:
     value = dict(value)
     value.setdefault("availability", "available")
     value.setdefault("kind", kind)
-    required = {
-        "provider-snapshot": (("pull_requests", list), ("branch_protection", dict)),
-        "task-snapshot": (("tasks", list),),
-        "release-snapshot": (("release_id", str),),
-    }[kind]
     if value["availability"] == "available":
-        value["complete"] = value.get("complete") is True and all(
-            isinstance(value.get(name), shape) for name, shape in required
-        )
+        value["complete"] = False
     return value
 
 
@@ -380,16 +373,10 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         worktree_path = Path(str(worktree["worktree"]))
         statuses = parse_status(worktree_path)
         status_root = sha256(statuses)
-        staged_root = sha256(
-            git(worktree_path, "diff", "--binary", "--cached", "--no-ext-diff")
-        )
-        unstaged_root = sha256(git(worktree_path, "diff", "--binary", "--no-ext-diff"))
         projection = dict(worktree)
         projection.update(
             {
-                "staged_diff_root": staged_root,
                 "status_root": status_root,
-                "unstaged_diff_root": unstaged_root,
             }
         )
         worktree_projection.append(projection)
@@ -495,7 +482,6 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         "remote_main": remote_main,
         "remote_url": remote_url,
         "repository_root": str(repo),
-        "stashes": sha256(stash_raw),
         "submodules": submodule_state,
         "tasks": task_state,
         "worktrees": worktree_projection,
@@ -509,24 +495,9 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         raise CleanupError("source changed during inventory")
     if parse_refs(repo) != refs or parse_worktrees(repo) != worktrees:
         raise CleanupError("source changed during inventory")
-    closing_stashes = git(repo, "stash", "list", "--format=%gd%x00%H%x00").decode(
-        "utf-8", errors="surrogateescape"
-    )
-    if closing_stashes != stash_raw:
-        raise CleanupError("source changed during inventory")
     for projection in worktree_projection:
         worktree_path = Path(str(projection["worktree"]))
         if sha256(parse_status(worktree_path)) != projection["status_root"]:
-            raise CleanupError("source changed during inventory")
-        if (
-            sha256(git(worktree_path, "diff", "--binary", "--cached", "--no-ext-diff"))
-            != projection["staged_diff_root"]
-        ):
-            raise CleanupError("source changed during inventory")
-        if (
-            sha256(git(worktree_path, "diff", "--binary", "--no-ext-diff"))
-            != projection["unstaged_diff_root"]
-        ):
             raise CleanupError("source changed during inventory")
     if args.task_snapshot and sha256(
         load_owner_snapshot(args.task_snapshot, "task-snapshot")
@@ -577,7 +548,7 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
         }
     )
     finish_record(source_record)
-    posture = "deferred proof: custom refs/reflogs; ignored and untracked bytes; worktree/submodule/LFS detail; provider protection/currentness; semantic proof-root closure; bounded fast path"
+    posture = "deferred proof: custom refs/reflogs; ignored/untracked bytes; worktree/stash/submodule/LFS detail; owner/remote completeness/currentness; overlap; canonical/proof-root closure; bounded fast path"
     artifacts.append(
         {
             "artifact_id": artifact_id("bounded-inventory-posture", posture),
@@ -622,6 +593,8 @@ def build_state(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def active_overlapping_tasks(state: dict[str, Any]) -> list[str]:
+    if state["tasks"].get("complete") is not True:
+        return []
     tasks = state["tasks"].get("tasks", [])
     if not isinstance(tasks, list):
         return []
@@ -632,10 +605,8 @@ def active_overlapping_tasks(state: dict[str, Any]) -> list[str]:
         task_repo = task.get("repository_root")
         if not isinstance(task_repo, str) or Path(task_repo).resolve() != state["repo"]:
             continue
-        if (
-            task.get("status") in {"active", "running", "in-progress"}
-            and task.get("writer", True)
-            and task.get("overlaps_cleanup") is True
+        if task.get("status") in {"active", "running", "in-progress"} and task.get(
+            "writer", True
         ):
             active.append(str(task.get("task_id", "unknown-task")))
     return sorted(set(active))
@@ -658,6 +629,7 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
 
     if state["remote_main"] is None:
         add_hold("remote-main-unavailable")
+    add_hold("remote-currentness-unproved")
     if state["provider"].get("availability") != "available":
         add_hold("provider-owner-unavailable")
     elif state["provider"].get("complete") is not True:
@@ -670,6 +642,7 @@ def build_plan(state: dict[str, Any]) -> dict[str, Any]:
         add_hold("release-owner-unavailable")
     elif state["release"].get("complete") is not True:
         add_hold("release-inventory-incomplete")
+    add_hold("task-overlap-unproved")
     dirty = [item for item in state["artifacts"] if item["dirt"] != "clean"]
     if dirty:
         add_hold("dirty-or-unknown-worktree-state")
@@ -946,14 +919,11 @@ def read_record(path: Path) -> dict[str, Any]:
     ):
         raise CleanupError(f"record is missing or unsafe: {path.name}")
     try:
-        raw = path.read_bytes()
-        value = json.loads(raw.decode("utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CleanupError(f"record is malformed: {path.name}") from exc
     if not isinstance(value, dict):
         raise CleanupError(f"record is not an object: {path.name}")
-    if raw != canonical(value) + b"\n":
-        raise CleanupError(f"record is not canonical: {path.name}")
     validate_record(value)
     projection = dict(value)
     record_root = projection.pop("record_root", None)

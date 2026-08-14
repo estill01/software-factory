@@ -58,7 +58,6 @@ class ReconcileTests(unittest.TestCase):
             json.dumps(
                 {
                     "availability": "available",
-                    "branch_protection": {},
                     "complete": True,
                     "kind": "provider-snapshot",
                     "owner": "github",
@@ -240,7 +239,6 @@ class ReconcileTests(unittest.TestCase):
                         {
                             "changed_paths": ["tracked.txt"],
                             "repository_root": str(self.repo),
-                            "overlaps_cleanup": True,
                             "status": "active",
                             "task_id": "fixture-task",
                             "worktree": str(self.repo),
@@ -252,10 +250,11 @@ class ReconcileTests(unittest.TestCase):
             encoding="utf-8",
         )
         payload = json.loads(self.command("plan").stdout)
-        self.assertEqual(payload["path"], "coordinated-reconciliation")
-        self.assertEqual(
-            payload["next_action"], "obtain-owner-checkpoints-and-quiescence-gate"
-        )
+        self.assertEqual(payload["path"], "audit")
+        status = json.loads((Path(payload["run_dir"]) / "status.json").read_text())
+        scopes = str(status["active_holds"])
+        expected = "provider-inventory-incomplete task-inventory-incomplete release-inventory-incomplete task-overlap-unproved remote-currentness-unproved"
+        self.assertTrue(all(subject in scopes for subject in expected.split()))
 
     def test_missing_remote_main_is_null_and_retained(self) -> None:
         run(["git", "update-ref", "-d", "refs/remotes/origin/main"], self.repo)
