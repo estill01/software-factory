@@ -12650,6 +12650,9 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                         action="status",
                     )
                 prior = software_factory_release_prior_status(prior_status)
+                source_already_active = (
+                    prior["prior_source_commit"] == args.source_commit
+                )
                 required = {
                     "schema_version": 1,
                     "record_id": f"EVT-{len(all_events) + 1:06d}",
@@ -12675,6 +12678,9 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
                 required = validate_software_factory_release_required_record(
                     all_events[-1]
                 )
+                if source_already_active:
+                    recovering = True
+                    status_before = prior_status
 
             source_current = True
             acceptance_current = True
@@ -12962,7 +12968,7 @@ def software_factory_stable_automation_prompt(
     if (
         any(item in value for item in forbidden)
         or value.count(stable_prefix) != 3
-        or f"Target {target_thread}." not in value
+        or value.count(target_thread) != 1
     ):
         raise SupervisionLogError(
             "Software Factory automation prompt contains unsupported copied authority"
@@ -13037,23 +13043,18 @@ def build_software_factory_supervisor_refresh_plan(
             "Software Factory supervisor refresh release is not current"
         )
     runtime = policy.get("runtime", {})
-    automation_ids = expected_terminal_automation_ids(policy)
-    if not automation_ids:
+    automation_owners = expected_terminal_automation_owners(policy)
+    if not automation_owners:
         raise SupervisionLogError(
             "Software Factory supervisor refresh has no configured automations"
         )
-    configured_role_threads = {
-        str(runtime.get(field))
-        for field in THREAD_ROUTE_ROLE_FIELDS.values()
-        if runtime.get(field)
-    }
     updates: list[dict[str, Any]] = []
     current_automations: list[dict[str, Any]] = []
     manual_pins: list[dict[str, Any]] = []
     paused: list[dict[str, Any]] = []
-    for automation_id in automation_ids:
+    for automation_id, automation_owner in automation_owners.items():
         config, config_sha256 = software_factory_automation_config(automation_id)
-        if config["target_thread_id"] not in configured_role_threads:
+        if config["target_thread_id"] != automation_owner:
             raise SupervisionLogError(
                 "Software Factory automation is not bound to a configured role"
             )

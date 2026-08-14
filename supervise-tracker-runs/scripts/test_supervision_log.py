@@ -7030,6 +7030,27 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                         ]
                     )
 
+    def test_same_source_active_records_already_active_without_owner_effect(self) -> None:
+        accepted = self.acceptance()
+        self.owner_promoted = True
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        record = promoted["promotion"]
+        self.assertEqual(self.owner_actions, ["status"])
+        self.assertEqual(record["action"], "already-active")
+        self.assertEqual(record["release_id"], self.status["active_release_id"])
+        self.assertEqual(
+            record["previous_release_id"], self.status["active_release_id"]
+        )
+        self.assertEqual(
+            record["activation_history_records"],
+            self.status["activation_history_records"],
+        )
+
     def test_refresh_plan_migrates_only_prompt_at_next_wake(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(
@@ -7091,6 +7112,29 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             self.pinned_automation_prompt(), target_thread=self.target
         )
         self.assertIsNone(pin)
+        self.write_automation(stable)
+        plan = self.refresh_plan(
+            str(promoted["promotion"]["record_id"]),
+            Path(self.temporary.name) / "automations",
+        )
+        self.assertEqual(plan["automation_updates"], [])
+        self.assertEqual(len(plan["current_automations"]), 1)
+
+    def test_refresh_plan_accepts_lowercase_current_target_reference(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        stable = stable.replace(
+            f"Target {self.target}.", f"target {self.target}."
+        )
         self.write_automation(stable)
         plan = self.refresh_plan(
             str(promoted["promotion"]["record_id"]),
@@ -7170,6 +7214,27 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.write_automation(
             self.pinned_automation_prompt(),
             target_thread_id="foreign-role-thread-1234",
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not bound to a configured role"
+        ):
+            self.refresh_plan(
+                str(promoted["promotion"]["record_id"]),
+                Path(self.temporary.name) / "automations",
+            )
+
+    def test_refresh_plan_rejects_the_wrong_configured_role_owner(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        self.write_automation(
+            self.pinned_automation_prompt(),
+            target_thread_id=self.reviewer,
         )
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "not bound to a configured role"
