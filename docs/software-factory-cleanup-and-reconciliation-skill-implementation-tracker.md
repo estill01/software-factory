@@ -312,7 +312,7 @@ that existing generic event projection cannot represent the cleanup outcome.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Freeze the cleanup contract, live owner baseline, and regression fixtures | — | `completed` |
-| 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `in-progress` |
+| 1 | Build the cleanup skill and deterministic read-only inventory/plan | 0 | `completed` |
 | 2 | Implement no-loss preservation and functional coverage proof | 1 | `not-started` |
 | 3 | Add supervisor reconciliation coordination and monitoring gates | 2 | `not-started` |
 | 4 | Implement accepted integration, PR disposition, validation, and main publication | 3 | `not-started` |
@@ -473,7 +473,7 @@ Stop before creating the new skill entry point or inventory helper.
 
 ## Block 1 — Build the cleanup skill and deterministic read-only inventory/plan
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -563,7 +563,44 @@ independent review of discovery completeness and mutation-free behavior.
 
 ### Completion evidence
 
-Pending.
+- Accepted repository commit: `fdd3e580443aec08cc59dd3598e3975fc2867d4a`;
+  broad or incomplete predecessors `4dce3e0de0f1ed2237992355b33cae2d9dd6049d`,
+  `1eed106a6d45d501ccda25ddbd28f9d1641aeae4`,
+  `fd2ab1d0b0f13b988e2fa4d3a4db71b38256bd6e`,
+  `4c567f2417e7e8c204a6f7e572e461d288c92404`,
+  `65a375774cded1c6b72e82d347a34f9a3a8d5de2`,
+  `705998a5183ed69a248edf63dfca32df03fd071e`, and their diagnostic
+  ancestors remain preserved in pushed history.
+- Outputs: valid `clean-software-factory` skill metadata, versioned contract and
+  schema, immutable/resumable inventory/plan/status artifacts, canonical path
+  bounds, deterministic retain-only dispositions, and explicit fail-closed
+  posture for proof dimensions outside the bounded scan.
+- Current fail-closed holds: externally supplied provider/task/release
+  completeness, configured-remote currentness, and task overlap remain unproved;
+  the plan therefore selects `audit` and retains every artifact. Worktree binary
+  diff rescans, recursive submodule reads, ignored-file enumeration, reflog
+  scans, and untracked-byte reads are absent from this Block.
+- Focused and mapped validation: `python3 -m unittest discover -s
+  clean-software-factory/scripts -p 'test_*.py'` passed 14/14; Ruff format/check,
+  skill validation, canonical-path probes, exact hold/no-rescan probes,
+  mutation-free Git/ref checks, and `git diff --check` passed on the frozen
+  candidate.
+- Resource posture: exactly 120 aggregate changed lines from accepted comparison
+  source `02fd433f4e45c72ca83fa727b7e86f4936f331e4`; one bounded status/ref/provider/
+  task pass, no deep byte scan, and no mutation or duplicate writer.
+- Independent review: bound Sol Max reviewer
+  `019ffeb1-04b5-7ef2-9f63-adadecb25483` accepted exact `fdd3e58` in
+  `EVT-000032`; routed verdict `EVT-000033` authorized evidence recording and
+  continuation with no remaining Block 1 finding.
+- Candidate freeze and durability: exact accepted SHA is clean and equals
+  `origin/codex/clean-software-factory`; previous candidates remain reachable.
+- Retained open work: the bounded Block 1 helper deliberately does not claim a
+  cleanup-ready topology. Blocks 2–9 own preservation, semantic coverage,
+  supervisor coordination, integration/publication, retirement, restart,
+  invocation signals, release, and live dogfood.
+- Post-block audit: accepted. The Block 1 Stop was observed; no candidate bytes
+  were archived, no supervisor quiescence was requested, and no repository,
+  provider, task, or supervision effect occurred.
 
 ### Stop
 
