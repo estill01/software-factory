@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clean Software Factory"
+  short_description: "Safely reconcile repositories without losing work"
+  default_prompt: "Use $clean-software-factory to audit and safely reconcile this repository."
