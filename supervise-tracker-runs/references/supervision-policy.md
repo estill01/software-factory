@@ -468,7 +468,11 @@ reports." `finalize` emits canonical JSON, Markdown, and PDF projections;
 source packets, unknown or out-of-window evidence, a full report that omits any
 verified prior report, or a PDF whose complete extracted projection differs
 from the canonical review. Every prior weekly report must pass its maintained
-verifier before it can enter the report-of-reports packet.
+verifier before it can enter the report-of-reports packet. A successful
+terminal verification appends a dedicated rooted receipt over the manifest,
+both PDF hashes, and both complete extracted PDF projections. Subsequent
+delivery, lifecycle, status, and shutdown checks revalidate the retained bytes
+against that receipt without regenerating either report.
 
 Every terminal prepare, finalize, verify, delivery, and shutdown boundary
 revalidates the exact completed implementation range, latest completed
@@ -2843,6 +2847,11 @@ python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
 python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
   --action verify --report-set-id <REPORT_SET_ID>
 ```
+
+The `verify` step creates the dedicated canonical verification receipt. If
+delivery must be retried, reuse the returned PDF paths and the same report set;
+the delivery path validates the retained artifacts and receipt without
+rerendering them.
 
 Reply to the bound primary Gmail seed with both returned PDF paths in
 `attachment_files`. Read the exact returned message and its two attachments,

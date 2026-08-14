@@ -1222,6 +1222,11 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             mock.patch.object(supervision_log, "require_current_terminal_completion"),
             mock.patch.object(
                 supervision_log,
+                "append_terminal_report_verification",
+                return_value={"record_id": "verification-1234"},
+            ),
+            mock.patch.object(
+                supervision_log,
                 "terminal_prior_report_inventory",
                 return_value=[{"report_id": "weekly-prior-1234"}],
             ),

@@ -796,9 +796,15 @@ class TerminalReportIntegrationTests(unittest.TestCase):
         )
         with redirect_stdout(io.StringIO()):
             supervision_log.cmd_terminal_report_finalize(finalize_args)
-        verified = supervision_log.verify_terminal_report_set(
-            root / TARGET, prepared["report_set_id"]
+        verify_args = argparse.Namespace(
+            root=str(root),
+            target_thread=TARGET,
+            report_set_id=prepared["report_set_id"],
         )
+        verify_output = io.StringIO()
+        with redirect_stdout(verify_output):
+            supervision_log.cmd_terminal_report_verify(verify_args)
+        verified = json.loads(verify_output.getvalue())
         return prepared, review, verified
 
     def append_in_progress_lifecycle(self, root: Path) -> None:
@@ -913,6 +919,75 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                     )
                 )
             )
+
+    def test_generic_record_cannot_shadow_terminal_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.prepare_root(root)
+            before = supervision_log.events(root / TARGET / "events.jsonl")
+            args = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    str(root),
+                    "record",
+                    "--target-thread",
+                    TARGET,
+                    "--kind",
+                    "notification",
+                    "--category",
+                    supervision_log.TERMINAL_REPORT_DELIVERY_CATEGORY,
+                    "--summary",
+                    "Generic input must not occupy a dedicated owner category.",
+                    "--evidence",
+                    "EVT-000002",
+                ]
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "dedicated owner command",
+            ):
+                args.func(args)
+            self.assertEqual(
+                supervision_log.events(root / TARGET / "events.jsonl"), before
+            )
+
+    def test_verified_delivery_retry_reuses_retained_pdf_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            gate_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                lifecycle_state="completed",
+                source_record="EVT-000002",
+                state_fingerprint=FINGERPRINT,
+            )
+            delivery_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=self.encoded_gmail_readback(
+                    verified=verified, policy=policy
+                ),
+            )
+            module = supervision_log.terminal_report_module()
+            with mock.patch.object(
+                module,
+                "render_pdf",
+                side_effect=AssertionError("delivery-only retry rerendered a PDF"),
+            ):
+                gate_output = io.StringIO()
+                with redirect_stdout(gate_output):
+                    supervision_log.cmd_lifecycle_gate(gate_args)
+                gate = json.loads(gate_output.getvalue())
+                self.assertTrue(gate["terminal_reports_verified"])
+                self.assertEqual(
+                    gate["completion_action"],
+                    "email-and-record-verified-terminal-reports",
+                )
+                with redirect_stdout(io.StringIO()):
+                    supervision_log.cmd_terminal_report_delivery(delivery_args)
 
     def test_shutdown_rejects_an_automation_owned_by_another_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1044,6 +1119,49 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                 json.loads(status_output.getvalue())["last_terminal_shutdown"]
             )
 
+    def test_status_excludes_shutdown_after_completion_or_report_drift(self) -> None:
+        for mutation in ("lifecycle", "report-bytes"):
+            with self.subTest(
+                mutation=mutation
+            ), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                prepared, verified = self.deliver_reports(root)
+                policy = supervision_log.read_json(root / TARGET / "policy.json")
+                automation_root = root / "automations"
+                write_automation_owners(
+                    automation_root,
+                    supervision_log.expected_terminal_automation_owners(policy),
+                )
+                shutdown_args = argparse.Namespace(
+                    root=str(root),
+                    target_thread=TARGET,
+                    lifecycle_record="EVT-000002",
+                    report_set_id=prepared["report_set_id"],
+                )
+                with mock.patch.object(
+                    supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+                ), redirect_stdout(io.StringIO()):
+                    supervision_log.cmd_terminal_shutdown(shutdown_args)
+                if mutation == "lifecycle":
+                    self.append_in_progress_lifecycle(root)
+                else:
+                    Path(str(verified["delta_pdf_path"])).write_bytes(
+                        b"changed bytes"
+                    )
+                status_output = io.StringIO()
+                status_args = argparse.Namespace(
+                    root=str(root), target_thread=TARGET
+                )
+                with mock.patch.object(
+                    supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+                ), redirect_stdout(status_output):
+                    supervision_log.cmd_status(status_args)
+                self.assertIsNone(
+                    json.loads(status_output.getvalue())[
+                        "last_terminal_shutdown"
+                    ]
+                )
+
     def test_reports_delivery_gate_and_shutdown_are_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1091,8 +1209,9 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             self.assertFalse(before["supervision_pause_permitted"])
             self.assertEqual(
                 before["completion_action"],
-                "prepare-finalize-verify-email-and-record-terminal-reports",
+                "email-and-record-verified-terminal-reports",
             )
+            self.assertTrue(before["terminal_reports_verified"])
 
             delivery_args = argparse.Namespace(
                 root=str(root),

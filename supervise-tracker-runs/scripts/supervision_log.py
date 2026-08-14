@@ -141,12 +141,15 @@ ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256 = (
     "179f04afb14b47ed7d48560e21fcaa91979974ad2e39de41e4d35ea8e70c898c"
 )
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
+TERMINAL_REPORT_VERIFICATION_CATEGORY = "terminal-report-verification"
 WEEKLY_REPORT_DELIVERY_CATEGORY = "gmail-weekly-report"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
 TERMINAL_SHUTDOWN_REJECTED_CATEGORY = (
     "terminal-supervision-shutdown-currentness-rejected"
 )
 TERMINAL_SHUTDOWN_RESERVED_CATEGORIES = {
+    TERMINAL_REPORT_DELIVERY_CATEGORY,
+    TERMINAL_REPORT_VERIFICATION_CATEGORY,
     TERMINAL_SHUTDOWN_CATEGORY,
     TERMINAL_SHUTDOWN_REJECTED_CATEGORY,
 }
@@ -6161,7 +6164,8 @@ def cmd_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError("Unsupported event kind")
     if args.category in TERMINAL_SHUTDOWN_RESERVED_CATEGORIES:
         raise SupervisionLogError(
-            "Terminal shutdown records require the dedicated owner command"
+            "Terminal delivery, verification, and shutdown records require "
+            "the dedicated owner command"
         )
     if args.status == "resumed" or args.category == SUPERVISION_RESUME_CATEGORY:
         raise SupervisionLogError(
@@ -6903,6 +6907,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     )
     terminal_delivery: Mapping[str, Any] | None = None
     terminal_reports_delivered = False
+    terminal_reports_verified = False
     terminal_report_reason = "The lifecycle state does not require terminal reports."
     terminal_report_set_id: str | None = None
     terminal_lane_ready = not terminal_reporting or terminal_gmail_lane_ready(policy)
@@ -6911,17 +6916,48 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
             all_events, lifecycle_record_id=source_record
         )
         if terminal_delivery is None:
-            terminal_report_reason = (
-                "Bind the default terminal-report Gmail lane before generating completion reports."
-                if not terminal_lane_ready
-                else "Generate, verify, and email both terminal PDF reports before pausing supervision."
-            )
+            if terminal_lane_ready:
+                try:
+                    verified_terminal = current_terminal_report_verification(
+                        directory=directory,
+                        policy=policy,
+                        all_events=all_events,
+                        lifecycle_record_id=source_record,
+                    )
+                except (SupervisionLogError, OSError, json.JSONDecodeError) as exc:
+                    terminal_report_reason = (
+                        f"Terminal report verification failed: {exc}"
+                    )
+                else:
+                    if verified_terminal is not None:
+                        terminal_reports_verified = True
+                        terminal_report_set_id = str(
+                            verified_terminal["report_set_id"]
+                        )
+                        terminal_report_reason = (
+                            "Both terminal PDF reports are verified; email and record "
+                            "the exact retained artifacts before pausing supervision."
+                        )
+                    else:
+                        terminal_report_reason = (
+                            "Generate, verify, and email both terminal PDF reports "
+                            "before pausing supervision."
+                        )
+            else:
+                terminal_report_reason = (
+                    "Bind the default terminal-report Gmail lane before generating "
+                    "completion reports."
+                )
         else:
             terminal_report_set_id = str(terminal_delivery.get("report_set_id", ""))
             try:
                 verified_terminal = verify_terminal_report_set(
-                    directory, terminal_report_set_id
+                    directory, terminal_report_set_id, render_expected_pdfs=False
                 )
+                require_terminal_report_verification(
+                    all_events, verified_terminal, policy=policy
+                )
+                terminal_reports_verified = True
                 terminal_reports_delivered = bool(
                     terminal_delivery_is_current(
                         terminal_delivery, verified_terminal, policy=policy
@@ -7039,6 +7075,10 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     and not terminal_reports_delivered
                     and not terminal_lane_ready
                     else "prepare-finalize-verify-email-and-record-terminal-reports"
+                    if terminal_reporting
+                    and not terminal_reports_delivered
+                    and not terminal_reports_verified
+                    else "email-and-record-verified-terminal-reports"
                     if terminal_reporting and not terminal_reports_delivered
                     else "none"
                 ),
@@ -7096,6 +7136,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     notification_config.get("subject") if terminal_reporting else None
                 ),
                 "terminal_report_set_id": terminal_report_set_id,
+                "terminal_reports_verified": terminal_reports_verified,
                 "terminal_reports_delivered": terminal_reports_delivered,
             },
             sort_keys=True,
@@ -20893,7 +20934,10 @@ def cmd_terminal_report_finalize(args: argparse.Namespace) -> None:
 
 
 def verify_terminal_report_set(
-    directory: Path, report_set_id: str
+    directory: Path,
+    report_set_id: str,
+    *,
+    render_expected_pdfs: bool = True,
 ) -> dict[str, Any]:
     module = terminal_report_module()
     report_directory, packet = terminal_packet(directory, report_set_id)
@@ -20982,17 +21026,18 @@ def verify_terminal_report_set(
         ).encode("utf-8")
         if paths[f"{prefix}.md"].read_bytes() != expected_markdown:
             raise SupervisionLogError(f"Terminal {report_type} Markdown projection differs")
-        with tempfile.TemporaryDirectory(dir=report_directory) as temporary:
-            expected_pdf = Path(temporary) / f"{prefix}.pdf"
-            module.render_pdf(
-                expected_pdf, review[key], report_set_id=report_set_id
-            )
-            if terminal_pdf_projection(paths[f"{prefix}.pdf"]) != terminal_pdf_projection(
-                expected_pdf
-            ):
-                raise SupervisionLogError(
-                    f"Terminal {report_type} PDF projection differs"
+        if render_expected_pdfs:
+            with tempfile.TemporaryDirectory(dir=report_directory) as temporary:
+                expected_pdf = Path(temporary) / f"{prefix}.pdf"
+                module.render_pdf(
+                    expected_pdf, review[key], report_set_id=report_set_id
                 )
+                if terminal_pdf_projection(
+                    paths[f"{prefix}.pdf"]
+                ) != terminal_pdf_projection(expected_pdf):
+                    raise SupervisionLogError(
+                        f"Terminal {report_type} PDF projection differs"
+                    )
     delta_projection = terminal_pdf_projection(paths["delta-report.pdf"])
     full_projection = terminal_pdf_projection(paths["full-report.pdf"])
     return {
@@ -21009,7 +21054,278 @@ def verify_terminal_report_set(
         "full_pdf_sha256": manifest["files"]["full-report.pdf"]["sha256"],
         "delta_page_count": len(delta_projection["pages"]),
         "full_page_count": len(full_projection["pages"]),
+        "delta_projection_root": digest(delta_projection),
+        "full_projection_root": digest(full_projection),
     }
+
+
+def terminal_report_verification_material(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        key: value.get(key)
+        for key in (
+            "schema_version",
+            "record_id",
+            "timestamp",
+            "target_thread_id",
+            "kind",
+            "model",
+            "reasoning",
+            "state_fingerprint",
+            "status",
+            "severity",
+            "category",
+            "summary",
+            "evidence",
+            "completion_record_id",
+            "lifecycle_record_id",
+            "report_set_id",
+            "manifest_root",
+            "delta_pdf_sha256",
+            "full_pdf_sha256",
+            "delta_projection_root",
+            "full_projection_root",
+            "policy_sha256",
+        )
+    }
+
+
+def validate_terminal_report_verification_record(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    material = terminal_report_verification_material(value)
+    core_fields = {*material, "verification_root_sha256"}
+    retained_fields = {*core_fields, "previous_record_sha256", "record_sha256"}
+    evidence = value.get("evidence")
+    if (
+        frozenset(value) not in {frozenset(core_fields), frozenset(retained_fields)}
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind") != "check"
+        or value.get("model") != "gpt-5.6-sol"
+        or value.get("reasoning") != "xhigh"
+        or value.get("category") != TERMINAL_REPORT_VERIFICATION_CATEGORY
+        or value.get("status") != "verified"
+        or value.get("severity") != "info"
+        or not isinstance(value.get("record_id"), str)
+        or not isinstance(value.get("timestamp"), str)
+        or not isinstance(value.get("target_thread_id"), str)
+        or not isinstance(value.get("state_fingerprint"), str)
+        or not isinstance(value.get("summary"), str)
+        or not isinstance(value.get("completion_record_id"), str)
+        or not isinstance(value.get("lifecycle_record_id"), str)
+        or not isinstance(value.get("report_set_id"), str)
+        or not isinstance(evidence, list)
+        or len(evidence) != 3
+        or evidence
+        != [
+            value.get("completion_record_id"),
+            value.get("lifecycle_record_id"),
+            value.get("report_set_id"),
+        ]
+        or value.get("verification_root_sha256") != digest(material)
+    ):
+        raise SupervisionLogError(
+            "Canonical terminal report verification receipt is invalid"
+        )
+    parse_time(str(value["timestamp"]))
+    for field in (
+        "record_id",
+        "target_thread_id",
+        "completion_record_id",
+        "lifecycle_record_id",
+        "report_set_id",
+    ):
+        safe_id(str(value[field]), label=f"terminal report verification {field}")
+    for field in (
+        "manifest_root",
+        "delta_pdf_sha256",
+        "full_pdf_sha256",
+        "delta_projection_root",
+        "full_projection_root",
+        "policy_sha256",
+    ):
+        exact_sha256(
+            str(value.get(field, "")),
+            label=f"terminal report verification {field}",
+        )
+    return dict(value)
+
+
+def terminal_report_verification_matches(
+    record: Mapping[str, Any],
+    verified: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+) -> bool:
+    return bool(
+        record.get("target_thread_id") == policy.get("target_thread_id")
+        and record.get("policy_sha256") == policy.get("policy_sha256")
+        and record.get("state_fingerprint") == verified.get("state_fingerprint")
+        and record.get("completion_record_id")
+        == verified.get("completion_record_id")
+        and record.get("lifecycle_record_id")
+        == verified.get("lifecycle_record_id")
+        and record.get("report_set_id") == verified.get("report_set_id")
+        and record.get("manifest_root") == verified.get("manifest_root")
+        and record.get("delta_pdf_sha256")
+        == verified.get("delta_pdf_sha256")
+        and record.get("full_pdf_sha256")
+        == verified.get("full_pdf_sha256")
+        and record.get("delta_projection_root")
+        == verified.get("delta_projection_root")
+        and record.get("full_projection_root")
+        == verified.get("full_projection_root")
+    )
+
+
+def require_terminal_report_verification(
+    all_events: Sequence[Mapping[str, Any]],
+    verified: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    record = next(
+        (
+            validate_terminal_report_verification_record(item)
+            for item in reversed(all_events)
+            if item.get("category") == TERMINAL_REPORT_VERIFICATION_CATEGORY
+            and item.get("report_set_id") == verified.get("report_set_id")
+        ),
+        None,
+    )
+    if record is None or not terminal_report_verification_matches(
+        record, verified, policy=policy
+    ):
+        raise SupervisionLogError(
+            "Terminal report set lacks a current canonical verification receipt"
+        )
+    return record
+
+
+def current_terminal_report_verification(
+    *,
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: Sequence[Mapping[str, Any]],
+    lifecycle_record_id: str,
+) -> dict[str, Any] | None:
+    candidates = [
+        item
+        for item in reversed(all_events)
+        if item.get("category") == TERMINAL_REPORT_VERIFICATION_CATEGORY
+        and item.get("lifecycle_record_id") == lifecycle_record_id
+    ]
+    for item in candidates:
+        try:
+            record = validate_terminal_report_verification_record(item)
+            verified = verify_terminal_report_set(
+                directory,
+                str(record.get("report_set_id", "")),
+                render_expected_pdfs=False,
+            )
+            require_terminal_report_verification(
+                all_events, verified, policy=policy
+            )
+        except (SupervisionLogError, OSError, json.JSONDecodeError):
+            continue
+        return verified
+    return None
+
+
+def append_terminal_report_verification(
+    *,
+    args: argparse.Namespace,
+    directory: Path,
+    policy: Mapping[str, Any],
+    verified: Mapping[str, Any],
+) -> dict[str, Any]:
+    with append_lock(directory):
+        (
+            current_directory,
+            current_policy,
+            current_policy_snapshot,
+            current_events,
+            current_event_snapshot,
+            current_directory_snapshot,
+        ) = load_control_snapshot(args)
+        if (
+            current_directory.resolve() != directory.resolve()
+            or current_policy.get("policy_sha256") != policy.get("policy_sha256")
+        ):
+            raise SupervisionLogError(
+                "Terminal report policy changed before verification append"
+            )
+        require_current_terminal_completion(
+            directory=current_directory,
+            policy=current_policy,
+            policy_snapshot=current_policy_snapshot,
+            all_events=current_events,
+            event_snapshot=current_event_snapshot,
+            directory_snapshot=current_directory_snapshot,
+            lifecycle_record_id=str(verified["lifecycle_record_id"]),
+        )
+        current_verified = verify_terminal_report_set(
+            directory,
+            str(verified["report_set_id"]),
+            render_expected_pdfs=False,
+        )
+        if current_verified != verified:
+            raise SupervisionLogError(
+                "Terminal report set changed before verification append"
+            )
+        prior = next(
+            (
+                validate_terminal_report_verification_record(item)
+                for item in reversed(current_events)
+                if item.get("category") == TERMINAL_REPORT_VERIFICATION_CATEGORY
+                and item.get("report_set_id") == verified["report_set_id"]
+            ),
+            None,
+        )
+        if prior is not None:
+            if not terminal_report_verification_matches(
+                prior, verified, policy=current_policy
+            ):
+                raise SupervisionLogError(
+                    "Terminal report verification receipt already differs"
+                )
+            return prior
+        record = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": utc_now(),
+            "target_thread_id": current_policy["target_thread_id"],
+            "kind": "check",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "state_fingerprint": verified["state_fingerprint"],
+            "status": "verified",
+            "severity": "info",
+            "category": TERMINAL_REPORT_VERIFICATION_CATEGORY,
+            "summary": "Verified both retained terminal PDF reports against their canonical source projections.",
+            "evidence": [
+                verified["completion_record_id"],
+                verified["lifecycle_record_id"],
+                verified["report_set_id"],
+            ],
+            "completion_record_id": verified["completion_record_id"],
+            "lifecycle_record_id": verified["lifecycle_record_id"],
+            "report_set_id": verified["report_set_id"],
+            "manifest_root": verified["manifest_root"],
+            "delta_pdf_sha256": verified["delta_pdf_sha256"],
+            "full_pdf_sha256": verified["full_pdf_sha256"],
+            "delta_projection_root": verified["delta_projection_root"],
+            "full_projection_root": verified["full_projection_root"],
+            "policy_sha256": current_policy["policy_sha256"],
+        }
+        record["verification_root_sha256"] = digest(
+            terminal_report_verification_material(record)
+        )
+        validate_terminal_report_verification_record(record)
+        append_event_locked(args, directory, record)
+        return record
 
 
 def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
@@ -21021,7 +21337,9 @@ def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
         event_snapshot,
         directory_snapshot,
     ) = load_control_snapshot(args)
-    verified = verify_terminal_report_set(directory, args.report_set_id)
+    verified = verify_terminal_report_set(
+        directory, args.report_set_id, render_expected_pdfs=True
+    )
     require_current_terminal_completion(
         directory=directory,
         policy=policy,
@@ -21030,6 +21348,12 @@ def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
         event_snapshot=event_snapshot,
         directory_snapshot=directory_snapshot,
         lifecycle_record_id=str(verified["lifecycle_record_id"]),
+    )
+    verification = append_terminal_report_verification(
+        args=args,
+        directory=directory,
+        policy=policy,
+        verified=verified,
     )
     prior_reports = terminal_prior_report_inventory(directory)
     admission = factory_evolution_checkpoint_admission(
@@ -21042,6 +21366,7 @@ def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
         event_paths=[directory / "events.jsonl"],
     )
     verified["factory_evolution_eligibility"] = admission
+    verified["verification_record_id"] = verification["record_id"]
     print(json.dumps(verified, sort_keys=True))
 
 
@@ -21374,7 +21699,12 @@ def append_terminal_delivery(
             lifecycle_record_id=str(verified["lifecycle_record_id"]),
         )
         current_verified = verify_terminal_report_set(
-            directory, str(verified["report_set_id"])
+            directory,
+            str(verified["report_set_id"]),
+            render_expected_pdfs=False,
+        )
+        require_terminal_report_verification(
+            current_events, current_verified, policy=current_policy
         )
         if current_verified != verified:
             raise SupervisionLogError(
@@ -21444,7 +21774,10 @@ def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
         event_snapshot,
         directory_snapshot,
     ) = load_control_snapshot(args)
-    verified = verify_terminal_report_set(directory, args.report_set_id)
+    verified = verify_terminal_report_set(
+        directory, args.report_set_id, render_expected_pdfs=False
+    )
+    require_terminal_report_verification(all_events, verified, policy=policy)
     require_current_terminal_completion(
         directory=directory,
         policy=policy,
@@ -22878,19 +23211,19 @@ def append_terminal_shutdown_rejection(
 
 
 def current_terminal_shutdown_records(
-    all_events: Sequence[Mapping[str, Any]],
+    active_events: Sequence[Mapping[str, Any]],
     *,
+    directory: Path,
     policy: Mapping[str, Any],
+    policy_snapshot: tuple[int, int, int, int],
+    owner_events: list[dict[str, Any]],
+    event_snapshot: tuple[int, int, int, int] | None,
+    directory_snapshot: tuple[int, int, int, int],
 ) -> list[dict[str, Any]]:
-    rejected_ids = terminal_shutdown_rejected_record_ids(all_events)
+    rejected_ids = terminal_shutdown_rejected_record_ids(active_events)
     owner_bindings = expected_terminal_automation_owners(policy)
-    by_id = {
-        str(item.get("record_id")): item
-        for item in all_events
-        if isinstance(item.get("record_id"), str)
-    }
     current: list[dict[str, Any]] = []
-    for item in all_events:
+    for item in active_events:
         if item.get("category") != TERMINAL_SHUTDOWN_CATEGORY:
             continue
         record = validate_terminal_shutdown_record(item)
@@ -22900,13 +23233,44 @@ def current_terminal_shutdown_records(
         ):
             continue
         evidence = record["evidence"]
-        delivery = by_id.get(str(evidence[2]))
-        if (
-            delivery is None
-            or delivery.get("category") != TERMINAL_REPORT_DELIVERY_CATEGORY
-        ):
-            continue
         try:
+            completion = require_current_terminal_completion(
+                directory=directory,
+                policy=dict(policy),
+                policy_snapshot=policy_snapshot,
+                all_events=owner_events,
+                event_snapshot=event_snapshot,
+                directory_snapshot=directory_snapshot,
+                lifecycle_record_id=str(evidence[0]),
+            )
+            delivery = latest_terminal_delivery(
+                active_events, lifecycle_record_id=str(evidence[0])
+            )
+            if (
+                delivery is None
+                or delivery.get("record_id") != evidence[2]
+                or delivery.get("report_set_id") != evidence[1]
+                or record.get("report_set_id") != evidence[1]
+                or record.get("target_thread_id") != policy.get("target_thread_id")
+                or record.get("state_fingerprint")
+                != completion["lifecycle"].get("state_fingerprint")
+            ):
+                continue
+            verified = verify_terminal_report_set(
+                directory,
+                str(record["report_set_id"]),
+                render_expected_pdfs=False,
+            )
+            require_terminal_report_verification(
+                owner_events, verified, policy=policy
+            )
+            if (
+                record.get("manifest_root") != verified.get("manifest_root")
+                or not terminal_delivery_is_current(
+                    delivery, verified, policy=policy
+                )
+            ):
+                continue
             live_states = terminal_automation_owner_states(
                 owner_bindings,
                 not_before=parse_time(str(delivery.get("timestamp", ""))),
@@ -22950,7 +23314,10 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     )
     if delivery is None or delivery.get("report_set_id") != args.report_set_id:
         raise SupervisionLogError("Terminal shutdown requires delivered report attachments")
-    verified = verify_terminal_report_set(directory, args.report_set_id)
+    verified = verify_terminal_report_set(
+        directory, args.report_set_id, render_expected_pdfs=False
+    )
+    require_terminal_report_verification(all_events, verified, policy=policy)
     if not terminal_delivery_is_current(delivery, verified, policy=policy):
         raise SupervisionLogError("Terminal shutdown report delivery is stale")
     expected_owners = expected_terminal_automation_owners(policy)
@@ -22989,7 +23356,10 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             current_events, lifecycle_record_id=args.lifecycle_record
         )
         current_verified = verify_terminal_report_set(
-            directory, args.report_set_id
+            directory, args.report_set_id, render_expected_pdfs=False
+        )
+        require_terminal_report_verification(
+            current_events, current_verified, policy=current_policy
         )
         if (
             current_delivery is None
@@ -23312,7 +23682,13 @@ def cmd_status(args: argparse.Namespace) -> None:
         and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
     ]
     terminal_shutdown_events = current_terminal_shutdown_records(
-        active_events, policy=policy
+        active_events,
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        owner_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
     )
     decision_heads: dict[str, dict[str, Any]] = {}
     for item in active_events:
@@ -33573,7 +33949,10 @@ def render_and_verify_terminal_pdf(
 
 
 def verify_terminal_report_set(
-    directory: Path, report_set_id: str
+    directory: Path,
+    report_set_id: str,
+    *,
+    render_expected_pdfs: bool = True,
 ) -> dict[str, Any]:
     module = terminal_report_module()
     policy = read_json(directory / "policy.json")
@@ -33669,20 +34048,21 @@ def verify_terminal_report_set(
         ).encode("utf-8")
         if paths[f"{prefix}.md"].read_bytes() != expected_markdown:
             raise SupervisionLogError(f"Terminal {report_type} Markdown projection differs")
-        with tempfile.TemporaryDirectory(dir=report_directory) as temporary:
-            expected_pdf = Path(temporary) / f"{prefix}.pdf"
-            module.render_pdf(
-                expected_pdf,
-                review[key],
-                report_set_id=report_set_id,
-                factory_evolution_outcomes=outcome_projection,
-            )
-            if terminal_pdf_projection(paths[f"{prefix}.pdf"]) != terminal_pdf_projection(
-                expected_pdf
-            ):
-                raise SupervisionLogError(
-                    f"Terminal {report_type} PDF projection differs"
+        if render_expected_pdfs:
+            with tempfile.TemporaryDirectory(dir=report_directory) as temporary:
+                expected_pdf = Path(temporary) / f"{prefix}.pdf"
+                module.render_pdf(
+                    expected_pdf,
+                    review[key],
+                    report_set_id=report_set_id,
+                    factory_evolution_outcomes=outcome_projection,
                 )
+                if terminal_pdf_projection(
+                    paths[f"{prefix}.pdf"]
+                ) != terminal_pdf_projection(expected_pdf):
+                    raise SupervisionLogError(
+                        f"Terminal {report_type} PDF projection differs"
+                    )
     delta_projection = terminal_pdf_projection(paths["delta-report.pdf"])
     full_projection = terminal_pdf_projection(paths["full-report.pdf"])
     return {
@@ -33699,6 +34079,8 @@ def verify_terminal_report_set(
         "full_pdf_sha256": manifest["files"]["full-report.pdf"]["sha256"],
         "delta_page_count": len(delta_projection["pages"]),
         "full_page_count": len(full_projection["pages"]),
+        "delta_projection_root": digest(delta_projection),
+        "full_projection_root": digest(full_projection),
         "factory_evolution_outcomes": outcome_projection,
     }
 

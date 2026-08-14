@@ -286,7 +286,11 @@ Repeat independently for additional targets.
   raw MIME, also read the bound seed message, and read both attachments through
   Gmail. Every prepare, finalize, verify, delivery, and shutdown boundary must
   re-establish the exact completed implementation range, current lifecycle, and
-  completed governing-outcome posture. `record-delivery` must parse both MIME messages, prove the sent message
+  completed governing-outcome posture. A successful `verify` appends a rooted,
+  dedicated verification receipt over the immutable manifest, PDF hashes, and
+  complete extracted PDF projections. Delivery-only retries must reuse those
+  retained bytes and current receipt; they must not regenerate either report.
+  `record-delivery` must parse both MIME messages, prove the sent message
   is a reply in the seed's provider-owned thread, bind each attachment to that
   exact owner message/thread plus its attachment/read-call IDs, and prove the
   returned bytes equal the verified PDFs. It also requires an independently
@@ -301,8 +305,8 @@ Repeat independently for additional targets.
   bound automation to belong to its policy-bound runtime role task and be
   paused by an update no earlier than report delivery. It rechecks the owner
   files across the canonical append and records a rooted currentness rejection
-  if they change. Generic check records cannot create or retire shutdown
-  evidence.
+  if they change. Generic records cannot create terminal delivery,
+  verification, or shutdown evidence.
   Do not claim that supervision stopped when an expected owner is missing,
   active, stale, or divergent.
 - Treat an unsupported goal-preventing stop as a critical operational event,
