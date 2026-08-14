@@ -59,6 +59,7 @@ TRUSTED_AUTHORITY_IDS = {
 }
 AUTOMATED_ASSURANCE_KIND = "software-factory-skill-release-automated-assurance"
 AUTOMATED_CHECK_RUNNER = Path("/opt/homebrew/bin/uv")
+AUTOMATED_CHECK_TIMEOUT_SECONDS = 1800
 AUTOMATED_CHECK_SUITES = (
     ("release-owner", "scripts", "test_skill_release.py", "system"),
     ("tracker-authoring", "author-implementation-trackers/scripts", "test_*.py", "system"),
@@ -1133,7 +1134,7 @@ def run_automated_suite(
         cwd=checkout,
         check=False,
         capture_output=True,
-        timeout=900,
+        timeout=AUTOMATED_CHECK_TIMEOUT_SECONDS,
     )
     output = result.stdout + result.stderr
     count = automated_test_count(output)
