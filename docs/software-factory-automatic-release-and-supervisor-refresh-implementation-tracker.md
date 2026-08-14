@@ -187,7 +187,7 @@ make their composition automatic and fail closed.
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
-| 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `in-progress` |
+| 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `completed` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
 
 Required order:
@@ -979,7 +979,7 @@ Stop before promoting the integrated candidate.
 
 ## Block 6 — Freeze, validate, independently review, merge, and promote
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -1033,7 +1033,67 @@ Exact-revision independent review is mandatory before promotion.
 
 ### Completion evidence
 
-Pending.
+- Preserved review/remediation history: integrated candidate `0b97d66` was
+  rejected on `B6-F01` through `B6-F04`; successor `0a8ae91` retained
+  `B6-F04`; successor `02c6113` retained range-root currentness `B6-F04` and
+  schema-v1 rollback retry `B6-F05`; `235528d` closed those findings. None of
+  those rejected decisions was rewritten or promoted.
+- The initially accepted automatic-release line was merged non-rewriting as
+  `342e30fa2544a1884bac14b1278321805e9bb69d`, tree
+  `2250d775c92d870439a7445b3d00d76c374401ce`, with parents `235528d` and
+  current main `f846fed`. Focused orchestration passed `36/36`, release-owner
+  tests `25/25`, and mapped supervision `534/534`; distinct read-only Sol xhigh
+  and the configured signed Reviewer both accepted that exact tree with no
+  findings. Its first promotion attempt failed closed before activation because
+  the owner runtime omitted `pypdf`; live release history remained unchanged.
+- Cross-lane reconciliation then preserved the independently accepted Patent
+  Studio receipt-order/profile-source lineage rather than racing it: merge
+  `e6ef7b3d596d9329c138024fe36169a884834b87` has exact parents `342e30f` and
+  `d24c267fa5654fe85c8e90a396facedc9abec509`. Successor
+  `c2deeb26748dfdf1994499b9e7a4968e6a366109`, tree
+  `5f6aed2de6138fcd1499dedb4bee2b5928df108e`, added only the missing
+  `reportlab` plus `pypdf` release-owner envelope and its command-shape test.
+  Pre-release aggregate proof passed release owner `26/26`, authoring `42/42`,
+  implementation `116/116`, supervision `539/539`, all three skill validators,
+  compile, diff, ancestry, and clean-tree checks. Distinct read-only Sol xhigh
+  and the configured signed Reviewer independently accepted exact `c2deeb2`
+  with no findings. Its owner attempt also failed closed before activation: the
+  newly integrated profile-source tests exposed a writable ambient `/tmp`
+  ancestor in their key fixture under the owner's minimal environment.
+- Final accepted successor `3115d4da41b017d5b744b0523201f4ae83c80af3`,
+  tree `86e9bb25fab0618a5983c9cd900cdb1fd8c1f933`, moved only test reviewer and
+  evaluator keys beneath one mode-`0700` fixture directory; production code and
+  the sealed-key verifier were unchanged. Exact owner-environment proof passed
+  the three formerly added failures `3/3`, the defining adaptive-policy suite
+  `26/26`, and the consuming program-revision suite `14/14`, plus compile,
+  supervision skill validation, diff, clean-tree, and push checks. The
+  configured signed Reviewer independently accepted the exact successor with
+  `review-findings:none`; acceptance is durable as `EVT-000024`.
+- Release-owner assurance for exact `3115d4d` passed: release owner `26/26`,
+  authoring `42/42`, implementation `100` tests with `31/31` inherited failures,
+  and supervision `531` tests with candidate failures reduced to `37` from the
+  inherited `62`; all three fixed validators passed. The flagless owner then
+  activated release `3115d4da41b0-da5e9cdbacc5` as coordination record
+  `EVT-000026`, manifest
+  `2cf37137829c5ac4acd7ef7504a1eb246ce5dc2cc55da8871f4a75475805dd5a`,
+  verification root
+  `bcdff2edc69737d38bfbc0901e6851fae9cabe043ca5b741ced3b11448d1ed6d`,
+  activation history `34` / `ACTIVATION-34`. Exact rehydration proved
+  `origin/main`, accepted source, active source, and source tree all reconcile
+  at `3115d4d` / `86e9bb2`.
+- Installed roots: author
+  `1ddeb47051c2f2e9639e7d4785fc601923933d52ce419c5f63fdb35c30f0d2d3`,
+  implementation
+  `463b89f007a3c1dbfa485f845bb22e7173ec7b349222062a06a85ef7a7ff66ba`,
+  supervision
+  `9db53dc68d59e6cd6a77acdc046495aa87bb4a035033c37e2a439fff13cff557`;
+  stable links and manifest readback match those roots.
+- No Gmail, automation, supervisor-policy, lifecycle, or terminal effect was
+  taken in this Block. Live stable-channel migration and effectiveness proof
+  remain owned by Block 7.
+- Post-block audit: accepted. Git durability: every predecessor and rejection is
+  reachable; the accepted source is pushed non-force to both the feature branch
+  and `origin/main`.
 
 ### Stop
 
