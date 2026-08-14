@@ -37,6 +37,103 @@ assert (
 factory_test_support = importlib.util.module_from_spec(FACTORY_TEST_SUPPORT_SPEC)
 FACTORY_TEST_SUPPORT_SPEC.loader.exec_module(factory_test_support)
 
+PROGRAM_REVISION_TEST_SUPPORT_PATH = Path(__file__).with_name(
+    "test_program_revision_control.py"
+)
+PROGRAM_REVISION_TEST_SUPPORT_SPEC = importlib.util.spec_from_file_location(
+    "supervision_log_program_revision_test_support",
+    PROGRAM_REVISION_TEST_SUPPORT_PATH,
+)
+assert (
+    PROGRAM_REVISION_TEST_SUPPORT_SPEC is not None
+    and PROGRAM_REVISION_TEST_SUPPORT_SPEC.loader is not None
+)
+program_revision_test_support = importlib.util.module_from_spec(
+    PROGRAM_REVISION_TEST_SUPPORT_SPEC
+)
+PROGRAM_REVISION_TEST_SUPPORT_SPEC.loader.exec_module(program_revision_test_support)
+
+
+class AdaptiveAffectedScopeContentLimitTests(unittest.TestCase):
+    @staticmethod
+    def padded_tracker_writer(exact_size: int):
+        original = program_revision_test_support.ProgramRevisionControlTests.write_tracker
+
+        def write_tracker(case, path, blocks):
+            original(case, path, blocks)
+            if path.name != "tracker.md":
+                return
+            content = path.read_bytes()
+            prefix = b"\n<!-- incumbent affected-scope padding: "
+            suffix = b" -->\n"
+            padding_size = exact_size - len(content) - len(prefix) - len(suffix)
+            if padding_size < 0:
+                raise AssertionError("Program-revision tracker fixture exceeds requested size")
+            path.write_bytes(content + prefix + (b"x" * padding_size) + suffix)
+            if path.stat().st_size != exact_size:
+                raise AssertionError("Program-revision tracker fixture size differs")
+
+        return write_tracker
+
+    def program_revision_case(self):
+        case = program_revision_test_support.ProgramRevisionControlTests(
+            methodName="test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block"
+        )
+        self.addCleanup(case.doCleanups)
+        return case
+
+    def test_100473_byte_incumbent_tracker_reaches_review_required_decision(self) -> None:
+        case = self.program_revision_case()
+        self.assertEqual(
+            program_revision_test_support.supervision_log.MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES,
+            64 * 1024,
+        )
+        self.assertEqual(
+            program_revision_test_support.supervision_log.MAX_ADAPTIVE_INCUMBENT_SCOPE_CONTENT_BYTES,
+            256 * 1024,
+        )
+        with mock.patch.object(
+            program_revision_test_support.ProgramRevisionControlTests,
+            "write_tracker",
+            self.padded_tracker_writer(100_473),
+        ):
+            case.setUp()
+
+        self.assertEqual(case.fixture.tracker_path.stat().st_size, 100_473)
+        self.assertEqual(case.mechanical_route["disposition"], "amend-structure")
+        self.assertEqual(
+            case.mechanical_route["application_posture"],
+            "automated-independent-review-required",
+        )
+        self.assertIsNone(case.mechanical_route["candidate_evidence_root"])
+
+    def test_incumbent_tracker_above_256_kib_rejects_without_decision_append(self) -> None:
+        case = self.program_revision_case()
+        with mock.patch.object(
+            program_revision_test_support.ProgramRevisionControlTests,
+            "write_tracker",
+            self.padded_tracker_writer(
+                program_revision_test_support.supervision_log.MAX_ADAPTIVE_INCUMBENT_SCOPE_CONTENT_BYTES
+                + 1
+            ),
+        ), self.assertRaisesRegex(
+            program_revision_test_support.supervision_log.SupervisionLogError,
+            "Adaptive affected scope is not a bounded regular file",
+        ):
+            case.setUp()
+
+        directory = case.fixture.root / case.fixture.target
+        events = [
+            json.loads(line)
+            for line in (directory / "events.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line
+        ]
+        self.assertFalse(
+            any(item.get("kind") == "adaptive-decision" for item in events)
+        )
+
 
 class FactoryEvolutionContractTests(unittest.TestCase):
     @classmethod
