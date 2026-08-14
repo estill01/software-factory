@@ -5190,6 +5190,38 @@ class ImplementationRangeControlTests(unittest.TestCase):
             binding["tracker_structure_sha256"],
         )
 
+    def test_sentence_boundaries_preserve_intent_and_contradictions(self) -> None:
+        blocks = set(range(10))
+        item_request = (
+            "[$implement-tracker-blocks](/Users/ethanstillman/.codex/"
+            "software-factory-releases/releases/2109eeee4646-fb7861d1f68b/"
+            "implement-tracker-blocks/SKILL.md) for the implementation tracker. "
+            "also, notify 019ffd59-10b3-73a0-a644-15c5e6ca9db6 what you are doing "
+            "in case it is relevant to its work\n"
+        )
+        self.assertEqual(
+            supervision_log.classify_implementation_request(item_request, blocks),
+            ("full-tracker", list(range(10))),
+        )
+
+        for request in (
+            "Implement this tracker. Implement only Block 1.",
+            "Implement only Block 1. Implement this tracker.",
+        ):
+            with self.subTest(request=request):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "contradictory full and bounded",
+                ):
+                    supervision_log.classify_implementation_request(request, blocks)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "contradictory explicit Block ranges",
+        ):
+            supervision_log.classify_implementation_request(
+                "Implement Blocks 0-2. Implement Blocks 3-4.", blocks
+            )
+
     def test_incidental_block_mentions_cannot_contract_full_tracker_intent(self) -> None:
         blocks = {0, 1, 2}
         for request in (

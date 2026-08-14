@@ -9133,7 +9133,10 @@ def classify_implementation_request(
     block_expression = r"(\d+(?:\s*[-–]\s*\d+|(?:\s*(?:,|\band\b)\s*\d+)*))"
     positive_explicit: list[list[int]] = []
     positive_full = False
-    clauses = re.split(r"\s*;\s*|\s*,\s*but\s+", value)
+    clauses = re.split(
+        r"\s*;\s*|\s*,\s*but\s+|(?<=[.!?])\s+",
+        value,
+    )
     for raw_clause in clauses:
         clause = raw_clause.strip()
         markdown_invocation_present = bool(markdown_invocation.search(clause))
