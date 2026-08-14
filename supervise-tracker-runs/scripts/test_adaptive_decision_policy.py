@@ -126,10 +126,12 @@ Stop after exact review.
             self.tracker_structure_sha,
             self.tracker_blocks,
         ) = supervision_log.implementation_tracker_snapshot(str(self.tracker_path))
-        self.private_key = self.root / "review-private.pem"
-        self.public_key = self.root / "review-public.pem"
-        self.evaluator_private_key = self.root / "evaluator-private.pem"
-        self.evaluator_public_key = self.root / "evaluator-public.pem"
+        self.authority_root = self.root / "sealed-authorities"
+        self.authority_root.mkdir(mode=0o700)
+        self.private_key = self.authority_root / "review-private.pem"
+        self.public_key = self.authority_root / "review-public.pem"
+        self.evaluator_private_key = self.authority_root / "evaluator-private.pem"
+        self.evaluator_public_key = self.authority_root / "evaluator-public.pem"
         openssl = str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH)
         subprocess.run(
             [openssl, "genpkey", "-algorithm", "ED25519", "-out", str(self.private_key)],
