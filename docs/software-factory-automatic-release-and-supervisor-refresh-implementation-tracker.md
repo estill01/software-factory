@@ -188,7 +188,7 @@ make their composition automatic and fail closed.
 | 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `completed` |
-| 7 | Refresh real monitors and prove effective automatic operation | 6 | `in-progress` |
+| 7 | Refresh real monitors and prove effective automatic operation | 6 | `completed` |
 
 Required order:
 
@@ -1103,7 +1103,7 @@ Stop before mutating live supervisor automations/policies.
 
 ## Block 7 — Refresh real monitors and prove effective automatic operation
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -1250,6 +1250,72 @@ Independent readback of live roots, automation definitions, and supervisor healt
   exact integrated source once, refresh from its owner record, observe a
   distinct scheduled wake, and prove repeated health/currentness does not roll
   back solely because unrelated append-only supervision state advanced.
+- Exact remediation closure: the bounded owner froze currentness correction
+  `809fbbaf2aa1b6307a3645497ee7e532d8e788cb`, which removes only moving
+  `active_block.source_record` provenance from the health material while
+  retaining the semantic Block value and every other control field. Focused
+  health/release-currentness proof passed `41/41`; independent review accepted
+  the exact two-file delta with no findings as `EVT-000059`, and signed
+  acceptance `EVT-000061` preceded its release-owner activation. The accepted
+  active successor line `550481b4fe4b68c5a77c341a021f808fae6fada4`
+  contains that exact correction. Later direct-authority candidate `0df2fc9`
+  and failed one-shot assurance `EVT-000110` remain preserved and unpromoted;
+  no retry, diagnostic suite, successor, or unrelated implementation was
+  admitted by this Block.
+- Focused final validation: the exact append-only active-Block health regression
+  passed `1/1` in `2.925s`, and the mechanically coupled release-owner
+  already-active/no-duplicate-activation proof passed `1/1` in `2.538s`. The
+  previously accepted exact source/release evidence was reused; no whole-repo
+  or unrelated aggregate suite ran.
+- Canonical integration and independent review: `origin/main` was
+  fast-forwarded without rewriting history from `86a1e24` to exact accepted
+  source `550481b4fe4b68c5a77c341a021f808fae6fada4`; tracker-branch merge
+  `629a4cd477028c663b9e7309f76d6019b3292cb0` preserves both parents and every
+  prior accepted/rejected checkpoint. The configured target Reviewer accepted
+  exact tree `faaf05c16dd979a04ea66be9ff206cdf833629b5` with no findings and
+  verified target-bound acceptance root
+  `260a66adf78e6f470769fadf817517df2b8f79798f966ae715cac9a7250d19c3`.
+- Single release-owner use and installed roots: target-local signed acceptance
+  `EVT-001800` produced requirement `EVT-001801`; the maintained owner was
+  invoked exactly once and returned `already-active` as `EVT-001802` in
+  `3.7s`, with no suite or new activation. Active release
+  `550481b4fe4b-f2f204ad585d`, source `550481b`, `ACTIVATION-43`, verification
+  root `57541800...b517`, and installed roots `1ddeb470...d2d3`,
+  `07e4ed3b...3700`, and `8038664c...755` reconcile with current
+  `origin/main`.
+- Safe-boundary refresh: plan root
+  `f84bf546329db2f845325ed5d06008425fee13c68e849bb3ef39b28cc7d694d0`
+  required zero automation mutations. Owner-read roots remain
+  `6fd6e9dd...5913`, `a4c1179c...b615`, `8ce4a897...309c`, and
+  `b7a5e90e...654f`. Seven individually gated message-boundary role refreshes
+  reloaded release `550481b` and independently read back policy v39, mission
+  root `2c874d72...ccf6`, the full Blocks 0–22 range, preserved cursors and open
+  incidents, active Block 15, eligible Blocks 10–11, and required
+  `in-progress` posture without ordinary target, Gmail, release, automation,
+  or lifecycle effects.
+- Repeated live health/currentness proof: initial verified health `EVT-001803`
+  bound range root `8bb90959...c13e`, control-posture root
+  `9acfd4f6...7313`, all automation/installed roots, source `550481b`, and
+  activation history 43. Ordinary unrelated same-Block append `EVT-001804`
+  then advanced the supervision ledger. Two subsequent health calls both
+  returned `duplicate:true` for the unchanged verified `EVT-001803`, with the
+  same health root `19a8f786...b246`, no rollback record, and no owner effect.
+- Distinct scheduled wake: heartbeat turn
+  `01a00438-592e-7c00-867a-342aaca20d83` ran from
+  `tracker-watcher-main` at `2026-08-15T06:59:56.845Z` after refresh. It
+  returned `DONT_NOTIFY` and made no compact read, intermediate record, target
+  prompt, or replayed effect because neither target nor maintained-release
+  revision changed. The post-wake health read remained the same duplicate
+  verified receipt.
+- Final control/terminal audit: the range owner reports the full current tracker,
+  Blocks 10–11 as the dependency-safe frontier, `human_input_required=false`,
+  `manual_resume_required=false`, `required_target_posture=in-progress`, and
+  `final_response_permitted=false` for the incomplete monitored target. The
+  live ledger ends at `EVT-001804` with no post-health rollback, terminal report
+  delivery, shutdown, supervision pause, or premature completion effect.
+- Post-block audit: accepted. Blocks 0–6 and all rejected/remediation history
+  remain preserved; the systemic-recovery and product-program lanes remain
+  untouched and downstream.
 
 ### Stop
 
