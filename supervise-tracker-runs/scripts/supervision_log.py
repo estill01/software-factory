@@ -66,6 +66,18 @@ KINDS = {
 STANDARD_LIFECYCLE_STATES = {"completed", "paused"}
 PRIORITY_LIFECYCLE_STATES = {"blocked", "failed", "stopped"}
 LIFECYCLE_STATES = STANDARD_LIFECYCLE_STATES | PRIORITY_LIFECYCLE_STATES
+ACTIVE_TARGET_THREAD_POSTURES = {"active", "in-progress", "inprogress", "running"}
+UNAVAILABLE_TARGET_THREAD_POSTURES = {"read-unavailable", "unavailable", "unknown"}
+MISSION_PERSISTENCE_RESULT_FIELDS = (
+    "mission_abandonment_permitted",
+    "autonomous_continuation_required",
+    "continuation_route_required",
+    "continuation_retry_required",
+    "continuation_acknowledgement_required",
+    "continuation_owner_target_thread_id",
+    "continuation_action",
+    "continuation_trigger_sha256",
+)
 SEVERITIES = {"info", "warning", "high", "critical"}
 TERMINAL_INCIDENT_STATUSES = {
     "corrected",
@@ -14547,10 +14559,9 @@ def implementation_range_repair_result(
     posture: str,
     cause: str,
 ) -> dict[str, Any]:
-    effective_control = dict(control)
-    effective_control["required_target_posture"] = "in-progress"
-    effective_control["next_action"] = (
-        "continue-local-safe-frontier-and-repair-binding"
+    effective_control = force_nonterminal_control_posture(
+        control,
+        next_action="continue-local-safe-frontier-and-repair-binding",
     )
     return {
         "range_binding_current": False,
@@ -14566,12 +14577,34 @@ def implementation_range_repair_result(
         "manual_resume_required": False,
         "human_input_required": False,
         "suppression_cause": cause,
+        **mission_persistence_result(effective_control),
         "control_posture": effective_control,
         "governing_outcome_currentness_sha256": control[
             "governing_outcome_currentness_sha256"
         ],
         "policy_sha256": policy["policy_sha256"],
     }
+
+
+def force_nonterminal_control_posture(
+    control: Mapping[str, Any], *, next_action: str
+) -> dict[str, Any]:
+    effective = dict(control)
+    effective.update(
+        mission_persistence_projection(
+            owner_target=str(control["continuation_owner_target_thread_id"]),
+            required_posture="in-progress",
+            next_action=next_action,
+            observed_target_status=str(control["observed_target_status"] or ""),
+        )
+    )
+    effective["required_target_posture"] = "in-progress"
+    effective["next_action"] = next_action
+    return effective
+
+
+def mission_persistence_result(control: Mapping[str, Any]) -> dict[str, Any]:
+    return {field: control[field] for field in MISSION_PERSISTENCE_RESULT_FIELDS}
 
 
 def skill_release_publication_projection(
@@ -14653,6 +14686,7 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
         owner_directory_snapshot=directory_snapshot,
+        observed_target_status=args.observed_target_status,
     )
     contract = implementation_range_contract(policy)
     if contract is not None:
@@ -14768,10 +14802,11 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
     else:
         next_action = control["next_action"]
         final_permitted = False
-    effective_control = dict(control)
-    if not final_permitted:
-        effective_control["required_target_posture"] = "in-progress"
-        effective_control["next_action"] = next_action
+    effective_control = (
+        force_nonterminal_control_posture(control, next_action=next_action)
+        if not final_permitted
+        else dict(control)
+    )
     result = {
         **state,
         "range_binding_current": True,
@@ -14789,6 +14824,7 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
         "process_boundary_implies_completion": False,
         "manual_resume_required": False,
         "human_input_required": False,
+        **mission_persistence_result(effective_control),
         "control_posture": effective_control,
         "governing_outcome_currentness_sha256": control[
             "governing_outcome_currentness_sha256"
@@ -16418,6 +16454,58 @@ def tracker_program_roots(members: list[dict[str, Any]]) -> list[str]:
     return sorted(roots)
 
 
+def mission_persistence_projection(
+    *,
+    owner_target: str,
+    required_posture: str,
+    next_action: str,
+    observed_target_status: str = "",
+) -> dict[str, Any]:
+    observed = clean(
+        observed_target_status,
+        label="observed target status",
+        maximum=40,
+    ).strip().lower().replace("_", "-")
+    terminal = required_posture in {"completed", "stopped"}
+    autonomous_continuation = required_posture == "in-progress"
+    observation_unavailable = observed in UNAVAILABLE_TARGET_THREAD_POSTURES
+    route_required = bool(
+        autonomous_continuation
+        and observed
+        and not observation_unavailable
+        and observed not in ACTIVE_TARGET_THREAD_POSTURES
+    )
+    continuation_action = (
+        "Continue the governing outcome now: "
+        f"{next_action}. Do not return final, quiesce, or require manual Resume "
+        "while the mission remains nonterminal."
+        if autonomous_continuation
+        else None
+    )
+    return {
+        "mission_abandonment_permitted": False,
+        "mission_persistence_required": not terminal,
+        "terminal_response_permitted": terminal,
+        "autonomous_continuation_required": autonomous_continuation,
+        "continuation_owner_target_thread_id": owner_target,
+        "continuation_action": continuation_action,
+        "continuation_trigger_sha256": digest(
+            [owner_target, required_posture, next_action, observed]
+        ),
+        "observed_target_status": observed or None,
+        "continuation_route_required": route_required,
+        "continuation_retry_required": bool(
+            autonomous_continuation
+            and (route_required or observation_unavailable or not observed)
+        ),
+        "continuation_acknowledgement_required": route_required,
+        "handoff_implies_completion": False,
+        "ownership_change_implies_completion": False,
+        "quiescence_implies_completion": False,
+        "transport_failure_implies_completion": False,
+    }
+
+
 def reduce_control_posture(
     *,
     directory: Path,
@@ -16426,6 +16514,7 @@ def reduce_control_posture(
     owner_policy_snapshot: tuple[int, int, int, int] | None = None,
     owner_event_snapshot: tuple[int, int, int, int] | None = None,
     owner_directory_snapshot: tuple[int, int, int, int] | None = None,
+    observed_target_status: str = "",
 ) -> dict[str, Any]:
     members, issues, currentness_root, stable = load_governing_outcome_members(
         owner_directory=directory,
@@ -16648,6 +16737,12 @@ def reduce_control_posture(
         required_posture = "in-progress"
         next_action = "continue-governing-outcome"
 
+    persistence = mission_persistence_projection(
+        owner_target=owner_target,
+        required_posture=required_posture,
+        next_action=next_action,
+        observed_target_status=observed_target_status,
+    )
     return {
         "required_target_posture": required_posture,
         "next_action": next_action,
@@ -16673,6 +16768,7 @@ def reduce_control_posture(
         "subordinate_completion_candidates": subordinate_completion_candidates,
         "direct_stop_candidates": direct_stop_candidates,
         "subordinate_stop_records": subordinate_stop_records,
+        **persistence,
     }
 
 
@@ -16692,6 +16788,7 @@ def cmd_control_posture_gate(args: argparse.Namespace) -> None:
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
         owner_directory_snapshot=directory_snapshot,
+        observed_target_status=args.observed_target_status,
     )
     print(json.dumps(result, sort_keys=True))
 
@@ -35165,6 +35262,7 @@ def parser() -> argparse.ArgumentParser:
 
     control_posture_gate = subparsers.add_parser("control-posture-gate")
     control_posture_gate.add_argument("--target-thread", required=True)
+    control_posture_gate.add_argument("--observed-target-status", default="")
     control_posture_gate.set_defaults(func=cmd_control_posture_gate)
 
     direct_authority_ingest = subparsers.add_parser(
@@ -35273,6 +35371,7 @@ def parser() -> argparse.ArgumentParser:
         choices=IMPLEMENTATION_RANGE_RESPONSE_KINDS,
         default="outcome-terminal",
     )
+    range_gate.add_argument("--observed-target-status", default="")
     range_gate.set_defaults(func=cmd_implementation_range_gate)
 
     release_accept = subparsers.add_parser(
