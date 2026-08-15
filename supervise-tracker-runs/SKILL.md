@@ -10,6 +10,20 @@ Keep the implementation thread authoritative for its tracker; supervisors inspec
 steer but do not implement tracker work. Every target thread remains authoritative
 for its direct mission, and supervisors do not implement target work.
 
+## Mission persistence invariant
+
+A direct mission remains durably owned until current observable completion or an
+exact current direct-user stop releases it. A handoff, ownership change, internal
+Stop, final turn, idle/quiescent writer, temporary blocker, transport failure,
+review, commit, push, release, or supervision boundary never releases the mission.
+At every wake, pass the compact target status to `control-posture-gate` (and to
+`implementation-range-gate` at a range boundary). When
+`continuation_route_required=true`, record or reuse the critical abandonment
+incident and route the returned exact `continuation_action` to
+`continuation_owner_target_thread_id`; require acknowledgement and observed active
+work. When `continuation_retry_required=true`, retain the same trigger and retry
+autonomously. Never return responsibility to the operator or wait for Resume.
+
 ## Load the contract
 
 Before booting or changing supervision, read

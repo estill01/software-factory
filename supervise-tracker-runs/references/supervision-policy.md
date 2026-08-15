@@ -8,6 +8,7 @@
 - [Factory capability-evolution workflow](#factory-capability-evolution-workflow)
 - [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
+- [Mission persistence and automatic continuation](#mission-persistence-and-automatic-continuation)
 - [Same-target mission activation](#same-target-mission-activation)
 - [Target-state fingerprint](#target-state-fingerprint)
 - [Cross-thread action routing](#cross-thread-action-routing)
@@ -639,6 +640,35 @@ reason, canonical correction source/hash, and
 to hold progress after the reducer has already proven the exact correction.
 Unrelated later records, merely matching prose, changed missions, mismatched
 fingerprints, or unowned source strings do not reconcile a deferral.
+
+## Mission persistence and automatic continuation
+
+The system never has permission to abandon a nonterminal governing mission.
+Only current independently verified observable completion or an exact current
+direct-user stop releases its durable owner. Handoffs, ownership changes,
+internal Stops, final or idle turns, quiescence, temporary blockers, transport
+failure, review, commit, push, release, and supervision boundaries are process
+evidence only and never mission-release authority.
+
+Call `control-posture-gate --observed-target-status <COMPACT_STATUS>` at every
+wake and pass the same observation to `implementation-range-gate` at a range
+boundary. Every nonterminal result names one
+`continuation_owner_target_thread_id`, exact `continuation_action`, stable
+`continuation_trigger_sha256`, and retry/route posture. If
+`continuation_route_required=true`, record or reuse a critical
+`FM-MISSION-ABANDONMENT` incident, route that exact action to the returned owner,
+and keep the incident open until the owner acknowledges and current observation
+shows active work. If transport is unavailable, keep
+`continuation_retry_required=true` on the same trigger; unavailability is not
+no-change or permission to quiesce. A valid blocked posture retains an automatic
+revisit trigger. No path asks the operator to Resume or restate the mission.
+
+`FM-MISSION-ABANDONMENT` is a control-plane failure: a nonterminal governing
+outcome has no active continuation despite available standing authority. Its
+correction is to preserve all accepted evidence, restore the canonical owner,
+route the exact next action, and verify resumed work. Its recurrence invariant
+is: **the mission remains automatically owned until accepted completion or an
+exact direct stop**.
 
 ## Governing outcome identity and canonical posture
 
@@ -2065,7 +2095,13 @@ prefer the narrowest correction that gets the intended implementation outcome.
 
 At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
-   gate command. If the compact read is unavailable, call
+   gate command plus `control-posture-gate --observed-target-status` with that
+   exact compact status. If `continuation_route_required=true`, record or reuse
+   the critical `FM-MISSION-ABANDONMENT` incident and route the returned exact
+   continuation action to its returned owner. Require target acknowledgement
+   and later active-work evidence; an idle/final handoff is not success. If
+   `continuation_retry_required=true`, retain the trigger and retry without
+   asking for Resume. If the compact read is unavailable, call
    `watcher-availability`; never emit an ordinary no-intervention conclusion.
    Let the helper enforce the three consecutive read threshold, suppress
    identical unavailable records, and return any autonomous retry/Max route.
@@ -2587,6 +2623,11 @@ Repair a terminal `completed`, `paused`, or `stopped` posture through the
 helper's exact `start-current-mission-first-eligible-work` action. Do not create
 a successor task, reuse the distinct successor-transition workflow, or request
 manual Resume.
+Also call `control-posture-gate` with the latest compact target status. A
+nonterminal idle/final owner with `continuation_route_required=true` is a
+critical abandonment failure: route the returned exact action, preserve the
+same trigger through transport retries, and require acknowledgement plus active
+work before considering it corrected.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
