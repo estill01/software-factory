@@ -1162,7 +1162,11 @@ predecessor cannot map onto completed work. Explicit mapped ranges include all
 incomplete prerequisites and cannot silently remove a requested predecessor.
 Its separate reviewer signs that exact delta, authoring-profile binding, and
 finding lineage with the sealed reviewer authority. The author cannot review
-itself; `revise` and `rejected` events are retained but cannot amend the range,
+itself. The packet's `adjudication_root` is the accepted independent evaluation
+root when one is present; a `target-repository` review without an evaluator uses
+the canonical adaptive-review event's `review_root`, while `software-factory`
+remains ineligible without an accepted independent evaluation. `revise` and
+`rejected` events are retained but cannot amend the range,
 and a later proposal must bind their exact review root, resolve every finding,
 and change the structural projection. That projection covers current control,
 source-map, verification-matrix, and tracker-wide Block/range/handoff prose as

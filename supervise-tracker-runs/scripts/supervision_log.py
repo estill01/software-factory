@@ -26717,6 +26717,11 @@ def validate_program_revision_inputs(
     semantic_review_event = next(
         item for item in active_events if item.get("record_id") == review_record
     )
+    adjudication_root = (
+        resolved_adaptive_review["evaluation_root"]
+        if resolved_adaptive_review["evaluation_root"] is not None
+        else semantic_review_event["review_root"]
+    )
     exact_authoring = {
         "author_id": authoring_profile["authoring_target_thread_id"],
         "reviewer_id": authoring_profile["semantic_reviewer_id"],
@@ -26736,7 +26741,7 @@ def validate_program_revision_inputs(
         "semantic_review_record_id": review_record,
         "semantic_review_root": semantic_review_event["review_root"],
         "adjudicator_id": authoring_profile["adjudicator_id"],
-        "adjudication_root": resolved_adaptive_review["evaluation_root"],
+        "adjudication_root": adjudication_root,
         "fix_executor_id": authoring_profile["fix_executor_id"],
     }
     if any(packet[field] != expected for field, expected in exact_authoring.items()):
