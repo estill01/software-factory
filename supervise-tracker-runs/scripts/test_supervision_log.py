@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import test_adaptive_decision_policy as adaptive_test_support
 from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -52,7 +53,6 @@ program_revision_test_support = importlib.util.module_from_spec(
     PROGRAM_REVISION_TEST_SUPPORT_SPEC
 )
 PROGRAM_REVISION_TEST_SUPPORT_SPEC.loader.exec_module(program_revision_test_support)
-
 
 class AdaptiveAffectedScopeContentLimitTests(unittest.TestCase):
     @staticmethod
@@ -134,6 +134,77 @@ class AdaptiveAffectedScopeContentLimitTests(unittest.TestCase):
             any(item.get("kind") == "adaptive-decision" for item in events)
         )
 
+
+class AdaptiveTargetOwnerAmendmentReviewTests(unittest.TestCase):
+    def case(self):
+        case = adaptive_test_support.AdaptiveDecisionPolicyTests(
+            methodName="test_signed_review_is_source_bound_current_and_one_use"
+        )
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        return case
+
+    def evidence(self, case, decision_id):
+        return case.decision_evidence(
+            decision_id=decision_id,
+            disposition="amend-structure",
+            consequence_class="consequential",
+            blocked_subjects=["tracker-owner-application"],
+            revisit_trigger="Canonical independent review accepts this amendment.",
+        )
+
+    def test_exact_review_makes_target_owner_ready_without_supervisor_permission(self) -> None:
+        case = self.case()
+        policy = case.init()
+        evidence = self.evidence(case, "target-owner-amendment-1234")
+        source = case.run_gate(case.gate_args(evidence))["record"]
+
+        self.assertEqual(source["application_posture"], "reserved-external")
+        self.assertFalse(source["permission_granted"])
+        review = case.run_review(source)["record"]
+        reviewed = case.run_gate(
+            case.gate_args(evidence, review_record=str(review["record_id"]))
+        )["record"]
+
+        self.assertEqual(reviewed["application_posture"], "owner-application-ready")
+        self.assertTrue(reviewed["application_ready"])
+        self.assertFalse(reviewed["application_authorized"])
+        self.assertFalse(reviewed["permission_granted"])
+        self.assertEqual(reviewed["permission_results"], {"repository_write": False})
+        self.assertEqual(reviewed["implementation_owner_id"], policy["target_thread_id"])
+        self.assertRegex(str(reviewed["application_precondition_root"]), r"^[0-9a-f]{64}$")
+
+    def test_rejected_and_nonfull_paths_remain_fail_closed(self) -> None:
+        rejected_case = self.case()
+        rejected_case.init()
+        rejected_evidence = self.evidence(rejected_case, "rejected-amendment-1234")
+        rejected_source = rejected_case.run_gate(
+            rejected_case.gate_args(rejected_evidence)
+        )["record"]
+        rejected_review = rejected_case.run_review(
+            rejected_source, mutate={"review_disposition": "rejected"}
+        )["record"]
+        rejected = rejected_case.run_gate(
+            rejected_case.gate_args(
+                rejected_evidence,
+                review_record=str(rejected_review["record_id"]),
+            )
+        )["record"]
+        self.assertEqual(rejected["application_posture"], "reserved-external")
+        self.assertFalse(rejected["application_ready"])
+
+        nonfull_case = self.case()
+        nonfull_case.init()
+        nonfull_case.adjust("--adaptive-decision-mode", "reviewed-autonomous")
+        nonfull_evidence = self.evidence(nonfull_case, "nonfull-amendment-1234")
+        nonfull_source = nonfull_case.run_gate(
+            nonfull_case.gate_args(nonfull_evidence)
+        )["record"]
+        with self.assertRaisesRegex(
+            adaptive_test_support.supervision_log.SupervisionLogError,
+            "current and review-required",
+        ):
+            nonfull_case.run_review(nonfull_source)
 
 class FactoryEvolutionContractTests(unittest.TestCase):
     @classmethod
