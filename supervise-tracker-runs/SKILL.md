@@ -405,6 +405,10 @@ Repeat independently for additional targets.
   ordering, scope, reuse, batching, stability, convergence, stopping,
   proportionality, and resource posture. Judge the causal path to the Block
   outcome, not duration or activity volume alone.
+- For skill maintenance, run only changed-path and mechanically coupled
+  validation. A whole-skill or repository aggregate is forbidden unless current
+  repository authority explicitly requires it or changed-path analysis proves
+  the coupling; generic confidence is never a rationale.
 - Treat repeated equivalent reads, deep scans, tests, renders, model calls, or
   failed runtime probes; per-item work where a bounded batch exists; validation
   before likely-mutating review; reconstruction where exact reuse is available;

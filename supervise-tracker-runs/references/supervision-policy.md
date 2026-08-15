@@ -98,6 +98,12 @@ the actual bounded target delta and compare it with a concrete smaller reliable
 path. Relevant 300–500 second work may be correct; a fast irrelevant run may be
 wrong.
 
+Skill maintenance itself is stricter: validate only the changed causal path and
+mechanically coupled contracts. Do not run a whole-skill or repository aggregate
+unless current repository authority explicitly requires it or changed-path
+analysis proves the coupling. Generic confidence, habit, and historical requests
+from outside the current active scope are not authority for broad validation.
+
 Use one learning loop:
 
 1. Terra identifies only compact mechanical signals and routes the changed state.
