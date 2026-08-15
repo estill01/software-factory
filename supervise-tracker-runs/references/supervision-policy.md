@@ -1344,6 +1344,9 @@ current before any effect, append one immutable successor requirement only
 after revalidating that complete prior state; the retired acceptance cannot
 invoke the owner. Keep the event-owner lock through the
 bounded owner effect, source/acceptance currentness recheck, and result append.
+That lock is supervision-root-global rather than target-local, so release
+promotions from sibling target ledgers are single-flight against the shared
+release owner.
 An interrupted retry rehydrates an already completed one-transition effect
 from live owner status; changed currentness is retained as a rejection, never a
 successful promotion. A changed predecessor or activation-history count after

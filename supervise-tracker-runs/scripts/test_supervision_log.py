@@ -5190,6 +5190,58 @@ class ImplementationRangeControlTests(unittest.TestCase):
             binding["tracker_structure_sha256"],
         )
 
+    def test_sentence_boundaries_preserve_intent_and_contradictions(self) -> None:
+        blocks = set(range(10))
+        item_request = (
+            "[$implement-tracker-blocks](/Users/ethanstillman/.codex/"
+            "software-factory-releases/releases/2109eeee4646-fb7861d1f68b/"
+            "implement-tracker-blocks/SKILL.md) for the implementation tracker. "
+            "also, notify 019ffd59-10b3-73a0-a644-15c5e6ca9db6 what you are doing "
+            "in case it is relevant to its work\n"
+        )
+        self.assertEqual(
+            supervision_log.classify_implementation_request(item_request, blocks),
+            ("full-tracker", list(range(10))),
+        )
+
+        for request in (
+            "Do not, e.g. implement this tracker.",
+            "Do not, i.e. implement only Block 1.",
+            "For example, e.g. implement this tracker.",
+            "This is merely an example, i.e. implement Blocks 1-2.",
+        ):
+            with self.subTest(request=request):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "does not establish full-tracker or exact Block intent",
+                ):
+                    supervision_log.classify_implementation_request(request, blocks)
+        self.assertEqual(
+            supervision_log.classify_implementation_request(
+                "Do not, e.g. implement this tracker. Implement only Block 1.",
+                blocks,
+            ),
+            ("explicit-blocks", [1]),
+        )
+
+        for request in (
+            "Implement this tracker. Implement only Block 1.",
+            "Implement only Block 1. Implement this tracker.",
+        ):
+            with self.subTest(request=request):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "contradictory full and bounded",
+                ):
+                    supervision_log.classify_implementation_request(request, blocks)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "contradictory explicit Block ranges",
+        ):
+            supervision_log.classify_implementation_request(
+                "Implement Blocks 0-2. Implement Blocks 3-4.", blocks
+            )
+
     def test_incidental_block_mentions_cannot_contract_full_tracker_intent(self) -> None:
         blocks = {0, 1, 2}
         for request in (
@@ -5741,6 +5793,27 @@ class ImplementationRangeControlTests(unittest.TestCase):
 class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
     target = "release-orchestration-target-1234"
     reviewer = "release-orchestration-reviewer-1234"
+
+    def test_release_lock_serializes_sibling_target_ledgers(self) -> None:
+        first = self.root / self.target
+        second = self.root / "release-orchestration-target-5678"
+        second.mkdir()
+        attempted = threading.Event()
+        entered = threading.Event()
+
+        def acquire_second() -> None:
+            attempted.set()
+            with supervision_log.software_factory_release_orchestration_lock(second):
+                entered.set()
+
+        with supervision_log.software_factory_release_orchestration_lock(first):
+            worker = threading.Thread(target=acquire_second)
+            worker.start()
+            self.assertTrue(attempted.wait(1))
+            self.assertFalse(entered.wait(0.05))
+        worker.join(1)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(entered.is_set())
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -7216,6 +7289,159 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         )
         self.assertEqual(plan["automation_updates"], [])
         self.assertEqual(len(plan["current_automations"]), 1)
+
+    def test_refresh_plan_is_noop_for_shorthand_current_prompt(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        absolute = str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT) + "/current/"
+        shorthand = "~/.codex/software-factory-releases/current/"
+        prompt = stable.replace(absolute, shorthand)
+        self.assertEqual(prompt.count(shorthand), 3)
+        normalized, pin = supervision_log.software_factory_stable_automation_prompt(
+            prompt, target_thread=self.target
+        )
+        self.assertEqual(normalized, prompt)
+        self.assertIsNone(pin)
+        self.write_automation(prompt)
+        plan = self.refresh_plan(
+            str(promoted["promotion"]["record_id"]),
+            Path(self.temporary.name) / "automations",
+        )
+        self.assertEqual(plan["automation_updates"], [])
+        self.assertEqual(len(plan["current_automations"]), 1)
+
+    def test_stable_prompt_rejects_mixed_partial_and_tilde_pinned_forms(
+        self,
+    ) -> None:
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        absolute = str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT) + "/current/"
+        shorthand = "~/.codex/software-factory-releases/current/"
+        current = stable.replace(absolute, shorthand)
+        tilde_pinned = self.pinned_automation_prompt(manual_pin=True).replace(
+            str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT),
+            "~/.codex/software-factory-releases",
+        )
+        cases = {
+            "mixed": current.replace(shorthand, absolute, 1),
+            "partial": current.replace(shorthand, "", 1),
+            "tilde-pinned": tilde_pinned,
+        }
+        for name, prompt in cases.items():
+            with self.subTest(name=name), self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "maintained release channel",
+            ):
+                supervision_log.software_factory_stable_automation_prompt(
+                    prompt, target_thread=self.target
+                )
+
+    def test_refresh_plan_ignores_unrelated_append_but_rejects_owner_drift(
+        self,
+    ) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, _pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.write_automation(stable)
+        promotion_record = str(promoted["promotion"]["record_id"])
+        automation_root = Path(self.temporary.name) / "automations"
+
+        def record_active_block(fingerprint: str, evidence: str) -> None:
+            with redirect_stdout(io.StringIO()):
+                self.call(
+                    "record",
+                    "--target-thread",
+                    self.target,
+                    "--kind",
+                    "check",
+                    "--model",
+                    "gpt-5.6-sol",
+                    "--reasoning",
+                    "xhigh",
+                    "--state-fingerprint",
+                    fingerprint,
+                    "--status",
+                    "no-intervention",
+                    "--active-block",
+                    "15",
+                    "--evidence",
+                    evidence,
+                    "--summary",
+                    "Ordinary append-only target supervision event.",
+                )
+
+        record_active_block("e" * 64, "baseline-target-event")
+        first = self.refresh_health(promotion_record, automation_root)
+        record_active_block("f" * 64, "unrelated-target-event")
+        second = self.refresh_health(promotion_record, automation_root)
+
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertEqual(
+            first["health"]["record_id"], second["health"]["record_id"]
+        )
+        self.assertNotIn("rollback", self.owner_actions)
+        health_records = [
+            item
+            for item in supervision_log.events(
+                self.root / self.target / "events.jsonl"
+            )
+            if item.get("kind")
+            == supervision_log.SOFTWARE_FACTORY_SUPERVISOR_REFRESH_HEALTH_KIND
+        ]
+        self.assertEqual(
+            [item["outcome"] for item in health_records], ["verified"]
+        )
+
+        control = {
+            "identities": {"members": [{"active_block": {
+                "value": "15", "source_record": "EVT-000001"
+            }}]},
+            "governing_outcome_currentness_sha256": "a" * 64,
+        }
+        same_block = copy.deepcopy(control)
+        same_block["identities"]["members"][0]["active_block"][
+            "source_record"
+        ] = "EVT-000002"
+        different_block = copy.deepcopy(same_block)
+        different_block["identities"]["members"][0]["active_block"][
+            "value"
+        ] = "16"
+        self.assertEqual(
+            supervision_log.software_factory_control_health_root(control),
+            supervision_log.software_factory_control_health_root(same_block),
+        )
+        self.assertNotEqual(
+            supervision_log.software_factory_control_health_root(same_block),
+            supervision_log.software_factory_control_health_root(
+                different_block
+            ),
+        )
+
+        self.status["activation_history_records"] += 1
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "release is not current",
+        ):
+            self.refresh_plan(promotion_record, automation_root)
 
     def test_refresh_plan_accepts_lowercase_current_target_reference(self) -> None:
         accepted = self.acceptance()

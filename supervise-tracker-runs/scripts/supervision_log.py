@@ -9133,7 +9133,12 @@ def classify_implementation_request(
     block_expression = r"(\d+(?:\s*[-–]\s*\d+|(?:\s*(?:,|\band\b)\s*\d+)*))"
     positive_explicit: list[list[int]] = []
     positive_full = False
-    clauses = re.split(r"\s*;\s*|\s*,\s*but\s+", value)
+    clauses = re.split(
+        r"\s*;\s*|\s*,\s*but\s+|"
+        r"(?<!e\.g\.)(?<!i\.e\.)(?<=[.!?])\s+",
+        value,
+        flags=re.I,
+    )
     for raw_clause in clauses:
         clause = raw_clause.strip()
         markdown_invocation_present = bool(markdown_invocation.search(clause))
@@ -12141,7 +12146,11 @@ def software_factory_release_exact_checkout(
 @contextmanager
 def software_factory_release_orchestration_lock(directory: Path) -> Iterator[None]:
     flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(directory / ".skill-release-orchestration.lock", flags, 0o600)
+    descriptor = os.open(
+        directory.parent / ".software-factory-release-orchestration.lock",
+        flags,
+        0o600,
+    )
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
@@ -12913,14 +12922,25 @@ def software_factory_stable_automation_prompt(
     )
     pinned_releases = pinned_pattern.findall(prompt)
     stable_prefix = release_root + "/current/"
+    shorthand_prefix = "~/.codex/software-factory-releases/current/"
+    shorthand_pinned_prefix = "~/.codex/software-factory-releases/releases/"
+
+    def current_channel_counts(value: str) -> tuple[int, int]:
+        return value.count(stable_prefix), value.count(shorthand_prefix)
+
     manual_pins = re.findall(
         r"manual-release-pin:([0-9a-f]{12}-[0-9a-f]{12})", prompt
     )
+    if shorthand_pinned_prefix in prompt:
+        raise SupervisionLogError(
+            "Software Factory automation prompt is not on a maintained release channel"
+        )
     if manual_pins:
         if (
             len(set(manual_pins)) != 1
             or not pinned_releases
             or set(pinned_releases) != set(manual_pins)
+            or current_channel_counts(prompt) != (0, 0)
         ):
             raise SupervisionLogError(
                 "Software Factory manual automation pin is inconsistent"
@@ -12930,7 +12950,10 @@ def software_factory_stable_automation_prompt(
         raise SupervisionLogError(
             "Software Factory automation prompt mixes release identities"
         )
-    if not pinned_releases and prompt.count(stable_prefix) != 3:
+    if not pinned_releases and current_channel_counts(prompt) not in {
+        (3, 0),
+        (0, 3),
+    }:
         raise SupervisionLogError(
             "Software Factory automation prompt is not on a maintained release channel"
         )
@@ -12968,7 +12991,7 @@ def software_factory_stable_automation_prompt(
     )
     if (
         any(item in value for item in forbidden)
-        or value.count(stable_prefix) != 3
+        or current_channel_counts(value) not in {(3, 0), (0, 3)}
         or value.count(target_thread) != 1
     ):
         raise SupervisionLogError(
@@ -13130,7 +13153,6 @@ def build_software_factory_supervisor_refresh_plan(
             status, release_id=str(promotion["release_id"])
         ),
         "policy_sha256": policy["policy_sha256"],
-        "event_head_sha256": all_events[-1]["record_sha256"],
         "implementation_range": range_state,
         "refresh_boundary": "next-scheduled-wake-or-role-message-boundary",
         "automation_updates": updates,
@@ -13325,6 +13347,27 @@ def software_factory_control_health_root(control: Mapping[str, Any]) -> str:
         for key, value in control.items()
         if key != "governing_outcome_currentness_sha256"
     }
+    identities = material.get("identities")
+    if isinstance(identities, Mapping) and isinstance(
+        identities.get("members"), list
+    ):
+        material["identities"] = {
+            **identities,
+            "members": [
+                {
+                    **member,
+                    "active_block": {
+                        key: value
+                        for key, value in member["active_block"].items()
+                        if key != "source_record"
+                    },
+                }
+                if isinstance(member, Mapping)
+                and isinstance(member.get("active_block"), Mapping)
+                else member
+                for member in identities["members"]
+            ],
+        }
     return digest(material)
 
 
