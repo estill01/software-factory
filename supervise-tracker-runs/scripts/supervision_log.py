@@ -18943,6 +18943,14 @@ def _adaptive_decision_posture(
     review_complete = review_disposition == "accepted" and (
         target_class != "software-factory" or evaluation_disposition == "accepted"
     )
+    reviewed_target_owner_amendment = (
+        review_complete
+        and mode == "full-autonomous"
+        and target_class == "target-repository"
+        and disposition == "amend-structure"
+        and evidence["implementation_owner_id"] == policy.get("target_thread_id")
+        and permission_results == {"repository_write": False}
+    )
     reserved = (
         judgment_class in {"reserved-external", "material-goal-change"}
         or evidence["mission_preserving"] is not True
@@ -18951,6 +18959,7 @@ def _adaptive_decision_posture(
             mode in {"reviewed-autonomous", "full-autonomous"}
             and disposition != "continue-unchanged"
             and not permission_granted
+            and not reviewed_target_owner_amendment
         )
     )
     if mode == "full-autonomous" and packet["request_human_input"] is True:
@@ -19657,6 +19666,26 @@ def adaptive_review_root_material(event: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _target_owner_amendment_review_source(
+    source: Mapping[str, Any], policy: Mapping[str, Any]
+) -> bool:
+    return bool(
+        source.get("application_posture") == "reserved-external"
+        and source.get("adaptive_decision_mode") == "full-autonomous"
+        and source.get("target_class") == "target-repository"
+        and source.get("disposition") == "amend-structure"
+        and source.get("effect_class") == "tracker-amendment"
+        and source.get("implementation_owner_id") == policy.get("target_thread_id")
+        and source.get("permission_results") == {"repository_write": False}
+        and source.get("permission_granted") is False
+        and source.get("application_authorized") is False
+        and source.get("application_ready") is False
+        and source.get("judgment_class") == "ordinary-engineering"
+        and source.get("mission_preserving") is True
+        and source.get("reversible") is True
+    )
+
+
 def resolve_adaptive_review(
     all_events: Sequence[Mapping[str, Any]],
     record_id: str,
@@ -19711,7 +19740,11 @@ def resolve_adaptive_review(
         or source.get("proposer_author_id") != event["proposer_author_id"]
         or source.get("implementation_owner_id") != event["implementation_owner_id"]
         or source.get("independent_review_required") is not True
-        or source.get("application_posture") != "automated-independent-review-required"
+        or (
+            source.get("application_posture")
+            != "automated-independent-review-required"
+            and not _target_owner_amendment_review_source(source, policy)
+        )
     ):
         raise SupervisionLogError("Adaptive review source decision differs")
     earlier_adaptive = [
@@ -20026,11 +20059,18 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         (dict(item) for item in active_events if item.get("record_id") == source_record),
         None,
     )
+    target_owner_amendment_review = bool(
+        source is not None and _target_owner_amendment_review_source(source, policy)
+    )
     if (
         source is None
         or source.get("kind") != "adaptive-decision"
         or source.get("independent_review_required") is not True
-        or source.get("application_posture") != "automated-independent-review-required"
+        or (
+            source.get("application_posture")
+            != "automated-independent-review-required"
+            and not target_owner_amendment_review
+        )
         or source.get("policy_sha256") != policy.get("policy_sha256")
     ):
         raise SupervisionLogError("Adaptive review source is not current and review-required")
