@@ -319,11 +319,14 @@ class SkillReleaseTests(unittest.TestCase):
         runner.assert_called_once_with(self.repo.resolve(), first_commit, None)
 
         with mock.patch.object(
-            skill_release, "run_automated_checks", return_value=checks
-        ):
+            skill_release,
+            "run_automated_checks",
+            side_effect=AssertionError("accepted stage reran checks"),
+        ) as repeated_runner:
             repeated = skill_release.promote_release(
                 self.automated_args(first_commit)
             )
+        repeated_runner.assert_not_called()
         self.assertEqual(repeated["stage"], "existing")
         self.assertEqual(repeated["release_id"], first["release_id"])
         self.assertEqual(repeated["activation"]["action"], "already-active")
@@ -339,6 +342,46 @@ class SkillReleaseTests(unittest.TestCase):
         self.assertEqual(second["activation"]["action"], "activate")
         self.assertEqual(second["activation"]["previous_release_id"], first["release_id"])
         self.assertEqual(len(skill_release.history(self.release_root.resolve())), 2)
+
+    def test_accepted_stage_receipt_failures_precede_automated_checks(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        checks = self.automated_checks()
+        with mock.patch.object(
+            skill_release, "run_automated_checks", return_value=checks
+        ) as first_runner:
+            skill_release.stage_release(self.automated_args(commit))
+        first_runner.assert_called_once()
+        release_root = self.release_root.resolve()
+        ledger = release_root / skill_release.ACCEPTANCE_NAME
+        original = skill_release.acceptance_records(release_root)
+        key = skill_release.release_key(release_root, allow_create=False)
+
+        def write(records: list[dict[str, object]]) -> None:
+            previous = None
+            values = []
+            for index, source in enumerate(records, start=1):
+                value = {**source, "record_id": f"RELEASE-ACCEPTANCE-{index}",
+                         "previous_record_hmac_sha256": previous}
+                material = {k: v for k, v in value.items() if k != "record_hmac_sha256"}
+                value["record_hmac_sha256"] = skill_release.record_hmac(key, material)
+                previous = value["record_hmac_sha256"]
+                values.append(skill_release.canonical(value) + b"\n")
+            ledger.write_bytes(b"".join(values))
+
+        divergent = [{**original[0], "candidate_root_sha256": "0" * 64}]
+        duplicate = [original[0], original[0]]
+        for name, records in (("divergent", divergent), ("duplicate", duplicate)):
+            with self.subTest(name=name):
+                write(records)
+                with mock.patch.object(skill_release, "run_automated_checks") as runner:
+                    with self.assertRaises(skill_release.ReleaseError):
+                        skill_release.stage_release(self.automated_args(commit))
+                runner.assert_not_called()
+        ledger.write_bytes(b"{}\n")
+        with mock.patch.object(skill_release, "run_automated_checks") as runner:
+            with self.assertRaises(skill_release.ReleaseError):
+                skill_release.stage_release(self.automated_args(commit))
+        runner.assert_not_called()
 
     def test_automated_assurance_fails_closed_on_incomplete_or_forged_checks(self) -> None:
         commit = self.git("rev-parse", "HEAD")

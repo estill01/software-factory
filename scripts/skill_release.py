@@ -605,6 +605,32 @@ def accepted_release_record(
     return matches[0] if matches else None
 
 
+def accepted_automated_stage(
+    release_root: Path, candidate: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    source_commit = str(candidate["source_commit"])
+    candidate_root = digest(candidate)
+    matches = [
+        item
+        for item in acceptance_records(release_root)
+        if item["source_commit"] == source_commit
+    ]
+    if not matches:
+        return None
+    if len(matches) != 1 or matches[0]["candidate_root_sha256"] != candidate_root:
+        raise ReleaseError("Accepted release source is ambiguous or divergent")
+    manifest = read_manifest(release_root, str(matches[0]["release_id"]))
+    review = manifest["independent_review"]
+    if (
+        manifest["source_commit"] != source_commit
+        or manifest["candidate_root_sha256"] != candidate_root
+        or review.get("kind") != AUTOMATED_ASSURANCE_KIND
+        or review.get("outcome") != "passed"
+    ):
+        raise ReleaseError("Accepted automated stage differs")
+    return {"stage": "existing", **manifest}
+
+
 def append_acceptance(
     release_root: Path, manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -1457,6 +1483,7 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
     review_path: Path | None = None
     implementer_id = ""
     checks: list[dict[str, Any]] | None = None
+    candidate_projection: dict[str, Any] | None = None
     if review_argument:
         implementer_id = bounded_id(
             str(getattr(args, "implementer_id", "") or ""),
@@ -1466,6 +1493,13 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
         if path_is_within(review_path, repo) or path_is_within(review_path, release_root):
             raise ReleaseError("Independent review evidence must remain externally owned")
     else:
+        with tempfile.TemporaryDirectory(
+            prefix="software-factory-stage-projection-"
+        ) as raw:
+            candidate_projection = build_candidate(repo, source_commit, Path(raw))
+        existing = accepted_automated_stage(release_root, candidate_projection)
+        if existing is not None:
+            return existing
         active_release = current_release_id(release_root)
         baseline_commit = (
             str(read_manifest(release_root, active_release)["source_commit"])
@@ -1478,6 +1512,13 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
         try:
             temporary.mkdir(mode=0o700)
             candidate = build_candidate(repo, source_commit, temporary)
+            if candidate_projection is not None:
+                if candidate != candidate_projection:
+                    raise ReleaseError("Candidate projection changed before staging")
+                existing = accepted_automated_stage(release_root, candidate)
+                if existing is not None:
+                    shutil.rmtree(temporary)
+                    return existing
             assurance = (
                 validate_review_evidence(
                     review_path,
