@@ -565,17 +565,55 @@ Stop before the next Block.
                 previous_tracker=self.previous,
                 proposed_tracker=self.proposed,
             )
-        metadata = self.metadata()
-        metadata["reviewer_id"] = metadata["author_id"]
-        with self.assertRaisesRegex(
-            program_revision.ProgramRevisionError, "must differ"
+        for field in (
+            "reviewer_id",
+            "mechanical_watcher_id",
+            "adjudicator_id",
+            "fix_executor_id",
         ):
-            program_revision.build_revision_packet(
+            with self.subTest(field=field):
+                metadata = self.metadata()
+                metadata[field] = metadata["author_id"]
+                with self.assertRaisesRegex(
+                    program_revision.ProgramRevisionError, "must differ"
+                ):
+                    program_revision.build_revision_packet(
+                        previous_tracker=self.previous,
+                        proposed_tracker=self.proposed,
+                        target_tracker_path=self.previous,
+                        metadata=metadata,
+                    )
+
+                stored = copy.deepcopy(packet)
+                stored[field] = stored["author_id"]
+                stored["packet_root"] = program_revision.digest(
+                    {key: value for key, value in stored.items() if key != "packet_root"}
+                )
+                with self.assertRaisesRegex(
+                    program_revision.ProgramRevisionError,
+                    "roles are not distinct",
+                ):
+                    program_revision.validate_stored_packet(stored)
+
+    def test_author_may_be_the_explicit_application_owner(self) -> None:
+        metadata = self.metadata()
+        metadata["application_owner_id"] = metadata["author_id"]
+        packet = program_revision.build_revision_packet(
+            previous_tracker=self.previous,
+            proposed_tracker=self.proposed,
+            target_tracker_path=self.previous,
+            metadata=metadata,
+        )
+        self.assertEqual(packet["application_owner_id"], packet["author_id"])
+        self.assertEqual(
+            program_revision.validate_revision_packet(
+                packet,
                 previous_tracker=self.previous,
                 proposed_tracker=self.proposed,
-                target_tracker_path=self.previous,
-                metadata=metadata,
-            )
+            ),
+            packet,
+        )
+        self.assertEqual(program_revision.validate_stored_packet(packet), packet)
 
     def test_full_verifier_accepts_exact_packet_and_rejects_stale(self) -> None:
         packet = self.build()

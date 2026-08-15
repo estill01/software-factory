@@ -985,7 +985,6 @@ def build_revision_packet(
     }
     if (
         len(role_ids) != 4
-        or packet["application_owner_id"] == packet["author_id"]
         or packet["fix_executor_id"] in role_ids
     ):
         raise ProgramRevisionError("Program revision authoring roles must differ")
@@ -1164,7 +1163,6 @@ def validate_stored_packet(value: Any) -> dict[str, Any]:
     }
     if (
         len(role_ids) != 4
-        or packet["application_owner_id"] == packet["author_id"]
         or packet.get("fix_executor_id") in role_ids
     ):
         raise ProgramRevisionError("Stored program revision roles are not distinct")

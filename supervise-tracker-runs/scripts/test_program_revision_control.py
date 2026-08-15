@@ -106,7 +106,7 @@ class ProgramRevisionControlTests(unittest.TestCase):
         )
         self.policy = self.fixture.adjust(
             "--program-revision-authoring-thread",
-            "tracker-authoring-thread-1234",
+            self.fixture.target,
             "--program-revision-authoring-profile-review",
             str(self.profile_review_path),
         )
@@ -788,6 +788,44 @@ Stop before the next Block mutation.
         self.assertEqual(packet["accepted_history_blocks"], list(range(7)))
         self.assertEqual(packet["affected_proposed_blocks"], [7, 8])
         self.assertEqual(packet["resume_block"], 7)
+
+    def test_same_target_author_and_application_owner_reaches_canonical_event(self) -> None:
+        profile = self.policy["program_revision_authoring_profile"]
+        self.assertEqual(profile["authoring_target_thread_id"], self.fixture.target)
+        self.assertEqual(self.packet["author_id"], self.fixture.target)
+        self.assertEqual(
+            self.packet["application_owner_id"], self.source["implementation_owner_id"]
+        )
+        self.assertEqual(self.packet["author_id"], self.packet["application_owner_id"])
+        accepted = self.record_program_revision()
+        self.assertEqual(accepted["record"]["review_disposition"], "accepted")
+        self.assertEqual(
+            accepted["record"]["packet"]["application_owner_id"],
+            self.fixture.target,
+        )
+
+    def test_spoofed_application_owner_rejects_before_event_append(self) -> None:
+        changed_packet = copy.deepcopy(self.packet)
+        changed_packet["application_owner_id"] = "spoofed-application-owner-1234"
+        changed_packet["packet_root"] = program_revision.digest(
+            {
+                key: value
+                for key, value in changed_packet.items()
+                if key != "packet_root"
+            }
+        )
+        self.packet = changed_packet
+        self.packet_path.write_bytes(
+            program_revision.canonical(changed_packet) + b"\n"
+        )
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.events(directory / "events.jsonl")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "differs from its decision owner",
+        ):
+            self.record_program_revision()
+        self.assertEqual(supervision_log.events(directory / "events.jsonl"), before)
 
     def test_revise_disposition_is_retained_but_cannot_amend_range(self) -> None:
         retained = self.record_program_revision(disposition="revise")

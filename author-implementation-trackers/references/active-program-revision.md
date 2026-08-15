@@ -29,6 +29,11 @@ or adaptive-decision owner.
   implementation-range transition. It does not edit tracker bytes.
 - The implementation owner applies only an accepted proposal and resumes the
   dependency-safe Block returned by the accepted packet.
+- The tracker author and application owner may be the same repository owner
+  when the canonical adaptive decision binds that exact implementation owner.
+  Equality grants no authority before the distinct signed review and canonical
+  accepted event; every application precondition and repository-write gate
+  still applies.
 
 The standing direct requested range survives inserts, removals, splits, merges,
 reordering, and renumbering. A full-tracker request remains the complete amended
@@ -163,7 +168,9 @@ application precondition.
    lock. Identical current input is idempotent and returns the same repository-
    installation next action.
 3. Install and commit only the accepted proposal bytes through the normal
-   repository owner.
+   repository owner. A sole tracker author may perform this later application
+   when the signed review and canonical adaptive decision bind it as the exact
+   implementation owner; authorship alone never authorizes application.
 4. Run `implementation-range-amend` against that exact tracker and canonical
    event, supplying the exact application commit. The range owner verifies that
    the application is a single-parent, tracker-only commit whose parent is the
