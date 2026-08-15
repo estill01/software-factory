@@ -1267,7 +1267,7 @@ Independent readback of live roots, automation definitions, and supervisor healt
   already-active/no-duplicate-activation proof passed `1/1` in `2.538s`. The
   previously accepted exact source/release evidence was reused; no whole-repo
   or unrelated aggregate suite ran.
-- Canonical integration and independent review: `origin/main` was
+- Block 7 integration and independent review: `origin/main` was
   fast-forwarded without rewriting history from `86a1e24` to exact accepted
   source `550481b4fe4b68c5a77c341a021f808fae6fada4`; tracker-branch merge
   `629a4cd477028c663b9e7309f76d6019b3292cb0` preserves both parents and every
@@ -1282,7 +1282,7 @@ Independent readback of live roots, automation definitions, and supervisor healt
   `550481b4fe4b-f2f204ad585d`, source `550481b`, `ACTIVATION-43`, verification
   root `57541800...b517`, and installed roots `1ddeb470...d2d3`,
   `07e4ed3b...3700`, and `8038664c...755` reconcile with current
-  `origin/main`.
+  `origin/main` at the target-local refresh boundary.
 - Safe-boundary refresh: plan root
   `f84bf546329db2f845325ed5d06008425fee13c68e849bb3ef39b28cc7d694d0`
   required zero automation mutations. Owner-read roots remain
@@ -1313,6 +1313,26 @@ Independent readback of live roots, automation definitions, and supervisor healt
   `final_response_permitted=false` for the incomplete monitored target. The
   live ledger ends at `EVT-001804` with no post-health rollback, terminal report
   delivery, shutdown, supervision pause, or premature completion effect.
+- Final accepted-line normalization: after the Block 7 live proof, the separate
+  Patent Studio lane independently accepted direct child
+  `a8a67bba702ac4df6f1850fbdf78a194cd645003` as `EVT-000458` and published it
+  as current `origin/main` at `EVT-000459`. Its first staging request failed
+  closed before assurance because the supplied signed evidence used the wrong
+  owner schema; no suite, stage, release, or activation resulted. The same
+  bounded owner path then supplied the exact ingestible review, retained sealed
+  `RELEASE-ACCEPTANCE-41`, and activated it once with zero-suite reuse as
+  release `a8a67bba702a-951c4dd65576` / `ACTIVATION-44`. Final source and
+  `origin/main` now both equal `a8a67bba`; verification root is
+  `fc390565...3f7`, installed roots are `1ddeb470...d2d3`,
+  `07e4ed3b...3700`, and `039f5897...3d1`, and the accepted Block 7
+  currentness fix remains unchanged in its ancestry. Tracker merge
+  `1625e0c33024cf4155d7593e288b0bcb7d9f6317` preserves both accepted lines.
+- Post-normalization scheduled wake: heartbeat
+  `01a0045d-6e25-7052-902b-d3742e3a2240` ran through stable `current` at
+  `2026-08-15T07:40:27.043Z` after `ACTIVATION-44`. It returned
+  `DONT_NOTIFY` with no compact read, intermediate record, target prompt, or
+  replayed effect. The named target ledger therefore still ends at the healthy
+  append-only proof `EVT-001804`, with no rollback or terminal effect.
 - Post-block audit: accepted. Blocks 0–6 and all rejected/remediation history
   remain preserved; the systemic-recovery and product-program lanes remain
   untouched and downstream.
