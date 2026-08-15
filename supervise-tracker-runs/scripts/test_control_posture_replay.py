@@ -50,7 +50,9 @@ class ControlPostureReplayTests(unittest.TestCase):
         supervision_log.atomic_json(directory / "policy.json", policy)
         return directory, policy
 
-    def public_gate(self, target: str) -> dict[str, object]:
+    def public_gate(
+        self, target: str, *, observed_target_status: str = ""
+    ) -> dict[str, object]:
         args = supervision_log.parser().parse_args(
             [
                 "--root",
@@ -58,6 +60,8 @@ class ControlPostureReplayTests(unittest.TestCase):
                 "control-posture-gate",
                 "--target-thread",
                 target,
+                "--observed-target-status",
+                observed_target_status,
             ]
         )
         output = io.StringIO()
@@ -251,14 +255,42 @@ class ControlPostureReplayTests(unittest.TestCase):
             )
             for event in self.materialize(step["events"]):
                 self.append(directory, event)
-            first = self.public_gate(target)
-            second = self.public_gate(target)
+            first = self.public_gate(
+                target,
+                observed_target_status=(
+                    "completed" if step["step_id"] == "replay-5" else "idle"
+                ),
+            )
+            second = self.public_gate(
+                target,
+                observed_target_status=(
+                    "completed" if step["step_id"] == "replay-5" else "idle"
+                ),
+            )
             self.assertEqual(first, second, step["step_id"])
             self.assertEqual(first["required_target_posture"], step["expected_posture"])
             self.assertEqual(first["next_action"], step["expected_next_action"])
             self.assertFalse(first["human_input_required"])
             self.assertFalse(first["manual_resume_required"])
+            self.assertFalse(first["mission_abandonment_permitted"])
             self.assertEqual(first["member_count"], 1)
+            if step["step_id"] != "replay-5":
+                self.assertTrue(first["mission_persistence_required"])
+                self.assertTrue(first["autonomous_continuation_required"])
+                self.assertTrue(first["continuation_route_required"])
+                self.assertEqual(
+                    first["continuation_owner_target_thread_id"], target
+                )
+                self.assertIn(
+                    first["next_action"], first["continuation_action"]
+                )
+                self.assertIn(
+                    "Do not return final, quiesce, or require manual Resume",
+                    first["continuation_action"],
+                )
+            else:
+                self.assertFalse(first["mission_persistence_required"])
+                self.assertTrue(first["terminal_response_permitted"])
             if step["step_id"] in {"replay-1", "replay-2", "replay-3"}:
                 expected_transition_head = {
                     "replay-1": "EVT-000001",
@@ -282,6 +314,53 @@ class ControlPostureReplayTests(unittest.TestCase):
                     "EVT-000006",
                 )
         self.assertEqual(first["required_target_posture"], "completed")
+
+    def test_nonterminal_idle_and_unavailable_owners_remain_automatically_owned(self) -> None:
+        target = "range-repair-owner-1234"
+        self.create_target(target)
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "implementation-range-gate",
+                "--target-thread",
+                target,
+                "--response-kind",
+                "final-response",
+                "--observed-target-status",
+                "notLoaded",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        result = json.loads(output.getvalue())
+
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            result["next_action"],
+            "continue-local-safe-frontier-and-repair-binding",
+        )
+        self.assertTrue(result["autonomous_continuation_required"])
+        self.assertTrue(result["continuation_route_required"])
+        self.assertEqual(
+            result["continuation_owner_target_thread_id"], target
+        )
+        self.assertIn(
+            "continue-local-safe-frontier-and-repair-binding",
+            result["continuation_action"],
+        )
+        self.assertFalse(result["mission_abandonment_permitted"])
+        self.assertEqual(
+            result["failure_mode_if_returned"],
+            "FM-UNAUTHORIZED-EARLY-RETURN",
+        )
+        unavailable = self.public_gate(
+            target, observed_target_status="read-unavailable"
+        )
+        self.assertTrue(unavailable["continuation_retry_required"])
+        self.assertFalse(unavailable["continuation_route_required"])
 
     def test_self_successor_and_subordinate_authority_cannot_override_owner(
         self,
