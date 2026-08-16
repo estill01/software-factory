@@ -26357,6 +26357,81 @@ def incomplete_prerequisite_closure(
     return closure
 
 
+def delegated_route_binds_current_mission_source(
+    *,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    source_task: str,
+    source_item: str,
+    source_sha256: str,
+    source_byte_count: int,
+    route_action_sha256: str,
+) -> bool:
+    """Prove raw delegated bytes against the route action retained by policy."""
+
+    mission = bound_mission(dict(policy))
+    if mission is None:
+        return False
+    activations = [
+        item
+        for item in mission_activation_heads(all_events).values()
+        if item.get("mission_root") == mission.get("mission_root")
+        and item.get("mission_source_record")
+        == mission.get("mission_source_record")
+    ]
+    if len(activations) != 1:
+        return False
+    evidence = activations[0].get("evidence")
+    if (
+        not isinstance(evidence, list)
+        or f"source-sha256:{source_sha256}" not in evidence
+    ):
+        return False
+    evidence_ids = {item for item in evidence if isinstance(item, str)}
+    event_by_id = {
+        str(item.get("record_id")): item
+        for item in all_events
+        if isinstance(item.get("record_id"), str)
+    }
+    matching_routes: list[dict[str, Any]] = []
+    for item in all_events:
+        route_result = item.get("route_result")
+        if (
+            item.get("kind") != DELEGATED_DIRECT_AUTHORITY_ROUTE_EVENT_KIND
+            or item.get("status") != "allowed"
+            or item.get("target_thread_id") != policy.get("target_thread_id")
+            or item.get("source_task_id") != source_task
+            or item.get("source_item_id") != source_item
+            or item.get("source_byte_count") != source_byte_count
+            or item.get("source_sha256") != source_sha256
+            or item.get("record_id") not in evidence_ids
+            or not isinstance(route_result, Mapping)
+        ):
+            continue
+        expected_route_result = {
+            "send_allowed": True,
+            "target_thread_id": policy["target_thread_id"],
+            "recipient_thread_id": policy["target_thread_id"],
+            "recipient_role": "target",
+            "purpose": DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE,
+            "source_record": item.get("route_source_record_id"),
+            "action_sha256": route_action_sha256,
+            "policy_sha256": item.get("policy_sha256"),
+        }
+        route_source = event_by_id.get(str(item.get("route_source_record_id")))
+        if (
+            dict(route_result) != expected_route_result
+            or item.get("route_result_sha256") != digest(expected_route_result)
+            or route_source is None
+            or route_source.get("record_sha256")
+            != item.get("route_source_record_sha256")
+            or route_source.get("record_id") not in evidence_ids
+        ):
+            continue
+        matching_routes.append(item)
+    return len(matching_routes) == 1
+
+
 def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None:
     (
         directory,
@@ -26413,10 +26488,24 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
             raise SupervisionLogError(
                 "Direct-authority source ingestion predecessor is not the exact direct-user source"
             )
-        exact_sha256(
+        controlling_source_sha256 = exact_sha256(
             str(controlling_source.get("sha256", "")),
             label="historic direct-user source SHA-256",
         )
+        if controlling_source_sha256 != source_sha256 and not (
+            delegated_route_binds_current_mission_source(
+                policy=policy,
+                all_events=all_events,
+                source_task=source_task,
+                source_item=source_item,
+                source_sha256=source_sha256,
+                source_byte_count=len(source_bytes),
+                route_action_sha256=controlling_source_sha256,
+            )
+        ):
+            raise SupervisionLogError(
+                "Direct-authority source ingestion predecessor is not the exact direct-user source"
+            )
     elif not any(
         item.get("kind") == DIRECT_AUTHORITY_EVENT_KIND
         and item.get("source_record") == source_record

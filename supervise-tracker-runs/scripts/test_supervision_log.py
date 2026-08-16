@@ -2972,6 +2972,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_record: str,
         source_sha256: str,
         source_text: str | None = None,
+        source_item: str | None = None,
+        source_task: str | None = None,
     ) -> str:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -2980,14 +2982,16 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_bytes = (
             self.later_request if source_text is None else source_text
         ).encode("utf-8")
+        source_item = source_item or source_record
+        source_task = source_task or self.target
         self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), source_sha256)
         review: dict[str, object] = {
             "schema_version": 1,
             "kind": "software-factory-direct-authority-source-review",
             "record_id": f"range-source-review-{event_record.lower()}",
             "target_thread_id": self.target,
-            "source_task_id": self.target,
-            "source_item_id": source_record,
+            "source_task_id": source_task,
+            "source_item_id": source_item,
             "source_record": source_record,
             "source_sha256": source_sha256,
             "source_byte_count": len(source_bytes),
@@ -3027,6 +3031,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         review["signature_base64"] = base64.b64encode(signature.read_bytes()).decode()
+        if source_item != source_record:
+            review_path = self.root / f"{event_record}-range-review.json"
+            review_path.write_bytes(supervision_log.canonical(review) + b"\n")
+            return str(review_path)
         supervision_log.append_raw(
             directory / "events.jsonl",
             {
@@ -3718,12 +3726,14 @@ class ImplementationRangeControlTests(unittest.TestCase):
         retain_range_authority: bool = True,
         mission_source_record: str | None = None,
         mission_source_sha256: str | None = None,
+        succession_evidence: list[str] | None = None,
     ) -> tuple[str, str, str, dict[str, object]]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
         predecessor_root = policy["mission_binding"]["mission_root"]
-        outcome_record = "EVT-RANGE-OUTCOME-100"
-        lifecycle_record = "EVT-RANGE-LIFECYCLE-100"
+        event_count = len(supervision_log.events(directory / "events.jsonl"))
+        outcome_record = f"EVT-RANGE-OUTCOME-{event_count + 1}"
+        lifecycle_record = f"EVT-RANGE-LIFECYCLE-{event_count + 2}"
         fingerprint = "a" * 64
         outcome: dict[str, object] = {
             "schema_version": 1,
@@ -3786,6 +3796,11 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "The completed predecessor is followed by a new direct mission.",
                 "--evidence",
                 lifecycle_record,
+            ]
+            + [
+                value
+                for evidence in (succession_evidence or [])
+                for value in ("--evidence", evidence)
             ]
         )
         output = io.StringIO()
@@ -4287,6 +4302,115 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 changed_encoded,
             )
         self.assertEqual((directory / "events.jsonl").read_bytes(), first_events)
+
+    def test_delegated_route_action_and_raw_source_digests_remain_distinct(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        source_task = "origin-user-thread-9021"
+        source_item = "origin-user-item-9021"
+        request_text = (
+            "DIRECT USER CORRECTION — implement the full current tracker.\n"
+            + (
+                "Preserve accepted history and continue dependency-safe work. "
+                * 30
+            )
+        )
+        route_action = "apply-proportional-full-tracker-correction"
+        provenance = self.append_delegated_range_authority_review(
+            source_task_id=source_task,
+            source_record=source_item,
+            request_text=request_text,
+            route_action=route_action,
+        )
+        self.start_current_delegated_activation()
+        source_sha256 = hashlib.sha256(request_text.encode("utf-8")).hexdigest()
+        canonical_record = (
+            f"codex:{self.target}:{source_task}:{source_item}"
+        )
+        self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record=canonical_record,
+            mission_source_sha256=supervision_log.digest(route_action),
+            succession_evidence=[
+                str(provenance["route_source_record_id"]),
+                str(provenance["route_record_id"]),
+                str(provenance["authorization_record_id"]),
+                f"source-sha256:{source_sha256}",
+            ],
+        )
+        policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+        current_events = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        controlling_source_sha256 = (
+            policy["mission_binding"]["mission_derivation"]
+            ["controlling_source"]["sha256"]
+        )
+        self.assertTrue(
+            supervision_log.delegated_route_binds_current_mission_source(
+                policy=policy,
+                all_events=current_events,
+                source_task=source_task,
+                source_item=source_item,
+                source_sha256=source_sha256,
+                source_byte_count=len(request_text.encode("utf-8")),
+                route_action_sha256=controlling_source_sha256,
+            )
+        )
+        missing_source_evidence = copy.deepcopy(current_events)
+        for event in missing_source_evidence:
+            if (
+                event.get("kind") == "mission-activation"
+                and event.get("mission_root")
+                == policy["mission_binding"]["mission_root"]
+            ):
+                event["evidence"].remove(f"source-sha256:{source_sha256}")
+        self.assertFalse(
+            supervision_log.delegated_route_binds_current_mission_source(
+                policy=policy,
+                all_events=missing_source_evidence,
+                source_task=source_task,
+                source_item=source_item,
+                source_sha256=source_sha256,
+                source_byte_count=len(request_text.encode("utf-8")),
+                route_action_sha256=controlling_source_sha256,
+            )
+        )
+        review_path = self.ingest_direct_authority_event(
+            source_record=canonical_record,
+            source_sha256=source_sha256,
+            source_text=request_text,
+            source_item=source_item,
+            source_task=source_task,
+        )
+        result = self.call(
+            "implementation-range-authority-source-ingest",
+            "--target-thread",
+            self.target,
+            "--source-task",
+            source_task,
+            "--source-item",
+            source_item,
+            "--source-record",
+            canonical_record,
+            "--source-text-base64",
+            base64.b64encode(request_text.encode("utf-8")).decode("ascii"),
+            "--provenance-review-record",
+            review_path,
+            "--expected-policy-sha256",
+            str(policy["policy_sha256"]),
+        )
+
+        self.assertEqual(result["record"]["source_record"], canonical_record)
+        self.assertEqual(result["record"]["source_sha256"], source_sha256)
+        self.assertNotEqual(
+            controlling_source_sha256,
+            source_sha256,
+        )
 
     def test_exact_delegated_direct_authority_starts_full_tracker_range(
         self,
