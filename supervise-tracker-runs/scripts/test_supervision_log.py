@@ -4345,6 +4345,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
         current_events = supervision_log.events(
             self.root / self.target / "events.jsonl"
         )
+        current_policy_history = supervision_log.events(
+            self.root / self.target / "policy-history.jsonl"
+        )
         controlling_source_sha256 = (
             policy["mission_binding"]["mission_derivation"]
             ["controlling_source"]["sha256"]
@@ -4431,6 +4434,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         classification_review = (
             supervision_log.signed_source_full_tracker_classification(
                 policy=current_policy,
+                policy_history=current_policy_history,
                 all_events=current_events,
                 source_event=signed_source_event,
                 request_text=request_text,
@@ -4452,7 +4456,24 @@ class ImplementationRangeControlTests(unittest.TestCase):
         ):
             supervision_log.signed_source_full_tracker_classification(
                 policy=current_policy,
+                policy_history=current_policy_history,
                 all_events=missing_classification,
+                source_event=signed_source_event,
+                request_text=request_text,
+            )
+        wrong_reviewer_role = copy.deepcopy(current_events)
+        for event in wrong_reviewer_role:
+            if event.get("record_id") == provenance["authorization_record_id"]:
+                event["kind"] = "checkpoint-review"
+                event["reasoning"] = "xhigh"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "lacks one exact independent full-tracker classification",
+        ):
+            supervision_log.signed_source_full_tracker_classification(
+                policy=current_policy,
+                policy_history=current_policy_history,
+                all_events=wrong_reviewer_role,
                 source_event=signed_source_event,
                 request_text=request_text,
             )
@@ -4499,6 +4520,296 @@ class ImplementationRangeControlTests(unittest.TestCase):
             self.assertEqual((self.root / self.target / "events.jsonl").read_bytes(), before)
         result = self.call(*arguments)
         self.assertEqual((result["record"]["source_record"], result["record"]["source_sha256"]), (source_record, source_sha256))
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(result["record"]["record_id"]),
+        )
+        current_policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+        current_events = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        current_history = supervision_log.events(
+            self.root / self.target / "policy-history.jsonl"
+        )
+        receipt, retained_event, classification_review = (
+            supervision_log.retained_full_tracker_authority(
+                current_policy,
+                all_events=current_events,
+                policy_history=current_history,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                require_current_receipt=True,
+                request_text=None,
+            )
+        )
+        self.assertEqual(receipt["source_event_record_id"], result["record"]["record_id"])
+        self.assertEqual(retained_event["source_record"], source_record)
+        self.assertIsNone(classification_review)
+
+    def test_long_exact_direct_source_does_not_bypass_request_classifier(
+        self,
+    ) -> None:
+        source_item = "item-long-direct-192"
+        source_record = f"direct-user:{self.target}:{source_item}"
+        source_text = "generic planning context " * 80
+        source_bytes = source_text.encode("utf-8")
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        self.assertGreater(len(source_bytes), 1200)
+        self.write_tracker(["completed"])
+        self.bind()
+        rollover_records = self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record=source_record,
+            mission_source_sha256=source_sha256,
+        )[:3]
+        policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+        review_path = self.ingest_direct_authority_event(
+            source_record=source_record,
+            source_sha256=source_sha256,
+            source_text=source_text,
+            source_item=source_item,
+        )
+        ingested = self.call(
+            "implementation-range-authority-source-ingest",
+            "--target-thread",
+            self.target,
+            "--source-task",
+            self.target,
+            "--source-item",
+            source_item,
+            "--source-record",
+            source_record,
+            "--source-text-base64",
+            base64.b64encode(source_bytes).decode("ascii"),
+            "--provenance-review-record",
+            review_path,
+            "--expected-policy-sha256",
+            str(policy["policy_sha256"]),
+        )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record"]["record_id"]),
+        )
+        directory = self.root / self.target
+        self.tracker = self.root / "long-direct-successor-tracker.md"
+        self.write_tracker(["not-started"])
+        before = {
+            name: (directory / name).read_bytes()
+            for name in ("policy.json", "policy-history.jsonl", "events.jsonl")
+        }
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "implementation range request text exceeds 1200 characters",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id="RANGE-LONG-DIRECT-192",
+                rollover_records=rollover_records,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                request_text=source_text,
+            )
+        for name, raw in before.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
+
+    def test_cross_mission_admission_reuses_reviewed_long_routed_classification(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        request_text = (
+            "DIRECT USER SUCCESSOR — implement the full current tracker.\n"
+            + "Preserve accepted history and continue every safe Block. " * 30
+        )
+        source_task = "origin-user-thread-5678"
+        source_item = self.initial_source
+        route_action_sha256 = self.initial_mission_sha
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        pending_activation = supervision_log.mission_activation_pending_record(
+            target_thread=self.target,
+            mission_binding=policy["mission_binding"],
+            activation_policy_sha256=str(policy["policy_sha256"]),
+            first_eligible_work="Block-0-freeze-current-baseline",
+            evidence=["range-test-current-mission-activation"],
+        )
+        pending_activation["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        pending_activation["source_record"] = str(
+            pending_activation["record_id"]
+        )
+        supervision_log.append_raw(
+            directory / "events.jsonl", pending_activation
+        )
+        current_events = supervision_log.events(directory / "events.jsonl")
+        route_source = next(
+            item
+            for item in supervision_log.mission_activation_heads(
+                current_events, open_only=True
+            ).values()
+            if item.get("mission_root")
+            == policy["mission_binding"]["mission_root"]
+        )
+        route_result = self.call(
+            "delegated-direct-authority-route-record",
+            "--target-thread",
+            self.target,
+            "--source-record",
+            str(route_source["record_id"]),
+            "--source-task",
+            source_task,
+            "--source-turn",
+            "origin-user-turn-5678",
+            "--source-item",
+            source_item,
+            "--source-text-base64",
+            base64.b64encode(request_text.encode("utf-8")).decode("ascii"),
+        )
+        route_record = next(
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("record_id") == route_result["record_id"]
+        )
+        source_bytes = request_text.encode("utf-8")
+        provenance: dict[str, object] = {
+            "schema_version": 1,
+            "kind": supervision_log.DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": self.target,
+            "source_task_id": source_task,
+            "source_turn_id": "origin-user-turn-5678",
+            "source_item_id": source_item,
+            "source_kind": supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+            "source_text": request_text,
+            "source_byte_count": len(source_bytes),
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": self.reviewer,
+            "authorization_record_id": "",
+            "transport_kind": supervision_log.DELEGATED_DIRECT_AUTHORITY_TRANSPORT_KIND,
+            "route_purpose": supervision_log.DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE,
+            "route_source_record_id": route_source["record_id"],
+            "route_source_record_sha256": route_source["record_sha256"],
+            "route_record_id": route_record["record_id"],
+            "route_record_sha256": route_record["record_sha256"],
+            "route_action_sha256": route_action_sha256,
+            "route_projection_sha256": "",
+        }
+        provenance["route_projection_sha256"] = supervision_log.digest(
+            supervision_log.delegated_direct_authority_route_projection(
+                provenance, policy_sha256=str(policy["policy_sha256"])
+            )
+        )
+        current_events = supervision_log.events(directory / "events.jsonl")
+        provenance["authorization_record_id"] = (
+            f"EVT-{len(current_events) + 1:06d}"
+        )
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": provenance["authorization_record_id"],
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "meta-review",
+                "category": supervision_log.DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY,
+                "status": "accepted",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": supervision_log.direct_authority_review_evidence(
+                    provenance
+                ),
+            },
+        )
+        self.assertGreater(int(provenance["source_byte_count"]), 1200)
+        self.call(
+            "mission-activation-start",
+            "--target-thread",
+            self.target,
+            "--mission-root",
+            str(policy["mission_binding"]["mission_root"]),
+            "--activation-policy-sha256",
+            str(pending_activation["activation_policy_sha256"]),
+            "--first-eligible-work",
+            str(pending_activation["first_eligible_work"]),
+            "--source-record",
+            str(provenance["authorization_record_id"]),
+            "--evidence",
+            f"source-sha256:{provenance['source_sha256']}",
+        )
+        canonical_record = f"codex:{self.target}:{source_task}:{source_item}"
+        rollover_records = self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record=canonical_record,
+            mission_source_sha256=route_action_sha256,
+            succession_evidence=[
+                str(provenance["route_source_record_id"]),
+                str(provenance["route_record_id"]),
+                str(provenance["authorization_record_id"]),
+                f"source-sha256:{provenance['source_sha256']}",
+            ],
+        )[:3]
+        policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+        review_path = self.ingest_direct_authority_event(
+            source_record=canonical_record,
+            source_sha256=str(provenance["source_sha256"]),
+            source_text=request_text,
+            source_item=source_item,
+            source_task=source_task,
+        )
+        ingested = self.call(
+            "implementation-range-authority-source-ingest",
+            "--target-thread",
+            self.target,
+            "--source-task",
+            source_task,
+            "--source-item",
+            source_item,
+            "--source-record",
+            canonical_record,
+            "--source-text-base64",
+            base64.b64encode(request_text.encode("utf-8")).decode("ascii"),
+            "--provenance-review-record",
+            review_path,
+            "--expected-policy-sha256",
+            str(policy["policy_sha256"]),
+        )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record"]["record_id"]),
+        )
+        self.tracker = self.root / "reviewed-routed-successor-tracker.md"
+        self.write_tracker(["not-started"] * 3)
+
+        admitted = self.admit(
+            include_binding_inputs=True,
+            range_id="RANGE-REVIEWED-ROUTED-5678",
+            rollover_records=rollover_records,
+            source_record=canonical_record,
+            source_sha256=str(provenance["source_sha256"]),
+            request_text=request_text,
+        )
+
+        self.assertEqual(admitted["binding"]["range_intent"], "full-tracker")
+        self.assertEqual(admitted["binding"]["tracker_blocks"], [0, 1, 2])
 
     def test_exact_delegated_direct_authority_starts_full_tracker_range(
         self,
