@@ -2768,7 +2768,32 @@ def canonical_direct_authority_event(
     canonical_source_record = (
         f"codex:{policy.get('target_thread_id')}:{source_task_id}:{source_item_id}"
     )
-    if source_record != source_item_id and source_record != canonical_source_record:
+    mission = policy.get("mission_binding")
+    derivation = (
+        mission.get("mission_derivation") if isinstance(mission, Mapping) else None
+    )
+    controlling_source = (
+        derivation.get("controlling_source")
+        if isinstance(derivation, Mapping)
+        else None
+    )
+    direct_user_source_record = (
+        f"direct-user:{policy.get('target_thread_id')}:{source_item_id}"
+    )
+    exact_current_direct_user_source = (
+        source_task_id == policy.get("target_thread_id")
+        and source_record == direct_user_source_record
+        and mission.get("mission_source_record") == source_record
+        and isinstance(controlling_source, Mapping)
+        and controlling_source.get("class") == "direct-user"
+        and controlling_source.get("record") == source_record
+        and controlling_source.get("sha256") == event.get("source_sha256")
+    ) if isinstance(mission, Mapping) else False
+    if (
+        source_record != source_item_id
+        and source_record != canonical_source_record
+        and not exact_current_direct_user_source
+    ):
         raise SupervisionLogError(
             "Canonical direct-authority source record differs from its exact tuple"
         )
@@ -26458,7 +26483,10 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
     expected_source_record = (
         f"codex:{target_thread}:{source_task}:{source_item}"
     )
-    if source_record != expected_source_record:
+    direct_user_source_record = f"direct-user:{target_thread}:{source_item}"
+    if source_record != expected_source_record and (
+        source_task != target_thread or source_record != direct_user_source_record
+    ):
         raise SupervisionLogError(
             "Direct-authority source record differs from its exact tuple"
         )
