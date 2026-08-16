@@ -163,6 +163,33 @@ effectiveness may be true while reusable evidence remains pending, and a reusabl
 candidate never proves current-run correction. It prevents silent omission of
 the reusable lane without creating another ledger, owner, detector, or schedule.
 
+Before another consequential corrective effect for the same motivating outcome,
+use the existing incident owner to bind a canonical
+`outcome-effectiveness-admission` packet and call
+`outcome-effectiveness-gate`. The packet names the primary observable outcome,
+at least two consecutive independently reviewed baseline outcomes, each
+disposition and content-minimized material-finding set, the prior and candidate
+causal treatment hypotheses, and a measurable criterion declared before the
+effect. The helper derives finding-set, treatment, criterion, and gate roots; it
+does not accept process proof as an effectiveness override. When baseline
+disposition/findings are unchanged and the causal hypothesis is unchanged, the
+gate records `outcome-unchanged` and `ineffective`, freezes the candidate as
+diagnostic, and returns `effect_allowed=false`. Wake only for a materially
+different treatment, an attempted hold violation, or new independent outcome
+evidence. A later outcome must use the same gate to expose the baseline/current
+disposition and material-finding delta against the predeclared criterion.
+
+For a recovery-aware Factory incident, record the canonical failure owner,
+failed owner/contract, observed and accepted revisions, split owner subjects,
+recovery trigger, and preserved safe frontier on its failure-mode envelope.
+Then call `software-factory-recovery-classify` against the current incident
+head. The derived classification is limited to `target-owned`,
+`software-factory-owned`, `mixed`, or `reserved-external`; route text and caller
+posture cannot substitute for that owner evidence. A Factory-owned subject keeps
+the target `in-progress` with no human input or manual Resume while its existing
+repair owner proceeds. Mixed subjects remain split so unrelated safe frontiers
+continue.
+
 Skill-maintenance modes are:
 
 - `propose-only` — record and report candidates; do not edit skills;

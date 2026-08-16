@@ -633,6 +633,25 @@ reserved deferrals, safe frontier, and application posture.
   with exact evidence, `repository-specific-not-applicable` with rationale, or
   `evidence-pending` with its next evidence trigger. Current-run correction and
   the reusable lane remain independently owned; silence is not a disposition.
+- Before the next consequential same-outcome effect, call the maintained
+  `outcome-effectiveness-gate` with one canonical, content-minimized packet that
+  binds the primary observable outcome, consecutive independently reviewed
+  baseline dispositions and material-finding sets, prior and candidate causal
+  treatment hypotheses, and a predeclared measurable criterion. Tests, audits,
+  hashes, commits, releases, reviews, and process compliance remain supporting
+  proof only. If the accepted outcome is unchanged and the causal hypothesis is
+  unchanged, obey `effect_allowed=false`: preserve the mechanically valid
+  candidate as diagnostic, stop the expensive effect cycle, and remain silent
+  until a materially different treatment, attempted hold violation, or new
+  independent outcome evidence. Evaluate a later result through the same gate's
+  explicit baseline/current delta.
+- When a current failure-mode envelope contains canonical recovery owner
+  evidence, run `software-factory-recovery-classify` against the exact current
+  incident head. It derives the bounded owner disposition and split subjects;
+  it never treats route text or caller-selected target posture as cause
+  authority. Keep Factory-owned cases `in-progress` with no manual Resume or
+  human input, route target/reserved subjects to their existing owners, and
+  preserve every unaffected safe frontier.
 - The Sol XHigh fix executor normally applies only the bounded policy fields
   accepted by `supervision_log.py adjust`. In
   `apply-allowlisted-skill-maintenance-with-review` mode, it may also update

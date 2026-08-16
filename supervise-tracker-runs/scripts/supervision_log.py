@@ -28,6 +28,15 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
+SYSTEMIC_RECOVERY_PATH = Path(__file__).with_name("systemic_recovery.py")
+SYSTEMIC_RECOVERY_SPEC = importlib.util.spec_from_file_location(
+    "software_factory_systemic_recovery", SYSTEMIC_RECOVERY_PATH
+)
+if SYSTEMIC_RECOVERY_SPEC is None or SYSTEMIC_RECOVERY_SPEC.loader is None:
+    raise RuntimeError("Systemic recovery owner module is unavailable")
+systemic_recovery = importlib.util.module_from_spec(SYSTEMIC_RECOVERY_SPEC)
+SYSTEMIC_RECOVERY_SPEC.loader.exec_module(systemic_recovery)
+
 try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.9 maintained host runtime.
@@ -4578,6 +4587,79 @@ def failure_mode_envelope_from_args(args: argparse.Namespace) -> dict[str, Any]:
         getattr(args, "failure_human_scheduling_leak", None),
         label="failure human scheduling leak",
     )
+    recovery_inputs = (
+        getattr(args, "failure_owner_class", None),
+        getattr(args, "failure_failed_owner", None),
+        getattr(args, "failure_failed_contract", None),
+        getattr(args, "failure_observed_revision", None),
+        getattr(args, "failure_accepted_revision", None),
+        getattr(args, "failure_recovery_trigger", None),
+        getattr(args, "failure_safe_frontier", []),
+        getattr(args, "failure_owner_subject", []),
+    )
+    if any(recovery_inputs):
+        owner_class = getattr(args, "failure_owner_class", None)
+        if owner_class not in systemic_recovery.OWNER_CLASSES:
+            raise SupervisionLogError(
+                "Recovery-aware failure mode requires a maintained owner class"
+            )
+        owner_fields = {
+            "failed_owner": ("failed owner", 160),
+            "failed_contract": ("failed contract", 160),
+            "observed_revision": ("observed revision", 160),
+            "accepted_revision": ("accepted revision", 160),
+            "recovery_trigger": ("recovery trigger", 160),
+        }
+        result["owner_class"] = owner_class
+        for field, (label, maximum) in owner_fields.items():
+            value = clean(
+                getattr(args, f"failure_{field}", None),
+                label=label,
+                maximum=maximum,
+            )
+            if not value:
+                raise SupervisionLogError(
+                    "Recovery-aware failure mode lacks its complete owner evidence"
+                )
+            safe_id(value, label=label)
+            result[field] = value
+        safe_frontier = [
+            safe_id(item, label="failure safe frontier")
+            for item in getattr(args, "failure_safe_frontier", [])
+        ]
+        if not safe_frontier or len(safe_frontier) > 16:
+            raise SupervisionLogError(
+                "Recovery-aware failure mode requires a bounded safe frontier"
+            )
+        if len(safe_frontier) != len(set(safe_frontier)):
+            raise SupervisionLogError("Failure safe frontier is duplicated")
+        result["safe_frontier"] = safe_frontier
+        subjects: list[dict[str, str]] = []
+        seen_subjects: set[str] = set()
+        for raw in getattr(args, "failure_owner_subject", []):
+            if "=" not in raw:
+                raise SupervisionLogError(
+                    "Failure owner subject requires subject=owner-class"
+                )
+            subject, subject_owner = raw.split("=", 1)
+            subject = safe_id(subject, label="failure owner subject")
+            if subject_owner not in systemic_recovery.OWNER_CLASSES - {"mixed"}:
+                raise SupervisionLogError("Failure subject owner is unsupported")
+            if subject in seen_subjects:
+                raise SupervisionLogError("Failure owner subject is duplicated")
+            seen_subjects.add(subject)
+            subjects.append(
+                {"subject": subject, "owner_class": subject_owner}
+            )
+        if not subjects or len(subjects) > 16:
+            raise SupervisionLogError(
+                "Recovery-aware failure mode requires bounded owner subjects"
+            )
+        result["ownership_subjects"] = subjects
+        try:
+            systemic_recovery.owner_evidence_from_failure_mode(result)
+        except systemic_recovery.RecoveryError as exc:
+            raise SupervisionLogError(str(exc)) from exc
     return result
 
 
@@ -6142,6 +6224,188 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
             )
             return
         record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        append_event_locked(args, directory, record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
+def current_incident_owner_records(
+    all_events: list[dict[str, Any]],
+    *,
+    incident_id_value: str,
+    source_record: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    incident_id = safe_id(incident_id_value, label="recovery incident ID")
+    source = safe_id(source_record, label="recovery source record")
+    records = [
+        item
+        for item in all_events
+        if is_substantive_incident_record(item, incident_id)
+    ]
+    if not records:
+        raise SupervisionLogError("Recovery incident is absent")
+    head = records[-1]
+    if head.get("record_id") != source:
+        raise SupervisionLogError(
+            "Recovery source is not the current canonical incident head"
+        )
+    if is_terminal_incident_record(head, incident_id):
+        raise SupervisionLogError("Recovery incident is terminal or closed")
+    owner_records = [
+        item for item in records if isinstance(item.get("failure_mode"), Mapping)
+    ]
+    if not owner_records:
+        raise SupervisionLogError(
+            "Recovery incident lacks canonical failure owner evidence"
+        )
+    return owner_records[-1], head
+
+
+def cmd_software_factory_recovery_classify(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    with append_lock(directory):
+        current_events = events(directory / "events.jsonl")
+        incident, head = current_incident_owner_records(
+            current_events,
+            incident_id_value=args.incident_id,
+            source_record=args.source_record,
+        )
+        try:
+            classification = systemic_recovery.classify_recovery(
+                incident=incident,
+                incident_head=head,
+                policy=policy,
+            )
+        except systemic_recovery.RecoveryError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        duplicates = [
+            item
+            for item in current_events
+            if item.get("kind") == "factory-recovery"
+            and item.get("phase") == "classified"
+            and item.get("classification_root_sha256")
+            == classification["classification_root_sha256"]
+        ]
+        if len(duplicates) > 1:
+            raise SupervisionLogError("Recovery classification is duplicated")
+        if duplicates:
+            print(
+                json.dumps(
+                    {"duplicate": True, "record": duplicates[0]},
+                    sort_keys=True,
+                )
+            )
+            return
+        record = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": utc_now(),
+            "target_thread_id": policy["target_thread_id"],
+            "kind": "factory-recovery",
+            "phase": "classified",
+            "status": classification["owner_class"],
+            "severity": head.get("severity", "high"),
+            "category": "software-factory-recovery",
+            "incident_id": classification["incident_id"],
+            "source_record": classification["incident_head_record_id"],
+            "recovery_id": classification["recovery_id"],
+            "classification_root_sha256": classification[
+                "classification_root_sha256"
+            ],
+            "classification": classification,
+            "policy_sha256": policy["policy_sha256"],
+        }
+        append_event_locked(args, directory, record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
+def load_outcome_effectiveness_packet(args: argparse.Namespace) -> dict[str, Any]:
+    packet_path = getattr(args, "packet_json", None)
+    packet_base64 = getattr(args, "packet_base64", None)
+    if bool(packet_path) == bool(packet_base64):
+        raise SupervisionLogError(
+            "Outcome-effectiveness gate requires exactly one packet input"
+        )
+    if packet_path:
+        path = Path(packet_path)
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+            raise SupervisionLogError(
+                "Outcome-effectiveness packet is not a bounded regular file"
+            )
+        raw = path.read_bytes()
+    else:
+        try:
+            raw = base64.b64decode(packet_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise SupervisionLogError(
+                "Outcome-effectiveness packet is not exact base64"
+            ) from exc
+        if len(raw) > 65536:
+            raise SupervisionLogError("Outcome-effectiveness packet is too large")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(
+            "Outcome-effectiveness packet is invalid JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError("Outcome-effectiveness packet must be an object")
+    if raw != canonical(value):
+        raise SupervisionLogError(
+            "Outcome-effectiveness packet bytes are not canonical"
+        )
+    return value
+
+
+def cmd_outcome_effectiveness_gate(args: argparse.Namespace) -> None:
+    packet = load_outcome_effectiveness_packet(args)
+    directory, policy = load_policy(args)
+    with append_lock(directory):
+        current_events = events(directory / "events.jsonl")
+        _incident, head = current_incident_owner_records(
+            current_events,
+            incident_id_value=args.incident_id,
+            source_record=args.source_record,
+        )
+        try:
+            gate = systemic_recovery.evaluate_outcome_effectiveness(
+                packet, policy=policy
+            )
+        except systemic_recovery.RecoveryError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        duplicate = next(
+            (
+                item
+                for item in reversed(current_events)
+                if item.get("kind") == "factory-recovery"
+                and item.get("phase") == "outcome-effectiveness"
+                and item.get("gate_root_sha256") == gate["gate_root_sha256"]
+                and item.get("incident_id") == args.incident_id
+            ),
+            None,
+        )
+        if duplicate is not None:
+            print(
+                json.dumps(
+                    {"duplicate": True, "record": duplicate}, sort_keys=True
+                )
+            )
+            return
+        record = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": utc_now(),
+            "target_thread_id": policy["target_thread_id"],
+            "kind": "factory-recovery",
+            "phase": "outcome-effectiveness",
+            "status": gate["status"],
+            "severity": "high" if not gate["effect_allowed"] else "info",
+            "category": "outcome-effectiveness",
+            "incident_id": args.incident_id,
+            "source_record": args.source_record,
+            "gate_root_sha256": gate["gate_root_sha256"],
+            "effectiveness_gate": gate,
+            "policy_sha256": policy["policy_sha256"],
+        }
         append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
@@ -35120,6 +35384,17 @@ def parser() -> argparse.ArgumentParser:
         "--failure-human-scheduling-leak", choices=["yes", "no"]
     )
     record.add_argument(
+        "--failure-owner-class",
+        choices=sorted(systemic_recovery.OWNER_CLASSES),
+    )
+    record.add_argument("--failure-failed-owner")
+    record.add_argument("--failure-failed-contract")
+    record.add_argument("--failure-observed-revision")
+    record.add_argument("--failure-accepted-revision")
+    record.add_argument("--failure-recovery-trigger")
+    record.add_argument("--failure-safe-frontier", action="append", default=[])
+    record.add_argument("--failure-owner-subject", action="append", default=[])
+    record.add_argument(
         "--reusable-lane-disposition",
         choices=list(REUSABLE_LANE_DISPOSITIONS),
     )
@@ -35127,6 +35402,27 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--reusable-lane-evidence", action="append", default=[])
     record.add_argument("--reusable-lane-rationale", default="")
     record.set_defaults(func=cmd_record)
+
+    recovery_classify = subparsers.add_parser(
+        "software-factory-recovery-classify"
+    )
+    recovery_classify.add_argument("--target-thread", required=True)
+    recovery_classify.add_argument("--incident-id", required=True)
+    recovery_classify.add_argument("--source-record", required=True)
+    recovery_classify.set_defaults(func=cmd_software_factory_recovery_classify)
+
+    outcome_effectiveness = subparsers.add_parser(
+        "outcome-effectiveness-gate"
+    )
+    outcome_effectiveness.add_argument("--target-thread", required=True)
+    outcome_effectiveness.add_argument("--incident-id", required=True)
+    outcome_effectiveness.add_argument("--source-record", required=True)
+    outcome_packet = outcome_effectiveness.add_mutually_exclusive_group(
+        required=True
+    )
+    outcome_packet.add_argument("--packet-json")
+    outcome_packet.add_argument("--packet-base64")
+    outcome_effectiveness.set_defaults(func=cmd_outcome_effectiveness_gate)
 
     completion_record = subparsers.add_parser("completion-record")
     completion_record.add_argument("--target-thread", required=True)
