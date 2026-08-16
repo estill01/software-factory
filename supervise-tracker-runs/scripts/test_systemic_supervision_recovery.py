@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import re
 import subprocess
 import unittest
@@ -16,6 +17,15 @@ FIXTURE_PATH = (
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 REPOSITORY = Path(__file__).resolve().parents[2]
+RELEASE_ROOT = Path.home() / ".codex" / "software-factory-releases"
+INSTALL_ROOT = Path.home() / ".codex" / "skills"
+RELEASE_OWNER_PATH = REPOSITORY / "scripts" / "skill_release.py"
+RELEASE_OWNER_SPEC = importlib.util.spec_from_file_location(
+    "systemic_recovery_release_owner", RELEASE_OWNER_PATH
+)
+assert RELEASE_OWNER_SPEC is not None and RELEASE_OWNER_SPEC.loader is not None
+release_owner = importlib.util.module_from_spec(RELEASE_OWNER_SPEC)
+RELEASE_OWNER_SPEC.loader.exec_module(release_owner)
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -36,6 +46,45 @@ def git_blob_sha256(revision: str, path: str) -> str:
     import hashlib
 
     return hashlib.sha256(process.stdout).hexdigest()
+
+
+def release_owner_baseline(release_id: str) -> tuple[dict, dict]:
+    manifest = release_owner.read_manifest(RELEASE_ROOT, release_id)
+    acceptance = release_owner.accepted_release_record(RELEASE_ROOT, release_id)
+    assert acceptance is not None
+    activations = [
+        item for item in release_owner.history(RELEASE_ROOT)
+        if item["release_id"] == release_id
+    ]
+    if not activations:
+        raise AssertionError("Frozen release lacks canonical activation history")
+    activation = activations[-1]
+    status = release_owner.status(
+        type(
+            "StatusArgs",
+            (),
+            {"release_root": str(RELEASE_ROOT), "install_root": str(INSTALL_ROOT)},
+        )()
+    )
+    derived = {
+        "identity_source": "release-owner-status",
+        "release_id": release_id,
+        "source_commit": manifest["source_commit"],
+        "acceptance_record_id": acceptance["record_id"],
+        "activation_record_id": activation["record_id"],
+        "manifest_sha256": manifest["manifest_sha256"],
+        "candidate_root_sha256": manifest["candidate_root_sha256"],
+        "verification_root_sha256": activation["post_swap_reload_root_sha256"],
+        "installed_roots": {
+            name: record["content_root_sha256"]
+            for name, record in manifest["skills"].items()
+        },
+    }
+    if status["active_release_id"] == release_id:
+        derived["release_owner_state_root_sha256"] = status[
+            "release_owner_state_root_sha256"
+        ]
+    return derived, status
 
 
 class SystemicSupervisionRecoveryBaselineTests(unittest.TestCase):
@@ -97,7 +146,11 @@ class SystemicSupervisionRecoveryBaselineTests(unittest.TestCase):
             git("rev-parse", f'{baseline["commit"]}^{{tree}}').stdout.strip(),
             baseline["tree"],
         )
-        self.assertEqual(release["identity_source"], "release-owner-status")
+        derived, current_status = release_owner_baseline(release["release_id"])
+        self.assertEqual(
+            {key: release[key] for key in derived},
+            derived,
+        )
         self.assertEqual(release["source_commit"], self.fixture["source_adaptation"]["accepted_source_commit"])
         self.assertRegex(release["release_id"], r"^[0-9a-f]{12}-[0-9a-f]{12}$")
         self.assertRegex(release["acceptance_record_id"], r"^RELEASE-ACCEPTANCE-[0-9]+$")
@@ -119,6 +172,30 @@ class SystemicSupervisionRecoveryBaselineTests(unittest.TestCase):
         )
         for root in release["installed_roots"].values():
             self.assertRegex(root, SHA256)
+        if current_status["active_release_id"] == release["release_id"]:
+            self.assertEqual(
+                current_status["source_commit"], release["source_commit"]
+            )
+            self.assertEqual(
+                current_status["manifest_sha256"], release["manifest_sha256"]
+            )
+            self.assertEqual(
+                current_status["acceptance_record"]["record_id"],
+                release["acceptance_record_id"],
+            )
+            self.assertEqual(
+                current_status["activation_record"]["record_id"],
+                release["activation_record_id"],
+            )
+
+    def test_caller_supplied_release_identity_cannot_replace_owner_history(self) -> None:
+        release = self.fixture["active_release_baseline"]
+        with self.assertRaises(release_owner.ReleaseError):
+            release_owner_baseline("f" * 12 + "-" + "e" * 12)
+        derived, _status = release_owner_baseline(release["release_id"])
+        tampered = dict(derived)
+        tampered["manifest_sha256"] = "f" * 64
+        self.assertNotEqual(tampered, derived)
 
     def test_fixture_preserves_accepted_and_rejected_bytes(self) -> None:
         history = self.fixture["immutable_history"]
