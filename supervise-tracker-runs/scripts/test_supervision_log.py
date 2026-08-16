@@ -4307,7 +4307,6 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self,
     ) -> None:
         self.write_tracker(["completed"])
-        self.bind()
         source_task = "origin-user-thread-9021"
         source_item = "origin-user-item-9021"
         request_text = (
@@ -4411,6 +4410,68 @@ class ImplementationRangeControlTests(unittest.TestCase):
             controlling_source_sha256,
             source_sha256,
         )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(result["record"]["record_id"]),
+        )
+        current_policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+        current_events = supervision_log.events(
+            self.root / self.target / "events.jsonl"
+        )
+        signed_source_event = next(
+            item
+            for item in current_events
+            if item.get("record_id") == result["record"]["record_id"]
+        )
+        classification_review = (
+            supervision_log.signed_source_full_tracker_classification(
+                policy=current_policy,
+                all_events=current_events,
+                source_event=signed_source_event,
+                request_text=request_text,
+            )
+        )
+        self.assertEqual(
+            classification_review["record_id"],
+            provenance["authorization_record_id"],
+        )
+        missing_classification = copy.deepcopy(current_events)
+        for event in missing_classification:
+            if event.get("record_id") == provenance["authorization_record_id"]:
+                event["evidence"].remove(
+                    f"classification:{supervision_log.DIRECT_AUTHORITY_CLASSIFICATION}"
+                )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "lacks one exact independent full-tracker classification",
+        ):
+            supervision_log.signed_source_full_tracker_classification(
+                policy=current_policy,
+                all_events=missing_classification,
+                source_event=signed_source_event,
+                request_text=request_text,
+            )
+        bound = self.call(
+            "implementation-range-bind",
+            "--target-thread",
+            self.target,
+            "--range-id",
+            "RANGE-SIGNED-ROUTE-9021",
+            "--tracker",
+            str(self.tracker),
+            "--request-text-base64",
+            base64.b64encode(request_text.encode("utf-8")).decode("ascii"),
+            "--authority-source-record",
+            canonical_record,
+            "--authority-source-sha256",
+            source_sha256,
+        )
+        self.assertEqual(bound["binding"]["range_intent"], "full-tracker")
     def test_bound_direct_user_mission_source_ingest_is_exact(self) -> None:
         source_item = "item-192"
         source_record = f"direct-user:{self.target}:{source_item}"

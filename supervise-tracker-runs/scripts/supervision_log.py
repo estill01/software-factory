@@ -10088,15 +10088,40 @@ def retained_full_tracker_authority(
         all_events=all_events,
         policy_history=policy_history,
     )
+    signed_classification_review = None
+    if frozenset(source_event) == frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS):
+        if request_text is None:
+            raise SupervisionLogError(
+                "Signed full-tracker authority requires its exact source text"
+            )
+        signed_classification_review = signed_source_full_tracker_classification(
+            policy=policy,
+            all_events=all_events,
+            source_event=source_event,
+            request_text=request_text,
+        )
     if (
         source_is_mission_identity
         and source_event.get("provenance_status")
         != "verified-delegated-before-entry"
         and not source_is_exact_direct_mission_source
+        and signed_classification_review is None
     ):
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
         )
+    if signed_classification_review is not None:
+        if (
+            source_event.get("source_record") != source_record
+            or source_event.get("source_sha256") != source_sha256
+            or source_event.get("record_sha256")
+            != receipt.get("source_event_sha256")
+            or source_event.get("verifier_id") != receipt.get("reviewer_id")
+        ):
+            raise SupervisionLogError(
+                "Retained signed authority is not current for this mission"
+            )
+        return receipt, source_event, signed_classification_review
     evidence = source_event["evidence"]
     receipt_evidence = receipt.get("evidence")
     if any(
@@ -10763,24 +10788,42 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
             request_text, set(blocks)
         )
     except SupervisionLogError as exc:
-        if str(exc) != (
+        if str(exc) == (
+            "implementation range request text exceeds 1200 characters"
+        ):
+            (
+                retained_receipt,
+                retained_event,
+                retained_review,
+            ) = retained_full_tracker_authority(
+                policy,
+                all_events=all_events,
+                policy_history=policy_history,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                require_current_receipt=True,
+                request_text=request_text,
+            )
+            intent, requested = "full-tracker", sorted(blocks)
+        elif str(exc) == (
             "implementation range request text must not contain a local path"
         ):
+            (
+                intent,
+                requested,
+                legacy_event_head_sha256,
+            ) = legacy_implementation_request_classification(
+                directory,
+                policy,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                request_text=request_text,
+                blocks=set(blocks),
+            )
+        else:
             raise
-        (
-            intent,
-            requested,
-            legacy_event_head_sha256,
-        ) = legacy_implementation_request_classification(
-            directory,
-            policy,
-            source_record=source_record,
-            source_sha256=source_sha256,
-            request_text=request_text,
-            blocks=set(blocks),
-        )
     if not legacy_event_head_sha256:
-        if intent == "full-tracker":
+        if intent == "full-tracker" and retained_receipt is None:
             (
                 retained_receipt,
                 retained_event,
@@ -26455,6 +26498,106 @@ def delegated_route_binds_current_mission_source(
             continue
         matching_routes.append(item)
     return len(matching_routes) == 1
+
+
+def signed_source_full_tracker_classification(
+    *,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    source_event: Mapping[str, Any],
+    request_text: str,
+) -> dict[str, Any]:
+    """Resolve full-range semantics from the retained independent route review."""
+
+    if frozenset(source_event) != frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS):
+        raise SupervisionLogError(
+            "Retained source is not eligible for signed full-tracker classification"
+        )
+    request_bytes = request_text.encode("utf-8")
+    source_sha256 = str(source_event.get("source_sha256", ""))
+    if (
+        len(request_bytes) != source_event.get("source_byte_count")
+        or hashlib.sha256(request_bytes).hexdigest() != source_sha256
+    ):
+        raise SupervisionLogError(
+            "Implementation request text differs from retained direct authority"
+        )
+    mission = bound_mission(dict(policy))
+    controlling = (
+        mission.get("mission_derivation", {}).get("controlling_source", {})
+        if mission is not None
+        else {}
+    )
+    if (
+        mission is None
+        or source_event.get("source_record")
+        != mission.get("mission_source_record")
+        or controlling.get("class") != "direct-user"
+        or controlling.get("record") != source_event.get("source_record")
+    ):
+        raise SupervisionLogError(
+            "Signed full-tracker source is not current for this mission"
+        )
+    route_action_sha256 = exact_sha256(
+        str(controlling.get("sha256", "")),
+        label="signed full-tracker route action SHA-256",
+    )
+    if not delegated_route_binds_current_mission_source(
+        policy=policy,
+        all_events=all_events,
+        source_task=str(source_event["source_task_id"]),
+        source_item=str(source_event["source_item_id"]),
+        source_sha256=source_sha256,
+        source_byte_count=int(source_event["source_byte_count"]),
+        route_action_sha256=route_action_sha256,
+    ):
+        raise SupervisionLogError(
+            "Signed full-tracker source lacks its exact delegated route"
+        )
+    activations = [
+        item
+        for item in mission_activation_heads(all_events).values()
+        if item.get("mission_root") == mission.get("mission_root")
+        and item.get("mission_source_record")
+        == mission.get("mission_source_record")
+    ]
+    if len(activations) != 1 or not isinstance(
+        activations[0].get("evidence"), list
+    ):
+        raise SupervisionLogError(
+            "Signed full-tracker source lacks one current mission activation"
+        )
+    activation_evidence = set(activations[0]["evidence"])
+    required_evidence = {
+        f"source-kind:{DIRECT_AUTHORITY_SOURCE_KIND}",
+        f"source-task:{source_event['source_task_id']}",
+        f"source-item:{source_event['source_item_id']}",
+        f"source-byte-count:{source_event['source_byte_count']}",
+        f"source-sha256:{source_sha256}",
+        f"verifier:{source_event['verifier_id']}",
+        f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}",
+        f"route-action-sha256:{route_action_sha256}",
+    }
+    reviews = [
+        item
+        for item in all_events
+        if item.get("record_id") in activation_evidence
+        and item.get("kind") in {"checkpoint-review", "meta-review"}
+        and item.get("category")
+        == DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY
+        and item.get("status") == "accepted"
+        and item.get("model") == "gpt-5.6-sol"
+        and item.get("reasoning") in {"xhigh", "max"}
+        and item.get("resolution_owner") == "supervisor"
+        and item.get("user_action_required") == "no"
+        and isinstance(item.get("evidence"), list)
+        and required_evidence <= set(item["evidence"])
+    ]
+    if len(reviews) != 1:
+        raise SupervisionLogError(
+            "Signed source lacks one exact independent full-tracker classification"
+        )
+    return reviews[0]
 
 
 def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None:
