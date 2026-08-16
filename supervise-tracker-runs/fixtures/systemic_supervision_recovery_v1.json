@@ -7,9 +7,41 @@
     "shared_predecessor_commit": "80e4ec1d44bf981a2eec0ba7dddd5345171efb9e",
     "disposition": "content-minimized-control-plane-adaptation"
   },
+  "integration_baseline": {
+    "branch": "codex/automatic-release-monitor-refresh",
+    "commit": "00dd6e82cc5719f7b11066a3f45e093e0f2b0e85",
+    "tree": "a758eadcd331c013c1721868c20d9c37a0e8be9b",
+    "tracker_status_before_implementation": "planning",
+    "automatic_release_tracker_status": "completed"
+  },
+  "active_release_baseline": {
+    "identity_source": "release-owner-status",
+    "release_id": "73d54524ffa3-6fe4cd83a3c0",
+    "source_commit": "73d54524ffa3264bbb245bd59875a9f765af5af7",
+    "acceptance_record_id": "RELEASE-ACCEPTANCE-44",
+    "activation_record_id": "ACTIVATION-47",
+    "manifest_sha256": "8bb3a3121564747ff23ea80f0cc3fdb683d3ff459deb95622d97ce0f1279831e",
+    "candidate_root_sha256": "9300245352a24d94d9cf6d40a2e8d299158538867e17f8a581846bbc0cac230f",
+    "verification_root_sha256": "182148ee4620f963e8304c9014953f2349b36cdb3e85ffc5fcb032e767011921",
+    "release_owner_state_root_sha256": "b703025bc3f5b580e6c87d7f1c726ab78f2d6c576077a883ea298122cd18fb22",
+    "installed_roots": {
+      "author-implementation-trackers": "811b1fb6451291ef9c65c7ac71a672c5c22fc20a310592b4305aa666ff9016ff",
+      "implement-tracker-blocks": "07e4ed3b99ee55160fa94b4d8f96bf067254ba14c9f17b17a5191cb22ca73700",
+      "supervise-tracker-runs": "86619a8da85159b77995d6d2a2937f966b16f1c02e82843fd659d9cb0b67650a"
+    }
+  },
+  "immutable_history": {
+    "accepted_tracker_commit": "731668eee9f3d47b968950b8965e1d8263beb74b",
+    "accepted_tracker_sha256": "7ca1701c564db6250c2e95af8f66b0fb2e5b3d26e906df988ce3afc735aee717",
+    "accepted_helper_sha256": "5ed9a584bea28cad520aa77ea5fe4e507f70085e841d2613f35a4f816aee40c6",
+    "rejected_candidate_commit": "b4421d7900cf4d3aec70ca5e96efa03252e497e4",
+    "rejected_candidate_tree": "8903d4ac201d154f6a6e867272eb75ee3b0d17ed",
+    "rejected_helper_sha256": "a92a9f547a2cad6446452d7ac035e109a4d7f00947f371d2e6bdb962ad947d85"
+  },
   "incident": {
     "identity": "factory-control-plane-owner-incompatibility-v1",
     "cause_owner": "software-factory",
+    "cause_authority": "canonical-owner-evidence",
     "failed_owner": "current-supervision-helper",
     "failed_contract": "canonical-owner-currentness",
     "observed_revision": "diagnostic-source-revision",
@@ -27,7 +59,7 @@
   "currentness": {
     "range": "missing-or-stale",
     "tracker": "preserved-evidence-reconciliation-required",
-    "release": "current-owner-derived",
+    "release": "release-owner-derived",
     "route": "same-target-single-wake"
   },
   "expected_transitions": [
