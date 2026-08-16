@@ -1,6 +1,6 @@
 # Software Factory Systemic Supervision Recovery Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–6
 - Repository: `/Users/ethanstillman/code/software_factory`
 - Governing objective: Direct-user requirement that a Software Factory inconsistency or defect which blocks or stops an implementation run be detected, owned, corrected, activated, and used to resume that same run automatically, while reusable prevention remains distinct from current-run recovery.
@@ -262,7 +262,7 @@ self-healing infrastructure.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the incident regression and current integration baseline | — | `not-started` |
+| 0 | Freeze the incident regression and current integration baseline | — | `in-progress` |
 | 1 | Classify Factory-owned blockages and preserve the target mission | 0 | `not-started` |
 | 2 | Route a bounded repair against the current accepted source | 1 | `not-started` |
 | 3 | Compose accepted repair, activation, range, and tracker restoration | 2 | `not-started` |
@@ -276,7 +276,7 @@ Required order:
 
 ## Block 0 — Freeze the incident regression and current integration baseline
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 

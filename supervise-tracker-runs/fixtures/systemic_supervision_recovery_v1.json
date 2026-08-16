@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "software-factory-systemic-supervision-recovery-regression",
+  "source_adaptation": {
+    "accepted_source_commit": "73d54524ffa3264bbb245bd59875a9f765af5af7",
+    "automatic_currentness_commit": "809fbbaf2aa1b6307a3645497ee7e532d8e788cb",
+    "shared_predecessor_commit": "80e4ec1d44bf981a2eec0ba7dddd5345171efb9e",
+    "disposition": "content-minimized-control-plane-adaptation"
+  },
+  "incident": {
+    "identity": "factory-control-plane-owner-incompatibility-v1",
+    "cause_owner": "software-factory",
+    "failed_owner": "current-supervision-helper",
+    "failed_contract": "canonical-owner-currentness",
+    "observed_revision": "diagnostic-source-revision",
+    "accepted_revision": "current-accepted-source",
+    "initial_state": "target-stopped-by-factory-control-plane",
+    "expected_state": "factory-recovery-open",
+    "required_target_posture": "in-progress",
+    "manual_resume_required": false,
+    "human_input_required": false,
+    "safe_frontier": [
+      "preserved-current-block",
+      "dependency-independent-work"
+    ]
+  },
+  "currentness": {
+    "range": "missing-or-stale",
+    "tracker": "preserved-evidence-reconciliation-required",
+    "release": "current-owner-derived",
+    "route": "same-target-single-wake"
+  },
+  "expected_transitions": [
+    "detected",
+    "classified",
+    "contained",
+    "repair-routed",
+    "candidate-current",
+    "candidate-accepted",
+    "release-active",
+    "roles-refreshed",
+    "range-current",
+    "tracker-reconciled",
+    "wake-routed",
+    "target-advanced",
+    "effectiveness-reviewed"
+  ],
+  "owner_map": {
+    "classification_and_recovery_history": "supervision-event-owner",
+    "repair": "allowlisted-fix-executor",
+    "candidate_acceptance": "independent-exact-reviewer",
+    "release_activation": "software-factory-release-owner",
+    "role_refresh": "stable-channel-role-refresh-owner",
+    "range_currentness": "implementation-range-owner",
+    "tracker_reconciliation": "target-implementation-owner",
+    "target_wake": "thread-route-owner",
+    "effectiveness": "independent-effectiveness-reviewer"
+  },
+  "excluded_fields": [
+    "protected-target-content",
+    "target-project-paths",
+    "target-prompts",
+    "target-finding-text"
+  ]
+}
