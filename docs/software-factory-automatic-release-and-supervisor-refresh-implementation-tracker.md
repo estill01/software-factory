@@ -1,6 +1,6 @@
 # Software Factory Automatic Release and Supervisor Refresh Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–7
 - Repository: `/Users/ethanstillman/code/software_factory-control-plane-candidate`
 - Governing objective: Direct-user request to make exact-accepted Software Factory releases automatically promote through the existing release owner and refresh compatible running supervisors without losing range, mission, cursor, reporting, or shutdown invariants.
@@ -1333,6 +1333,15 @@ Independent readback of live roots, automation definitions, and supervisor healt
   `DONT_NOTIFY` with no compact read, intermediate record, target prompt, or
   replayed effect. The named target ledger therefore still ends at the healthy
   append-only proof `EVT-001804`, with no rollback or terminal effect.
+- Current descendant reconciliation: `origin/main` and the release owner now
+  both resolve exact accepted descendant
+  `73d54524ffa3264bbb245bd59875a9f765af5af7`, release
+  `73d54524ffa3-6fe4cd83a3c0`, `RELEASE-ACCEPTANCE-44`, and `ACTIVATION-47`.
+  Verification root `182148ee...1921` and installed roots
+  `811b1fb6...16ff`, `07e4ed3b...3700`, and `86619a8d...650a` are current;
+  the exact Block 7 correction `809fbbaf...e788cb` remains in source ancestry.
+  This later release/currentness observation neither replaces Block 7's exact
+  independent acceptance nor turns process state into new outcome closure.
 - Post-block audit: accepted. Blocks 0–6 and all rejected/remediation history
   remain preserved; the systemic-recovery and product-program lanes remain
   untouched and downstream.
