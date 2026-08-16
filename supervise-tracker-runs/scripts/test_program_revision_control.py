@@ -106,7 +106,7 @@ class ProgramRevisionControlTests(unittest.TestCase):
         )
         self.policy = self.fixture.adjust(
             "--program-revision-authoring-thread",
-            "tracker-authoring-thread-1234",
+            self.fixture.target,
             "--program-revision-authoring-profile-review",
             str(self.profile_review_path),
         )
@@ -443,11 +443,16 @@ Stop before the next Block mutation.
             encoding="utf-8",
         )
 
-    def structural_decision_evidence(self) -> dict[str, object]:
+    def structural_decision_evidence(
+        self,
+        *,
+        decision_id: str = "program-revision-decision-1234",
+        target_class: str = "software-factory",
+    ) -> dict[str, object]:
         value = self.fixture.decision_evidence(
-            decision_id="program-revision-decision-1234",
+            decision_id=decision_id,
             disposition="amend-structure",
-            target_class="software-factory",
+            target_class=target_class,
         )
         tracker_root = hashlib.sha256(self.fixture.tracker_path.read_bytes()).hexdigest()
         value["affected_scope"] = [
@@ -498,7 +503,7 @@ Stop before the next Block mutation.
             "predecessor_review_root": predecessor_review_root,
             "resolved_finding_refs": resolved_finding_refs or [],
             "target_thread_id": self.fixture.target,
-            "target_class": "software-factory",
+            "target_class": self.source["target_class"],
             "mission_root": mission["mission_root"],
             "policy_sha256": self.policy["policy_sha256"],
             "decision_record_id": self.source["record_id"],
@@ -535,7 +540,11 @@ Stop before the next Block mutation.
             "semantic_review_record_id": self.semantic_review["record_id"],
             "semantic_review_root": self.semantic_review["review_root"],
             "adjudicator_id": authoring_profile["adjudicator_id"],
-            "adjudication_root": self.semantic_review["evaluation_root"],
+            "adjudication_root": (
+                self.semantic_review["evaluation_root"]
+                if self.semantic_review["evaluation_root"] is not None
+                else self.semantic_review["review_root"]
+            ),
             "fix_executor_id": authoring_profile["fix_executor_id"],
             "learned_fact_refs": ["FACT-STRUCTURE-1234"],
             "capability_effects": {
@@ -678,6 +687,29 @@ Stop before the next Block mutation.
             supervision_log.cmd_implementation_program_revision(args)
         return json.loads(output.getvalue())
 
+    def use_target_repository_review(self) -> None:
+        self.policy = self.fixture.adjust(
+            "--adaptive-target-class", "target-repository"
+        )
+        self.decision_evidence = self.structural_decision_evidence(
+            decision_id="program-revision-target-repository-1234",
+            target_class="target-repository",
+        )
+        pending = self.fixture.run_gate(
+            self.fixture.gate_args(self.decision_evidence)
+        )["record"]
+        adaptive_review = self.fixture.run_review(pending)["record"]
+        self.mechanical_route = pending
+        self.semantic_review = adaptive_review
+        self.source = self.fixture.run_gate(
+            self.fixture.gate_args(
+                self.decision_evidence,
+                review_record=str(adaptive_review["record_id"]),
+            )
+        )["record"]
+        self.packet = self.build_packet()
+        self.packet_path.write_bytes(program_revision.canonical(self.packet) + b"\n")
+
     def apply_proposal(self) -> str:
         self.fixture.tracker_path.write_bytes(self.proposal.read_bytes())
         subprocess.run(
@@ -788,6 +820,122 @@ Stop before the next Block mutation.
         self.assertEqual(packet["accepted_history_blocks"], list(range(7)))
         self.assertEqual(packet["affected_proposed_blocks"], [7, 8])
         self.assertEqual(packet["resume_block"], 7)
+
+    def test_same_target_author_and_application_owner_reaches_canonical_event(self) -> None:
+        profile = self.policy["program_revision_authoring_profile"]
+        self.assertEqual(profile["authoring_target_thread_id"], self.fixture.target)
+        self.assertEqual(self.packet["author_id"], self.fixture.target)
+        self.assertEqual(
+            self.packet["application_owner_id"], self.source["implementation_owner_id"]
+        )
+        self.assertEqual(self.packet["author_id"], self.packet["application_owner_id"])
+        accepted = self.record_program_revision()
+        self.assertEqual(accepted["record"]["review_disposition"], "accepted")
+        self.assertEqual(
+            accepted["record"]["packet"]["application_owner_id"],
+            self.fixture.target,
+        )
+
+    def test_target_repository_review_root_is_adjudication_without_evaluator(self) -> None:
+        self.use_target_repository_review()
+        self.assertIsNone(self.semantic_review["evaluation_root"])
+        self.assertEqual(
+            self.packet["adjudication_root"], self.semantic_review["review_root"]
+        )
+        before = supervision_log.events(
+            self.fixture.root / self.fixture.target / "events.jsonl"
+        )
+        accepted = self.record_program_revision()
+        after = supervision_log.events(
+            self.fixture.root / self.fixture.target / "events.jsonl"
+        )
+        self.assertEqual(accepted["record"]["packet"], self.packet)
+        self.assertEqual(len(after), len(before) + 1)
+
+    def test_target_repository_wrong_or_missing_adjudication_rejects_without_append(self) -> None:
+        self.use_target_repository_review()
+        original = copy.deepcopy(self.packet)
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.events(directory / "events.jsonl")
+        for root in (
+            None,
+            "f" * 64,
+            self.semantic_review["external_review_root"],
+        ):
+            with self.subTest(adjudication_root=root):
+                changed = copy.deepcopy(original)
+                changed["adjudication_root"] = root
+                changed["packet_root"] = program_revision.digest(
+                    {
+                        key: value
+                        for key, value in changed.items()
+                        if key != "packet_root"
+                    }
+                )
+                self.packet = changed
+                self.packet_path.write_bytes(
+                    program_revision.canonical(changed) + b"\n"
+                )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "adjudication|SHA-256|tracker-authoring supervision binding",
+                ):
+                    self.record_program_revision()
+                self.assertEqual(
+                    supervision_log.events(directory / "events.jsonl"), before
+                )
+
+    def test_software_factory_requires_accepted_evaluator_before_append(self) -> None:
+        self.assertEqual(self.semantic_review["evaluation_disposition"], "accepted")
+        self.assertEqual(
+            self.packet["adjudication_root"], self.semantic_review["evaluation_root"]
+        )
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.events(directory / "events.jsonl")
+        for disposition in (None, "rejected"):
+            with self.subTest(evaluation_disposition=disposition):
+                review = copy.deepcopy(self.semantic_review)
+                review["evaluation_disposition"] = disposition
+                if disposition is None:
+                    review["evaluation_root"] = None
+                with (
+                    mock.patch.object(
+                        supervision_log,
+                        "resolve_adaptive_review",
+                        return_value=review,
+                    ),
+                    self.assertRaisesRegex(
+                        supervision_log.SupervisionLogError,
+                        "structural decision is not accepted",
+                    ),
+                ):
+                    self.record_program_revision()
+                self.assertEqual(
+                    supervision_log.events(directory / "events.jsonl"), before
+                )
+
+    def test_spoofed_application_owner_rejects_before_event_append(self) -> None:
+        changed_packet = copy.deepcopy(self.packet)
+        changed_packet["application_owner_id"] = "spoofed-application-owner-1234"
+        changed_packet["packet_root"] = program_revision.digest(
+            {
+                key: value
+                for key, value in changed_packet.items()
+                if key != "packet_root"
+            }
+        )
+        self.packet = changed_packet
+        self.packet_path.write_bytes(
+            program_revision.canonical(changed_packet) + b"\n"
+        )
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.events(directory / "events.jsonl")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "differs from its decision owner",
+        ):
+            self.record_program_revision()
+        self.assertEqual(supervision_log.events(directory / "events.jsonl"), before)
 
     def test_revise_disposition_is_retained_but_cannot_amend_range(self) -> None:
         retained = self.record_program_revision(disposition="revise")

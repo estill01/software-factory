@@ -430,7 +430,45 @@ def _load_full_verifier() -> Any:
     return module
 
 
-def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> dict[str, Any]:
+def _legacy_predecessor_completed_mismatches(
+    verifier: Any,
+    text: str,
+    rows: Mapping[int, Mapping[str, Any]],
+) -> tuple[list[str], set[int]]:
+    lines = text.splitlines()
+    body_statuses: dict[int, list[str]] = {}
+    for block in verifier.parse_blocks(lines):
+        statuses: list[str] = []
+        for _, line in verifier.iter_unfenced_lines(block.body):
+            match = verifier.STATUS_LINE.match(line)
+            if match is not None:
+                statuses.append(match.group("status"))
+        body_statuses[block.number] = statuses
+    table, table_errors = verifier.parse_status_table(lines)
+    if table_errors:
+        return [], set()
+    errors: list[str] = []
+    legacy_blocks: set[int] = set()
+    for number, (table_status, _, line) in table.items():
+        if (
+            rows.get(number, {}).get("status") == "complete"
+            and table_status == "complete"
+            and body_statuses.get(number) == ["completed"]
+        ):
+            errors.append(
+                f"line {line}: Block {number} table status 'complete' "
+                "does not match block status 'completed'"
+            )
+            legacy_blocks.add(number)
+    return errors, legacy_blocks
+
+
+def _tracker_snapshot(
+    path_value: str | Path,
+    *,
+    require_full: bool,
+    allow_legacy_predecessor_completed: bool,
+) -> dict[str, Any]:
     path, raw = read_regular_file(path_value)
     try:
         text = raw.decode("utf-8")
@@ -528,8 +566,21 @@ def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> di
     if require_full:
         verifier = _load_full_verifier()
         verifier_result = verifier.verify(path, "full")
-        if verifier_result.get("errors"):
-            raise ProgramRevisionError("Proposed tracker fails the full structural verifier")
+        verifier_errors = verifier_result.get("errors")
+        if verifier_errors:
+            expected_errors, legacy_blocks = _legacy_predecessor_completed_mismatches(
+                verifier, text, rows
+            )
+            if not (
+                allow_legacy_predecessor_completed
+                and legacy_blocks
+                and verifier_errors == expected_errors
+            ):
+                raise ProgramRevisionError(
+                    "Proposed tracker fails the full structural verifier"
+                )
+            for number in legacy_blocks:
+                rows[number]["status"] = "completed"
     return {
         "path": str(path),
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -541,6 +592,14 @@ def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> di
         ),
         "verifier_result_root": digest(verifier_result) if verifier_result else None,
     }
+
+
+def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> dict[str, Any]:
+    return _tracker_snapshot(
+        path_value,
+        require_full=require_full,
+        allow_legacy_predecessor_completed=False,
+    )
 
 
 def normalize_block_map(
@@ -642,7 +701,11 @@ def build_revision_packet(
     }
     if set(metadata) != required_metadata:
         raise ProgramRevisionError("Program revision metadata shape differs")
-    previous = tracker_snapshot(previous_tracker, require_full=True)
+    previous = _tracker_snapshot(
+        previous_tracker,
+        require_full=True,
+        allow_legacy_predecessor_completed=True,
+    )
     proposed = tracker_snapshot(proposed_tracker, require_full=True)
     target_path = Path(target_tracker_path).expanduser().resolve(strict=False)
     if previous["path"] != str(target_path):
@@ -922,7 +985,6 @@ def build_revision_packet(
     }
     if (
         len(role_ids) != 4
-        or packet["application_owner_id"] == packet["author_id"]
         or packet["fix_executor_id"] in role_ids
     ):
         raise ProgramRevisionError("Program revision authoring roles must differ")
@@ -1101,7 +1163,6 @@ def validate_stored_packet(value: Any) -> dict[str, Any]:
     }
     if (
         len(role_ids) != 4
-        or packet["application_owner_id"] == packet["author_id"]
         or packet.get("fix_executor_id") in role_ids
     ):
         raise ProgramRevisionError("Stored program revision roles are not distinct")

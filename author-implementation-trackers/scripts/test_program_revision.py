@@ -58,6 +58,7 @@ class ProgramRevisionTests(unittest.TestCase):
         affected: list[int],
         resume: int,
         revision_id: str = "REV-STRUCTURAL-0001",
+        require_full_previous: bool = True,
     ) -> None:
         text = self.proposed.read_text(encoding="utf-8")
         text = re.sub(
@@ -67,7 +68,9 @@ class ProgramRevisionTests(unittest.TestCase):
             flags=re.S,
         )
         self.proposed.write_text(text, encoding="utf-8")
-        previous = program_revision.tracker_snapshot(self.previous)
+        previous = program_revision.tracker_snapshot(
+            self.previous, require_full=require_full_previous
+        )
         proposed = program_revision.tracker_snapshot(self.proposed)
         blocks = sorted(proposed["blocks"])
         block_text = ",".join(str(item) for item in blocks)
@@ -292,6 +295,23 @@ Stop before the next Block.
             metadata=self.metadata(),
         )
 
+    def set_table_status(self, path: Path, block: int, status: str) -> None:
+        pattern = re.compile(
+            rf"^(\|\s*{block}\s*\|[^|\n]*\|[^|\n]*\|\s*)`[^`]+`(\s*\|)$",
+            re.MULTILINE,
+        )
+        changed, count = pattern.subn(rf"\g<1>`{status}`\g<2>", path.read_text())
+        self.assertEqual(count, 1)
+        path.write_text(changed, encoding="utf-8")
+
+    def reinstall_program_control_for_legacy_predecessor(self) -> None:
+        self.install_program_control(
+            {"0": [0], "1": [1], "2": [2, 3], "3": [4]},
+            affected=[2, 3],
+            resume=2,
+            require_full_previous=False,
+        )
+
     def test_split_revision_preserves_history_and_derives_resume(self) -> None:
         packet = self.build()
         self.assertEqual(packet["accepted_history_blocks"], [0, 1])
@@ -305,6 +325,81 @@ Stop before the next Block.
             proposed_tracker=self.proposed,
         )
         self.assertEqual(rebuilt, packet)
+
+    def test_legacy_predecessor_complete_table_preserves_accepted_history(self) -> None:
+        canonical = self.build()
+        self.set_table_status(self.previous, 0, "complete")
+        self.set_table_status(self.previous, 1, "complete")
+        strict_result = program_revision._load_full_verifier().verify(
+            self.previous, "full"
+        )
+        self.assertEqual(len(strict_result["errors"]), 2)
+        self.assertTrue(
+            all("table status 'complete'" in error for error in strict_result["errors"])
+        )
+        self.reinstall_program_control_for_legacy_predecessor()
+
+        packet = self.build()
+
+        self.assertEqual(packet["accepted_history_blocks"], [0, 1])
+        self.assertEqual(
+            packet["accepted_history_root"], canonical["accepted_history_root"]
+        )
+        self.assertEqual(
+            program_revision.validate_revision_packet(
+                packet,
+                previous_tracker=self.previous,
+                proposed_tracker=self.proposed,
+            ),
+            packet,
+        )
+
+    def test_proposal_legacy_complete_table_remains_strict(self) -> None:
+        self.set_table_status(self.proposed, 0, "complete")
+        with self.assertRaisesRegex(
+            program_revision.ProgramRevisionError,
+            "fails the full structural verifier",
+        ):
+            self.build()
+
+    def test_legacy_predecessor_rejects_unmatched_or_unknown_statuses(self) -> None:
+        original_previous = self.previous.read_text(encoding="utf-8")
+        cases = (
+            ("complete", "in-progress"),
+            ("done", "completed"),
+            ("done", "done"),
+        )
+        for table_status, body_status in cases:
+            with self.subTest(table_status=table_status, body_status=body_status):
+                self.previous.write_text(original_previous, encoding="utf-8")
+                self.set_table_status(self.previous, 0, "complete")
+                self.set_table_status(self.previous, 1, table_status)
+                self.previous.write_text(
+                    self.previous.read_text(encoding="utf-8").replace(
+                        "## Block 1 — Accepted owner\n\nStatus: `completed`",
+                        f"## Block 1 — Accepted owner\n\nStatus: `{body_status}`",
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                self.reinstall_program_control_for_legacy_predecessor()
+                with self.assertRaises(program_revision.ProgramRevisionError):
+                    self.build()
+
+    def test_legacy_predecessor_rejects_any_extra_verifier_error(self) -> None:
+        self.set_table_status(self.previous, 0, "complete")
+        self.previous.write_text(
+            self.previous.read_text(encoding="utf-8").replace(
+                "### Negative tests", "### Failure examples", 1
+            ),
+            encoding="utf-8",
+        )
+        self.reinstall_program_control_for_legacy_predecessor()
+        with self.assertRaisesRegex(
+            program_revision.ProgramRevisionError,
+            "fails the full structural verifier",
+        ):
+            self.build()
 
     def test_local_or_status_only_change_cannot_escalate(self) -> None:
         with self.assertRaisesRegex(
@@ -470,17 +565,55 @@ Stop before the next Block.
                 previous_tracker=self.previous,
                 proposed_tracker=self.proposed,
             )
-        metadata = self.metadata()
-        metadata["reviewer_id"] = metadata["author_id"]
-        with self.assertRaisesRegex(
-            program_revision.ProgramRevisionError, "must differ"
+        for field in (
+            "reviewer_id",
+            "mechanical_watcher_id",
+            "adjudicator_id",
+            "fix_executor_id",
         ):
-            program_revision.build_revision_packet(
+            with self.subTest(field=field):
+                metadata = self.metadata()
+                metadata[field] = metadata["author_id"]
+                with self.assertRaisesRegex(
+                    program_revision.ProgramRevisionError, "must differ"
+                ):
+                    program_revision.build_revision_packet(
+                        previous_tracker=self.previous,
+                        proposed_tracker=self.proposed,
+                        target_tracker_path=self.previous,
+                        metadata=metadata,
+                    )
+
+                stored = copy.deepcopy(packet)
+                stored[field] = stored["author_id"]
+                stored["packet_root"] = program_revision.digest(
+                    {key: value for key, value in stored.items() if key != "packet_root"}
+                )
+                with self.assertRaisesRegex(
+                    program_revision.ProgramRevisionError,
+                    "roles are not distinct",
+                ):
+                    program_revision.validate_stored_packet(stored)
+
+    def test_author_may_be_the_explicit_application_owner(self) -> None:
+        metadata = self.metadata()
+        metadata["application_owner_id"] = metadata["author_id"]
+        packet = program_revision.build_revision_packet(
+            previous_tracker=self.previous,
+            proposed_tracker=self.proposed,
+            target_tracker_path=self.previous,
+            metadata=metadata,
+        )
+        self.assertEqual(packet["application_owner_id"], packet["author_id"])
+        self.assertEqual(
+            program_revision.validate_revision_packet(
+                packet,
                 previous_tracker=self.previous,
                 proposed_tracker=self.proposed,
-                target_tracker_path=self.previous,
-                metadata=metadata,
-            )
+            ),
+            packet,
+        )
+        self.assertEqual(program_revision.validate_stored_packet(packet), packet)
 
     def test_full_verifier_accepts_exact_packet_and_rejects_stale(self) -> None:
         packet = self.build()
