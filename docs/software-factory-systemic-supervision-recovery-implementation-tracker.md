@@ -262,8 +262,8 @@ self-healing infrastructure.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the incident regression and current integration baseline | — | `in-progress` |
-| 1 | Classify Factory-owned blockages and preserve the target mission | 0 | `not-started` |
+| 0 | Freeze the incident regression and current integration baseline | — | `completed` |
+| 1 | Classify Factory-owned blockages and preserve the target mission | 0 | `in-progress` |
 | 2 | Route a bounded repair against the current accepted source | 1 | `not-started` |
 | 3 | Compose accepted repair, activation, range, and tracker restoration | 2 | `not-started` |
 | 4 | Resume the same target exactly once and assess effectiveness | 3 | `not-started` |
@@ -276,7 +276,7 @@ Required order:
 
 ## Block 0 — Freeze the incident regression and current integration baseline
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -348,7 +348,21 @@ Block 5.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `aa34b4d9dd44c2f1031fecb66ef7cacfb857ce4f` (accepted successor to preserved rejected `42d6ab3` and remediation `9b95ff6`).
+- External/domain revision or root: active baseline release `73d54524ffa3-6fe4cd83a3c0`; manifest `8bb3a3121564747ff23ea80f0cc3fdb683d3ff459deb95622d97ce0f1279831e`; verification root `182148ee4620f963e8304c9014953f2349b36cdb3e85ffc5fcb032e767011921`.
+- Inputs: exact accepted/currentness lineage, sealed release manifest, HMAC-chained acceptance and activation histories, installed roots, branch/tree, tracker postures, and content-minimized incident owner fields.
+- Outputs: `supervise-tracker-runs/fixtures/systemic_supervision_recovery_v1.json` plus its owner-bound focused regression.
+- Focused validation: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest supervise-tracker-runs/scripts/test_systemic_supervision_recovery.py` — 7 tests passed.
+- Mapped validation: Git ancestry, exact accepted/rejected blob roots, sealed manifest tree roots, acceptance/activation HMAC chains, current status, JSON parse, and `git diff --check` passed; no broader suite was relevant.
+- Candidate freeze: `aa34b4d`; no candidate bytes changed after review.
+- Remediation closure: first review rejected incomplete release/root/status and negative-case proof; `9b95ff6` bound those identities; second review rejected self-asserted owner derivation; `aa34b4d` derives them through the maintained release owner and rejects substitution.
+- Resource posture: one cited fixture, bounded Git blobs/ancestry, one retained release, and one focused test file; no unrelated target or event-history scan.
+- Independent review: base reviewer `019fbac0-792e-7ec0-86c5-4c3e838fa7c1` accepted exact `aa34b4d` after two preserved rejected checkpoints.
+- Retained open work: Blocks 1–6.
+- Decision/continuation posture: target mission remains `in-progress`; no target wake, release, range mutation, or user action occurred.
+- Post-block audit: accepted.
+- Git durability: `aa34b4d` pushed non-force to `origin/codex/automatic-release-monitor-refresh`.
+- Product-capability review: not triggered — this Block freezes identity/evidence and adds no runtime behavior.
 
 ### Stop
 
@@ -358,7 +372,7 @@ Stop before changing supervisor classification or target posture.
 
 ## Block 1 — Classify Factory-owned blockages and preserve the target mission
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
