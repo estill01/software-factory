@@ -1333,14 +1333,17 @@ Independent readback of live roots, automation definitions, and supervisor healt
   `DONT_NOTIFY` with no compact read, intermediate record, target prompt, or
   replayed effect. The named target ledger therefore still ends at the healthy
   append-only proof `EVT-001804`, with no rollback or terminal effect.
-- Current descendant reconciliation: `origin/main` and the release owner now
-  both resolve exact accepted descendant
+- Current descendant reconciliation before the later tracker-only evidence
+  commits: `origin/main` and the release owner both resolved exact accepted
+  implementation source
   `73d54524ffa3264bbb245bd59875a9f765af5af7`, release
   `73d54524ffa3-6fe4cd83a3c0`, `RELEASE-ACCEPTANCE-44`, and `ACTIVATION-47`.
   Verification root `182148ee...1921` and installed roots
   `811b1fb6...16ff`, `07e4ed3b...3700`, and `86619a8d...650a` are current;
   the exact Block 7 correction `809fbbaf...e788cb` remains in source ancestry.
-  This later release/currentness observation neither replaces Block 7's exact
+  The subsequent canonical commits represented by this evidence checkpoint
+  change tracker documentation only and do not alter those installed skill
+  bytes. This release/currentness observation neither replaces Block 7's exact
   independent acceptance nor turns process state into new outcome closure.
 - Post-block audit: accepted. Blocks 0–6 and all rejected/remediation history
   remain preserved; the systemic-recovery and product-program lanes remain
