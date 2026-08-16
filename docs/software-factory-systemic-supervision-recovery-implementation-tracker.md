@@ -65,7 +65,7 @@ Completion means:
   `supervise-tracker-runs/references/supervision-policy.md`;
   `implement-tracker-blocks/SKILL.md`;
   `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md`;
-  active release source `eaa75be5e739915b181819afede8a35a6e654155`;
+  current accepted release source `73d54524ffa3264bbb245bd59875a9f765af5af7`;
   content-minimized incident evidence `EVT-001488`, `EVT-001513`,
   `EVT-001523`, `EVT-001544`, `EVT-001575`, `EVT-001602`, and
   `EVT-001683` under target `019fb18f-3d03-7ca0-9fe9-68353f0405ce`.
@@ -141,11 +141,12 @@ the last valid state and continues every dependency-independent target frontier.
 
 | Source or predecessor | Exact revision/hash | Disposition | Owning Block | Remaining work |
 |---|---|---|---:|---|
-| Current active compatibility release source | `eaa75be5e739915b181819afede8a35a6e654155` | reuse | 0 | preserve legacy direct-authority compatibility and current installed behavior |
-| Automatic accepted-release orchestration source | `f1256468034d323894149ce7e9dc0a770270a6f4` | adapt | 0, 3, 5 | reconcile with the current active release line and verify owner status before reuse |
+| Current active compatibility release source | `73d54524ffa3264bbb245bd59875a9f765af5af7` | reuse | 0 | preserve legacy direct-authority compatibility and current installed behavior |
+| Automatic accepted-release and currentness source | `809fbbaf2aa1b6307a3645497ee7e532d8e788cb`, contained by current source | reuse | 0, 3, 5 | reuse accepted promotion/refresh/rollback/currentness behavior without replaying proof |
 | Shared predecessor of the current release and orchestration lines | `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e` | reuse | 0 | establish ancestry without rewriting either successor history |
-| Automatic release and supervisor refresh tracker | `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md` at `f1256468034d323894149ce7e9dc0a770270a6f4` | adapt | 0, 3, 5 | reuse promotion/refresh/rollback ownership; do not duplicate its unfinished outcomes |
+| Automatic release and supervisor refresh tracker | `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md` at `731668eee9f3d47b968950b8965e1d8263beb74b` | reuse | 0, 3, 5 | reuse its completed accepted promotion/refresh/rollback/currentness evidence; do not replay it or infer a new outcome |
 | Patent Studio supervision incident | target `019fb18f-3d03-7ca0-9fe9-68353f0405ce`, source `msg_019fe560-cc38-7f41-991a-a1d8b0a5a209`, events listed in the product frame | adapt | 0–6 | de-projectize only control-plane states and expected recovery; exclude patent content and paths |
+| Unchanged-outcome corrective-cycle failure mode | `FM-PROCESS-PASS-OUTCOME-UNCHANGED`, content-minimized | adapt | 1, 2, 4, 6 | distinguish process concordance from effectiveness before another expensive same-hypothesis effect; exclude target content and wording |
 | Preserved accepted and rejected target proof | Exact commits and event records bound by the incident | reuse | 4, 6 | rehydrate currentness; never replay accepted proof or infer acceptance |
 
 ## 5. Scope, non-goals, and proportionality
@@ -205,8 +206,14 @@ self-healing infrastructure.
    port only the accepted delta to the current source, and rerun only affected
    proof.
 9. Run focused validation and permitted exact review before mapped or expensive
-   validation. Reuse exact accepted proof and widen only when the changed-path
-   owner requires it.
+   validation. Before another expensive consequential effect cycle for the same
+   open outcome, bind through the existing incident/effectiveness owner the
+   primary observable outcome, accepted baseline disposition and material-
+   finding-set fingerprint, treatment-hypothesis identity, and predeclared
+   effectiveness criterion. Tests, audits, hashes, reviews, commits, releases,
+   and process compliance remain supporting proof; none establishes that the
+   motivating outcome improved. Reuse exact accepted proof and widen only when
+   the changed-path owner requires it.
 10. Local activation and remote publication are independent. Publication failure
     becomes durability-pending and does not block an exact accepted local
     release, range repair, role refresh, or target resumption.
@@ -214,9 +221,10 @@ self-healing infrastructure.
     current tracker bytes. The target owner writes status; the range gate verifies
     it. Never infer completion from a release, route, test count, narrative, or
     range binding alone.
-12. Route at most one wake for one recovery identity. The watcher may read again
-    only after an actual release/range/tracker/target revision or the declared
-    effectiveness trigger.
+12. Route at most one wake for one recovery identity. After an outcome-
+    effectiveness hold, wake only for a materially different treatment, an
+    attempted violation of the hold, or new independent outcome evidence; an
+    ordinary process, release, range, tracker, or target revision is not enough.
 13. An operation-specific hold states its exact operation or Block scope,
     content-minimized identity, expiry event, successor posture, and
     `carry-forward: false`. It cannot silently survive a current release, range,
@@ -284,17 +292,19 @@ incident regression without rewriting either source lineage or target evidence.
 
 ### Inputs and dependencies
 
-- Source revisions `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`,
+- Historical source revisions `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`,
   `eaa75be5e739915b181819afede8a35a6e654155`, and
-  `f1256468034d323894149ce7e9dc0a770270a6f4`.
+  `f1256468034d323894149ce7e9dc0a770270a6f4`; current accepted source
+  `73d54524ffa3264bbb245bd59875a9f765af5af7`; and accepted currentness fix
+  `809fbbaf2aa1b6307a3645497ee7e532d8e788cb`.
 - The existing automatic-release tracker and exact incident records listed in
   the prior-work map.
 
 ### Required work
 
-- Reconcile the active compatibility release and automatic-promotion lineage in
-  a normal merge/integration successor; preserve both histories and reject a
-  source-only copy that drops accepted ancestry.
+- Verify by ancestry that the current accepted release contains the automatic-
+  promotion/currentness line; preserve both histories and reject a source-only
+  copy that drops accepted ancestry.
 - Freeze active release ID, source commit, manifest roots, installed roots,
   current branch/tree, and existing tracker status before implementation.
 - Translate the incident into a content-minimized fixture containing only owner,
@@ -384,6 +394,11 @@ and keep the original mission active when the blockage belongs to the Factory.
 - For `software-factory-owned`, record the exact failed owner/contract/revision,
   containment boundary, preserved target frontier, recovery trigger, and
   required target posture in the existing event ledger.
+- When consecutive accepted outcome records retain the same disposition and
+  material-finding-set fingerprint, compare the next candidate's treatment-
+  hypothesis identity before authorizing its consequential effects. If the
+  hypothesis is unchanged, record `outcome-unchanged` and `ineffective`, freeze
+  the candidate as diagnostic, and hold the next same-hypothesis effect cycle.
 - Keep the target `in-progress`, with no manual Resume or human input, unless an
   existing direct-authority boundary independently says otherwise.
 - Route target-local defects to the target owner and reserved acts to the
@@ -416,12 +431,15 @@ false-positive/false-negative incident cases.
 
 - The incident-derived Factory incompatibility selects autonomous recovery and
   preserves the target mission; target-owned and reserved cases do not.
+- An unchanged accepted outcome plus the same treatment hypothesis selects the
+  bounded effectiveness hold without changing unrelated safe frontiers.
 
 ### Negative tests
 
 - Reject caller-selected ownership, stale incident heads, closed incidents,
   route text as cause authority, whole-run blocking with a nonempty safe frontier,
-  and a Factory repair disposition that requests user Resume.
+  a Factory repair disposition that requests user Resume, and same-hypothesis
+  continuation that ignores an unchanged accepted outcome fingerprint.
 
 ### Completion evidence
 
@@ -469,6 +487,12 @@ from the current accepted source while preserving target and rejected history.
 - Route one evidence-bound Sol Max fix plan naming the concrete invariant,
   existing owner, exact permitted files, focused proof, acceptance gate, rollback,
   and stop condition.
+- Before the first further consequential effect, bind the primary observable
+  outcome, exact accepted baseline outcome/finding-set fingerprint, stable
+  treatment-hypothesis identity, and measurable effectiveness criterion. A
+  materially different treatment receives a new identity and explains the
+  causal difference; renaming or mechanically correcting the same treatment
+  does not clear an effectiveness hold.
 - Admit the candidate only when its base equals or contains the current accepted
   source. If the source changes before acceptance, freeze the candidate as
   diagnostic and port only the reviewed delta to the new current source.
@@ -477,6 +501,9 @@ from the current accepted source while preserving target and rejected history.
   remains reserved.
 - Run the affected proof once after all likely-mutating review findings are
   resolved. Preserve unaffected accepted receipts by exact currentness checks.
+- If the Block 1 hold applies, retain mechanically valid candidate proof as
+  diagnostic only and stop before mapped validation, release, refresh, target
+  wake, artifact production, or another expensive same-hypothesis owner cycle.
 
 ### Scope and non-goals
 
@@ -493,9 +520,10 @@ from the current accepted source while preserving target and rejected history.
 
 ### Resource and economy contract
 
-One active repair lane, one current-source check before expensive proof, and one
-affected proof after the candidate is frozen. Mapped/full validation runs only
-when the maintained changed-path plan requires it.
+One active repair lane, one current-source check and one outcome/hypothesis gate
+before expensive proof, and one affected proof after the candidate is frozen.
+Mapped/full validation runs only when both the maintained changed-path plan and
+the predeclared effectiveness path require it.
 
 ### QA and independent review
 
@@ -506,12 +534,15 @@ self-accept or activate its candidate.
 
 - One exact current-source candidate closes the incident invariant without new
   target, permission, owner, or unrelated deltas.
+- A held candidate remains diagnostic until an existing-owner record admits a
+  materially different treatment against the frozen baseline and criterion.
 
 ### Negative tests
 
 - Reject stale-base, dirty, cross-lineage, over-allowlist, target-writing,
   caller-resealed, self-reviewed, changed-after-review, and repeated-proof
-  candidates.
+  candidates; also reject process-valid proof as evidence that the motivating
+  outcome improved.
 
 ### Completion evidence
 
@@ -666,6 +697,11 @@ prove that the Factory repair caused effective target continuation.
 - Observe the next genuine target revision once. Record whether the corrected
   owner was used, preserved evidence remained valid, the same Block advanced,
   and unrelated work stayed unchanged.
+- Compare the new independent outcome to the declared baseline and criterion,
+  recording the current disposition/material-finding-set delta and whether the
+  causal treatment met the predeclared threshold. Preserve an unchanged result
+  as current evidence rather than converting supporting process proof into
+  effectiveness.
 - Keep the incident open for `effective`, `mixed`, `ineffective`, or `unresolved`
   assessment by a different reviewer. Close current-run and reusable lanes
   independently.
@@ -685,8 +721,9 @@ prove that the Factory repair caused effective target continuation.
 
 ### Resource and economy contract
 
-Exactly one route and wake per recovery identity. Read once on a genuine
-release/range/tracker/target revision; no unchanged intermediate read, commentary,
+Exactly one route and wake per recovery identity. After an effectiveness hold,
+read or wake only for a materially different treatment, attempted hold violation,
+or new independent outcome evidence; no unchanged intermediate read, commentary,
 or model call.
 
 ### QA and independent review
@@ -704,7 +741,9 @@ of the actual target delta, not the supervisor narrative.
 
 - Reject wrong/replacement target, stale frontier, duplicate wake, no-op route,
   unchanged polling, proof replay, target mutation by supervision, same-reviewer
-  effectiveness, and helper activation without target advancement.
+  effectiveness, helper activation without target advancement, a result that
+  omits the declared baseline/current delta, and process concordance presented as
+  outcome improvement.
 
 ### Completion evidence
 
@@ -822,7 +861,14 @@ close the tracker only when the implementation outcome resumes as designed.
   canonical range/tracker restoration, one wake, and target advancement.
 - Inject the observed failure classes: helper/receipt incompatibility,
   active-source drift, absent range, tracker-status divergence, publication
-  failure with local activation, duplicate route, and unchanged watcher wake.
+  failure with local activation, duplicate route, unchanged watcher wake, and
+  consecutive accepted unchanged outcomes followed by a same-hypothesis
+  candidate.
+- Prove the unchanged-outcome case freezes the candidate as diagnostic before
+  its next expensive effect, rejects an attempted hold violation, and remains
+  silent until a materially different treatment or new independent outcome is
+  present. The later result must expose the declared baseline/current effect
+  delta.
 - Verify rollback on unhealthy refresh, no target writes by supervision, no
   user/manual Resume request, no duplicate call, and no proof replay.
 - Record final effectiveness by a different reviewer, close the incident and
@@ -865,8 +911,8 @@ verification, and distinct final outcome review.
 
 - Reject closure from process receipts alone, helper activation without target
   progress, partial rollback, open incident, unresolved reusable-lane disposition,
-  tracker evidence mismatch, user/manual Resume request, and any hidden target or
-  protected-project mutation.
+  tracker evidence mismatch, same-hypothesis cycling after an unchanged outcome,
+  user/manual Resume request, and any hidden target or protected-project mutation.
 
 ### Completion evidence
 
