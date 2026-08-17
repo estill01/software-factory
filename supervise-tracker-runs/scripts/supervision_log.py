@@ -10041,12 +10041,6 @@ def retained_full_tracker_authority(
         or source_record == controlling.get("record")
         or source_sha256 == controlling.get("sha256")
     )
-    source_is_exact_direct_mission_source = (
-        controlling.get("class") == "direct-user"
-        and source_record == current_mission.get("mission_source_record")
-        and source_record == controlling.get("record")
-        and source_sha256 == controlling.get("sha256")
-    )
     receipts = [
         item
         for item in policy.get("direct_authority_receipts", [])
@@ -10087,6 +10081,16 @@ def retained_full_tracker_authority(
         policy,
         all_events=all_events,
         policy_history=policy_history,
+    )
+    target_thread_id = str(policy.get("target_thread_id", ""))
+    source_is_exact_direct_mission_source = (
+        controlling.get("class") == "direct-user"
+        and source_event.get("source_task_id") == target_thread_id
+        and source_record
+        == f"direct-user:{target_thread_id}:{source_event.get('source_item_id')}"
+        and source_record == current_mission.get("mission_source_record")
+        and source_record == controlling.get("record")
+        and source_sha256 == controlling.get("sha256")
     )
     signed_classification_review = None
     signed_source_event = frozenset(source_event) == frozenset(

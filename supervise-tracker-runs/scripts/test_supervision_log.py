@@ -4461,6 +4461,23 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 source_event=signed_source_event,
                 request_text=request_text,
             )
+        matching_digest_policy = copy.deepcopy(current_policy)
+        matching_digest_policy["mission_binding"]["mission_derivation"][
+            "controlling_source"
+        ]["sha256"] = source_sha256
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Signed routed full-tracker authority requires its exact source text",
+        ):
+            supervision_log.retained_full_tracker_authority(
+                matching_digest_policy,
+                all_events=current_events,
+                policy_history=current_policy_history,
+                source_record=canonical_record,
+                source_sha256=source_sha256,
+                require_current_receipt=True,
+                request_text=None,
+            )
         wrong_reviewer_role = copy.deepcopy(current_events)
         for event in wrong_reviewer_role:
             if event.get("record_id") == provenance["authorization_record_id"]:
