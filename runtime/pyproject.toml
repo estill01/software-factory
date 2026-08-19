@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "software-factory"
+version = "2.0.0.dev0"
+description = "Native SQL-backed autonomous multi-agent software factory"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "coverage>=7"]
+
+[project.scripts]
+software-factory = "software_factory.cli:main"
+software-factoryd = "software_factory.daemon:main"
+sf-skill = "software_factory.skill_bridge:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+software_factory = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
