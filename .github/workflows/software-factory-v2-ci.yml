@@ -1,0 +1,57 @@
+name: Software Factory v2 CI
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: software-factory-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Export exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-v2-source.tar.gz" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/source-tree.txt"
+
+      - name: Upload exact source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: software-factory-v2-source-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/software-factory-v2-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+            ${{ runner.temp }}/source-tree.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime
+        run: python -m pip install -e 'runtime[dev]'
+
+      - name: Compile
+        run: python -m compileall -q runtime/src runtime/tests
+
+      - name: Runtime tests
+        run: python -m pytest runtime/tests -q
