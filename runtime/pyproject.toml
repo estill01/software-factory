@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "software-factory"
-version = "2.0.0.dev1"
+version = "2.0.0.dev2"
 description = "Native SQL-backed autonomous multi-agent software factory"
 requires-python = ">=3.11"
 dependencies = []
@@ -25,7 +25,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-software_factory = ["web/*"]
+software_factory = ["web/*", "migrations/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

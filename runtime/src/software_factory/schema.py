@@ -1,19 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from importlib.resources import files
 
-SCHEMA_VERSION = 1
+
+@dataclass(frozen=True)
+class Migration:
+    version: int
+    name: str
+
+
 MIGRATIONS = (
-    "0001_core.sql",
-    "0002_execution.sql",
-    "0003_learning.sql",
-    "0004_operations.sql",
+    Migration(1, "0001_core.sql"),
+    Migration(2, "0002_execution.sql"),
+    Migration(3, "0003_learning.sql"),
+    Migration(4, "0004_operations.sql"),
+    Migration(5, "0005_foundation_hardening.sql"),
 )
+SCHEMA_VERSION = MIGRATIONS[-1].version
 
 
-def ddl() -> str:
-    root = files("software_factory.migrations")
-    return "\n".join(root.joinpath(name).read_text(encoding="utf-8") for name in MIGRATIONS)
-
-
-DDL = ddl()
+def migration_sql(migration: Migration) -> str:
+    return files("software_factory.migrations").joinpath(migration.name).read_text(
+        encoding="utf-8"
+    )
