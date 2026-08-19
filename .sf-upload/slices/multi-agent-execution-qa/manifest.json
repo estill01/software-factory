@@ -1,0 +1,6 @@
+{
+  "archive_sha256": "3b86779b5e1e278774bc29a2d5d5ccf499974f51a3e5947f06a446b820f9f4c5",
+  "commit_message": "runtime: add multi-agent execution and candidate QA",
+  "name": "multi-agent-execution-qa",
+  "part_count": 5
+}
