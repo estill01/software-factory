@@ -1,0 +1,6 @@
+{
+  "archive_sha256": "7b9345791d5419516e9aed22b6fad3c882258485ed9f1fc76a8c684e8e95c46a",
+  "commit_message": "runtime: add integration cutover and post-integration acceptance",
+  "name": "integration-acceptance",
+  "part_count": 3
+}
