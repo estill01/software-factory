@@ -28,24 +28,45 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          slices=(.sf-upload/slices/*.b64)
-          if (( ${#slices[@]} == 0 )); then
+          manifests=(.sf-upload/slices/*/manifest.json)
+          if (( ${#manifests[@]} == 0 )); then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if (( ${#slices[@]} != 1 )); then
-            echo "expected exactly one queued slice" >&2
+          if (( ${#manifests[@]} != 1 )); then
+            echo "expected exactly one complete queued slice" >&2
             exit 1
           fi
-          slice="${slices[0]}"
-          name="$(basename "$slice" .b64)"
+
+          manifest="${manifests[0]}"
+          queue_dir="$(dirname "$manifest")"
+          name="$(jq -r '.name' "$manifest")"
+          expected_sha="$(jq -r '.archive_sha256' "$manifest")"
+          message="$(jq -r '.commit_message' "$manifest")"
+          expected_parts="$(jq -r '.part_count' "$manifest")"
+          parts=("$queue_dir"/part-*)
+          if (( ${#parts[@]} != expected_parts )); then
+            echo "expected $expected_parts parts, found ${#parts[@]}" >&2
+            exit 1
+          fi
+
+          encoded="$RUNNER_TEMP/$name.b64"
           archive="$RUNNER_TEMP/$name.tar.gz"
-          base64 --decode "$slice" > "$archive"
+          cat "${parts[@]}" > "$encoded"
+          base64 --decode "$encoded" > "$archive"
+          actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
+          test "$actual_sha" = "$expected_sha"
           tar -tzf "$archive" >/dev/null
           tar -xzf "$archive" -C .
           rm -rf .sf-upload/slices
+
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
+          {
+            echo 'message<<EOF'
+            echo "$message"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         if: steps.slice.outputs.changed == 'true'
@@ -67,5 +88,5 @@ jobs:
           git config user.name "software-factory-v2-bot"
           git config user.email "software-factory-v2-bot@users.noreply.github.com"
           git add -A
-          git commit -m "runtime: apply ${{ steps.slice.outputs.name }}"
+          git commit -m "${{ steps.slice.outputs.message }}"
           git push origin HEAD:agent/software-factory-v2-native-refactor
