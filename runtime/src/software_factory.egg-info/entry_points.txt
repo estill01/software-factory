@@ -1,0 +1,4 @@
+[console_scripts]
+sf-skill = software_factory.skill_bridge:main
+software-factory = software_factory.cli:main
+software-factoryd = software_factory.daemon:main

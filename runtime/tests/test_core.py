@@ -17,7 +17,7 @@ from software_factory import (
     Store,
     StoreError,
 )
-from software_factory.util import canonical_json, new_id, utc_now
+from software_factory.util import canonical_json, digest_json, new_id, utc_now
 
 
 @pytest.fixture()
@@ -100,7 +100,7 @@ def add_execution(
 def test_migrations_are_versioned_and_database_is_healthy(runtime: tuple[Store, CoreService, str, str]) -> None:
     store, _, _, _ = runtime
     migrations = store.all("SELECT version,name,sha256 FROM schema_migrations ORDER BY version")
-    assert [row["version"] for row in migrations] == [1, 2, 3, 4, 5]
+    assert [row["version"] for row in migrations] == [1, 2, 3, 4, 5, 6]
     assert all(len(row["sha256"]) == 64 for row in migrations)
     assert store.health()["integrity"] == "ok"
 

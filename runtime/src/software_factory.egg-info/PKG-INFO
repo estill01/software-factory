@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: software-factory
+Version: 2.0.0.dev3
+Summary: Native SQL-backed autonomous multi-agent software factory
+Requires-Python: >=3.11
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: coverage>=7; extra == "dev"
