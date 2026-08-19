@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "software-factory"
-version = "2.0.0.dev0"
+version = "2.0.0.dev1"
 description = "Native SQL-backed autonomous multi-agent software factory"
 requires-python = ">=3.11"
 dependencies = []
