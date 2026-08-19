@@ -1,0 +1,64 @@
+name: Apply Software Factory v2 runtime slices
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sf-v2-runtime-slice-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-native-refactor
+          fetch-depth: 0
+
+      - name: Apply queued source slices
+        id: apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          slices=(.sf-upload/slices/*.b64)
+          if (( ${#slices[@]} == 0 )); then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for encoded in "${slices[@]}"; do
+            archive="$RUNNER_TEMP/$(basename "$encoded" .b64).tar.gz"
+            base64 --decode "$encoded" > "$archive"
+            tar -tzf "$archive" >/dev/null
+            tar -xzf "$archive" -C .
+          done
+          rm -rf .sf-upload/slices
+          rm -f .sf-upload/foundation/chunk-000
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run focused runtime tests
+        if: steps.apply.outputs.changed == 'true'
+        env:
+          PYTHONPATH: runtime/src
+        run: python -m unittest discover -s runtime/tests -p 'test_*.py' -v
+
+      - name: Commit applied slice
+        if: steps.apply.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "runtime: add transactional mission and program core"
+          git push origin HEAD:agent/software-factory-v2-native-refactor
