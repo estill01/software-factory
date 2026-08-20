@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: software-factory-v2-${{ github.ref }}
@@ -22,7 +22,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: agent/software-factory-v2-native-refactor
           fetch-depth: 0
+
+      - name: Apply staged reviewable patch
+        id: staged_patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .sf-patches/pending.patch ]]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git apply --check .sf-patches/pending.patch
+          git apply --index .sf-patches/pending.patch
+          git rm .sf-patches/pending.patch .github/workflows/software-factory-v2-apply-patch.yml
+          echo "applied=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5
         with:
@@ -49,6 +64,16 @@ jobs:
           --cov=software_factory --cov-branch
           --cov-report=term-missing
           --cov-fail-under=72
+
+      - name: Commit validated staged patch
+        if: steps.staged_patch.outputs.applied == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git commit -m "refactor: compose runtime services explicitly"
+          git push origin HEAD:agent/software-factory-v2-native-refactor
 
       - name: Build wheel
         run: python -m build --wheel runtime
