@@ -53,6 +53,9 @@ TRUSTED_VALIDATOR_PATH = Path(
 TRUSTED_VALIDATOR_SHA256 = (
     "1fd66498c219616fd9249eacdf16c458412ea9065a9d887fd716aeef03907762"
 )
+TRUSTED_HISTORICAL_VALIDATOR_SHA256S = (
+    "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51",
+)
 TRUSTED_AUTHORITY_IDS = {
     "reviewers": ("software-factory-release-reviewer-v1",),
     "operators": ("software-factory-release-operator-v1",),
@@ -1383,7 +1386,11 @@ def read_manifest(
             }
             or validator_record.get("status") != "passed"
             or validator_record.get("validator_path") != str(TRUSTED_VALIDATOR_PATH)
-            or validator_record.get("validator_sha256") != TRUSTED_VALIDATOR_SHA256
+            or validator_record.get("validator_sha256")
+            not in {
+                TRUSTED_VALIDATOR_SHA256,
+                *TRUSTED_HISTORICAL_VALIDATOR_SHA256S,
+            }
             or validator_record.get("interpreter_path") != str(TRUSTED_PYTHON_PATH)
             or validator_record.get("interpreter_sha256") != TRUSTED_PYTHON_SHA256
             or validator_record.get("yaml_root_sha256")
