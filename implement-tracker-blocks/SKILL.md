@@ -604,6 +604,46 @@ passes its declared proof and independent audit, stop remediation.
 Do not mark a block complete when required proof is unavailable. Use the
 tracker's accurate intermediate status and report the exact gap.
 
+## Converge parallel implementation before fan-in
+
+An isolated implementation branch, worktree, candidate commit, worker task,
+or accepted review is temporary custody, not canonical implementation. When a
+tracker permits parallel Block or lane writers, identify its one canonical
+integration trunk and one coordinator before effects begin. Workers may
+produce only their assigned nonoverlapping candidates; they never make their
+own work authoritative, advance a dependent Block, or substitute a handoff for
+integration.
+
+At every fan-in, after candidate review and before fan-in acceptance, dependent
+work, promotion, or a completion claim, execute the tracker's Git convergence
+gate against the complete producer-frozen candidate roster:
+
+1. Freeze the clean current trunk revision and tree, the exact convergence
+   revision after all integrations, and every required roster row. Do not let
+   the caller omit, add, duplicate, or rename a required candidate at gate
+   time.
+2. For every row, require its accepted integration revision to be an ancestor
+   of the same convergence revision with `git merge-base --is-ancestor`.
+   Require the convergence revision to be an ancestor of the current trunk.
+3. If an integration revision differs from the independently audited candidate,
+   require exact byte equivalence on all owned paths with `git diff --quiet`, or
+   obtain a fresh independent audit that explicitly replaces the candidate and
+   binds the integration revision. Reviewer prose cannot replace either check.
+4. Reject a dirty trunk, unresolved merge, missing Git object, incomplete or
+   overlapping roster, unowned changed path, changed bound input, stale audit,
+   or nonzero Git check. Record exact revisions, trees, owned paths, audit
+   roots, command results, and configured-remote durability posture in the
+   tracker's normal completion evidence; do not create a second status system.
+5. On any failure, keep the fan-in `in-progress`, keep dependent Blocks
+   ineligible, correct and re-audit only the affected candidate against the
+   latest trunk, and rerun only its affected convergence checks. Advance only
+   when every required row passes against one common convergence revision.
+
+If the tracker defines a stricter repository-owned integration or cutover
+owner, use it and retain these ancestry, equivalence, roster-completeness, and
+single-trunk outcomes. A side-branch test pass, task completion, copied
+artifact, reviewer summary, or routed steering message can never satisfy them.
+
 ## Preserve Git checkpoints
 
 Treat bounded commits and remote durability as part of the implementation
