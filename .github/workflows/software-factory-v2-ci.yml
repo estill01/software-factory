@@ -37,7 +37,7 @@ jobs:
             exit 0
           fi
           cat "${parts[@]}" > "$RUNNER_TEMP/composition.patch"
-          test "$(sha256sum "$RUNNER_TEMP/composition.patch" | awk '{print $1}')" = "b44a15ceeee899b2aa788d7f6a3f3f3bf4ce0a92821b2eb2893f33886f706755"
+          test "$(sha256sum "$RUNNER_TEMP/composition.patch" | awk '{print $1}')" = "0340fecc5788562b8f68eec0e5840fa8d182131a53afaa84c92b627c9752e530"
           git apply --check "$RUNNER_TEMP/composition.patch"
           git apply --index "$RUNNER_TEMP/composition.patch"
           git rm -r .sf-patches/composition
