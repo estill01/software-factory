@@ -110,7 +110,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..7556de53fe40fecfb6b4d79410d7fb1e80a8ba77
 --- /dev/null
 +++ b/runtime/tests/test_composition.py
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,45 @@
 +from __future__ import annotations
 +
 +import operator
