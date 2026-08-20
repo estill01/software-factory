@@ -153,8 +153,9 @@ index 0000000000000000000000000000000000000000..7556de53fe40fecfb6b4d79410d7fb1e
 +        )
 +        assert mission.startswith("mis_")
 +        assert core.next_action(mission)["action"] == "run_terminal_verification"
++        missing = "not_a_runtime_method"
 +        with pytest.raises(AttributeError):
-+            getattr(core, "not_a_runtime_method")
++            getattr(core, missing)
 diff --git a/runtime/tests/test_core.py b/runtime/tests/test_core.py
 index d8d7742347fa05c39644b79c74bf446f900777cd..d93961660985827397887023808e73beca00253a 100644
 --- a/runtime/tests/test_core.py
