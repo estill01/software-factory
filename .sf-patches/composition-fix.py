@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "runtime" / "src" / "software_factory"
 
@@ -15,11 +14,11 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-def replace_all(path: Path, old: str, new: str, *, minimum: int = 1) -> None:
+def replace_all(path: Path, old: str, new: str, *, required: bool = True) -> None:
     text = path.read_text(encoding="utf-8")
     count = text.count(old)
-    if count < minimum:
-        raise RuntimeError(f"expected at least {minimum} matches in {path}: found {count}\n{old}")
+    if required and count == 0:
+        raise RuntimeError(f"expected a match in {path}\n{old}")
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
@@ -57,7 +56,7 @@ def harden_audit_boundary() -> None:
 
 class AuditMixin:
     def _persistence(self) -> _AuditPersistence:
-        """Return the concrete database owner without declaring competing base methods."""
+        """Return the concrete database owner without competing base methods."""
 
         return cast(_AuditPersistence, self)
 '''
@@ -122,7 +121,12 @@ def harden_authority_time_checks() -> None:
 
 def harden_lease_time_checks() -> None:
     path = SOURCE / "execution.py"
-    replace_all(path, "dt.datetime.now(dt.timezone.utc)", "dt.datetime.now(dt.UTC)")
+    replace_all(
+        path,
+        "dt.datetime.now(dt.timezone.utc)",
+        "dt.datetime.now(dt.UTC)",
+        required=False,
+    )
     replace_once(
         path,
         '''            if parse_time(row["expires_at"]) <= now:
@@ -152,11 +156,17 @@ def harden_skill_lookup() -> None:
     )
 
 
+def align_package_version() -> None:
+    path = SOURCE / "__init__.py"
+    replace_once(path, '__version__ = "2.0.0.dev3"', '__version__ = "2.0.0.dev4"')
+
+
 def main() -> None:
     harden_audit_boundary()
     harden_authority_time_checks()
     harden_lease_time_checks()
     harden_skill_lookup()
+    align_package_version()
 
 
 if __name__ == "__main__":
