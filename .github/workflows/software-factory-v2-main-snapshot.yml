@@ -1,0 +1,36 @@
+name: Software Factory v2 current-main snapshot
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-main-snapshot
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-main-snapshot
+          fetch-depth: 0
+
+      - name: Export exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-main-source.tar.gz" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/source-tree.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: software-factory-main-source-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/software-factory-main-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+            ${{ runner.temp }}/source-tree.txt
+          if-no-files-found: error
+          retention-days: 7
