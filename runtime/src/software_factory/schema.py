@@ -22,6 +22,4 @@ SCHEMA_VERSION = MIGRATIONS[-1].version
 
 
 def migration_sql(migration: Migration) -> str:
-    return files("software_factory.migrations").joinpath(migration.name).read_text(
-        encoding="utf-8"
-    )
+    return files("software_factory.migrations").joinpath(migration.name).read_text(encoding="utf-8")

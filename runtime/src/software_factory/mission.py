@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import datetime as dt
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from .errors import InvalidTransition, StoreError
 from .store import Store
@@ -169,7 +171,9 @@ class MissionService:
             raise ValueError("authority must grant at least one effect class")
         if uses_remaining is not None and uses_remaining <= 0:
             raise ValueError("uses_remaining must be positive")
-        if expires_at is not None and parse_time(expires_at) <= parse_time(utc_now()):
+        now_dt = dt.datetime.now(dt.UTC)
+        expiry = parse_time(expires_at)
+        if expires_at is not None and (expiry is None or expiry <= now_dt):
             raise ValueError("authority cannot be created already expired")
         material = {
             "mission_id": mission_id,
@@ -183,9 +187,7 @@ class MissionService:
         }
         record_root = digest_json(material)
         with self.store.transaction() as db:
-            mission = db.execute(
-                "SELECT * FROM missions WHERE id=?", (mission_id,)
-            ).fetchone()
+            mission = db.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
             if mission is None:
                 raise StoreError("mission does not exist")
             if parent_id:
@@ -197,7 +199,7 @@ class MissionService:
                 if parent["mission_id"] != mission_id:
                     raise StoreError("delegation cannot cross mission boundaries")
                 parent_expiry = parse_time(parent["expires_at"])
-                if parent_expiry is not None and parent_expiry <= parse_time(utc_now()):
+                if parent_expiry is not None and parent_expiry <= now_dt:
                     raise StoreError("delegating authority is expired")
                 parent_classes = set(json_load(parent["effect_classes_json"], []))
                 if not set(classes).issubset(parent_classes):
@@ -205,11 +207,13 @@ class MissionService:
                 parent_scope = json_load(parent["scope_json"], {})
                 if not scope_contains(parent_scope, scope):
                     raise StoreError("delegation would widen scope")
-                if parent["uses_remaining"] is not None:
-                    if uses_remaining is None or uses_remaining > parent["uses_remaining"]:
-                        raise StoreError("delegation would widen use count")
+                if parent["uses_remaining"] is not None and (
+                    uses_remaining is None or uses_remaining > parent["uses_remaining"]
+                ):
+                    raise StoreError("delegation would widen use count")
+                child_expiry = parse_time(expires_at)
                 if parent_expiry is not None and (
-                    expires_at is None or parse_time(expires_at) > parent_expiry
+                    child_expiry is None or child_expiry > parent_expiry
                 ):
                     raise StoreError("delegation would widen expiration")
             db.execute(
@@ -267,15 +271,13 @@ class MissionService:
             ).fetchone()
             if authority is None or authority["status"] != "active":
                 raise InvalidTransition("authority is not active")
-            mission = self.store.check_version(
+            self.store.check_version(
                 db,
                 table="missions",
                 row_id=authority["mission_id"],
                 expected_version=expected_mission_version,
             )
-            db.execute(
-                "UPDATE authority_records SET status='revoked' WHERE id=?", (authority_id,)
-            )
+            db.execute("UPDATE authority_records SET status='revoked' WHERE id=?", (authority_id,))
             authority_root = self._authority_set_root(db, authority["mission_id"])
             new_version = expected_mission_version + 1
             db.execute(

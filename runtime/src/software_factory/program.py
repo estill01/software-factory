@@ -7,6 +7,9 @@ from .util import canonical_json, digest_json, json_load, new_id, utc_now
 
 
 class ProgramService:
+    def __init__(self, store: Any):
+        self.store = store
+
     def create_program(
         self,
         *,

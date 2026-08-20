@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import datetime as dt
 import sqlite3
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 
 from .errors import AuthorityDenied, EvidenceInvalid, StoreError
 from .util import (
@@ -67,7 +70,37 @@ _VERSIONED_TARGETS = {
 }
 
 
+class _AuditPersistence(Protocol):
+    """Persistence surface required by the audit/application command layer."""
+
+    def transaction(
+        self, *, mode: str = "IMMEDIATE"
+    ) -> AbstractContextManager[sqlite3.Connection]: ...
+
+    def all(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] | Mapping[str, Any] = (),
+        *,
+        db: sqlite3.Connection | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    def check_version(
+        self,
+        db: sqlite3.Connection,
+        *,
+        table: str,
+        row_id: str,
+        expected_version: int,
+    ) -> dict[str, Any]: ...
+
+
 class AuditMixin:
+    def _persistence(self) -> _AuditPersistence:
+        """Return the concrete database owner without competing base methods."""
+
+        return cast(_AuditPersistence, self)
+
     def append_event(
         self,
         db: sqlite3.Connection,
@@ -142,7 +175,7 @@ class AuditMixin:
         return event_id
 
     def verify_event_chain(self, mission_id: str | None = None) -> dict[str, Any]:
-        rows = self.all(
+        rows = self._persistence().all(
             "SELECT * FROM events WHERE mission_id IS ? ORDER BY sequence", (mission_id,)
         )
         previous_hash = None
@@ -205,7 +238,7 @@ class AuditMixin:
             "producer_session_id": producer_session_id,
             "payload": dict(payload or {}),
         }
-        with self.transaction() as db:
+        with self._persistence().transaction() as db:
             if execution_id:
                 execution = db.execute(
                     "SELECT mission_id,status FROM executions WHERE id=?", (execution_id,)
@@ -264,9 +297,7 @@ class AuditMixin:
             raise EvidenceInvalid("at least one current evidence record is required")
         rows: list[dict[str, Any]] = []
         for evidence_id in evidence_ids:
-            row = db.execute(
-                "SELECT * FROM evidence_records WHERE id=?", (evidence_id,)
-            ).fetchone()
+            row = db.execute("SELECT * FROM evidence_records WHERE id=?", (evidence_id,)).fetchone()
             if row is None:
                 raise EvidenceInvalid(f"evidence not found: {evidence_id}")
             value = dict(row)
@@ -292,7 +323,7 @@ class AuditMixin:
         subject_id: str,
         except_revision: str | None = None,
     ) -> int:
-        with self.transaction() as db:
+        with self._persistence().transaction() as db:
             if except_revision is None:
                 result = db.execute(
                     """UPDATE evidence_records SET status='stale',invalidated_at=?
@@ -308,9 +339,7 @@ class AuditMixin:
                 )
             return int(result.rowcount)
 
-    def _validate_authority(
-        self, db: sqlite3.Connection, envelope: CommandEnvelope
-    ) -> None:
+    def _validate_authority(self, db: sqlite3.Connection, envelope: CommandEnvelope) -> None:
         if envelope.authority_record_id is None:
             if envelope.effect_class not in {"read/observe", "internal_state"}:
                 raise AuthorityDenied("consequential effect requires explicit authority")
@@ -321,24 +350,20 @@ class AuditMixin:
         if authority is None or authority["status"] != "active":
             raise AuthorityDenied("authority record is missing or inactive")
         expiry = parse_time(authority["expires_at"])
-        if expiry is not None and expiry <= parse_time(utc_now()):
+        if expiry is not None and expiry <= dt.datetime.now(dt.UTC):
             raise AuthorityDenied("authority record is expired")
         if envelope.mission_id is not None and authority["mission_id"] != envelope.mission_id:
             raise AuthorityDenied("authority belongs to another mission")
         classes = set(json_load(authority["effect_classes_json"], []))
         if envelope.effect_class not in classes:
-            raise AuthorityDenied(
-                f"authority does not grant effect class {envelope.effect_class}"
-            )
+            raise AuthorityDenied(f"authority does not grant effect class {envelope.effect_class}")
         authority_scope = json_load(authority["scope_json"], {})
         if not scope_allows(authority_scope, envelope.requested_scope):
             raise AuthorityDenied("requested scope exceeds authority scope")
         if authority["uses_remaining"] is not None and authority["uses_remaining"] <= 0:
             raise AuthorityDenied("authority record has no remaining uses")
 
-    def _validate_expected_version(
-        self, db: sqlite3.Connection, envelope: CommandEnvelope
-    ) -> None:
+    def _validate_expected_version(self, db: sqlite3.Connection, envelope: CommandEnvelope) -> None:
         if envelope.expected_version is None:
             return
         table = _VERSIONED_TARGETS.get(envelope.target_type)
@@ -346,7 +371,7 @@ class AuditMixin:
             raise StoreError(
                 f"expected_version cannot be enforced for target type {envelope.target_type}"
             )
-        self.check_version(
+        self._persistence().check_version(
             db,
             table=table,
             row_id=envelope.target_id,
@@ -361,7 +386,7 @@ class AuditMixin:
         the prior attempt or silently duplicate an external effect.
         """
 
-        with self.transaction() as db:
+        with self._persistence().transaction() as db:
             existing = db.execute(
                 "SELECT * FROM commands WHERE idempotency_key=?",
                 (envelope.idempotency_key,),
@@ -374,8 +399,7 @@ class AuditMixin:
                     return json_load(record["result_json"])  # type: ignore[return-value]
                 if record["status"] == "failed":
                     raise StoreError(
-                        f"idempotent command previously failed: "
-                        f"{json_load(record['error_json'])}"
+                        f"idempotent command previously failed: {json_load(record['error_json'])}"
                     )
                 raise StoreError("idempotent command is already running")
 
@@ -407,7 +431,7 @@ class AuditMixin:
             )
 
         try:
-            with self.transaction() as db:
+            with self._persistence().transaction() as db:
                 self._validate_authority(db, envelope)
                 self._validate_expected_version(db, envelope)
                 result = apply(db)
@@ -429,7 +453,7 @@ class AuditMixin:
                 )
             return result
         except Exception as exc:
-            with self.transaction() as db:
+            with self._persistence().transaction() as db:
                 db.execute(
                     """UPDATE commands SET status='failed',error_json=?,completed_at=?
                        WHERE id=? AND status='running'""",

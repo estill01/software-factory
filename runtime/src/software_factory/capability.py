@@ -4,11 +4,13 @@ from collections import defaultdict
 from typing import Any
 
 from .errors import EvidenceInvalid, InvalidTransition
-from .store import Store
 from .util import canonical_json, new_id, utc_now
 
 
 class CapabilityService:
+    def __init__(self, store: Any):
+        self.store = store
+
     def add_capability(
         self,
         *,

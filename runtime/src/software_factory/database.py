@@ -3,8 +3,9 @@ from __future__ import annotations
 import contextlib
 import sqlite3
 import threading
+from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any
 
 from .errors import StaleState, StoreError
 from .schema import MIGRATIONS, SCHEMA_VERSION, migration_sql

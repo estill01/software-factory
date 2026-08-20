@@ -9,7 +9,14 @@ from .util import canonical_json, digest_json, json_load, new_id, utc_now
 class QAService:
     """Revision-bound QA generation, execution, independent review, and acceptance."""
 
-    def _candidate_context(self, db: Any, work_item_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def __init__(self, store: Any, workspaces: Any, executions: Any):
+        self.store = store
+        self.workspaces = workspaces
+        self.executions = executions
+
+    def _candidate_context(
+        self, db: Any, work_item_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         work_row = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
         if work_row is None:
             raise StoreError("work item not found")
@@ -34,10 +41,12 @@ class QAService:
     ) -> dict[str, Any]:
         execution = self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
         if execution["status"] != "succeeded" or not execution["work_item_id"]:
-            raise InvalidTransition("only a successful implementation execution can submit a candidate")
+            raise InvalidTransition(
+                "only a successful implementation execution can submit a candidate"
+            )
         if not execution["workspace_id"]:
             raise InvalidTransition("candidate execution has no workspace")
-        frozen = self.freeze_workspace(execution["workspace_id"])
+        frozen = self.workspaces.freeze_workspace(execution["workspace_id"])
         with self.store.transaction() as db:
             work = self.store.check_version(
                 db,
@@ -87,7 +96,11 @@ class QAService:
                 if not requirements:
                     requirements = [
                         {"type": "git_clean", "required": True},
-                        {"type": "independent_review", "required": True, "role": "independent_reviewer"},
+                        {
+                            "type": "independent_review",
+                            "required": True,
+                            "role": "independent_reviewer",
+                        },
                     ]
                 for item in requirements:
                     qa_type = str(item.get("type") or "predicate")
@@ -196,9 +209,7 @@ class QAService:
         agent_session_id: str | None = None,
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        requirement = self.store.one(
-            "SELECT * FROM qa_requirements WHERE id=?", (requirement_id,)
-        )
+        requirement = self.store.one("SELECT * FROM qa_requirements WHERE id=?", (requirement_id,))
         connection = self.store.connect()
         try:
             work, implementation = self._candidate_context(connection, requirement["work_item_id"])
@@ -212,7 +223,7 @@ class QAService:
             command = ["git", "status", "--porcelain=v1"]
         if not command:
             raise InvalidTransition("QA command requirement has no command")
-        verification_workspace = self.create_workspace(
+        verification_workspace = self.workspaces.create_workspace(
             repository_id=implementation_workspace["repository_id"],
             mission_id=work["mission_id"],
             work_item_id=work["id"],
@@ -220,7 +231,7 @@ class QAService:
             base_revision=requirement["candidate_revision"],
             writable_scope=json_load(work["writable_scope_json"], []),
         )
-        execution_id = self.queue_execution(
+        execution_id = self.executions.queue_execution(
             mission_id=work["mission_id"],
             execution_type="validation",
             idempotency_key=f"qa:{requirement_id}:{requirement['candidate_revision']}",
@@ -228,15 +239,18 @@ class QAService:
             agent_session_id=agent_session_id,
             workspace_id=verification_workspace,
             input_payload={"qa_requirement_id": requirement_id, "command": command},
-            expected_effect={"qa_type": requirement["qa_type"], "revision": requirement["candidate_revision"]},
+            expected_effect={
+                "qa_type": requirement["qa_type"],
+                "revision": requirement["candidate_revision"],
+            },
         )
-        generation = self.acquire_leases(
+        generation = self.executions.acquire_leases(
             execution_id,
             [{"kind": "workspace", "key": verification_workspace, "mode": "exclusive"}],
             ttl_seconds=max(timeout_seconds + 30, 60),
         )
         try:
-            observed = self.run_command(
+            observed = self.executions.run_command(
                 execution_id,
                 command,
                 generation=generation,
@@ -244,10 +258,12 @@ class QAService:
                 allowed_exit_codes={0},
             )
         finally:
-            self.retire_workspace(verification_workspace, force=True)
+            self.workspaces.retire_workspace(verification_workspace, force=True)
         passed = observed["status"] == "succeeded"
         if requirement["qa_type"] == "git_clean":
-            stdout = self.artifacts.read(observed["stdout_artifact_id"]).decode("utf-8", errors="replace")
+            stdout = self.executions.artifacts.read(observed["stdout_artifact_id"]).decode(
+                "utf-8", errors="replace"
+            )
             passed = passed and not stdout.strip()
         evidence_id = self.store.record_evidence(
             mission_id=work["mission_id"],
@@ -268,7 +284,12 @@ class QAService:
             result=observed,
             reviewer_session_id=agent_session_id,
         )
-        return {"execution_id": execution_id, "passed": passed, "evidence_id": evidence_id, **observed}
+        return {
+            "execution_id": execution_id,
+            "passed": passed,
+            "evidence_id": evidence_id,
+            **observed,
+        }
 
     def record_independent_review(
         self,
@@ -280,15 +301,9 @@ class QAService:
     ) -> dict[str, Any]:
         if disposition not in {"accept", "changes_requested", "reject"}:
             raise ValueError("unsupported review disposition")
-        requirement = self.store.one(
-            "SELECT * FROM qa_requirements WHERE id=?", (requirement_id,)
-        )
-        work = self.store.one(
-            "SELECT * FROM work_items WHERE id=?", (requirement["work_item_id"],)
-        )
-        reviewer = self.store.one(
-            "SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,)
-        )
+        requirement = self.store.one("SELECT * FROM qa_requirements WHERE id=?", (requirement_id,))
+        work = self.store.one("SELECT * FROM work_items WHERE id=?", (requirement["work_item_id"],))
+        reviewer = self.store.one("SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,))
         if reviewer["mission_id"] != work["mission_id"] or reviewer["role"] not in {
             "independent_reviewer",
             "reviewer",
@@ -311,7 +326,7 @@ class QAService:
             "disposition": disposition,
             "findings": findings or [],
         }
-        execution_id = self.queue_execution(
+        execution_id = self.executions.queue_execution(
             mission_id=work["mission_id"],
             execution_type="independent_review",
             idempotency_key=f"review:{requirement_id}:{reviewer_session_id}:{digest_json(result)}",
@@ -389,8 +404,10 @@ class QAService:
             workspace = db.execute(
                 "SELECT * FROM workspaces WHERE id=?", (implementation["workspace_id"],)
             ).fetchone()
-            actual_revision = self.git_revision(workspace["path"])
-            if actual_revision != work["candidate_revision"] or not self.git_is_clean(workspace["path"]):
+            actual_revision = self.workspaces.git_revision(workspace["path"])
+            if actual_revision != work["candidate_revision"] or not self.workspaces.git_is_clean(
+                workspace["path"]
+            ):
                 raise EvidenceInvalid("candidate changed after QA freeze")
             requirements = db.execute(
                 """SELECT * FROM qa_requirements WHERE work_item_id=? AND phase='candidate'
@@ -400,9 +417,7 @@ class QAService:
             if not requirements:
                 raise EvidenceInvalid("candidate has no QA requirements")
             missing = [
-                row["id"]
-                for row in requirements
-                if row["required"] and row["status"] != "passed"
+                row["id"] for row in requirements if row["required"] and row["status"] != "passed"
             ]
             if missing:
                 raise EvidenceInvalid(f"candidate QA remains incomplete: {missing}")

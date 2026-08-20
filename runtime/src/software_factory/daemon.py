@@ -3,8 +3,8 @@ from __future__ import annotations
 import argparse
 import signal
 import threading
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from .bootstrap import RuntimeContext, open_runtime
 

@@ -7,6 +7,9 @@ from .util import canonical_json, new_id, utc_now
 
 
 class AgentService:
+    def __init__(self, store: Any):
+        self.store = store
+
     """Durable Codex/worker sessions and attributable work-role assignments."""
 
     def create_agent_session(
@@ -27,9 +30,11 @@ class AgentService:
         session_id = new_id("ses")
         now = utc_now()
         with self.store.transaction() as db:
-            if mission_id and db.execute(
-                "SELECT 1 FROM missions WHERE id=?", (mission_id,)
-            ).fetchone() is None:
+            if (
+                mission_id
+                and db.execute("SELECT 1 FROM missions WHERE id=?", (mission_id,)).fetchone()
+                is None
+            ):
                 raise StoreError("mission not found")
             if parent_session_id:
                 parent = db.execute(

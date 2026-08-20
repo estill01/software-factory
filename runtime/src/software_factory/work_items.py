@@ -4,8 +4,13 @@ from collections import defaultdict
 from typing import Any
 
 from .errors import InvalidTransition, StoreError
-from .util import canonical_json, json_load, new_id, normalize_relative_path, utc_now
-
+from .util import (
+    canonical_json,
+    json_load,
+    new_id,
+    normalize_relative_path,
+    utc_now,
+)
 
 _ACCEPTANCE_ORDER = {
     "pending": 0,
@@ -24,14 +29,15 @@ def _scope_conflicts(left: list[str], right: list[str]) -> bool:
         return True
     for first in left:
         for second in right:
-            if first == second or first.startswith(f"{second}/") or second.startswith(
-                f"{first}/"
-            ):
+            if first == second or first.startswith(f"{second}/") or second.startswith(f"{first}/"):
                 return True
     return False
 
 
 class WorkItemService:
+    def __init__(self, store: Any):
+        self.store = store
+
     def create_work_item(
         self,
         *,
@@ -262,9 +268,7 @@ class WorkItemService:
             (mission_id,),
         )
         blocked = {
-            dep["work_item_id"]
-            for dep in dependencies
-            if not self._dependency_satisfied(dep)
+            dep["work_item_id"] for dep in dependencies if not self._dependency_satisfied(dep)
         }
 
         active_rows = self.store.all(

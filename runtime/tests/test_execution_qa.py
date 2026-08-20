@@ -11,9 +11,7 @@ from software_factory import CoreService, LeaseConflict, RoleConflict, StaleLeas
 
 
 def git(repo: Path, *args: str) -> str:
-    process = subprocess.run(
-        ["git", *args], cwd=repo, text=True, capture_output=True, check=True
-    )
+    process = subprocess.run(["git", *args], cwd=repo, text=True, capture_output=True, check=True)
     return process.stdout.strip()
 
 
@@ -212,7 +210,9 @@ def test_hierarchical_path_leases_allow_disjoint_work_and_reject_conflicts(facto
         make_lane(core, repository_id, mission, conflict, base, scope=["src/api"]),
     ]
     executions = []
-    for work, (session, assignment, workspace) in zip((first, second, conflict), lanes):
+    for work, (session, assignment, workspace) in zip(
+        (first, second, conflict), lanes, strict=True
+    ):
         executions.append(
             core.queue_execution(
                 mission_id=mission,
@@ -259,21 +259,36 @@ def test_expired_agent_is_fenced_recovered_and_reassigned(factory) -> None:
         execution,
         [{"kind": "work", "key": work, "mode": "exclusive"}],
     )
-    expired = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)).isoformat()
+    expired = (dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)).isoformat()
     with store.transaction() as db:
-        db.execute("UPDATE leases SET expires_at=? WHERE owner_execution_id=?", (expired, execution))
+        db.execute(
+            "UPDATE leases SET expires_at=? WHERE owner_execution_id=?", (expired, execution)
+        )
     assert core.recover_expired_leases(mission_id=mission) == [execution]
-    assert store.one("SELECT status FROM executions WHERE id=?", (execution,))["status"] == "abandoned"
-    assert store.one("SELECT status FROM work_assignments WHERE id=?", (assignment,))["status"] == "expired"
-    assert store.one("SELECT observed_status FROM agent_sessions WHERE id=?", (session,))["observed_status"] == "lost"
-    assert store.one("SELECT execution_status FROM work_items WHERE id=?", (work,))["execution_status"] == "abandoned"
+    assert (
+        store.one("SELECT status FROM executions WHERE id=?", (execution,))["status"] == "abandoned"
+    )
+    assert (
+        store.one("SELECT status FROM work_assignments WHERE id=?", (assignment,))["status"]
+        == "expired"
+    )
+    assert (
+        store.one("SELECT observed_status FROM agent_sessions WHERE id=?", (session,))[
+            "observed_status"
+        ]
+        == "lost"
+    )
+    assert (
+        store.one("SELECT execution_status FROM work_items WHERE id=?", (work,))["execution_status"]
+        == "abandoned"
+    )
     assert store.one("SELECT status FROM obligations WHERE id=?", (obligation,))["status"] == "open"
     with pytest.raises(StaleLease):
-        core.complete_external_execution(execution, generation=generation, result={"late": True}, succeeded=True)
+        core.complete_external_execution(
+            execution, generation=generation, result={"late": True}, succeeded=True
+        )
 
-    replacement = core.create_agent_session(
-        mission_id=mission, provider="test", role="implementer"
-    )
+    replacement = core.create_agent_session(mission_id=mission, provider="test", role="implementer")
     replacement_assignment = core.assign_work(
         work_item_id=work,
         agent_session_id=replacement,
@@ -291,15 +306,22 @@ def test_expired_agent_is_fenced_recovered_and_reassigned(factory) -> None:
         assignment_id=replacement_assignment,
         workspace_id=workspace,
     )
-    assert core.acquire_leases(
-        replacement_execution,
-        [{"kind": "work", "key": work, "mode": "exclusive"}],
-    ) >= 1
+    assert (
+        core.acquire_leases(
+            replacement_execution,
+            [{"kind": "work", "key": work, "mode": "exclusive"}],
+        )
+        >= 1
+    )
 
 
 def test_candidate_change_stales_prior_qa(factory) -> None:
     store, core, _, repository_id, mission, base = factory
-    acceptance = {"candidate": [{"type": "command", "command": ["python", "-m", "py_compile", "src/feature.py"]}]}
+    acceptance = {
+        "candidate": [
+            {"type": "command", "command": ["python", "-m", "py_compile", "src/feature.py"]}
+        ]
+    }
     _, work = make_work(core, mission, scope=["src"], acceptance_spec=acceptance)
     session, assignment, workspace = make_lane(core, repository_id, mission, work, base)
     first_execution, _, _ = run_feature_implementation(
@@ -331,7 +353,12 @@ def test_candidate_change_stales_prior_qa(factory) -> None:
     )
     second = core.submit_candidate(second_execution, expected_work_version=3)
     assert second["revision"] != first["revision"]
-    assert store.one("SELECT status FROM qa_requirements WHERE id=?", (old_requirement["id"],))["status"] == "stale"
+    assert (
+        store.one("SELECT status FROM qa_requirements WHERE id=?", (old_requirement["id"],))[
+            "status"
+        ]
+        == "stale"
+    )
     assert any(row["candidate_revision"] == second["revision"] for row in second["requirements"])
 
 

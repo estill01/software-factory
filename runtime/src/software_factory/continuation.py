@@ -7,6 +7,10 @@ from .util import canonical_json, utc_now
 
 
 class ContinuationService:
+    def __init__(self, store: Any, work_items: Any):
+        self.store = store
+        self.work_items = work_items
+
     def satisfy_obligation(
         self,
         obligation_id: str,
@@ -79,7 +83,7 @@ class ContinuationService:
                ) ORDER BY created_at""",
             (mission_id,),
         )
-        ready = self.ready_work(mission_id)
+        ready = self.work_items.ready_work(mission_id)
         if ready:
             return {
                 "posture": "executing",
@@ -107,9 +111,7 @@ class ContinuationService:
             (mission_id,),
         )
         reserved = [row for row in open_obligations if row["status"] == "blocked_reserved"]
-        nonreserved = [
-            row for row in open_obligations if row["status"] != "blocked_reserved"
-        ]
+        nonreserved = [row for row in open_obligations if row["status"] != "blocked_reserved"]
 
         if required_gaps or nonreserved:
             if nonreserved:
@@ -152,7 +154,7 @@ class ContinuationService:
         verifier_session_id: str,
     ) -> dict[str, Any]:
         with self.store.transaction() as db:
-            mission = self.store.check_version(
+            self.store.check_version(
                 db, table="missions", row_id=mission_id, expected_version=expected_version
             )
             gaps = db.execute(

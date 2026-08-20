@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from .bootstrap import open_runtime
 
@@ -28,7 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     context = open_runtime(args.home)
-    mission = context.store.one("SELECT * FROM missions WHERE id=?", (args.mission,))
+    mission = context.store.one(
+        "SELECT * FROM missions WHERE id=?", (args.mission,), required=False
+    )
+    if mission is None:
+        raise RuntimeError(f"mission not found: {args.mission}")
     payload = json.loads(args.payload)
     result = {
         "skill": args.skill,

@@ -16,7 +16,7 @@ class RuntimePaths:
     releases: Path
 
     @classmethod
-    def from_root(cls, root: str | Path) -> "RuntimePaths":
+    def from_root(cls, root: str | Path) -> RuntimePaths:
         resolved = Path(root).expanduser().resolve()
         return cls(
             root=resolved,
@@ -27,12 +27,12 @@ class RuntimePaths:
         )
 
     @classmethod
-    def from_environment(cls) -> "RuntimePaths":
+    def from_environment(cls) -> RuntimePaths:
         configured = os.environ.get("SOFTWARE_FACTORY_HOME")
         root = Path(configured).expanduser() if configured else Path.home() / ".software-factory"
         return cls.from_root(root)
 
-    def ensure(self) -> "RuntimePaths":
+    def ensure(self) -> RuntimePaths:
         for directory in (self.root, self.artifacts, self.workspaces, self.releases):
             directory.mkdir(parents=True, exist_ok=True)
         return self

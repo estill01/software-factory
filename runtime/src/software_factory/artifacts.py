@@ -12,9 +12,7 @@ class ArtifactService:
 
     def __init__(self, store: Any, artifact_root: str | Path | None = None):
         self.store = store
-        self.artifact_root = Path(
-            artifact_root or self.store.path.parent / "artifacts"
-        ).resolve()
+        self.artifact_root = Path(artifact_root or self.store.path.parent / "artifacts").resolve()
         self.artifact_root.mkdir(parents=True, exist_ok=True)
 
     def store_bytes(

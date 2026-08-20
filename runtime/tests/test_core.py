@@ -17,7 +17,7 @@ from software_factory import (
     Store,
     StoreError,
 )
-from software_factory.util import canonical_json, digest_json, new_id, utc_now
+from software_factory.util import canonical_json, new_id, utc_now
 
 
 @pytest.fixture()
@@ -97,7 +97,9 @@ def add_execution(
     return execution_id
 
 
-def test_migrations_are_versioned_and_database_is_healthy(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_migrations_are_versioned_and_database_is_healthy(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, _, _, _ = runtime
     migrations = store.all("SELECT version,name,sha256 FROM schema_migrations ORDER BY version")
     assert [row["version"] for row in migrations] == [1, 2, 3, 4, 5, 6]
@@ -105,7 +107,9 @@ def test_migrations_are_versioned_and_database_is_healthy(runtime: tuple[Store, 
     assert store.health()["integrity"] == "ok"
 
 
-def test_event_chain_and_authority_non_widening(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_event_chain_and_authority_non_widening(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     parent = core.add_authority(
         mission_id=mission,
@@ -147,7 +151,9 @@ def test_event_chain_and_authority_non_widening(runtime: tuple[Store, CoreServic
     assert len(mission_row["authority_root"]) == 64
 
 
-def test_command_failure_is_durable_and_idempotency_is_bound(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_command_failure_is_durable_and_idempotency_is_bound(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     authority = core.add_authority(
         mission_id=mission,
@@ -183,14 +189,14 @@ def test_command_failure_is_durable_and_idempotency_is_bound(runtime: tuple[Stor
     assert "boom" in record["error_json"]
     with pytest.raises(StoreError, match="previously failed"):
         store.command(envelope, lambda _: {"unexpected": True})
-    changed = CommandEnvelope(
-        **{**envelope.__dict__, "payload": {"operation": "different"}}
-    )
+    changed = CommandEnvelope(**{**envelope.__dict__, "payload": {"operation": "different"}})
     with pytest.raises(StoreError, match="different command"):
         store.command(changed, lambda _: {"unexpected": True})
 
 
-def test_command_enforces_authority_scope_and_expected_version(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_command_enforces_authority_scope_and_expected_version(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     authority = core.add_authority(
         mission_id=mission,
@@ -232,7 +238,9 @@ def test_command_enforces_authority_scope_and_expected_version(runtime: tuple[St
         store.command(stale, lambda _: {})
 
 
-def test_attempt_failure_does_not_close_obligation(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_attempt_failure_does_not_close_obligation(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     capability = core.add_capability(
         mission_id=mission,
@@ -252,7 +260,9 @@ def test_attempt_failure_does_not_close_obligation(runtime: tuple[Store, CoreSer
     assert obligation in action["obligation_ids"]
 
 
-def test_scheduler_returns_maximal_nonconflicting_set(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_scheduler_returns_maximal_nonconflicting_set(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     _, core, _, mission = runtime
     obligation = core.add_obligation(
         mission_id=mission,
@@ -274,14 +284,14 @@ def test_scheduler_returns_maximal_nonconflicting_set(runtime: tuple[Store, Core
             writable_scope=scope,
             priority=priority,
         )
-        core.select_work(
-            work, expected_version=1, selected_by="selector", basis={"why": title}
-        )
+        core.select_work(work, expected_version=1, selected_by="selector", basis={"why": title})
         identifiers.append(work)
     assert identifiers[:2] == [row["id"] for row in core.ready_work(mission)]
 
 
-def test_candidate_acceptance_does_not_unblock_integrated_dependency(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_candidate_acceptance_does_not_unblock_integrated_dependency(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     obligation = core.add_obligation(
         mission_id=mission, obligation_type="implement", description="Build"
@@ -316,7 +326,9 @@ def test_candidate_acceptance_does_not_unblock_integrated_dependency(runtime: tu
     assert [row["id"] for row in core.ready_work(mission)] == [second]
 
 
-def test_program_revision_is_review_bound_and_preserves_range(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_program_revision_is_review_bound_and_preserves_range(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     program = core.create_program(
         mission_id=mission,
@@ -370,7 +382,9 @@ def test_program_revision_is_review_bound_and_preserves_range(runtime: tuple[Sto
     assert revision_row["review_root"]
 
 
-def test_program_revision_rejects_stale_review(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_program_revision_rejects_stale_review(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
     program = core.create_program(
         mission_id=mission,
@@ -401,11 +415,11 @@ def test_program_revision_rejects_stale_review(runtime: tuple[Store, CoreService
         )
 
 
-def test_stale_capability_update_rejected_and_evidence_required(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_stale_capability_update_rejected_and_evidence_required(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
-    capability = core.add_capability(
-        mission_id=mission, name="Capability", description="works"
-    )
+    capability = core.add_capability(mission_id=mission, name="Capability", description="works")
     evidence = store.record_evidence(
         mission_id=mission,
         evidence_type="focused_probe",
@@ -429,7 +443,9 @@ def test_stale_capability_update_rejected_and_evidence_required(runtime: tuple[S
         )
 
 
-def test_expired_lease_recovery_is_mission_scoped(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_expired_lease_recovery_is_mission_scoped(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, project, mission = runtime
     other = core.create_mission(project_id=project, title="Other", objective="Other")
     work = core.create_work_item(
@@ -442,24 +458,34 @@ def test_expired_lease_recovery_is_mission_scoped(runtime: tuple[Store, CoreServ
         status="running",
         work_item_id=work,
     )
-    expired = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)).isoformat()
+    expired = (dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)).isoformat()
     with store.transaction() as db:
         db.execute(
             """INSERT INTO leases(
                 id,resource_key,mode,owner_execution_id,generation,status,
                 expires_at,heartbeat_at,created_at
             ) VALUES(?,?,?,?,?,?,?,?,?)""",
-            (new_id("lea"), "work:x", "exclusive", execution, 1, "active", expired, expired, expired),
+            (
+                new_id("lea"),
+                "work:x",
+                "exclusive",
+                execution,
+                1,
+                "active",
+                expired,
+                expired,
+                expired,
+            ),
         )
     assert core.next_action(mission)["action"] != "recover_expired_work"
     assert core.next_action(other)["action"] == "recover_expired_work"
 
 
-def test_terminal_completion_requires_current_evidence_and_verifier(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_terminal_completion_requires_current_evidence_and_verifier(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     store, core, _, mission = runtime
-    capability = core.add_capability(
-        mission_id=mission, name="Capability", description="works"
-    )
+    capability = core.add_capability(mission_id=mission, name="Capability", description="works")
     cap_evidence = store.record_evidence(
         mission_id=mission,
         evidence_type="end_to_end_probe",
@@ -526,7 +552,9 @@ def test_terminal_completion_requires_current_evidence_and_verifier(runtime: tup
     assert result["status"] == "completed"
 
 
-def test_false_terminal_completion_is_rejected(runtime: tuple[Store, CoreService, str, str]) -> None:
+def test_false_terminal_completion_is_rejected(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
     _, core, _, mission = runtime
     core.add_capability(mission_id=mission, name="Capability", description="works")
     with pytest.raises((InvalidTransition, EvidenceInvalid, Exception)):

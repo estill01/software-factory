@@ -6,12 +6,13 @@ import json
 import os
 import secrets
 import tempfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 
 def utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+    return dt.datetime.now(dt.UTC).isoformat(timespec="microseconds")
 
 
 def parse_time(value: str | None) -> dt.datetime | None:
@@ -19,8 +20,8 @@ def parse_time(value: str | None) -> dt.datetime | None:
         return None
     parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
-    return parsed.astimezone(dt.timezone.utc)
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed.astimezone(dt.UTC)
 
 
 def canonical_json(value: Any) -> str:
@@ -96,8 +97,7 @@ def scope_contains(parent: Mapping[str, Any], child: Mapping[str, Any]) -> bool:
                 continue
             for item in child_items:
                 if not any(
-                    item == allowed or item.startswith(f"{allowed}/")
-                    for allowed in parent_items
+                    item == allowed or item.startswith(f"{allowed}/") for allowed in parent_items
                 ):
                     return False
         elif isinstance(parent_value, list):

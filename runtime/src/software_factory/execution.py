@@ -3,13 +3,21 @@ from __future__ import annotations
 import datetime as dt
 import os
 import subprocess
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .artifacts import ArtifactService
 from .errors import InvalidTransition, LeaseConflict, StaleLease, StoreError
-from .util import canonical_json, digest_json, json_load, new_id, normalize_relative_path, parse_time, utc_now
-
+from .util import (
+    canonical_json,
+    digest_json,
+    json_load,
+    new_id,
+    normalize_relative_path,
+    parse_time,
+    utc_now,
+)
 
 _TERMINAL_EXECUTION_STATES = {"succeeded", "failed", "abandoned", "cancelled", "invalidated"}
 
@@ -44,9 +52,9 @@ def _leases_conflict(existing: Mapping[str, Any], requested: Mapping[str, Any]) 
 class ExecutionService:
     """Durable execution, fenced resource ownership, observed commands, and recovery."""
 
-    @property
-    def artifacts(self) -> ArtifactService:
-        return ArtifactService(self.store)
+    def __init__(self, store: Any, artifacts: ArtifactService | None = None):
+        self.store = store
+        self.artifacts = artifacts or ArtifactService(store)
 
     def queue_execution(
         self,
@@ -78,7 +86,9 @@ class ExecutionService:
             if work_item_id:
                 work = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
                 if work is None or work["mission_id"] != mission_id:
-                    raise InvalidTransition("execution work item is missing or belongs to another mission")
+                    raise InvalidTransition(
+                        "execution work item is missing or belongs to another mission"
+                    )
             if agent_session_id:
                 session = db.execute(
                     "SELECT * FROM agent_sessions WHERE id=?", (agent_session_id,)
@@ -218,7 +228,7 @@ class ExecutionService:
             generation = int(execution["lease_generation"] or 0) + 1
             if assignment is not None:
                 generation = max(generation, int(assignment["lease_generation"] or 0) + 1)
-            now = dt.datetime.now(dt.timezone.utc)
+            now = dt.datetime.now(dt.UTC)
             expires = (now + dt.timedelta(seconds=ttl_seconds)).isoformat(timespec="microseconds")
             for requested in requested_rows:
                 db.execute(
@@ -267,7 +277,11 @@ class ExecutionService:
                 event_type="execution.leased",
                 subject_type="execution",
                 subject_id=execution_id,
-                payload={"generation": generation, "resources": requested_rows, "expires_at": expires},
+                payload={
+                    "generation": generation,
+                    "resources": requested_rows,
+                    "expires_at": expires,
+                },
             )
         return generation
 
@@ -280,11 +294,12 @@ class ExecutionService:
         ).fetchall()
         if not rows:
             raise StaleLease("execution has no active leases")
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         for row in rows:
             if row["status"] != "active" or row["generation"] != generation:
                 raise StaleLease("execution lease is no longer active")
-            if parse_time(row["expires_at"]) <= now:
+            expires_at = parse_time(row["expires_at"])
+            if expires_at is None or expires_at <= now:
                 raise StaleLease("execution lease expired")
 
     def heartbeat_execution(
@@ -301,7 +316,7 @@ class ExecutionService:
             if execution is None:
                 raise StoreError("execution not found")
             self._assert_generation(db, execution, generation)
-            now = dt.datetime.now(dt.timezone.utc)
+            now = dt.datetime.now(dt.UTC)
             expires = (now + dt.timedelta(seconds=ttl_seconds)).isoformat(timespec="microseconds")
             db.execute(
                 """UPDATE leases SET heartbeat_at=?,expires_at=?
@@ -362,9 +377,11 @@ class ExecutionService:
         workspace = self.store.one(
             "SELECT * FROM workspaces WHERE id=?", (execution["workspace_id"],)
         )
-        work = self.store.one(
-            "SELECT * FROM work_items WHERE id=?", (execution["work_item_id"],)
-        ) if execution["work_item_id"] else None
+        work = (
+            self.store.one("SELECT * FROM work_items WHERE id=?", (execution["work_item_id"],))
+            if execution["work_item_id"]
+            else None
+        )
         self.start_execution(execution_id, generation=generation)
         path = Path(workspace["path"])
         before = subprocess.run(
@@ -372,14 +389,13 @@ class ExecutionService:
         ).stdout.strip()
         env = os.environ.copy()
         env.update({str(key): str(value) for key, value in (env_overrides or {}).items()})
-        started = dt.datetime.now(dt.timezone.utc)
+        started = dt.datetime.now(dt.UTC)
         try:
             process = subprocess.run(
                 list(command),
                 cwd=path,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 timeout=timeout_seconds,
                 check=False,
             )
@@ -392,7 +408,7 @@ class ExecutionService:
                 stderr=(exc.stderr or b"") + b"\nsoftware-factory: timeout",
             )
             timed_out = True
-        finished = dt.datetime.now(dt.timezone.utc)
+        finished = dt.datetime.now(dt.UTC)
         stdout = process.stdout if isinstance(process.stdout, bytes) else process.stdout.encode()
         stderr = process.stderr if isinstance(process.stderr, bytes) else process.stderr.encode()
         stdout_id = self.artifacts.store_bytes(
@@ -417,7 +433,11 @@ class ExecutionService:
             ["git", "rev-parse", "HEAD"], cwd=path, text=True, capture_output=True, check=True
         ).stdout.strip()
         changed_output = subprocess.run(
-            ["git", "status", "--porcelain=v1"], cwd=path, text=True, capture_output=True, check=True
+            ["git", "status", "--porcelain=v1"],
+            cwd=path,
+            text=True,
+            capture_output=True,
+            check=True,
         ).stdout
         dirty_files = sorted(
             {
@@ -427,14 +447,25 @@ class ExecutionService:
             }
         )
         committed_output = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACDMRTUXB", workspace["base_revision"], after],
+            [
+                "git",
+                "diff",
+                "--name-only",
+                "--diff-filter=ACDMRTUXB",
+                workspace["base_revision"],
+                after,
+            ],
             cwd=path,
             text=True,
             capture_output=True,
             check=True,
         ).stdout
         committed_files = sorted(
-            {normalize_relative_path(line) for line in committed_output.splitlines() if line.strip()}
+            {
+                normalize_relative_path(line)
+                for line in committed_output.splitlines()
+                if line.strip()
+            }
         )
         changed_files = sorted(set(dirty_files) | set(committed_files))
         allowed_scope = json_load(work["writable_scope_json"], []) if work else []
@@ -471,9 +502,7 @@ class ExecutionService:
             "source_revision_after": after,
         }
         with self.store.transaction() as db:
-            current = db.execute(
-                "SELECT * FROM executions WHERE id=?", (execution_id,)
-            ).fetchone()
+            current = db.execute("SELECT * FROM executions WHERE id=?", (execution_id,)).fetchone()
             self._assert_generation(db, current, generation)
             status = "succeeded" if success else "failed"
             db.execute(
@@ -527,7 +556,11 @@ class ExecutionService:
                     "failure_fingerprint": failure_fingerprint,
                 },
             )
-        return observed | {"status": "succeeded" if success else "failed", "stdout_artifact_id": stdout_id, "stderr_artifact_id": stderr_id}
+        return observed | {
+            "status": "succeeded" if success else "failed",
+            "stdout_artifact_id": stdout_id,
+            "stderr_artifact_id": stderr_id,
+        }
 
     def complete_external_execution(
         self,
@@ -573,7 +606,7 @@ class ExecutionService:
         return self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
 
     def recover_expired_leases(self, *, mission_id: str | None = None) -> list[str]:
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         query = """SELECT DISTINCT e.* FROM leases l
                    JOIN executions e ON e.id=l.owner_execution_id
                    WHERE l.status='active' AND julianday(l.expires_at)<=julianday(?)"""
@@ -619,7 +652,10 @@ class ExecutionService:
                     event_type="execution.abandoned_after_lease_expiry",
                     subject_type="execution",
                     subject_id=execution["id"],
-                    payload={"work_item_id": execution["work_item_id"], "assignment_id": execution["assignment_id"]},
+                    payload={
+                        "work_item_id": execution["work_item_id"],
+                        "assignment_id": execution["assignment_id"],
+                    },
                 )
                 recovered.append(execution["id"])
         return recovered

@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
-from .errors import InvalidTransition, StoreError
-from .util import canonical_json, ensure_within, json_load, new_id, normalize_relative_path, utc_now
+from .errors import InvalidTransition
+from .util import (
+    canonical_json,
+    ensure_within,
+    json_load,
+    new_id,
+    normalize_relative_path,
+    utc_now,
+)
 
 
 class GitCommandError(RuntimeError):
@@ -18,13 +26,14 @@ class GitCommandError(RuntimeError):
         self.stderr = stderr
 
 
-def _run(command: Sequence[str], *, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run(
+    command: Sequence[str], *, cwd: Path, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     process = subprocess.run(
         list(command),
         cwd=cwd,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=False,
     )
     if check and process.returncode != 0:
@@ -40,6 +49,9 @@ def _safe_branch(value: str) -> str:
 
 
 class WorkspaceService:
+    def __init__(self, store: Any):
+        self.store = store
+
     """Real Git branch/worktree lifecycle owner for implementation and candidate lanes."""
 
     def git_revision(self, path: str | Path) -> str:
@@ -51,7 +63,9 @@ class WorkspaceService:
     def git_is_clean(self, path: str | Path) -> bool:
         return not _run(["git", "status", "--porcelain=v1"], cwd=Path(path)).stdout.strip()
 
-    def changed_files(self, path: str | Path, base_revision: str, revision: str = "HEAD") -> list[str]:
+    def changed_files(
+        self, path: str | Path, base_revision: str, revision: str = "HEAD"
+    ) -> list[str]:
         output = _run(
             ["git", "diff", "--name-only", "--diff-filter=ACDMRTUXB", base_revision, revision],
             cwd=Path(path),
@@ -87,7 +101,11 @@ class WorkspaceService:
         base = base_revision or repository["current_revision"] or self.git_revision(repo_path)
         _run(["git", "rev-parse", "--verify", f"{base}^{{commit}}"], cwd=repo_path)
         policy = json_load(repository["workspace_policy_json"], {})
-        root = Path(workspace_root or policy.get("workspace_root") or repo_path.parent / ".software-factory-worktrees")
+        root = Path(
+            workspace_root
+            or policy.get("workspace_root")
+            or repo_path.parent / ".software-factory-worktrees"
+        )
         root.mkdir(parents=True, exist_ok=True)
         branch_name = _safe_branch(branch or f"sf/{mission_id[:12]}/{workspace_id}")
         path = ensure_within(root / workspace_id, root)
@@ -176,10 +194,17 @@ class WorkspaceService:
         changed = self.changed_files(path, workspace["base_revision"], revision)
         allowed = json_load(workspace["writable_scope_json"], [])
         for changed_path in changed:
-            if allowed and "*" not in allowed and not any(
-                changed_path == scope or changed_path.startswith(f"{scope}/") for scope in allowed
+            if (
+                allowed
+                and "*" not in allowed
+                and not any(
+                    changed_path == scope or changed_path.startswith(f"{scope}/")
+                    for scope in allowed
+                )
             ):
-                raise InvalidTransition(f"candidate changed path outside writable scope: {changed_path}")
+                raise InvalidTransition(
+                    f"candidate changed path outside writable scope: {changed_path}"
+                )
         with self.store.transaction() as db:
             current = db.execute("SELECT * FROM workspaces WHERE id=?", (workspace_id,)).fetchone()
             version = int(current["state_version"]) + 1
@@ -199,7 +224,12 @@ class WorkspaceService:
                 new_version=version,
                 payload={"revision": revision, "tree": tree, "changed_files": changed},
             )
-        return {"workspace_id": workspace_id, "revision": revision, "tree": tree, "changed_files": changed}
+        return {
+            "workspace_id": workspace_id,
+            "revision": revision,
+            "tree": tree,
+            "changed_files": changed,
+        }
 
     def refresh_workspace_revision(self, workspace_id: str) -> str:
         workspace = self.store.one("SELECT * FROM workspaces WHERE id=?", (workspace_id,))
@@ -216,7 +246,9 @@ class WorkspaceService:
         if workspace["status"] == "retired":
             return
         if not force and not self.git_is_clean(workspace["path"]):
-            raise InvalidTransition("dirty workspace must be retained or preserved before retirement")
+            raise InvalidTransition(
+                "dirty workspace must be retained or preserved before retirement"
+            )
         repository = self.store.one(
             "SELECT * FROM repositories WHERE id=?", (workspace["repository_id"],)
         )
