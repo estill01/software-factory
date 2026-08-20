@@ -1,38 +1,28 @@
-name: Software Factory v2 composition landing
+name: Software Factory v2 CI
 
 on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
   pull_request:
     branches:
       - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: software-factory-v2-composition-landing
+  group: software-factory-v2-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  land:
+  runtime:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/software-factory-v2-native-refactor
           fetch-depth: 0
-
-      - name: Apply the reviewable composition patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          parts=(.sf-patches/composition/part-*)
-          test ${#parts[@]} -gt 0
-          cat "${parts[@]}" > "$RUNNER_TEMP/composition.patch"
-          git apply --check "$RUNNER_TEMP/composition.patch"
-          git apply --index "$RUNNER_TEMP/composition.patch"
-          python .sf-patches/composition-fix.py
 
       - uses: actions/setup-python@v5
         with:
@@ -40,14 +30,8 @@ jobs:
           cache: pip
           cache-dependency-path: runtime/pyproject.toml
 
-      - name: Install development dependencies
+      - name: Install runtime development dependencies
         run: python -m pip install -e 'runtime[dev]'
-
-      - name: Normalize source
-        run: |
-          python -m ruff check --fix runtime/src runtime/tests
-          python -m ruff format runtime/src runtime/tests
-          git add -- runtime/src runtime/tests
 
       - name: Lint
         run: python -m ruff check runtime/src runtime/tests
@@ -82,14 +66,22 @@ jobs:
           "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
           "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
 
-      - name: Finalize normal-source commit
+      - name: Export exact source tree
         shell: bash
         run: |
           set -euo pipefail
-          git rm -r --ignore-unmatch .sf-patches .sf-scratch
-          git add -- runtime/src runtime/tests
-          git diff --cached --check
-          git config user.name "software-factory-v2-bot"
-          git config user.email "software-factory-v2-bot@users.noreply.github.com"
-          git commit -m "refactor: compose runtime services explicitly"
-          git push origin HEAD:agent/software-factory-v2-native-refactor
+          git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-v2-source.tar.gz" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/source-tree.txt"
+
+      - name: Upload exact source tree and wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: software-factory-v2-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/software-factory-v2-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+            ${{ runner.temp }}/source-tree.txt
+            runtime/dist/*.whl
+          if-no-files-found: error
+          retention-days: 30
