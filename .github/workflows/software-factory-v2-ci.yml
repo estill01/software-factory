@@ -82,107 +82,13 @@ jobs:
           "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
           "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
 
-      - name: Replace transport workflow with read-only CI
+      - name: Finalize normal-source commit
         shell: bash
         run: |
           set -euo pipefail
           git rm -r --ignore-unmatch .sf-patches .sf-scratch
-          cat > .github/workflows/software-factory-v2-ci.yml <<'READONLY_CI'
-          name: Software Factory v2 CI
-
-          on:
-            push:
-              branches:
-                - agent/software-factory-v2-native-refactor
-            pull_request:
-              branches:
-                - main
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: software-factory-v2-${{ github.workflow }}-${{ github.ref }}
-            cancel-in-progress: true
-
-          jobs:
-            runtime:
-              runs-on: ubuntu-latest
-              steps:
-                - uses: actions/checkout@v4
-                  with:
-                    fetch-depth: 0
-
-                - uses: actions/setup-python@v5
-                  with:
-                    python-version: '3.11'
-                    cache: pip
-                    cache-dependency-path: runtime/pyproject.toml
-
-                - name: Install runtime development dependencies
-                  run: python -m pip install -e 'runtime[dev]'
-
-                - name: Lint
-                  run: python -m ruff check runtime/src runtime/tests
-
-                - name: Format check
-                  run: python -m ruff format --check runtime/src runtime/tests
-
-                - name: Type check
-                  run: python -m mypy runtime/src/software_factory
-
-                - name: Compile
-                  run: python -m compileall -q runtime/src runtime/tests
-
-                - name: Runtime tests with branch coverage
-                  run: >-
-                    python -m pytest runtime/tests -q
-                    --cov=software_factory --cov-branch
-                    --cov-report=term-missing
-                    --cov-fail-under=72
-
-                - name: Build wheel
-                  run: python -m build --wheel runtime
-
-                - name: Smoke-test installed entrypoints
-                  shell: bash
-                  run: |
-                    set -euo pipefail
-                    python -m venv "$RUNNER_TEMP/install-smoke"
-                    "$RUNNER_TEMP/install-smoke/bin/python" -m pip install runtime/dist/*.whl
-                    HOME_DIR="$RUNNER_TEMP/factory-home"
-                    "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" init
-                    "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
-                    "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
-
-                - name: Export exact source tree
-                  shell: bash
-                  run: |
-                    set -euo pipefail
-                    git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-v2-source.tar.gz" HEAD
-                    git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
-                    git rev-parse HEAD^{tree} > "$RUNNER_TEMP/source-tree.txt"
-
-                - name: Upload exact source tree and wheel
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: software-factory-v2-${{ github.sha }}
-                    path: |
-                      ${{ runner.temp }}/software-factory-v2-source.tar.gz
-                      ${{ runner.temp }}/source-commit.txt
-                      ${{ runner.temp }}/source-tree.txt
-                      runtime/dist/*.whl
-                    if-no-files-found: error
-                    retention-days: 30
-          READONLY_CI
-          git add -- .github/workflows/software-factory-v2-ci.yml runtime/src runtime/tests
+          git add -- runtime/src runtime/tests
           git diff --cached --check
-
-      - name: Commit validated normal source
-        shell: bash
-        run: |
-          set -euo pipefail
           git config user.name "software-factory-v2-bot"
           git config user.email "software-factory-v2-bot@users.noreply.github.com"
           git commit -m "refactor: compose runtime services explicitly"
