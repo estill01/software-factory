@@ -1,9 +1,9 @@
 name: Software Factory v2 composition landing
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/software-factory-v2-native-refactor
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: software-factory-v2-composition-landing
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   land:
