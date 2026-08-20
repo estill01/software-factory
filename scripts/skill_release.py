@@ -51,7 +51,7 @@ TRUSTED_VALIDATOR_PATH = Path(
     "/Users/ethanstillman/.codex/skills/.system/skill-creator/scripts/quick_validate.py"
 )
 TRUSTED_VALIDATOR_SHA256 = (
-    "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51"
+    "1fd66498c219616fd9249eacdf16c458412ea9065a9d887fd716aeef03907762"
 )
 TRUSTED_AUTHORITY_IDS = {
     "reviewers": ("software-factory-release-reviewer-v1",),
