@@ -65,7 +65,10 @@ Completion means:
   `supervise-tracker-runs/references/supervision-policy.md`;
   `implement-tracker-blocks/SKILL.md`;
   `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md`;
-  current accepted release source `73d54524ffa3264bbb245bd59875a9f765af5af7`;
+  current Software Factory source `origin/main` at
+  `60d17b1dfceae232d1e8df62566c6b2ffd9322ba`; active installed release
+  `73d54524ffa3-6fe4cd83a3c0` from accepted release source
+  `73d54524ffa3264bbb245bd59875a9f765af5af7`;
   content-minimized incident evidence `EVT-001488`, `EVT-001513`,
   `EVT-001523`, `EVT-001544`, `EVT-001575`, `EVT-001602`, and
   `EVT-001683` under target `019fb18f-3d03-7ca0-9fe9-68353f0405ce`.
@@ -141,6 +144,7 @@ the last valid state and continues every dependency-independent target frontier.
 
 | Source or predecessor | Exact revision/hash | Disposition | Owning Block | Remaining work |
 |---|---|---|---:|---|
+| Current Software Factory source | `origin/main` at `60d17b1dfceae232d1e8df62566c6b2ffd9322ba` | reuse | 0, 2, 5 | use as the only current repair and integration base; preserve its accepted ancestry |
 | Current active compatibility release source | `73d54524ffa3264bbb245bd59875a9f765af5af7` | reuse | 0 | preserve legacy direct-authority compatibility and current installed behavior |
 | Automatic accepted-release and currentness source | `809fbbaf2aa1b6307a3645497ee7e532d8e788cb`, contained by current source | reuse | 0, 3, 5 | reuse accepted promotion/refresh/rollback/currentness behavior without replaying proof |
 | Shared predecessor of the current release and orchestration lines | `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e` | reuse | 0 | establish ancestry without rewriting either successor history |
@@ -294,9 +298,11 @@ incident regression without rewriting either source lineage or target evidence.
 
 - Historical source revisions `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`,
   `eaa75be5e739915b181819afede8a35a6e654155`, and
-  `f1256468034d323894149ce7e9dc0a770270a6f4`; current accepted source
-  `73d54524ffa3264bbb245bd59875a9f765af5af7`; and accepted currentness fix
-  `809fbbaf2aa1b6307a3645497ee7e532d8e788cb`.
+  `f1256468034d323894149ce7e9dc0a770270a6f4`; current Software Factory source
+  `origin/main` at `60d17b1dfceae232d1e8df62566c6b2ffd9322ba`; active installed
+  release `73d54524ffa3-6fe4cd83a3c0` from source
+  `73d54524ffa3264bbb245bd59875a9f765af5af7`; and accepted currentness
+  fix `809fbbaf2aa1b6307a3645497ee7e532d8e788cb`.
 - The existing automatic-release tracker and exact incident records listed in
   the prior-work map.
 
@@ -479,8 +485,9 @@ from the current accepted source while preserving target and rejected history.
 
 ### Inputs and dependencies
 
-- Block 1 Factory-owned recovery disposition, exact current release/source, and
-  current authorized maintenance mode.
+- Block 1 Factory-owned recovery disposition, exact current Software Factory
+  source, exact active release/source pair, and current authorized maintenance
+  mode.
 
 ### Required work
 
@@ -774,7 +781,8 @@ accept it, integrate it durably, and activate it through the existing owner.
 
 ### Inputs and dependencies
 
-- Blocks 0–4 and the current accepted Software Factory source/release.
+- Blocks 0–4, current Software Factory source, and exact active release/source
+  pair.
 
 ### Required work
 
