@@ -1,4 +1,23 @@
 .DS_Store
 .system/
+
+# Python and test/build products
 **/__pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.json
+htmlcov/
+build/
+dist/
+.venv/
+
+# Software Factory local runtime state and transfer staging
+.sf-upload/
+.software-factory/
+*.db
+*.db-shm
+*.db-wal

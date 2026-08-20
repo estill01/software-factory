@@ -24,6 +24,46 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime development dependencies
+        run: python -m pip install -e 'runtime[dev]'
+
+      - name: Lint
+        run: python -m ruff check runtime/src runtime/tests
+
+      - name: Format check
+        run: python -m ruff format --check runtime/src runtime/tests
+
+      - name: Type check
+        run: python -m mypy runtime/src/software_factory
+
+      - name: Compile
+        run: python -m compileall -q runtime/src runtime/tests
+
+      - name: Runtime tests with branch coverage
+        run: >-
+          python -m pytest runtime/tests -q
+          --cov=software_factory --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=72
+
+      - name: Build wheel
+        run: python -m build --wheel runtime
+
+      - name: Smoke-test installed entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/install-smoke"
+          "$RUNNER_TEMP/install-smoke/bin/python" -m pip install runtime/dist/*.whl
+          HOME_DIR="$RUNNER_TEMP/factory-home"
+          "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" init
+          "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
+          "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
+
       - name: Export exact source tree
         shell: bash
         run: |
@@ -40,18 +80,6 @@ jobs:
             ${{ runner.temp }}/software-factory-v2-source.tar.gz
             ${{ runner.temp }}/source-commit.txt
             ${{ runner.temp }}/source-tree.txt
+            runtime/dist/*.whl
           if-no-files-found: error
           retention-days: 14
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install runtime
-        run: python -m pip install -e 'runtime[dev]'
-
-      - name: Compile
-        run: python -m compileall -q runtime/src runtime/tests
-
-      - name: Runtime tests
-        run: python -m pytest runtime/tests -q
