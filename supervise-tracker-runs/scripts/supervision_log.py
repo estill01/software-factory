@@ -125,6 +125,10 @@ ADAPTIVE_REVIEW_PUBLIC_KEY_PATH = Path(
     "/Users/ethanstillman/.codex/software-factory-release-authority/"
     "reviewers/software-factory-release-reviewer-v1.pem"
 )
+ADAPTIVE_REVIEW_PRIVATE_KEY_PATH = Path(
+    "/Users/ethanstillman/.codex/software-factory-release-private/"
+    "reviewer/software-factory-release-reviewer-v1.private.pem"
+)
 ADAPTIVE_REVIEW_OPENSSL_PATH = Path(
     "/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl"
 )
@@ -19459,6 +19463,62 @@ def trusted_adaptive_reviewer_key() -> bytes:
     )
 
 
+def trusted_adaptive_reviewer_private_key() -> Path:
+    path = ADAPTIVE_REVIEW_PRIVATE_KEY_PATH
+    try:
+        before = path_snapshot(path)
+        private_stat = path.lstat()
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Sealed adaptive reviewer signing key is unavailable"
+        ) from exc
+    if (
+        before is None
+        or not stat.S_ISREG(private_stat.st_mode)
+        or stat.S_ISLNK(private_stat.st_mode)
+        or private_stat.st_size > 8192
+        or private_stat.st_mode & 0o077
+        or private_stat.st_uid != os.getuid()
+    ):
+        raise SupervisionLogError(
+            "Sealed adaptive reviewer signing key posture differs"
+        )
+    for parent in (path.parent, path.parent.parent):
+        try:
+            parent_stat = parent.lstat()
+        except OSError as exc:
+            raise SupervisionLogError(
+                "Adaptive reviewer signing authority owner is unavailable"
+            ) from exc
+        if (
+            not stat.S_ISDIR(parent_stat.st_mode)
+            or stat.S_ISLNK(parent_stat.st_mode)
+            or parent_stat.st_mode & 0o077
+            or parent_stat.st_uid != os.getuid()
+        ):
+            raise SupervisionLogError(
+                "Adaptive reviewer signing authority owner posture differs"
+            )
+    openssl = trusted_adaptive_review_openssl()
+    result = subprocess.run(
+        [str(openssl), "pkey", "-in", str(path), "-pubout", "-outform", "PEM"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if (
+        result.returncode != 0
+        or hashlib.sha256(result.stdout).hexdigest()
+        != ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256
+        or path_snapshot(path) != before
+    ):
+        raise SupervisionLogError(
+            "Sealed adaptive reviewer signing key identity differs"
+        )
+    return path
+
+
 def trusted_adaptive_evaluator_key() -> bytes:
     return trusted_adaptive_authority_key(
         ADAPTIVE_EVALUATOR_PUBLIC_KEY_PATH,
@@ -20142,22 +20202,12 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
-def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
-    (
-        directory,
-        policy,
-        policy_snapshot,
-        all_events,
-        event_snapshot,
-        directory_snapshot,
-    ) = load_control_snapshot(args)
-    active_events = mission_scoped_events(directory, policy, all_events)
-    external_value = load_bounded_canonical_json(
-        args.review_json,
-        label="external adaptive review",
-        maximum_bytes=MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES,
-    )
-    source_record_value = external_value.get("source_decision_record")
+def current_adaptive_review_source(
+    *,
+    active_events: list[dict[str, Any]],
+    policy: Mapping[str, Any],
+    source_record_value: Any,
+) -> dict[str, Any]:
     if type(source_record_value) is not str:
         raise SupervisionLogError("External adaptive review source must be a string")
     source_record = safe_id(
@@ -20202,6 +20252,288 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
     ]
     if not latest or latest[-1].get("record_id") != source_record:
         raise SupervisionLogError("Adaptive review source decision is stale")
+    return source
+
+
+def accepted_adaptive_review_evidence(
+    *,
+    active_events: list[dict[str, Any]],
+    source: Mapping[str, Any],
+    evidence_record_value: Any,
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    if type(evidence_record_value) is not str:
+        raise SupervisionLogError("Adaptive review evidence record must be a string")
+    evidence_record = safe_id(
+        evidence_record_value, label="adaptive review evidence record"
+    )
+    evidence_event = next(
+        (
+            dict(item)
+            for item in active_events
+            if item.get("record_id") == evidence_record
+        ),
+        None,
+    )
+    if (
+        evidence_event is None
+        or evidence_event.get("kind") != "meta-review"
+        or evidence_event.get("category") != "implementation-range-owner"
+        or evidence_event.get("status")
+        != "independent-review-clean-signature-unavailable"
+        or evidence_event.get("resolution_owner") != "supervisor"
+        or evidence_event.get("policy_sha256") != policy.get("policy_sha256")
+    ):
+        raise SupervisionLogError(
+            "Adaptive review evidence is not an accepted independent semantic review"
+        )
+    evidence = evidence_event.get("evidence")
+    reviewer_refs = (
+        [str(item) for item in evidence if str(item).startswith("reviewer:")]
+        if isinstance(evidence, list)
+        and all(type(item) is str for item in evidence)
+        else []
+    )
+    if len(reviewer_refs) != 1:
+        raise SupervisionLogError(
+            "Adaptive review evidence lacks distinct reviewer provenance"
+        )
+    reviewer_parts = reviewer_refs[0].split(":", 2)
+    if len(reviewer_parts) != 3:
+        raise SupervisionLogError(
+            "Adaptive review evidence reviewer provenance differs"
+        )
+    reviewer_id = safe_id(
+        reviewer_parts[1], label="adaptive review evidence reviewer"
+    )
+    runtime = policy.get("runtime")
+    if not isinstance(runtime, Mapping):
+        raise SupervisionLogError("Adaptive review evidence policy roles are unavailable")
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        policy.get("target_thread_id"),
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+        source.get("implementation_owner_id"),
+    }
+    if reviewer_id not in eligible or reviewer_id in disallowed:
+        raise SupervisionLogError(
+            "Adaptive review evidence reviewer is not independently owned"
+        )
+    reviewed_sources = [
+        dict(item)
+        for item in active_events
+        if item.get("kind") == "adaptive-decision"
+        and item.get("record_id") in evidence
+        and item.get("record_sha256") in evidence
+    ]
+    if len(reviewed_sources) != 1:
+        raise SupervisionLogError(
+            "Adaptive review evidence does not bind one exact decision source"
+        )
+    reviewed_source = reviewed_sources[0]
+    stable_fields = (
+        "decision_id",
+        "decision_fingerprint",
+        "decision_source_root",
+        "disposition",
+        "target_class",
+        "effect_class",
+        "candidate_evidence_root",
+        "candidate_owner_id",
+        "proposer_author_id",
+        "implementation_owner_id",
+        "policy_sha256",
+    )
+    if any(source.get(field) != reviewed_source.get(field) for field in stable_fields):
+        raise SupervisionLogError(
+            "Adaptive review evidence does not cover the current decision semantics"
+        )
+    if source.get("target_class") != "target-repository":
+        raise SupervisionLogError(
+            "Adaptive review signer does not replace the distinct Factory evaluator"
+        )
+    return evidence_event
+
+
+def sign_external_adaptive_review(
+    value: dict[str, Any], *, source: Mapping[str, Any], policy: Mapping[str, Any]
+) -> dict[str, Any]:
+    value["review_root"] = digest(adaptive_external_review_root_material(value))
+    private_key = trusted_adaptive_reviewer_private_key()
+    before = path_snapshot(private_key)
+    openssl = trusted_adaptive_review_openssl()
+    with tempfile.TemporaryDirectory(prefix="adaptive-review-sign-") as temp_value:
+        temp = Path(temp_value)
+        content = temp / "review.json"
+        signature_path = temp / "review.sig"
+        content.write_bytes(canonical(adaptive_external_review_signed_material(value)))
+        result = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+        try:
+            signature = signature_path.read_bytes()
+        except OSError as exc:
+            raise SupervisionLogError("Adaptive review signing failed") from exc
+    if (
+        result.returncode != 0
+        or len(signature) != 64
+        or before is None
+        or path_snapshot(private_key) != before
+    ):
+        raise SupervisionLogError("Adaptive review signing failed")
+    value["signature_base64"] = base64.b64encode(signature).decode("ascii")
+    return validate_external_adaptive_review(value, source=source, policy=policy)
+
+
+def write_sealed_adaptive_review(path_value: str, value: Mapping[str, Any]) -> bool:
+    path = Path(path_value).expanduser()
+    if not path.is_absolute() or path.name in {"", ".", ".."}:
+        raise SupervisionLogError("Adaptive review output path must be absolute")
+    try:
+        parent = path.parent.resolve(strict=True)
+        parent_stat = parent.lstat()
+    except OSError as exc:
+        raise SupervisionLogError("Adaptive review output owner is unavailable") from exc
+    if (
+        not stat.S_ISDIR(parent_stat.st_mode)
+        or stat.S_ISLNK(parent_stat.st_mode)
+    ):
+        raise SupervisionLogError("Adaptive review output owner posture differs")
+    path = parent / path.name
+    expected = canonical(value) + b"\n"
+    if path.exists():
+        if path.is_symlink() or path.read_bytes() != expected:
+            raise SupervisionLogError("Existing adaptive review output differs")
+        return True
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = -1
+            handle.write(expected)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as exc:
+        raise SupervisionLogError("Adaptive review output cannot be written safely") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if path.is_symlink() or path.read_bytes() != expected:
+        raise SupervisionLogError("Adaptive review output changed while writing")
+    return False
+
+
+def cmd_adaptive_decision_review_sign(args: argparse.Namespace) -> None:
+    directory, policy, _policy_snapshot, all_events, _event_snapshot, _directory_snapshot = (
+        load_control_snapshot(args)
+    )
+    active_events = mission_scoped_events(directory, policy, all_events)
+    source = current_adaptive_review_source(
+        active_events=active_events,
+        policy=policy,
+        source_record_value=args.source_record,
+    )
+    evidence_event = accepted_adaptive_review_evidence(
+        active_events=active_events,
+        source=source,
+        evidence_record_value=args.review_evidence_record,
+        policy=policy,
+    )
+    value: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "software-factory-adaptive-independent-review",
+        "record_id": f"adaptive-review-{source['record_id']}",
+        "source_decision_record": source["record_id"],
+        "source_decision_sha256": source["record_sha256"],
+        "decision_id": source["decision_id"],
+        "decision_fingerprint": source["decision_fingerprint"],
+        "decision_currentness_root": source["decision_currentness_root"],
+        "decision_semantics_root": source["decision_semantics_root"],
+        "disposition": source["disposition"],
+        "target_class": source["target_class"],
+        "effect_class": source["effect_class"],
+        "candidate_evidence_root": source.get("candidate_evidence_root"),
+        "candidate_owner_id": source.get("candidate_owner_id"),
+        "proposer_author_id": source.get("proposer_author_id"),
+        "implementation_owner_id": source.get("implementation_owner_id"),
+        "reviewer_id": ADAPTIVE_REVIEWER_ID,
+        "evaluator_id": None,
+        "evaluation_evidence_root": None,
+        "evaluator_authority_key_sha256": None,
+        "evaluation_root": None,
+        "evaluation_signature_base64": None,
+        "review_disposition": "accepted",
+        "evaluation_disposition": None,
+        "evidence_root": evidence_event["record_sha256"],
+        "policy_sha256": policy["policy_sha256"],
+        "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+        "review_root": "",
+        "signature_base64": "",
+    }
+    review = sign_external_adaptive_review(value, source=source, policy=policy)
+    duplicate = write_sealed_adaptive_review(args.output_json, review)
+    print(
+        json.dumps(
+            {
+                "duplicate": duplicate,
+                "output_json": str(Path(args.output_json).expanduser()),
+                "record_id": review["record_id"],
+                "review_root": review["review_root"],
+                "evidence_root": review["evidence_root"],
+                "source_decision_record": review["source_decision_record"],
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    active_events = mission_scoped_events(directory, policy, all_events)
+    external_value = load_bounded_canonical_json(
+        args.review_json,
+        label="external adaptive review",
+        maximum_bytes=MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES,
+    )
+    source = current_adaptive_review_source(
+        active_events=active_events,
+        policy=policy,
+        source_record_value=external_value.get("source_decision_record"),
+    )
+    source_record = str(source["record_id"])
     external_review = validate_external_adaptive_review(
         external_value, source=source, policy=policy
     )
@@ -35862,6 +36194,13 @@ def parser() -> argparse.ArgumentParser:
     adaptive_gate.add_argument("--independent-review-record")
     adaptive_gate.add_argument("--request-human-input", action="store_true")
     adaptive_gate.set_defaults(func=cmd_adaptive_decision_gate)
+
+    adaptive_review_sign = subparsers.add_parser("adaptive-decision-review-sign")
+    adaptive_review_sign.add_argument("--target-thread", required=True)
+    adaptive_review_sign.add_argument("--source-record", required=True)
+    adaptive_review_sign.add_argument("--review-evidence-record", required=True)
+    adaptive_review_sign.add_argument("--output-json", required=True)
+    adaptive_review_sign.set_defaults(func=cmd_adaptive_decision_review_sign)
 
     adaptive_review = subparsers.add_parser("adaptive-decision-review")
     adaptive_review.add_argument("--target-thread", required=True)
