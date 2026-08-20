@@ -24,6 +24,41 @@ tracker authoring separate from implementation.
 5. Ask only when a missing decision would materially change scope or ownership;
    otherwise state a bounded assumption and continue.
 
+## Own the canonical program entry point
+
+Every compatible repository uses `docs/tracker.md` as its stable canonical
+implementation-program entry point. Resolve it before creating, amending,
+splitting, renumbering, or verifying any detailed tracker.
+
+- For a new single-program repository, author the complete detailed tracker at
+  `docs/tracker.md` unless a direct requirement or existing repository owner
+  requires a separate detailed path. When the detailed tracker must live
+  elsewhere, create `docs/tracker.md` as the canonical routing index in the
+  same authoring slice.
+- When multiple detailed programs or required successors exist, keep exactly
+  one current program queue in the index. Name stable program-qualified Block
+  identities, exact tracker paths and current hashes, accepted/current status,
+  first eligible Blocks, dependency or activation boundaries, required
+  successor order, terminal observable outcome, and the disposition of every
+  other tracker that might otherwise look active.
+- For an existing repository without the entry point, migrate narrowly.
+  Preserve detailed tracker bytes, accepted status, evidence, and interpretable
+  history; archive or classify displaced `docs/tracker.md` bytes explicitly;
+  update only routing references that must follow the stable entry point. Do
+  not renumber detailed Blocks merely to make a global-looking sequence.
+- Treat assigned spans, task labels, run IDs, waves, reviewer scopes, watcher
+  cursors, and automation batches as scheduling metadata, never as authority
+  to narrow or complete the canonical program range.
+- A canonical-index edit changes routing, not implementation status. It cannot
+  accept a Block, replay or replace proof, contract direct-user scope, infer a
+  successor's completion, or make a historical tracker current.
+
+Do not finish tracker authoring while `docs/tracker.md` is missing, points to
+stale tracker bytes, leaves two programs apparently active, omits a required
+successor needed for the stated outcome, or conflicts with repository
+instructions. Repair those defects within the bounded authoring scope and
+continue without asking for manual Resume.
+
 Read [references/block-contract.md](references/block-contract.md) before
 creating or materially restructuring blocks. For a new tracker, copy and adapt
 [assets/implementation-tracker-template.md](assets/implementation-tracker-template.md)
@@ -286,11 +321,20 @@ checks, and link checks when applicable. Inspect the final diff for stale block
 numbers, status drift, duplicated ownership, dependency cycles, unsupported
 completion claims, and stop-boundary overlap.
 
+Verify the canonical entry point too. When `docs/tracker.md` is itself the
+detailed tracker, the normal verifier covers it. When it is a routing index,
+mechanically prove that it has exactly one active program, every active or
+required successor path exists, every recorded current hash matches exact file
+bytes, program-qualified Block identities do not collide, the first eligible
+Block agrees with detailed tracker status and dependencies, and every other
+tracked implementation document has an explicit noncompeting disposition.
+
 ## Finish at the authoring boundary
 
 If the user asked to write the tracker, commit only the owned, validated tracker
-slice when repository policy permits. Report the tracker path, block range,
-material assumptions, verifier results, and first eligible block.
+slice when repository policy permits. Report `docs/tracker.md`, the selected
+detailed tracker path, program-qualified block range, material assumptions,
+verifier results, and first eligible block.
 
 Do not implement a block during tracker authoring unless the user separately
 requests implementation. Hand implementation to `$implement-tracker-blocks`,
