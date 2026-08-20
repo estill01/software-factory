@@ -79,13 +79,13 @@ index 6a98e3a36c238db6fae19284acf978efc8bd8601..3d531a96448de758659a77803bf7181c
 +            raise AttributeError(f"ambiguous service method: {name}")
 +        raise AttributeError(name)
 diff --git a/runtime/src/software_factory/daemon.py b/runtime/src/software_factory/daemon.py
-index d6ba9fb6e14821304cf89b7d1527088f46e6aeb7..3e7823d74566c018ba7955b6678552e595b18c47 100644
+index 62d8cc33ecc837bff1b63e988200f4674ef406e3..9f6c4efcf2c99be9fef66cf8c0b8ef20aaef4b00 100644
 --- a/runtime/src/software_factory/daemon.py
 +++ b/runtime/src/software_factory/daemon.py
-@@ -4,8 +4,8 @@ import argparse
+@@ -3,8 +3,8 @@ from __future__ import annotations
+ import argparse
  import signal
  import threading
- import time
 +from collections.abc import Sequence
  from pathlib import Path
 -from typing import Sequence
