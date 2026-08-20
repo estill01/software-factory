@@ -264,6 +264,12 @@ python3 scripts/supervision_log.py adaptive-decision-review \
   --target-thread <target-thread-id> \
   --review-json <externally-signed-review.json>
 
+python3 scripts/supervision_log.py adaptive-decision-review-sign \
+  --target-thread <target-thread-id> \
+  --source-record <current-review-required-decision-event> \
+  --review-evidence-record <clean-independent-semantic-review-event> \
+  --output-json <absolute-immutable-signed-review-path>
+
 python3 scripts/supervision_log.py adaptive-decision-gate \
   --target-thread <target-thread-id> \
   --decision-evidence <same-canonical-decision-evidence.json> \
