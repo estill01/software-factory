@@ -1,0 +1,120 @@
+diff --git a/runtime/src/software_factory/program.py b/runtime/src/software_factory/program.py
+index 0d32812ec38dd8efeede2f1da946fe7c8d3f3849..63a452fd7a7735e048fc62f74111b8bfae8994eb 100644
+--- a/runtime/src/software_factory/program.py
++++ b/runtime/src/software_factory/program.py
+@@ -7,6 +7,9 @@ from .util import canonical_json, digest_json, json_load, new_id, utc_now
+ 
+ 
+ class ProgramService:
++    def __init__(self, store: Any):
++        self.store = store
++
+     def create_program(
+         self,
+         *,
+diff --git a/runtime/src/software_factory/qa.py b/runtime/src/software_factory/qa.py
+index fb4b393100ce4125c80588d4752fe52f53f94f49..5667c72ffb502c2c70f6778bd824a0c7cde1dc77 100644
+--- a/runtime/src/software_factory/qa.py
++++ b/runtime/src/software_factory/qa.py
+@@ -9,6 +9,11 @@ from .util import canonical_json, digest_json, json_load, new_id, utc_now
+ class QAService:
+     """Revision-bound QA generation, execution, independent review, and acceptance."""
+ 
++    def __init__(self, store: Any, workspaces: Any, executions: Any):
++        self.store = store
++        self.workspaces = workspaces
++        self.executions = executions
++
+     def _candidate_context(self, db: Any, work_item_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+         work_row = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
+         if work_row is None:
+@@ -37,7 +42,7 @@ class QAService:
+             raise InvalidTransition("only a successful implementation execution can submit a candidate")
+         if not execution["workspace_id"]:
+             raise InvalidTransition("candidate execution has no workspace")
+-        frozen = self.freeze_workspace(execution["workspace_id"])
++        frozen = self.workspaces.freeze_workspace(execution["workspace_id"])
+         with self.store.transaction() as db:
+             work = self.store.check_version(
+                 db,
+@@ -212,7 +217,7 @@ class QAService:
+             command = ["git", "status", "--porcelain=v1"]
+         if not command:
+             raise InvalidTransition("QA command requirement has no command")
+-        verification_workspace = self.create_workspace(
++        verification_workspace = self.workspaces.create_workspace(
+             repository_id=implementation_workspace["repository_id"],
+             mission_id=work["mission_id"],
+             work_item_id=work["id"],
+@@ -220,7 +225,7 @@ class QAService:
+             base_revision=requirement["candidate_revision"],
+             writable_scope=json_load(work["writable_scope_json"], []),
+         )
+-        execution_id = self.queue_execution(
++        execution_id = self.executions.queue_execution(
+             mission_id=work["mission_id"],
+             execution_type="validation",
+             idempotency_key=f"qa:{requirement_id}:{requirement['candidate_revision']}",
+@@ -230,13 +235,13 @@ class QAService:
+             input_payload={"qa_requirement_id": requirement_id, "command": command},
+             expected_effect={"qa_type": requirement["qa_type"], "revision": requirement["candidate_revision"]},
+         )
+-        generation = self.acquire_leases(
++        generation = self.executions.acquire_leases(
+             execution_id,
+             [{"kind": "workspace", "key": verification_workspace, "mode": "exclusive"}],
+             ttl_seconds=max(timeout_seconds + 30, 60),
+         )
+         try:
+-            observed = self.run_command(
++            observed = self.executions.run_command(
+                 execution_id,
+                 command,
+                 generation=generation,
+@@ -244,10 +249,10 @@ class QAService:
+                 allowed_exit_codes={0},
+             )
+         finally:
+-            self.retire_workspace(verification_workspace, force=True)
++            self.workspaces.retire_workspace(verification_workspace, force=True)
+         passed = observed["status"] == "succeeded"
+         if requirement["qa_type"] == "git_clean":
+-            stdout = self.artifacts.read(observed["stdout_artifact_id"]).decode("utf-8", errors="replace")
++            stdout = self.executions.artifacts.read(observed["stdout_artifact_id"]).decode("utf-8", errors="replace")
+             passed = passed and not stdout.strip()
+         evidence_id = self.store.record_evidence(
+             mission_id=work["mission_id"],
+@@ -311,7 +316,7 @@ class QAService:
+             "disposition": disposition,
+             "findings": findings or [],
+         }
+-        execution_id = self.queue_execution(
++        execution_id = self.executions.queue_execution(
+             mission_id=work["mission_id"],
+             execution_type="independent_review",
+             idempotency_key=f"review:{requirement_id}:{reviewer_session_id}:{digest_json(result)}",
+@@ -389,8 +394,8 @@ class QAService:
+             workspace = db.execute(
+                 "SELECT * FROM workspaces WHERE id=?", (implementation["workspace_id"],)
+             ).fetchone()
+-            actual_revision = self.git_revision(workspace["path"])
+-            if actual_revision != work["candidate_revision"] or not self.git_is_clean(workspace["path"]):
++            actual_revision = self.workspaces.git_revision(workspace["path"])
++            if actual_revision != work["candidate_revision"] or not self.workspaces.git_is_clean(workspace["path"]):
+                 raise EvidenceInvalid("candidate changed after QA freeze")
+             requirements = db.execute(
+                 """SELECT * FROM qa_requirements WHERE work_item_id=? AND phase='candidate'
+diff --git a/runtime/src/software_factory/skill_bridge.py b/runtime/src/software_factory/skill_bridge.py
+index 91d433caa801bde8004139e105a14061e4bb09b8..74ed06f595a84d5973681047a1d70e5d165e7a8a 100644
+--- a/runtime/src/software_factory/skill_bridge.py
++++ b/runtime/src/software_factory/skill_bridge.py
+@@ -2,8 +2,8 @@ from __future__ import annotations
+ 
+ import argparse
+ import json
++from collections.abc import Sequence
+ from pathlib import Path
+-from typing import Sequence
+ 
+ from .bootstrap import open_runtime
+ 

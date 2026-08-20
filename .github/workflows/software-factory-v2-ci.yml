@@ -30,13 +30,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f .sf-patches/pending.patch ]]; then
+          shopt -s nullglob
+          parts=(.sf-patches/composition/part-*)
+          if (( ${#parts[@]} == 0 )); then
             echo "applied=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git apply --check .sf-patches/pending.patch
-          git apply --index .sf-patches/pending.patch
-          git rm .sf-patches/pending.patch .github/workflows/software-factory-v2-apply-patch.yml
+          cat "${parts[@]}" > "$RUNNER_TEMP/composition.patch"
+          test "$(sha256sum "$RUNNER_TEMP/composition.patch" | awk '{print $1}')" = "b44a15ceeee899b2aa788d7f6a3f3f3bf4ce0a92821b2eb2893f33886f706755"
+          git apply --check "$RUNNER_TEMP/composition.patch"
+          git apply --index "$RUNNER_TEMP/composition.patch"
+          git rm -r .sf-patches/composition
           echo "applied=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v5

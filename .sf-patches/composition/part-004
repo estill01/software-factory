@@ -1,0 +1,179 @@
+diff --git a/runtime/src/software_factory/util.py b/runtime/src/software_factory/util.py
+index dc8e729af37e25e912255fac7954381346ee25fa..2056b7ee4cf6a7fcf44f8132f2c9a511fba3799b 100644
+--- a/runtime/src/software_factory/util.py
++++ b/runtime/src/software_factory/util.py
+@@ -6,12 +6,13 @@ import json
+ import os
+ import secrets
+ import tempfile
++from collections.abc import Iterable, Mapping
+ from pathlib import Path, PurePosixPath
+-from typing import Any, Iterable, Mapping
++from typing import Any
+ 
+ 
+ def utc_now() -> str:
+-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
++    return dt.datetime.now(dt.UTC).isoformat(timespec="microseconds")
+ 
+ 
+ def parse_time(value: str | None) -> dt.datetime | None:
+@@ -19,8 +20,8 @@ def parse_time(value: str | None) -> dt.datetime | None:
+         return None
+     parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+     if parsed.tzinfo is None:
+-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+-    return parsed.astimezone(dt.timezone.utc)
++        parsed = parsed.replace(tzinfo=dt.UTC)
++    return parsed.astimezone(dt.UTC)
+ 
+ 
+ def canonical_json(value: Any) -> str:
+diff --git a/runtime/src/software_factory/work_items.py b/runtime/src/software_factory/work_items.py
+index 1e1da2e428202d84133a1788078a8b675bacda57..e2ffcd680c82fd16cb142f273fbd5569286e06ac 100644
+--- a/runtime/src/software_factory/work_items.py
++++ b/runtime/src/software_factory/work_items.py
+@@ -4,7 +4,13 @@ from collections import defaultdict
+ from typing import Any
+ 
+ from .errors import InvalidTransition, StoreError
+-from .util import canonical_json, json_load, new_id, normalize_relative_path, utc_now
++from .util import (
++    canonical_json,
++    json_load,
++    new_id,
++    normalize_relative_path,
++    utc_now,
++)
+ 
+ 
+ _ACCEPTANCE_ORDER = {
+@@ -32,6 +38,9 @@ def _scope_conflicts(left: list[str], right: list[str]) -> bool:
+ 
+ 
+ class WorkItemService:
++    def __init__(self, store: Any):
++        self.store = store
++
+     def create_work_item(
+         self,
+         *,
+diff --git a/runtime/src/software_factory/workspaces.py b/runtime/src/software_factory/workspaces.py
+index 2be2d6af61ede45bc4e5c8c814df982f2111610f..6bf1d1ccc1fabb107a2458662f2771c5b04412d6 100644
+--- a/runtime/src/software_factory/workspaces.py
++++ b/runtime/src/software_factory/workspaces.py
+@@ -2,11 +2,19 @@ from __future__ import annotations
+ 
+ import re
+ import subprocess
++from collections.abc import Sequence
+ from pathlib import Path
+-from typing import Any, Sequence
++from typing import Any
+ 
+-from .errors import InvalidTransition, StoreError
+-from .util import canonical_json, ensure_within, json_load, new_id, normalize_relative_path, utc_now
++from .errors import InvalidTransition
++from .util import (
++    canonical_json,
++    ensure_within,
++    json_load,
++    new_id,
++    normalize_relative_path,
++    utc_now,
++)
+ 
+ 
+ class GitCommandError(RuntimeError):
+@@ -23,8 +31,7 @@ def _run(command: Sequence[str], *, cwd: Path, check: bool = True) -> subprocess
+         list(command),
+         cwd=cwd,
+         text=True,
+-        stdout=subprocess.PIPE,
+-        stderr=subprocess.PIPE,
++        capture_output=True,
+         check=False,
+     )
+     if check and process.returncode != 0:
+@@ -40,6 +47,9 @@ def _safe_branch(value: str) -> str:
+ 
+ 
+ class WorkspaceService:
++    def __init__(self, store: Any):
++        self.store = store
++
+     """Real Git branch/worktree lifecycle owner for implementation and candidate lanes."""
+ 
+     def git_revision(self, path: str | Path) -> str:
+diff --git a/runtime/tests/test_composition.py b/runtime/tests/test_composition.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..7556de53fe40fecfb6b4d79410d7fb1e80a8ba77
+--- /dev/null
++++ b/runtime/tests/test_composition.py
+@@ -0,0 +1,44 @@
++from __future__ import annotations
++
++import tempfile
++from pathlib import Path
++
++import pytest
++
++from software_factory import CoreService, Store
++from software_factory.agents import AgentService
++from software_factory.continuation import ContinuationService
++from software_factory.execution import ExecutionService
++from software_factory.qa import QAService
++from software_factory.work_items import WorkItemService
++from software_factory.workspaces import WorkspaceService
++
++
++def test_core_uses_explicit_composition_not_service_mro() -> None:
++    assert CoreService.__bases__ == (object,)
++    with tempfile.TemporaryDirectory() as temp:
++        core = CoreService(Store(Path(temp) / "factory.db"))
++        assert isinstance(core.agents, AgentService)
++        assert isinstance(core.work_items, WorkItemService)
++        assert isinstance(core.workspaces, WorkspaceService)
++        assert isinstance(core.executions, ExecutionService)
++        assert isinstance(core.qa, QAService)
++        assert isinstance(core.continuation, ContinuationService)
++        assert core.qa.workspaces is core.workspaces
++        assert core.qa.executions is core.executions
++        assert core.continuation.work_items is core.work_items
++
++
++def test_facade_delegates_unique_public_methods() -> None:
++    with tempfile.TemporaryDirectory() as temp:
++        core = CoreService(Store(Path(temp) / "factory.db"))
++        project = core.create_project("composition")
++        mission = core.create_mission(
++            project_id=project,
++            title="Mission",
++            objective="Verify composed facade",
++        )
++        assert mission.startswith("mis_")
++        assert core.next_action(mission)["action"] == "run_terminal_verification"
++        with pytest.raises(AttributeError):
++            getattr(core, "not_a_runtime_method")
+diff --git a/runtime/tests/test_core.py b/runtime/tests/test_core.py
+index d8d7742347fa05c39644b79c74bf446f900777cd..d93961660985827397887023808e73beca00253a 100644
+--- a/runtime/tests/test_core.py
++++ b/runtime/tests/test_core.py
+@@ -17,7 +17,7 @@ from software_factory import (
+     Store,
+     StoreError,
+ )
+-from software_factory.util import canonical_json, digest_json, new_id, utc_now
++from software_factory.util import canonical_json, new_id, utc_now
+ 
+ 
+ @pytest.fixture()
+@@ -442,7 +442,7 @@ def test_expired_lease_recovery_is_mission_scoped(runtime: tuple[Store, CoreServ
+         status="running",
+         work_item_id=work,
+     )
+-    expired = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)).isoformat()
++    expired = (dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)).isoformat()
+     with store.transaction() as db:
+         db.execute(
+             """INSERT INTO leases(

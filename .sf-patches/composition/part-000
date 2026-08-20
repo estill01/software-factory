@@ -1,0 +1,124 @@
+diff --git a/runtime/src/software_factory/agents.py b/runtime/src/software_factory/agents.py
+index c25a34125db32294b74b752c9251e5dc14ea5fb6..126405038861aa95ff2a6bc767c7277744708bb1 100644
+--- a/runtime/src/software_factory/agents.py
++++ b/runtime/src/software_factory/agents.py
+@@ -7,6 +7,9 @@ from .util import canonical_json, new_id, utc_now
+ 
+ 
+ class AgentService:
++    def __init__(self, store: Any):
++        self.store = store
++
+     """Durable Codex/worker sessions and attributable work-role assignments."""
+ 
+     def create_agent_session(
+diff --git a/runtime/src/software_factory/audit.py b/runtime/src/software_factory/audit.py
+index 1feb23a690cc4d32e1e66a1570c68fe9327e44ea..fd8fbd73bf8db13856d7083ae12949f3ba63e65b 100644
+--- a/runtime/src/software_factory/audit.py
++++ b/runtime/src/software_factory/audit.py
+@@ -1,8 +1,9 @@
+ from __future__ import annotations
+ 
+ import sqlite3
++from collections.abc import Callable, Mapping
+ from dataclasses import dataclass, field
+-from typing import Any, Callable, Mapping, TypeVar
++from typing import Any, TypeVar
+ 
+ from .errors import AuthorityDenied, EvidenceInvalid, StoreError
+ from .util import (
+diff --git a/runtime/src/software_factory/capability.py b/runtime/src/software_factory/capability.py
+index 8bf37e26ae62ae0ac9aa7f15f622f5389a515d0d..21217d4135532dafb6010594814dbef287a09a1e 100644
+--- a/runtime/src/software_factory/capability.py
++++ b/runtime/src/software_factory/capability.py
+@@ -4,11 +4,13 @@ from collections import defaultdict
+ from typing import Any
+ 
+ from .errors import EvidenceInvalid, InvalidTransition
+-from .store import Store
+ from .util import canonical_json, new_id, utc_now
+ 
+ 
+ class CapabilityService:
++    def __init__(self, store: Any):
++        self.store = store
++
+     def add_capability(
+         self,
+         *,
+diff --git a/runtime/src/software_factory/cli.py b/runtime/src/software_factory/cli.py
+index 206479ffd7d05a653c2bce0afd81c057de43f871..a6238d0e84cad25b2b56c8de382ec97a66e21168 100644
+--- a/runtime/src/software_factory/cli.py
++++ b/runtime/src/software_factory/cli.py
+@@ -2,8 +2,9 @@ from __future__ import annotations
+ 
+ import argparse
+ import json
++from collections.abc import Sequence
+ from pathlib import Path
+-from typing import Any, Sequence
++from typing import Any
+ 
+ from .bootstrap import open_runtime
+ 
+diff --git a/runtime/src/software_factory/config.py b/runtime/src/software_factory/config.py
+index 6ee39007742b0868888f778251990177df165174..ffa1a3b2cbcd68655994af85661493ba440a3f40 100644
+--- a/runtime/src/software_factory/config.py
++++ b/runtime/src/software_factory/config.py
+@@ -16,7 +16,7 @@ class RuntimePaths:
+     releases: Path
+ 
+     @classmethod
+-    def from_root(cls, root: str | Path) -> "RuntimePaths":
++    def from_root(cls, root: str | Path) -> RuntimePaths:
+         resolved = Path(root).expanduser().resolve()
+         return cls(
+             root=resolved,
+@@ -27,12 +27,12 @@ class RuntimePaths:
+         )
+ 
+     @classmethod
+-    def from_environment(cls) -> "RuntimePaths":
++    def from_environment(cls) -> RuntimePaths:
+         configured = os.environ.get("SOFTWARE_FACTORY_HOME")
+         root = Path(configured).expanduser() if configured else Path.home() / ".software-factory"
+         return cls.from_root(root)
+ 
+-    def ensure(self) -> "RuntimePaths":
++    def ensure(self) -> RuntimePaths:
+         for directory in (self.root, self.artifacts, self.workspaces, self.releases):
+             directory.mkdir(parents=True, exist_ok=True)
+         return self
+diff --git a/runtime/src/software_factory/continuation.py b/runtime/src/software_factory/continuation.py
+index 64e3533c49a924540cdfd6919aa8eb3d1de3d396..89af006fda40c886d52dc8d7e8c4b8002dfe17ad 100644
+--- a/runtime/src/software_factory/continuation.py
++++ b/runtime/src/software_factory/continuation.py
+@@ -7,6 +7,10 @@ from .util import canonical_json, utc_now
+ 
+ 
+ class ContinuationService:
++    def __init__(self, store: Any, work_items: Any):
++        self.store = store
++        self.work_items = work_items
++
+     def satisfy_obligation(
+         self,
+         obligation_id: str,
+@@ -79,7 +83,7 @@ class ContinuationService:
+                ) ORDER BY created_at""",
+             (mission_id,),
+         )
+-        ready = self.ready_work(mission_id)
++        ready = self.work_items.ready_work(mission_id)
+         if ready:
+             return {
+                 "posture": "executing",
+@@ -152,7 +156,7 @@ class ContinuationService:
+         verifier_session_id: str,
+     ) -> dict[str, Any]:
+         with self.store.transaction() as db:
+-            mission = self.store.check_version(
++            self.store.check_version(
+                 db, table="missions", row_id=mission_id, expected_version=expected_version
+             )
+             gaps = db.execute(

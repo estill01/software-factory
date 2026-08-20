@@ -1,0 +1,22 @@
+diff --git a/runtime/tests/test_execution_qa.py b/runtime/tests/test_execution_qa.py
+index 61d14d3339462dd52bd535ee4c19667d61f357d4..ef4a57a708d07cbf89c19b1d3401d29652709f52 100644
+--- a/runtime/tests/test_execution_qa.py
++++ b/runtime/tests/test_execution_qa.py
+@@ -212,7 +212,7 @@ def test_hierarchical_path_leases_allow_disjoint_work_and_reject_conflicts(facto
+         make_lane(core, repository_id, mission, conflict, base, scope=["src/api"]),
+     ]
+     executions = []
+-    for work, (session, assignment, workspace) in zip((first, second, conflict), lanes):
++    for work, (session, assignment, workspace) in zip((first, second, conflict), lanes, strict=True):
+         executions.append(
+             core.queue_execution(
+                 mission_id=mission,
+@@ -259,7 +259,7 @@ def test_expired_agent_is_fenced_recovered_and_reassigned(factory) -> None:
+         execution,
+         [{"kind": "work", "key": work, "mode": "exclusive"}],
+     )
+-    expired = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)).isoformat()
++    expired = (dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)).isoformat()
+     with store.transaction() as db:
+         db.execute("UPDATE leases SET expires_at=? WHERE owner_execution_id=?", (expired, execution))
+     assert core.recover_expired_leases(mission_id=mission) == [execution]
