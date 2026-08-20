@@ -1,0 +1,46 @@
+name: Software Factory v2 source export
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: software-factory-v2-source-export-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-native-refactor
+          fetch-depth: 0
+
+      - name: Export exact branch source
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          tree="$(git rev-parse HEAD^{tree})"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-v2-source.tar.gz" HEAD
+          printf '%s\n' "$commit" > "$RUNNER_TEMP/source-commit.txt"
+          printf '%s\n' "$tree" > "$RUNNER_TEMP/source-tree.txt"
+          sha256sum "$RUNNER_TEMP/software-factory-v2-source.tar.gz" > "$RUNNER_TEMP/source-sha256.txt"
+
+      - name: Upload exact branch source
+        uses: actions/upload-artifact@v4
+        with:
+          name: software-factory-v2-source-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/software-factory-v2-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+            ${{ runner.temp }}/source-tree.txt
+            ${{ runner.temp }}/source-sha256.txt
+          if-no-files-found: error
+          retention-days: 30
