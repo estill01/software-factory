@@ -172,13 +172,23 @@ Repeat independently for additional targets.
 
 - Use the watcher for proactive 20-minute checks. Tighten to 15 minutes only
   during a concrete high-risk/expensive phase and restore 20 minutes afterward.
-- If the compact target read is unavailable, call `watcher-availability`
-  instead of writing an ordinary no-intervention record. At three consecutive
-  same-target, same-fingerprint unavailable reads, the helper opens or reuses
-  one supervision-owned incident and returns the exact autonomous retry and Max
-  route. It must suppress identical unavailable checks until availability or
-  the read trigger changes. Do not interpret an unavailable read as unchanged
-  target state.
+- If the compact target read is unavailable, perform one bounded fallback read
+  in the same wake through the maintained app thread reader: at most four recent
+  turns, tool outputs omitted, no target message, and no implementation-content
+  expansion. Use the fallback result as the wake's one target observation. Only
+  when both reads are unavailable call `watcher-availability`; do not schedule
+  or perform an unchanged intermediate poll. At three consecutive same-target,
+  same-fingerprint compound read failures, the helper opens or reuses one
+  supervision-owned incident and returns the exact autonomous retry and Max
+  route. It must suppress identical unavailable checks until a genuine target
+  or maintained-release revision changes the trigger. Do not interpret an
+  unavailable read as unchanged target state.
+- Treat `watcher_target_currentness=unavailable` as a stale supervision
+  projection. Stale supervision remains advisory and requires the target to stay
+  `in-progress`; it cannot impose a new hold, terminal posture, or inherited
+  Block identity. A time-bounded decision whose exact `until-...` deadline has
+  elapsed remains history only and cannot appear in the current open-decision or
+  blocking-decision posture.
 - Close that incident only after `watcher-availability --read-status
   available-verified` retains one real compact read and one distinct next-state verification,
   and the bound Max reviewer accepts the effectiveness evidence.

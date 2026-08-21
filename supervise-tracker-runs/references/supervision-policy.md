@@ -2026,12 +2026,25 @@ supervision; retain a retryable delivery posture.
 ### Watcher read-availability contract
 
 An unavailable compact target read is coverage state, not semantic no-change
-evidence. Call `watcher-availability --read-status unavailable` with the exact
-state fingerprint and retry trigger. At three consecutive same-target,
-same-fingerprint unavailable reads, the helper appends or reuses one current
-incident, returns an autonomous retry plus bound Max route, and must suppress identical
-unavailable checks until availability or the trigger changes. One
-incident owns later trigger-specific recurrences until effectiveness is proven.
+evidence. Before recording it as unavailable, perform one bounded fallback read
+in the same wake through the maintained app thread reader: at most four recent
+turns, tool outputs omitted, no target message, and no implementation-content
+expansion. The fallback result is the wake's one target observation. Only when
+both reads are unavailable call `watcher-availability --read-status unavailable`
+with the exact state fingerprint and genuine target/release retry trigger; do
+not perform an unchanged intermediate poll. At three consecutive same-target,
+same-fingerprint compound read failures, the helper appends or reuses one
+current incident, returns an autonomous retry plus bound Max route, and must
+suppress identical unavailable checks until a genuine target or maintained-
+release revision changes the trigger. One incident owns later trigger-specific
+recurrences until effectiveness is proven.
+
+While the latest retained target-read projection is unavailable, supervision is
+stale and advisory: required target posture is `in-progress`, and no new hold,
+terminal posture, or inherited Block identity may be imposed from that stale
+projection. An exact time-bounded decision whose `until-...` deadline has
+elapsed remains append-only history and is excluded from current open/blocking
+decision posture.
 
 Recovery requires two distinct retained reads: the real compact read and a
 distinct next-state verification. Call `watcher-availability --read-status
@@ -2078,8 +2091,10 @@ prefer the narrowest correction that gets the intended implementation outcome.
 
 At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
-   gate command. If the compact read is unavailable, call
-   `watcher-availability`; never emit an ordinary no-intervention conclusion.
+   gate command. If the compact read is unavailable, make the one bounded
+   same-wake app-thread fallback defined above. If that also fails, call
+   `watcher-availability`; never emit an ordinary no-intervention conclusion or
+   schedule an unchanged intermediate poll.
    Let the helper enforce the three consecutive read threshold, suppress
    identical unavailable records, and return any autonomous retry/Max route.
    After availability returns, retain the real read plus a distinct next-state

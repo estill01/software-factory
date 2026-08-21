@@ -9688,6 +9688,103 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertFalse(result["human_input_required"])
         self.assertEqual(result, self.reduce(directory, policy))
 
+    def test_derived_roundup_cannot_regress_the_observed_active_block(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "incident",
+                "active_block": "21",
+                "target_thread_id": self.owner,
+            },
+        )
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000002",
+                "kind": "roundup",
+                "active_block": "17",
+                "target_thread_id": self.owner,
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(
+            result["identities"]["members"][0]["active_block"],
+            {
+                "value": "21",
+                "source_record": "EVT-000001",
+                "source_kind": "incident",
+            },
+        )
+
+    def test_unavailable_target_read_is_stale_and_cannot_block(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "check",
+                "category": supervision_log.WATCHER_UNAVAILABLE_CATEGORY,
+                "watcher_read_status": "unavailable",
+                "target_thread_id": self.owner,
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertIn(
+            {
+                "kind": "watcher-target-observation-unavailable",
+                "target_thread_id": self.owner,
+            },
+            result["issues"],
+        )
+
+    def test_expired_time_bounded_decision_is_history_only(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "decision",
+                "decision_id": "DEC-EXPIRED-1234",
+                "phase": "target-acknowledged",
+                "outcome": "safe-deferred",
+                "safe_frontier": "empty",
+                "classification": "reserved-authority",
+                "mission_root": self.owner_mission,
+                "authority_source_class": "system",
+                "authority_source_record": "system-limit-1234",
+                "impact_class": "goal-blocking",
+                "ordinary_means_disabled": True,
+                "independent_mission_review": True,
+                "duration": "until-2026-08-15T22:02:00-07:00-or-explicit-credit-purchase",
+                "target_thread_id": self.owner,
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(result["open_decision_records"], [])
+        self.assertEqual(result["blocking_decision_records"], [])
+        self.assertEqual(
+            result["expired_decisions"],
+            [
+                {
+                    "decision_record_id": "EVT-000001",
+                    "decision_id": "DEC-EXPIRED-1234",
+                    "target_thread_id": self.owner,
+                    "deadline_at": "2026-08-16T05:02:00+00:00",
+                    "current_effect": "history-only",
+                }
+            ],
+        )
+
     def test_public_gate_emits_the_canonical_default_posture(self) -> None:
         self.create_target(self.owner, self.owner_mission)
         args = supervision_log.parser().parse_args(
@@ -14562,6 +14659,41 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             "unavailable",
             "--read-trigger",
             trigger or self.trigger,
+        )
+
+    def test_target_read_currentness_projects_only_retained_results(self) -> None:
+        self.assertEqual(
+            supervision_log.watcher_target_read_currentness([]),
+            {
+                "status": "unobserved",
+                "source_record": None,
+                "incident_id": None,
+            },
+        )
+        unavailable = self.unavailable()["record"]
+        self.assertEqual(
+            supervision_log.watcher_target_read_currentness([unavailable]),
+            {
+                "status": "unavailable",
+                "source_record": unavailable["record_id"],
+                "incident_id": None,
+            },
+        )
+        verified = {
+            "record_id": "EVT-VERIFIED-1234",
+            "category": supervision_log.WATCHER_VERIFIED_CATEGORY,
+            "watcher_read_status": "available-verified",
+            "incident_id": "INC-WATCHER-1234",
+        }
+        self.assertEqual(
+            supervision_log.watcher_target_read_currentness(
+                [unavailable, verified]
+            ),
+            {
+                "status": "available-verified",
+                "source_record": "EVT-VERIFIED-1234",
+                "incident_id": "INC-WATCHER-1234",
+            },
         )
 
     def concurrent_cli(self, arguments: list[str]) -> list[dict[str, object]]:

@@ -5221,6 +5221,40 @@ def watcher_availability_record_base(
     }
 
 
+def watcher_target_read_currentness(
+    all_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project the latest retained target-read result without inventing freshness."""
+
+    latest = next(
+        (
+            item
+            for item in reversed(all_events)
+            if item.get("category")
+            in {
+                WATCHER_UNAVAILABLE_CATEGORY,
+                WATCHER_VERIFIED_CATEGORY,
+                WATCHER_AVAILABILITY_INCIDENT_CATEGORY,
+            }
+            and item.get("watcher_read_status")
+            in {"unavailable", "available-verified"}
+        ),
+        None,
+    )
+    if latest is None:
+        return {
+            "status": "unobserved",
+            "source_record": None,
+            "incident_id": None,
+        }
+    available = latest.get("watcher_read_status") == "available-verified"
+    return {
+        "status": "available-verified" if available else "unavailable",
+        "source_record": latest.get("record_id"),
+        "incident_id": latest.get("incident_id"),
+    }
+
+
 def _cmd_watcher_availability_locked(
     args: argparse.Namespace,
     directory: Path,
@@ -15959,10 +15993,20 @@ def execution_run_identity(
 
 def latest_active_block(all_events: list[dict[str, Any]]) -> dict[str, Any] | None:
     for item in reversed(all_events):
+        if item.get("kind") in {"notification", "roundup", "meta-review"}:
+            continue
         for field in ("active_block", "started_block", "first_eligible_block"):
             value = item.get(field)
-            if isinstance(value, str) and value:
-                return {"value": value, "source_record": item.get("record_id")}
+            if (
+                isinstance(value, str)
+                and value
+                and value != "Supervision transport"
+            ):
+                return {
+                    "value": value,
+                    "source_record": item.get("record_id"),
+                    "source_kind": item.get("kind"),
+                }
     return None
 
 
@@ -16352,7 +16396,36 @@ def load_governing_outcome_members(
     return members, issues, digest(currentness_material), stable
 
 
+def decision_duration_deadline(head: Mapping[str, Any]) -> dt.datetime | None:
+    """Return an exact time-bounded decision deadline when one is declared."""
+
+    duration = head.get("duration")
+    if not isinstance(duration, str) or not duration.startswith("until-"):
+        return None
+    value = duration[len("until-") :]
+    if "-or-" in value:
+        value = value.split("-or-", 1)[0]
+    try:
+        return parse_time(value)
+    except SupervisionLogError:
+        return None
+
+
+def decision_duration_expired(
+    head: Mapping[str, Any], *, now: dt.datetime | None = None
+) -> bool:
+    deadline = decision_duration_deadline(head)
+    if deadline is None:
+        return False
+    current = now or dt.datetime.now(dt.timezone.utc)
+    if current.tzinfo is None:
+        raise SupervisionLogError("Decision currentness time must include a timezone")
+    return current.astimezone(dt.timezone.utc) >= deadline
+
+
 def decision_can_block(head: Mapping[str, Any], policy: dict[str, Any]) -> bool:
+    if decision_duration_expired(head):
+        return False
     mission = bound_mission(policy)
     if mission is None or head.get("mission_root") != mission.get("mission_root"):
         return False
@@ -16513,8 +16586,12 @@ def decision_head_is_open(
     head: Mapping[str, Any],
     all_events: list[dict[str, Any]],
     policy: dict[str, Any],
+    *,
+    now: dt.datetime | None = None,
 ) -> bool:
     if head.get("phase") in DECISION_CORRECTION_PHASES:
+        return False
+    if decision_duration_expired(head, now=now):
         return False
     if decision_successor_reconciliation(head, all_events, policy) is not None:
         return False
@@ -16623,6 +16700,7 @@ def reduce_control_posture(
 
     open_transitions: list[dict[str, Any]] = []
     open_decisions: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    expired_decisions: list[dict[str, Any]] = []
     reconciled_decisions: list[dict[str, Any]] = []
     completion_candidates: list[dict[str, Any]] = []
     subordinate_completion_candidates: list[dict[str, Any]] = []
@@ -16631,6 +16709,14 @@ def reduce_control_posture(
     for member in members:
         member_events = member["events"]
         member_policy = member["policy"]
+        target_read_currentness = watcher_target_read_currentness(member_events)
+        if target_read_currentness["status"] == "unavailable":
+            issues.append(
+                {
+                    "kind": "watcher-target-observation-unavailable",
+                    "target_thread_id": str(member["target_thread_id"]),
+                }
+            )
         open_transitions.extend(
             item
             for item in successor_transition_heads(
@@ -16642,6 +16728,18 @@ def reduce_control_posture(
             if item.get("kind") == "decision" and item.get("decision_id"):
                 heads[str(item["decision_id"])] = item
         for head in heads.values():
+            if decision_duration_expired(head):
+                deadline = decision_duration_deadline(head)
+                expired_decisions.append(
+                    {
+                        "decision_record_id": head.get("record_id"),
+                        "decision_id": head.get("decision_id"),
+                        "target_thread_id": str(member["target_thread_id"]),
+                        "deadline_at": deadline.isoformat() if deadline else None,
+                        "current_effect": "history-only",
+                    }
+                )
+                continue
             reconciliation = decision_successor_reconciliation(
                 head, member_events, member_policy
             )
@@ -16820,6 +16918,7 @@ def reduce_control_posture(
         "open_decision_records": [
             item.get("record_id") for item, _policy, _target in open_decisions
         ],
+        "expired_decisions": expired_decisions,
         "blocking_decision_records": [
             item.get("record_id") for item in blocking_decisions
         ],
@@ -24926,6 +25025,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         owner_event_snapshot=event_snapshot,
         owner_directory_snapshot=directory_snapshot,
     )
+    watcher_currentness = watcher_target_read_currentness(active_events)
     print(
         json.dumps(
             {
@@ -24974,6 +25074,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 ),
                 "decision_count": len(decision_heads),
                 "open_decisions": open_decisions,
+                "watcher_target_currentness": watcher_currentness,
                 "mission_activation_count": len(activation_heads),
                 "current_mission_activation": current_activation,
                 "open_mission_activations": list(open_activations.values()),
