@@ -64,6 +64,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("runtime/src/software_factory/reflection.py")
+          text = path.read_text(encoding="utf-8")
+          old = "        if failure:\n            fingerprint = str(\n"
+          new = "        hypotheses: list[dict[str, Any]]\n        if failure:\n            fingerprint = str(\n"
+          if text.count(old) != 1:
+              raise SystemExit("reflection hypothesis type boundary changed")
+          text = text.replace(old, new, 1)
+          old = "        recurring = {}\n"
+          new = "        recurring: dict[str, int] = {}\n"
+          if text.count(old) != 1:
+              raise SystemExit("reflection recurrence boundary changed")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
           python -m ruff check --fix --unsafe-fixes runtime/src/software_factory/reflection.py
           python -m ruff check --fix runtime/src runtime/tests
           python -m ruff format runtime/src runtime/tests
