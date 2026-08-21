@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from rsi_core import CommandExperimentInput, CommandObservation
+from librsi import CommandExperimentInput, CommandObservation
 
 
 class SubprocessExperimentRunner:

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from rsi_core import RSIKernel
+from librsi import RSIKernel
 
 from software_factory.errors import InvalidTransition
 from software_factory.evolution import EvolutionService
@@ -228,9 +228,7 @@ def test_sequential_and_parallel_portfolios_have_distinct_lane_semantics() -> No
         sequential["id"], currentness_root="current-1234567890abcdef"
     )
     assert active["active_lane_ids_json"] == '["a"]'
-    advanced = evolution.complete_portfolio_lane(
-        sequential["id"], lane_id="a", succeeded=True
-    )
+    advanced = evolution.complete_portfolio_lane(sequential["id"], lane_id="a", succeeded=True)
     assert advanced["active_lane_ids_json"] == '["b"]'
 
     parallel = evolution.create_portfolio(
@@ -320,7 +318,5 @@ def test_selector_policy_requires_frozen_history_forward_shadow_and_review() -> 
     )
     active = evolution.activate_selector_policy(policy["id"])
     assert active["status"] == "active"
-    rolled_back = evolution.rollback_selector_policy(
-        active["id"], evidence_ids=["live-regression"]
-    )
+    rolled_back = evolution.rollback_selector_policy(active["id"], evidence_ids=["live-regression"])
     assert rolled_back["status"] == "rolled_back"

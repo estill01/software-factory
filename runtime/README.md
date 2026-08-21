@@ -16,7 +16,7 @@ the legacy runtime is removed from active execution.
 ## Local usage
 
 ```bash
-python -m pip install -e 'rsi-core[dev]' -e 'runtime[dev]'
+python -m pip install -e '../libRSI[dev]' -e 'runtime[dev]'
 software-factory --home /tmp/software-factory init
 software-factory --home /tmp/software-factory health
 software-factoryd --home /tmp/software-factory --once
@@ -25,10 +25,11 @@ software-factoryd --home /tmp/software-factory --once
 The `sf-skill` entrypoint is the thin runtime bridge used by the five user-facing skill
 interfaces. It does not own a separate ledger or lifecycle.
 
-## Reusable RSI core
+## Reusable RSI library
 
 The recursive program-evolution and selection-quality rules are available through
-the top-level `rsi_core` package. The package is standard-library-only and owns no
+the public [`libRSI`](https://github.com/estill01/libRSI) package. The package is
+standard-library-only and owns no
 database, Git, filesystem, subprocess, or provider effects, so another system can
 reuse the exact-state materiality, currentness, independent-review, portfolio,
 selection, outcome, selector-policy, hypothesis-evidence, and experiment-evaluation

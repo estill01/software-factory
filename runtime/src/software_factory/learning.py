@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-from rsi_core import ExperimentRunner, RSIKernel, RSITransitionError
+from librsi import ExperimentRunner, RSIKernel, RSITransitionError
 
 from .errors import InvalidTransition, StoreError
 from .experiment_runner import SubprocessExperimentRunner
@@ -96,9 +96,10 @@ class LearningService:
         self.experiment_runner = experiment_runner or SubprocessExperimentRunner()
 
     def _require_mission(self, mission_id: str) -> None:
-        if self.store.one(
-            "SELECT id FROM missions WHERE id=?", (mission_id,), required=False
-        ) is None:
+        if (
+            self.store.one("SELECT id FROM missions WHERE id=?", (mission_id,), required=False)
+            is None
+        ):
             raise StoreError(f"mission not found: {mission_id}")
 
     def record_event(
@@ -214,9 +215,7 @@ class LearningService:
                     now,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM learned_signal_candidates WHERE id=?", (candidate_id,)
-        )
+        return self.store.one("SELECT * FROM learned_signal_candidates WHERE id=?", (candidate_id,))
 
     def discover_recurring_sequences(
         self,
@@ -244,9 +243,7 @@ class LearningService:
         examples: dict[tuple[tuple[str, str], ...], list[str]] = defaultdict(list)
         for index in range(0, len(normalized) - sequence_length + 1):
             segment = normalized[index : index + sequence_length]
-            key = tuple(
-                (str(item["event_type"]), str(item["classification"])) for item in segment
-            )
+            key = tuple((str(item["event_type"]), str(item["classification"])) for item in segment)
             sequences[key] += 1
             examples[key].extend(str(item["id"]) for item in segment)
 
@@ -415,7 +412,10 @@ class LearningService:
         if isinstance(event_types, list) and normalized["event_type"] not in event_types:
             return None
         classifications = detector.get("classifications")
-        if isinstance(classifications, list) and normalized["classification"] not in classifications:
+        if (
+            isinstance(classifications, list)
+            and normalized["classification"] not in classifications
+        ):
             return None
         conditions = detector.get("where", [])
         if not isinstance(conditions, list) or not all(
@@ -506,9 +506,7 @@ class LearningService:
         evidence_ids: Sequence[str],
         recurrence_detected: bool = False,
     ) -> dict[str, Any]:
-        occurrence = self.store.one(
-            "SELECT * FROM signal_occurrences WHERE id=?", (occurrence_id,)
-        )
+        occurrence = self.store.one("SELECT * FROM signal_occurrences WHERE id=?", (occurrence_id,))
         if not evidence_ids:
             raise ValueError("signal effectiveness review requires evidence")
         review_id = new_id("signal-effectiveness")
@@ -548,9 +546,7 @@ class LearningService:
                        SET status='revising', updated_at=? WHERE id=?""",
                     (now, occurrence["bundle_id"]),
                 )
-        return self.store.one(
-            "SELECT * FROM signal_effectiveness_reviews WHERE id=?", (review_id,)
-        )
+        return self.store.one("SELECT * FROM signal_effectiveness_reviews WHERE id=?", (review_id,))
 
     def create_reflection(
         self,
@@ -649,9 +645,7 @@ class LearningService:
         weight: float,
         rationale: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        hypothesis = self.store.one(
-            "SELECT * FROM hypotheses_v2 WHERE id=?", (hypothesis_id,)
-        )
+        hypothesis = self.store.one("SELECT * FROM hypotheses_v2 WHERE id=?", (hypothesis_id,))
         update = self.rsi.hypotheses.apply_evidence(
             current_confidence=float(hypothesis["confidence"]),
             evidence_type=evidence_type,
@@ -679,9 +673,7 @@ class LearningService:
                 """UPDATE hypotheses_v2 SET status=?,confidence=?,updated_at=? WHERE id=?""",
                 (update.status, update.confidence, now, hypothesis_id),
             )
-        return self.store.one(
-            "SELECT * FROM hypothesis_evidence_v2 WHERE id=?", (evidence_row_id,)
-        )
+        return self.store.one("SELECT * FROM hypothesis_evidence_v2 WHERE id=?", (evidence_row_id,))
 
     def design_experiment(
         self,
@@ -696,9 +688,7 @@ class LearningService:
         hypothesis_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        self.rsi.experiments.validate_design(
-            design=design, success_criteria=success_criteria
-        )
+        self.rsi.experiments.validate_design(design=design, success_criteria=success_criteria)
         experiment_id = new_id("experiment")
         now = utc_now()
         with self.store.transaction() as db:
@@ -729,9 +719,7 @@ class LearningService:
         cwd: str | Path,
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        experiment = self.store.one(
-            "SELECT * FROM experiments_v2 WHERE id=?", (experiment_id,)
-        )
+        experiment = self.store.one("SELECT * FROM experiments_v2 WHERE id=?", (experiment_id,))
         resolved_cwd = str(Path(cwd).resolve())
         design = _loads(experiment["design_json"], {})
         criteria = _loads(experiment["success_criteria_json"], {})
@@ -768,9 +756,7 @@ class LearningService:
                     started,
                 ),
             )
-        observation = self.experiment_runner.run(
-            command_input, timeout_seconds=timeout_seconds
-        )
+        observation = self.experiment_runner.run(command_input, timeout_seconds=timeout_seconds)
         evaluation = self.rsi.experiments.evaluate_command_result(
             exact_input_root=command_input.exact_input_root,
             success_criteria=criteria,

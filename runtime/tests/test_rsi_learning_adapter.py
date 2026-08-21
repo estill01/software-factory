@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from rsi_core import RSIKernel
+from librsi import RSIKernel
 
 from software_factory.learning import LearningService
 

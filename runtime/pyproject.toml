@@ -7,10 +7,9 @@ name = "software-factory"
 version = "2.0.0.dev6"
 description = "Native SQL-backed autonomous multi-agent software factory"
 requires-python = ">=3.11"
-dependencies = ["rsi-core==0.2.0"]
-
-[tool.uv.sources]
-rsi-core = { path = "../rsi-core", editable = true }
+dependencies = [
+  "libRSI @ git+https://github.com/estill01/libRSI.git@d96cc666c7800681dfdde2f991f841b09155dfe8",
+]
 
 [project.optional-dependencies]
 dev = [
