@@ -3,18 +3,19 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
-
 from rsi_core import RSIKernel
+
 from software_factory.errors import InvalidTransition
 from software_factory.evolution import EvolutionService
 
 
-class TestStore:
+class EvolutionStore:
     def __init__(self) -> None:
         self.connection = sqlite3.connect(":memory:", isolation_level=None)
         self.connection.row_factory = sqlite3.Row
@@ -69,7 +70,7 @@ class TestStore:
 
 
 def service() -> EvolutionService:
-    return EvolutionService(TestStore())  # type: ignore[arg-type]
+    return EvolutionService(EvolutionStore())  # type: ignore[arg-type]
 
 
 def test_evolution_service_uses_the_host_agnostic_rsi_kernel() -> None:

@@ -39,7 +39,9 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: runtime/pyproject.toml
+          cache-dependency-path: |
+            rsi-core/pyproject.toml
+            runtime/pyproject.toml
 
       - name: Apply complete integration chain
         if: steps.request.outputs.pending == 'true'
@@ -53,7 +55,7 @@ jobs:
 
       - name: Install development dependencies
         if: steps.request.outputs.pending == 'true'
-        run: python -m pip install -e 'runtime[dev]'
+        run: python -m pip install -e 'rsi-core[dev]' -e 'runtime[dev]'
 
       - name: Normalize owned source
         if: steps.request.outputs.pending == 'true'
@@ -80,14 +82,16 @@ jobs:
       - name: Behavioral tests with branch coverage
         if: steps.request.outputs.pending == 'true'
         run: >-
-          python -m pytest runtime/tests -q
-          --cov=software_factory --cov-branch
+          python -m pytest rsi-core/tests runtime/tests -q
+          --cov=rsi_core --cov=software_factory --cov-branch
           --cov-report=term-missing
           --cov-fail-under=72
 
-      - name: Build wheel
+      - name: Build wheels
         if: steps.request.outputs.pending == 'true'
-        run: python -m build --wheel runtime
+        run: |
+          python -m build --wheel rsi-core
+          python -m build --wheel runtime
 
       - name: Smoke installed entrypoints
         if: steps.request.outputs.pending == 'true'
@@ -95,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m venv "$RUNNER_TEMP/v2-install"
-          "$RUNNER_TEMP/v2-install/bin/python" -m pip install runtime/dist/*.whl
+          "$RUNNER_TEMP/v2-install/bin/python" -m pip install rsi-core/dist/*.whl runtime/dist/*.whl
           HOME_DIR="$RUNNER_TEMP/factory-home"
           "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" init
           "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" health

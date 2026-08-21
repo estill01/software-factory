@@ -89,7 +89,7 @@ class EvolutionService:
             (mission_id, boundary_type, source_type, source_id),
             required=False,
         )
-        decision = self.rsi.checkpoint(
+        decision = self.rsi.checkpoints.evaluate(
             state=state,
             evidence_ids=evidence,
             previous_fingerprint=(
@@ -145,7 +145,7 @@ class EvolutionService:
         author_session_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        candidate_root = self.rsi.program_change_root(
+        candidate_root = self.rsi.programs.candidate_root(
             scope_id=mission_id,
             program_id=program_id,
             change_kind=change_kind,
@@ -208,7 +208,7 @@ class EvolutionService:
         if change["review_status"] != "pending":
             raise InvalidTransition("program change was already reviewed")
         self._transition(
-            lambda: self.rsi.require_independent_actor(
+            lambda: self.rsi.reviews.require_independent_actor(
                 author_id=change["author_session_id"],
                 reviewer_id=reviewer_session_id,
                 subject="program change author",
@@ -241,7 +241,7 @@ class EvolutionService:
             "SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,)
         )
         self._transition(
-            lambda: self.rsi.require_program_change_application(
+            lambda: self.rsi.programs.require_application(
                 review_status=change["review_status"],
                 application_status=change["application_status"],
                 reviewed_currentness_root=change["currentness_root"],
@@ -361,7 +361,7 @@ class EvolutionService:
         parent_program_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        self.rsi.validate_portfolio_lanes(lanes)
+        self.rsi.portfolios.validate_lanes(lanes)
         portfolio_id = new_id("program-portfolio")
         with self.store.transaction() as db:
             db.execute(
@@ -393,7 +393,7 @@ class EvolutionService:
         )
         lanes = _loads(portfolio["lanes_json"], [])
         transition = self._transition(
-            lambda: self.rsi.activate_portfolio(
+            lambda: self.rsi.portfolios.activate(
                 mode=portfolio["mode"],
                 lanes=lanes,
                 status=portfolio["status"],
@@ -423,7 +423,7 @@ class EvolutionService:
         )
         lanes = _loads(portfolio["lanes_json"], [])
         transition = self._transition(
-            lambda: self.rsi.complete_portfolio_lane(
+            lambda: self.rsi.portfolios.complete_lane(
                 mode=portfolio["mode"],
                 lanes=lanes,
                 status=portfolio["status"],
@@ -505,14 +505,14 @@ class EvolutionService:
             "SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,)
         )
         self._transition(
-            lambda: self.rsi.require_independent_actor(
+            lambda: self.rsi.reviews.require_independent_actor(
                 author_id=selection["proposer_session_id"],
                 reviewer_id=reviewer_session_id,
                 subject="selection proposer",
             )
         )
         evidence = _ids(evidence_ids)
-        review_root = self.rsi.selection_review_root(
+        review_root = self.rsi.selections.review_root(
             selection_id=selection_id,
             disposition=disposition,
             findings=findings,
@@ -566,7 +566,7 @@ class EvolutionService:
             required=False,
         )
         self._transition(
-            lambda: self.rsi.require_selectable(
+            lambda: self.rsi.selections.require_selectable(
                 status=selection["status"],
                 has_accepting_review=accepted_review is not None,
             )
@@ -596,7 +596,7 @@ class EvolutionService:
         )
         if selection["status"] != "selected":
             raise InvalidTransition("only a selected candidate can receive an outcome")
-        self.rsi.validate_causal_confidence(causal_confidence)
+        self.rsi.selections.validate_causal_confidence(causal_confidence)
         outcome_id = new_id("selection-outcome")
         with self.store.transaction() as db:
             db.execute(
@@ -626,7 +626,7 @@ class EvolutionService:
         author_session_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        policy_root = self.rsi.selector_policy_root(policy)
+        policy_root = self.rsi.selector_policies.candidate_root(policy)
         existing = self.store.one(
             """SELECT * FROM selector_policy_candidates_v2
                WHERE mission_id=? AND policy_root=?""",
@@ -666,7 +666,7 @@ class EvolutionService:
             "SELECT * FROM selector_policy_candidates_v2 WHERE id=?", (candidate_id,)
         )
         try:
-            self.rsi.require_independent_actor(
+            self.rsi.reviews.require_independent_actor(
                 author_id=candidate["author_session_id"],
                 reviewer_id=evaluator_session_id,
                 subject="selector-policy",
@@ -678,7 +678,7 @@ class EvolutionService:
         if not evidence_ids:
             raise ValueError("selector-policy evaluation requires evidence")
         evaluation_id = new_id("selector-policy-evaluation")
-        update = self.rsi.policy_evaluation_update(
+        update = self.rsi.selector_policies.evaluation_update(
             evaluation_type=evaluation_type,
             disposition=disposition,
         )
@@ -715,7 +715,7 @@ class EvolutionService:
             "SELECT * FROM selector_policy_candidates_v2 WHERE id=?", (candidate_id,)
         )
         self._transition(
-            lambda: self.rsi.require_selector_policy_activation(
+            lambda: self.rsi.selector_policies.require_activation(
                 historical_status=candidate["historical_status"],
                 forward_status=candidate["forward_status"],
                 review_status=candidate["review_status"],
@@ -756,7 +756,7 @@ class EvolutionService:
             "SELECT * FROM active_selector_policies_v2 WHERE id=?", (policy_id,)
         )
         self._transition(
-            lambda: self.rsi.require_selector_policy_rollback(
+            lambda: self.rsi.selector_policies.require_rollback(
                 status=policy["status"], evidence_ids=evidence_ids
             )
         )

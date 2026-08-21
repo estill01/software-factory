@@ -16,7 +16,7 @@ the legacy runtime is removed from active execution.
 ## Local usage
 
 ```bash
-python -m pip install -e 'runtime[dev]'
+python -m pip install -e 'rsi-core[dev]' -e 'runtime[dev]'
 software-factory --home /tmp/software-factory init
 software-factory --home /tmp/software-factory health
 software-factoryd --home /tmp/software-factory --once
@@ -31,11 +31,15 @@ The recursive program-evolution and selection-quality rules are available throug
 the top-level `rsi_core` package. The package is standard-library-only and owns no
 database, Git, filesystem, subprocess, or provider effects, so another system can
 reuse the exact-state materiality, currentness, independent-review, portfolio,
-selection, outcome, and selector-policy gates with its own persistence adapters.
+selection, outcome, selector-policy, hypothesis-evidence, and experiment-evaluation
+gates with its own persistence and effect adapters.
 
 `software_factory.evolution.EvolutionService` is the reference adapter. It records
 kernel decisions in the existing authoritative Software Factory database and keeps
 tracker mutation, validation, and commits on the governed host side of the boundary.
+`software_factory.learning.LearningService` similarly owns experiment execution and
+persistence while the reusable library determines whether observations support,
+weaken, qualify, or fail to test a hypothesis.
 ## Controller and provider lifecycle
 
 The native controller now owns dependency-ready dispatch as one durable transition:
