@@ -33,6 +33,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 software_factory = ["web/*", "migrations/*.sql"]
+rsi_core = ["README.md", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

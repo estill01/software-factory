@@ -24,6 +24,18 @@ software-factoryd --home /tmp/software-factory --once
 
 The `sf-skill` entrypoint is the thin runtime bridge used by the five user-facing skill
 interfaces. It does not own a separate ledger or lifecycle.
+
+## Reusable RSI core
+
+The recursive program-evolution and selection-quality rules are available through
+the top-level `rsi_core` package. The package is standard-library-only and owns no
+database, Git, filesystem, subprocess, or provider effects, so another system can
+reuse the exact-state materiality, currentness, independent-review, portfolio,
+selection, outcome, and selector-policy gates with its own persistence adapters.
+
+`software_factory.evolution.EvolutionService` is the reference adapter. It records
+kernel decisions in the existing authoritative Software Factory database and keeps
+tracker mutation, validation, and commits on the governed host side of the boundary.
 ## Controller and provider lifecycle
 
 The native controller now owns dependency-ready dispatch as one durable transition:

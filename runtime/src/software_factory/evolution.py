@@ -5,9 +5,11 @@ import json
 import os
 import subprocess
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
+
+from rsi_core import RSIKernel, RSITransitionError
 
 from .errors import InvalidTransition, StoreError
 from .store import Store
@@ -16,10 +18,6 @@ from .util import new_id, utc_now
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def _digest(value: Any) -> str:
-    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
 def _bytes_digest(value: bytes) -> str:
@@ -38,6 +36,9 @@ def _ids(values: Sequence[str] | None) -> list[str]:
     return sorted({str(value) for value in (values or ()) if str(value)})
 
 
+T = TypeVar("T")
+
+
 class EvolutionService:
     """Recursive program evolution and selection-quality RSI.
 
@@ -48,8 +49,16 @@ class EvolutionService:
     transition, not a separate decision-option ontology.
     """
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, *, rsi: RSIKernel | None = None):
         self.store = store
+        self.rsi = rsi or RSIKernel()
+
+    @staticmethod
+    def _transition(operation: Callable[[], T]) -> T:
+        try:
+            return operation()
+        except RSITransitionError as exc:
+            raise InvalidTransition(str(exc)) from exc
 
     def _require_mission(self, mission_id: str) -> None:
         if self.store.one(
@@ -73,7 +82,6 @@ class EvolutionService:
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
         evidence = _ids(evidence_ids)
-        fingerprint = _digest({"state": dict(state), "evidence_ids": evidence})
         previous = self.store.one(
             """SELECT * FROM evolution_checkpoints_v2
                WHERE mission_id=? AND boundary_type=? AND source_type=? AND source_id=?
@@ -81,13 +89,20 @@ class EvolutionService:
             (mission_id, boundary_type, source_type, source_id),
             required=False,
         )
-        if previous is not None and previous["state_fingerprint"] == fingerprint:
+        decision = self.rsi.checkpoint(
+            state=state,
+            evidence_ids=evidence,
+            previous_fingerprint=(
+                str(previous["state_fingerprint"]) if previous is not None else None
+            ),
+        )
+        if not decision.material:
             return {
                 "id": previous["id"],
                 "mission_id": mission_id,
-                "state_fingerprint": fingerprint,
+                "state_fingerprint": decision.state_fingerprint,
                 "material": False,
-                "action": "no_change",
+                "action": decision.action,
             }
         checkpoint_id = new_id("evolution-checkpoint")
         with self.store.transaction() as db:
@@ -103,7 +118,7 @@ class EvolutionService:
                     boundary_type,
                     source_type,
                     source_id,
-                    fingerprint,
+                    decision.state_fingerprint,
                     _canonical(dict(observations)),
                     _canonical(evidence),
                     utc_now(),
@@ -130,22 +145,15 @@ class EvolutionService:
         author_session_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        if not rationale or not change_spec:
-            raise ValueError("program change requires rationale and an effect specification")
-        roots = (requested_range_root, accepted_history_root, currentness_root)
-        if any(len(root) < 16 for root in roots):
-            raise ValueError("program change roots must be stable content identifiers")
-        candidate_root = _digest(
-            {
-                "mission_id": mission_id,
-                "program_id": program_id,
-                "change_kind": change_kind,
-                "rationale": dict(rationale),
-                "change_spec": dict(change_spec),
-                "requested_range_root": requested_range_root,
-                "accepted_history_root": accepted_history_root,
-                "currentness_root": currentness_root,
-            }
+        candidate_root = self.rsi.program_change_root(
+            scope_id=mission_id,
+            program_id=program_id,
+            change_kind=change_kind,
+            rationale=rationale,
+            change_spec=change_spec,
+            requested_range_root=requested_range_root,
+            accepted_history_root=accepted_history_root,
+            currentness_root=currentness_root,
         )
         existing = self.store.one(
             """SELECT * FROM program_change_candidates_v2
@@ -199,8 +207,13 @@ class EvolutionService:
         )
         if change["review_status"] != "pending":
             raise InvalidTransition("program change was already reviewed")
-        if reviewer_session_id == change["author_session_id"]:
-            raise InvalidTransition("program change author cannot independently review it")
+        self._transition(
+            lambda: self.rsi.require_independent_actor(
+                author_id=change["author_session_id"],
+                reviewer_id=reviewer_session_id,
+                subject="program change author",
+            )
+        )
         evidence = _ids(evidence_ids)
         if not evidence:
             raise ValueError("program change review requires evidence")
@@ -227,12 +240,14 @@ class EvolutionService:
         change = self.store.one(
             "SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,)
         )
-        if change["review_status"] != "accepted":
-            raise InvalidTransition("only an accepted program change may be applied")
-        if change["application_status"] not in {"pending", "failed", "rolled_back"}:
-            raise InvalidTransition("program change is not awaiting application")
-        if currentness_root != change["currentness_root"]:
-            raise InvalidTransition("program change currentness root is stale")
+        self._transition(
+            lambda: self.rsi.require_program_change_application(
+                review_status=change["review_status"],
+                application_status=change["application_status"],
+                reviewed_currentness_root=change["currentness_root"],
+                currentness_root=currentness_root,
+            )
+        )
         spec = _loads(change["change_spec_json"], {})
         relative_path = spec.get("tracker_path")
         new_content = spec.get("new_content")
@@ -346,11 +361,7 @@ class EvolutionService:
         parent_program_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        if not lanes:
-            raise ValueError("program portfolio requires at least one lane")
-        lane_ids = [str(lane.get("id", "")) for lane in lanes]
-        if any(not lane_id for lane_id in lane_ids) or len(set(lane_ids)) != len(lane_ids):
-            raise ValueError("portfolio lanes require unique stable ids")
+        self.rsi.validate_portfolio_lanes(lanes)
         portfolio_id = new_id("program-portfolio")
         with self.store.transaction() as db:
             db.execute(
@@ -380,19 +391,21 @@ class EvolutionService:
         portfolio = self.store.one(
             "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
         )
-        if portfolio["status"] != "planned":
-            raise InvalidTransition("portfolio is not awaiting activation")
-        if portfolio["baseline_currentness_root"] != currentness_root:
-            raise InvalidTransition("portfolio baseline is stale")
         lanes = _loads(portfolio["lanes_json"], [])
-        active = [str(lanes[0]["id"])] if portfolio["mode"] == "sequential" else [
-            str(lane["id"]) for lane in lanes if not lane.get("blocked", False)
-        ]
+        transition = self._transition(
+            lambda: self.rsi.activate_portfolio(
+                mode=portfolio["mode"],
+                lanes=lanes,
+                status=portfolio["status"],
+                baseline_currentness_root=portfolio["baseline_currentness_root"],
+                currentness_root=currentness_root,
+            )
+        )
         with self.store.transaction() as db:
             db.execute(
                 """UPDATE program_portfolios_v2
                    SET status='active',active_lane_ids_json=?,updated_at=? WHERE id=?""",
-                (_canonical(active), utc_now(), portfolio_id),
+                (_canonical(list(transition.active_lane_ids)), utc_now(), portfolio_id),
             )
         return self.store.one(
             "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
@@ -408,31 +421,30 @@ class EvolutionService:
         portfolio = self.store.one(
             "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
         )
-        if portfolio["status"] != "active":
-            raise InvalidTransition("portfolio is not active")
-        active = list(_loads(portfolio["active_lane_ids_json"], []))
-        completed = list(_loads(portfolio["completed_lane_ids_json"], []))
-        if lane_id not in active:
-            raise InvalidTransition("lane is not active")
-        active.remove(lane_id)
-        if succeeded:
-            completed.append(lane_id)
         lanes = _loads(portfolio["lanes_json"], [])
-        if portfolio["mode"] == "sequential" and succeeded:
-            remaining = [
-                str(lane["id"])
-                for lane in lanes
-                if str(lane["id"]) not in set(active + completed)
-            ]
-            if remaining:
-                active.append(remaining[0])
-        status = "failed" if not succeeded else ("completed" if not active and len(completed) == len(lanes) else "active")
+        transition = self._transition(
+            lambda: self.rsi.complete_portfolio_lane(
+                mode=portfolio["mode"],
+                lanes=lanes,
+                status=portfolio["status"],
+                active_lane_ids=_loads(portfolio["active_lane_ids_json"], []),
+                completed_lane_ids=_loads(portfolio["completed_lane_ids_json"], []),
+                lane_id=lane_id,
+                succeeded=succeeded,
+            )
+        )
         with self.store.transaction() as db:
             db.execute(
                 """UPDATE program_portfolios_v2
                    SET active_lane_ids_json=?,completed_lane_ids_json=?,status=?,updated_at=?
                    WHERE id=?""",
-                (_canonical(active), _canonical(completed), status, utc_now(), portfolio_id),
+                (
+                    _canonical(list(transition.active_lane_ids)),
+                    _canonical(list(transition.completed_lane_ids)),
+                    transition.status,
+                    utc_now(),
+                    portfolio_id,
+                ),
             )
         return self.store.one(
             "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
@@ -492,18 +504,19 @@ class EvolutionService:
         selection = self.store.one(
             "SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,)
         )
-        if reviewer_session_id == selection["proposer_session_id"]:
-            raise InvalidTransition("selection proposer cannot independently review it")
+        self._transition(
+            lambda: self.rsi.require_independent_actor(
+                author_id=selection["proposer_session_id"],
+                reviewer_id=reviewer_session_id,
+                subject="selection proposer",
+            )
+        )
         evidence = _ids(evidence_ids)
-        if not evidence:
-            raise ValueError("selection review requires evidence")
-        review_root = _digest(
-            {
-                "selection_id": selection_id,
-                "disposition": disposition,
-                "findings": dict(findings),
-                "evidence_ids": evidence,
-            }
+        review_root = self.rsi.selection_review_root(
+            selection_id=selection_id,
+            disposition=disposition,
+            findings=findings,
+            evidence_ids=evidence,
         )
         review_id = new_id("selection-review")
         status = {
@@ -552,10 +565,12 @@ class EvolutionService:
             (selection_id,),
             required=False,
         )
-        if accepted_review is None:
-            raise InvalidTransition("selection requires an independent accepting review")
-        if selection["status"] in {"rejected", "deferred", "superseded"}:
-            raise InvalidTransition("selection candidate is not eligible")
+        self._transition(
+            lambda: self.rsi.require_selectable(
+                status=selection["status"],
+                has_accepting_review=accepted_review is not None,
+            )
+        )
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(
@@ -581,8 +596,7 @@ class EvolutionService:
         )
         if selection["status"] != "selected":
             raise InvalidTransition("only a selected candidate can receive an outcome")
-        if not 0.0 <= causal_confidence <= 1.0:
-            raise ValueError("causal confidence must be between zero and one")
+        self.rsi.validate_causal_confidence(causal_confidence)
         outcome_id = new_id("selection-outcome")
         with self.store.transaction() as db:
             db.execute(
@@ -612,7 +626,7 @@ class EvolutionService:
         author_session_id: str | None = None,
     ) -> dict[str, Any]:
         self._require_mission(mission_id)
-        policy_root = _digest(dict(policy))
+        policy_root = self.rsi.selector_policy_root(policy)
         existing = self.store.one(
             """SELECT * FROM selector_policy_candidates_v2
                WHERE mission_id=? AND policy_root=?""",
@@ -651,23 +665,23 @@ class EvolutionService:
         candidate = self.store.one(
             "SELECT * FROM selector_policy_candidates_v2 WHERE id=?", (candidate_id,)
         )
-        if evaluator_session_id is not None and evaluator_session_id == candidate["author_session_id"]:
-            raise InvalidTransition("selector-policy author cannot independently evaluate it")
+        try:
+            self.rsi.require_independent_actor(
+                author_id=candidate["author_session_id"],
+                reviewer_id=evaluator_session_id,
+                subject="selector-policy",
+            )
+        except RSITransitionError as exc:
+            raise InvalidTransition(
+                "selector-policy author cannot independently evaluate it"
+            ) from exc
         if not evidence_ids:
             raise ValueError("selector-policy evaluation requires evidence")
         evaluation_id = new_id("selector-policy-evaluation")
-        column: str | None = None
-        normalized = disposition
-        if evaluation_type == "historical":
-            column = "historical_status"
-        elif evaluation_type == "forward_shadow":
-            column = "forward_status"
-        elif evaluation_type == "independent_review":
-            column = "review_status"
-            normalized = {
-                "passed": "accepted",
-                "failed": "rejected",
-            }.get(disposition, disposition)
+        update = self.rsi.policy_evaluation_update(
+            evaluation_type=evaluation_type,
+            disposition=disposition,
+        )
         with self.store.transaction() as db:
             db.execute(
                 """INSERT INTO selector_policy_evaluations_v2(
@@ -686,11 +700,11 @@ class EvolutionService:
                     utc_now(),
                 ),
             )
-            if column is not None:
+            if update.status_field is not None:
                 db.execute(
                     f"""UPDATE selector_policy_candidates_v2
-                        SET {column}=?,status='evaluating',updated_at=? WHERE id=?""",
-                    (normalized, utc_now(), candidate_id),
+                        SET {update.status_field}=?,status='evaluating',updated_at=? WHERE id=?""",
+                    (update.normalized_disposition, utc_now(), candidate_id),
                 )
         return self.store.one(
             "SELECT * FROM selector_policy_evaluations_v2 WHERE id=?", (evaluation_id,)
@@ -700,14 +714,13 @@ class EvolutionService:
         candidate = self.store.one(
             "SELECT * FROM selector_policy_candidates_v2 WHERE id=?", (candidate_id,)
         )
-        if not (
-            candidate["historical_status"] == "passed"
-            and candidate["forward_status"] == "passed"
-            and candidate["review_status"] == "accepted"
-        ):
-            raise InvalidTransition(
-                "selector policy requires historical, forward-shadow, and independent-review acceptance"
+        self._transition(
+            lambda: self.rsi.require_selector_policy_activation(
+                historical_status=candidate["historical_status"],
+                forward_status=candidate["forward_status"],
+                review_status=candidate["review_status"],
             )
+        )
         policy_id = new_id("active-selector-policy")
         now = utc_now()
         with self.store.transaction() as db:
@@ -739,13 +752,14 @@ class EvolutionService:
     def rollback_selector_policy(
         self, policy_id: str, *, evidence_ids: Sequence[str]
     ) -> dict[str, Any]:
-        if not evidence_ids:
-            raise ValueError("selector-policy rollback requires evidence")
         policy = self.store.one(
             "SELECT * FROM active_selector_policies_v2 WHERE id=?", (policy_id,)
         )
-        if policy["status"] != "active":
-            raise InvalidTransition("selector policy is not active")
+        self._transition(
+            lambda: self.rsi.require_selector_policy_rollback(
+                status=policy["status"], evidence_ids=evidence_ids
+            )
+        )
         with self.store.transaction() as db:
             db.execute(
                 """UPDATE active_selector_policies_v2

@@ -9,6 +9,7 @@ from typing import Any, Iterator
 
 import pytest
 
+from rsi_core import RSIKernel
 from software_factory.errors import InvalidTransition
 from software_factory.evolution import EvolutionService
 
@@ -69,6 +70,10 @@ class TestStore:
 
 def service() -> EvolutionService:
     return EvolutionService(TestStore())  # type: ignore[arg-type]
+
+
+def test_evolution_service_uses_the_host_agnostic_rsi_kernel() -> None:
+    assert isinstance(service().rsi, RSIKernel)
 
 
 def roots() -> dict[str, str]:
