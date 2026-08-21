@@ -82,6 +82,21 @@ jobs:
                   raise SystemExit(f"reflection type boundary changed: {old!r}")
               text = text.replace(old, new, 1)
           path.write_text(text, encoding="utf-8")
+
+          test_path = Path("runtime/tests/test_reflection.py")
+          test_text = test_path.read_text(encoding="utf-8")
+          replacements = (
+              (
+                  "from software_factory import CoreService, InvalidTransition, Store\n",
+                  "from software_factory import CoreService, InvalidTransition, StaleState, Store\n",
+              ),
+              ("        with pytest.raises(Exception):\n", "        with pytest.raises(StaleState):\n"),
+          )
+          for old, new in replacements:
+              if test_text.count(old) != 1:
+                  raise SystemExit(f"reflection test boundary changed: {old!r}")
+              test_text = test_text.replace(old, new, 1)
+          test_path.write_text(test_text, encoding="utf-8")
           PY
           python -m ruff check --fix --unsafe-fixes runtime/src/software_factory/reflection.py
           python -m ruff check --fix runtime/src runtime/tests
