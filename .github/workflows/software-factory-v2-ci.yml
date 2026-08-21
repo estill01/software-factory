@@ -4,14 +4,17 @@ on:
   push:
     branches:
       - agent/software-factory-v2-native-refactor
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: software-factory-v2-supervision-adaptive-${{ github.ref }}
-  cancel-in-progress: false
+  group: software-factory-v2-supervision-adaptive-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   runtime:
