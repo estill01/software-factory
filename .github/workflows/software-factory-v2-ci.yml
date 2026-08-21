@@ -31,13 +31,13 @@ jobs:
           set -euo pipefail
           git config user.name "software-factory-v2-bot"
           git config user.email "software-factory-v2-bot@users.noreply.github.com"
-          cat .sf-upload/controller-provider/part-* > "$RUNNER_TEMP/slice.patch.gz.b64"
-          test "$(sha256sum "$RUNNER_TEMP/slice.patch.gz.b64" | awk '{print $1}')" = "648f556b693141bd02ec9e2a71223d90dff804896f8cb7d96add8b6e3899c116"
+          cat .sf-upload/controller-provider-v2/part-* > "$RUNNER_TEMP/slice.patch.gz.b64"
+          test "$(sha256sum "$RUNNER_TEMP/slice.patch.gz.b64" | awk '{print $1}')" = "0a94257d1d0de33b6f00a653cd8f216e5fb93cbf3857cc1de00c0c4957ec20f6"
           base64 --decode "$RUNNER_TEMP/slice.patch.gz.b64" > "$RUNNER_TEMP/slice.patch.gz"
           gzip -dc "$RUNNER_TEMP/slice.patch.gz" > "$RUNNER_TEMP/slice.patch"
-          test "$(sha256sum "$RUNNER_TEMP/slice.patch" | awk '{print $1}')" = "5fcf3e181bfc20ebaeac3155c51798520d892d86808726eeff7bd61a2b06ef95"
+          test "$(sha256sum "$RUNNER_TEMP/slice.patch" | awk '{print $1}')" = "5fb03fbfb8bb557e3b52fc66295b5012609b639a1a76bdc987b3a5637f5bb9c4"
           git am "$RUNNER_TEMP/slice.patch"
-          git rm -r .sf-upload/controller-provider
+          git rm -r .sf-upload
           git commit --amend --no-edit
 
       - uses: actions/setup-python@v5
