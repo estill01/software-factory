@@ -1,41 +1,28 @@
-name: Software Factory v2 controller/provider landing
+name: Software Factory v2 CI
 
 on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
   pull_request:
     branches:
       - main
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: software-factory-v2-controller-provider-${{ github.event_name }}-${{ github.ref }}
+  group: software-factory-v2-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  land:
+  runtime:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: agent/software-factory-v2-native-refactor
           fetch-depth: 0
-
-      - name: Reconstruct and apply exact committed slice
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "software-factory-v2-bot"
-          git config user.email "software-factory-v2-bot@users.noreply.github.com"
-          cat .sf-upload/controller-provider-v3/part-* > "$RUNNER_TEMP/slice.patch.gz.b64"
-          test "$(sha256sum "$RUNNER_TEMP/slice.patch.gz.b64" | awk '{print $1}')" = "0a94257d1d0de33b6f00a653cd8f216e5fb93cbf3857cc1de00c0c4957ec20f6"
-          base64 --decode "$RUNNER_TEMP/slice.patch.gz.b64" > "$RUNNER_TEMP/slice.patch.gz"
-          gzip -dc "$RUNNER_TEMP/slice.patch.gz" > "$RUNNER_TEMP/slice.patch"
-          test "$(sha256sum "$RUNNER_TEMP/slice.patch" | awk '{print $1}')" = "5fb03fbfb8bb557e3b52fc66295b5012609b639a1a76bdc987b3a5637f5bb9c4"
-          git am "$RUNNER_TEMP/slice.patch"
-          git rm -r .sf-upload
-          git commit --amend --no-edit
 
       - uses: actions/setup-python@v5
         with:
@@ -45,15 +32,6 @@ jobs:
 
       - name: Install runtime development dependencies
         run: python -m pip install -e 'runtime[dev]'
-
-      - name: Normalize committed source
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m ruff check --fix runtime/src runtime/tests
-          python -m ruff format runtime/src runtime/tests
-          git add -- runtime/src runtime/tests
-          git commit --amend --no-edit
 
       - name: Lint
         run: python -m ruff check runtime/src runtime/tests
@@ -88,8 +66,22 @@ jobs:
           "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
           "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
 
-      - name: Push validated normal source
+      - name: Export exact source tree
         shell: bash
         run: |
           set -euo pipefail
-          git push origin HEAD:agent/software-factory-v2-native-refactor
+          git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-v2-source.tar.gz" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
+          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/source-tree.txt"
+
+      - name: Upload exact source tree and wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: software-factory-v2-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/software-factory-v2-source.tar.gz
+            ${{ runner.temp }}/source-commit.txt
+            ${{ runner.temp }}/source-tree.txt
+            runtime/dist/*.whl
+          if-no-files-found: error
+          retention-days: 30
