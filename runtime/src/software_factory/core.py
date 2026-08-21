@@ -6,9 +6,11 @@ from .agents import AgentService
 from .artifacts import ArtifactService
 from .capability import CapabilityService
 from .continuation import ContinuationService
+from .controller import ControllerService
 from .execution import ExecutionService
 from .mission import MissionService
 from .program import ProgramService
+from .providers import ProviderRegistry
 from .qa import QAService
 from .store import Store
 from .work_items import WorkItemService
@@ -24,8 +26,15 @@ class CoreService:
     existing call surface while each service now has explicit dependencies.
     """
 
-    def __init__(self, store: Store):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        providers: ProviderRegistry | None = None,
+        default_provider: str | None = None,
+    ):
         self.store = store
+        self.providers = providers or ProviderRegistry()
         self.artifact_service = ArtifactService(store)
         self.missions = MissionService(store)
         self.capabilities = CapabilityService(store)
@@ -36,6 +45,16 @@ class CoreService:
         self.executions = ExecutionService(store, self.artifact_service)
         self.qa = QAService(store, self.workspaces, self.executions)
         self.continuation = ContinuationService(store, self.work_items)
+        self.controller = ControllerService(
+            store,
+            work_items=self.work_items,
+            agents=self.agents,
+            workspaces=self.workspaces,
+            executions=self.executions,
+            continuation=self.continuation,
+            providers=self.providers,
+            default_provider=default_provider,
+        )
         self._services = (
             self.missions,
             self.capabilities,
@@ -46,6 +65,7 @@ class CoreService:
             self.executions,
             self.qa,
             self.continuation,
+            self.controller,
         )
 
     @property
