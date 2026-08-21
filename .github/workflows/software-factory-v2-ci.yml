@@ -1,9 +1,6 @@
 name: Software Factory v2 controller/provider landing
 
 on:
-  push:
-    branches:
-      - agent/software-factory-v2-native-refactor
   pull_request:
     branches:
       - main
@@ -92,7 +89,6 @@ jobs:
           "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
 
       - name: Push validated normal source
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
