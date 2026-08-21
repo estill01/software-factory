@@ -69,16 +69,18 @@ jobs:
 
           path = Path("runtime/src/software_factory/reflection.py")
           text = path.read_text(encoding="utf-8")
-          old = "        if failure:\n            fingerprint = str(\n"
-          new = "        hypotheses: list[dict[str, Any]]\n        if failure:\n            fingerprint = str(\n"
-          if text.count(old) != 1:
-              raise SystemExit("reflection hypothesis type boundary changed")
-          text = text.replace(old, new, 1)
-          old = "        recurring = {}\n"
-          new = "        recurring: dict[str, int] = {}\n"
-          if text.count(old) != 1:
-              raise SystemExit("reflection recurrence boundary changed")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          replacements = (
+              ("from typing import Any\n", "from typing import Any, cast\n"),
+              ("        recurring = {}\n", "        recurring: dict[str, int] = {}\n"),
+              ('                hypothesis_type=item["type"],\n', '                hypothesis_type=cast(str, item["type"]),\n'),
+              ('                statement=item["statement"],\n', '                statement=cast(str, item["statement"]),\n'),
+              ('                expected_evidence=item["expected"],\n', '                expected_evidence=cast(Mapping[str, Any], item["expected"]),\n'),
+          )
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"reflection type boundary changed: {old!r}")
+              text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
           PY
           python -m ruff check --fix --unsafe-fixes runtime/src/software_factory/reflection.py
           python -m ruff check --fix runtime/src runtime/tests
