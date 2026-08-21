@@ -36,14 +36,20 @@ jobs:
             echo "applied=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          printf 'parts=%s\n' "${#parts[@]}"
+          sha256sum "${parts[@]}"
+          wc -c "${parts[@]}"
           test ${#parts[@]} -eq 4
           git config user.name "software-factory-v2-bot"
           git config user.email "software-factory-v2-bot@users.noreply.github.com"
           cat "${parts[@]}" > "$RUNNER_TEMP/supervision.patch.gz.b64"
+          sha256sum "$RUNNER_TEMP/supervision.patch.gz.b64"
           test "$(sha256sum "$RUNNER_TEMP/supervision.patch.gz.b64" | awk '{print $1}')" = "908b1d944a62945bba1448cf6ec9bc757ff150a502109bc4548a43d9bab31cea"
           base64 --decode "$RUNNER_TEMP/supervision.patch.gz.b64" > "$RUNNER_TEMP/supervision.patch.gz"
+          sha256sum "$RUNNER_TEMP/supervision.patch.gz"
           test "$(sha256sum "$RUNNER_TEMP/supervision.patch.gz" | awk '{print $1}')" = "b2c62bacabe78fc0a801662f5f5aed7e132ceee07b17db48ad97628c6334f686"
           gzip -dc "$RUNNER_TEMP/supervision.patch.gz" > "$RUNNER_TEMP/supervision.patch"
+          sha256sum "$RUNNER_TEMP/supervision.patch"
           test "$(sha256sum "$RUNNER_TEMP/supervision.patch" | awk '{print $1}')" = "b2813473b8311a51e742b885b5d6e6a7491612b21933b1992168fd72a5e12bb6"
           git am "$RUNNER_TEMP/supervision.patch"
           git rm -r .sf-upload/supervision-v2
