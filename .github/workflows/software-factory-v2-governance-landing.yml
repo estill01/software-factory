@@ -1,0 +1,117 @@
+name: Software Factory v2 governance landing
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+    paths:
+      - .v2-governance-pending
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: software-factory-v2-governance-landing
+  cancel-in-progress: false
+
+jobs:
+  land:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-native-refactor
+          fetch-depth: 0
+
+      - name: Detect request
+        id: request
+        shell: bash
+        run: |
+          if [[ -f .v2-governance-pending ]]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.request.outputs.pending == 'true'
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: runtime/pyproject.toml
+
+      - name: Apply complete integration chain
+        if: steps.request.outputs.pending == 'true'
+        run: |
+          python scripts/land_v2_runtime_integration.py
+          python scripts/repair_v2_advanced_v2.py
+          python scripts/repair_v2_advanced_v3.py
+          python scripts/repair_v2_advanced_v4.py
+          python scripts/repair_v2_advanced_v5.py
+          rm -f .v2-*-pending
+
+      - name: Install development dependencies
+        if: steps.request.outputs.pending == 'true'
+        run: python -m pip install -e 'runtime[dev]'
+
+      - name: Normalize owned source
+        if: steps.request.outputs.pending == 'true'
+        run: |
+          python -m ruff check --fix runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py
+          python -m ruff format runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py
+
+      - name: Lint
+        if: steps.request.outputs.pending == 'true'
+        run: python -m ruff check runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py
+
+      - name: Format check
+        if: steps.request.outputs.pending == 'true'
+        run: python -m ruff format --check runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py
+
+      - name: Type check
+        if: steps.request.outputs.pending == 'true'
+        run: python -m mypy runtime/src/software_factory
+
+      - name: Compile
+        if: steps.request.outputs.pending == 'true'
+        run: python -m compileall -q runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py
+
+      - name: Behavioral tests with branch coverage
+        if: steps.request.outputs.pending == 'true'
+        run: >-
+          python -m pytest runtime/tests -q
+          --cov=software_factory --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=72
+
+      - name: Build wheel
+        if: steps.request.outputs.pending == 'true'
+        run: python -m build --wheel runtime
+
+      - name: Smoke installed entrypoints
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/v2-install"
+          "$RUNNER_TEMP/v2-install/bin/python" -m pip install runtime/dist/*.whl
+          HOME_DIR="$RUNNER_TEMP/factory-home"
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" init
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" health
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" doctor --root "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/v2-install/bin/software-factoryd" --home "$HOME_DIR" --once
+          "$RUNNER_TEMP/v2-install/bin/software-factory-api" --help
+          "$RUNNER_TEMP/v2-install/bin/sf-skill" --help
+
+      - name: Commit validated governance integration
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git add -- runtime scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py .v2-governance-pending .v2-integration-pending .v2-repair-pending .v2-repair-v2-pending .v2-repair-v3-pending
+          git diff --cached --check
+          git commit -m "feat(v2): integrate strict governance and effect recovery"
+          git push origin HEAD:agent/software-factory-v2-native-refactor
