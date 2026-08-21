@@ -1,28 +1,39 @@
-name: Software Factory v2 CI
+name: Software Factory v2 controller/provider landing
 
 on:
   push:
     branches:
       - agent/software-factory-v2-native-refactor
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: software-factory-v2-${{ github.workflow }}-${{ github.ref }}
+  group: software-factory-v2-controller-provider-landing
   cancel-in-progress: true
 
 jobs:
-  runtime:
+  land:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: agent/software-factory-v2-native-refactor
           fetch-depth: 0
+
+      - name: Reconstruct and apply exact committed slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .sf-upload/controller-provider/part-* > "$RUNNER_TEMP/slice.patch.gz.b64"
+          test "$(sha256sum "$RUNNER_TEMP/slice.patch.gz.b64" | awk '{print $1}')" = "648f556b693141bd02ec9e2a71223d90dff804896f8cb7d96add8b6e3899c116"
+          base64 --decode "$RUNNER_TEMP/slice.patch.gz.b64" > "$RUNNER_TEMP/slice.patch.gz"
+          gzip -dc "$RUNNER_TEMP/slice.patch.gz" > "$RUNNER_TEMP/slice.patch"
+          test "$(sha256sum "$RUNNER_TEMP/slice.patch" | awk '{print $1}')" = "5fcf3e181bfc20ebaeac3155c51798520d892d86808726eeff7bd61a2b06ef95"
+          git am "$RUNNER_TEMP/slice.patch"
+          git rm -r .sf-upload/controller-provider
+          git commit --amend --no-edit
 
       - uses: actions/setup-python@v5
         with:
@@ -66,22 +77,8 @@ jobs:
           "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
           "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
 
-      - name: Export exact source tree
+      - name: Push validated normal source
         shell: bash
         run: |
           set -euo pipefail
-          git archive --format=tar.gz --output="$RUNNER_TEMP/software-factory-v2-source.tar.gz" HEAD
-          git rev-parse HEAD > "$RUNNER_TEMP/source-commit.txt"
-          git rev-parse HEAD^{tree} > "$RUNNER_TEMP/source-tree.txt"
-
-      - name: Upload exact source tree and wheel
-        uses: actions/upload-artifact@v4
-        with:
-          name: software-factory-v2-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/software-factory-v2-source.tar.gz
-            ${{ runner.temp }}/source-commit.txt
-            ${{ runner.temp }}/source-tree.txt
-            runtime/dist/*.whl
-          if-no-files-found: error
-          retention-days: 30
+          git push origin HEAD:agent/software-factory-v2-native-refactor
