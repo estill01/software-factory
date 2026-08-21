@@ -14661,6 +14661,48 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             trigger or self.trigger,
         )
 
+    def record(
+        self,
+        *,
+        kind: str = "check",
+        category: str = "compact-state-currentness",
+        status: str = "no-intervention",
+        model: str = "gpt-5.6-terra",
+        reasoning: str = "max",
+        incident_id: str | None = None,
+    ) -> dict[str, object]:
+        arguments = [
+            "--root",
+            str(self.root),
+            "record",
+            "--target-thread",
+            self.target,
+            "--kind",
+            kind,
+            "--category",
+            category,
+            "--status",
+            status,
+            "--model",
+            model,
+            "--reasoning",
+            reasoning,
+            "--state-fingerprint",
+            self.state,
+            "--summary",
+            "Bounded watcher record for availability suffix regression.",
+        ]
+        if incident_id is not None:
+            arguments.extend(["--incident-id", incident_id])
+        args = supervision_log.parser().parse_args(arguments)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_record(args)
+        return json.loads(output.getvalue())["record"]
+
+    def successful_compact_read(self) -> dict[str, object]:
+        return self.record()
+
     def test_target_read_currentness_projects_only_retained_results(self) -> None:
         self.assertEqual(
             supervision_log.watcher_target_read_currentness([]),
@@ -14694,6 +14736,108 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
                 "source_record": "EVT-VERIFIED-1234",
                 "incident_id": "INC-WATCHER-1234",
             },
+        )
+
+    def test_successful_compact_read_resets_unavailable_suffix(self) -> None:
+        first = self.unavailable("compact-reset-trigger-a-1234")
+        self.successful_compact_read()
+        after_reset = self.unavailable("compact-reset-trigger-b-1234")
+        second = self.unavailable("compact-reset-trigger-c-1234")
+        threshold = self.unavailable("compact-reset-trigger-d-1234")
+
+        self.assertEqual(first["record"]["watcher_unavailable_read_count"], 1)
+        self.assertEqual(after_reset["record"]["watcher_unavailable_read_count"], 1)
+        self.assertEqual(second["record"]["watcher_unavailable_read_count"], 2)
+        self.assertFalse(after_reset["route_required"])
+        self.assertFalse(second["route_required"])
+        self.assertTrue(threshold["route_required"])
+        self.assertEqual(threshold["record"]["watcher_unavailable_read_count"], 3)
+
+    def test_true_consecutive_unavailable_reads_reach_threshold(self) -> None:
+        first = self.unavailable("compact-consecutive-trigger-a-1234")
+        second = self.unavailable("compact-consecutive-trigger-b-1234")
+        third = self.unavailable("compact-consecutive-trigger-c-1234")
+
+        self.assertEqual(first["record"]["watcher_unavailable_read_count"], 1)
+        self.assertEqual(second["record"]["watcher_unavailable_read_count"], 2)
+        self.assertEqual(third["record"]["watcher_unavailable_read_count"], 3)
+        self.assertTrue(third["route_required"])
+
+    def test_unrelated_records_do_not_reset_unavailable_suffix(self) -> None:
+        first = self.unavailable("compact-consecutive-trigger-a-1234")
+        self.record(
+            kind="meta-review",
+            category="supervisor-effectiveness",
+            status="no-intervention",
+            model="gpt-5.6-sol",
+        )
+        second = self.unavailable("compact-consecutive-trigger-b-1234")
+        self.record(
+            category="ordinary-watcher-bookkeeping",
+            status="no-intervention",
+        )
+        third = self.unavailable("compact-consecutive-trigger-c-1234")
+
+        self.assertEqual(first["record"]["watcher_unavailable_read_count"], 1)
+        self.assertEqual(second["record"]["watcher_unavailable_read_count"], 2)
+        self.assertEqual(third["record"]["watcher_unavailable_read_count"], 3)
+        self.assertTrue(third["route_required"])
+
+    def test_compact_like_record_requires_exact_success_shape_to_reset(self) -> None:
+        first = self.unavailable("compact-shape-trigger-a-1234")
+        self.record(model="gpt-5.6-sol")
+        second = self.unavailable("compact-shape-trigger-b-1234")
+        self.record(status="routed")
+        third = self.unavailable("compact-shape-trigger-c-1234")
+
+        self.assertEqual(first["record"]["watcher_unavailable_read_count"], 1)
+        self.assertEqual(second["record"]["watcher_unavailable_read_count"], 2)
+        self.assertEqual(third["record"]["watcher_unavailable_read_count"], 3)
+        self.assertTrue(third["route_required"])
+
+    def test_verified_effectiveness_closure_remains_terminal(self) -> None:
+        incident_id = self.open_incident()
+        self.invoke(
+            "available-verified",
+            "--incident-id",
+            incident_id,
+            "--read-source-record",
+            "closure-read-before-1234",
+            "--verification-source-record",
+            "closure-read-after-1234",
+            "--observed-state-fingerprint",
+            "closure-observed-state-1234",
+            "--verification-state-fingerprint",
+            "closure-verified-state-1234",
+            "--observed-thread-status",
+            "active",
+            "--verification-thread-status",
+            "active",
+        )
+        closure = self.record(
+            kind="resolution",
+            category=supervision_log.WATCHER_AVAILABILITY_INCIDENT_CATEGORY,
+            status="effectiveness-verified",
+            model="gpt-5.6-sol",
+            incident_id=incident_id,
+        )
+        event_rows = supervision_log.events(self.directory / "events.jsonl")
+        availability_state = next(
+            item
+            for item in event_rows
+            if item.get("incident_id") == incident_id
+            and item.get("kind") == "incident"
+        )["watcher_availability_state_fingerprint"]
+
+        self.assertEqual(closure["incident_id"], incident_id)
+        self.assertIsNone(
+            supervision_log.watcher_availability_incident_head(event_rows)
+        )
+        self.assertEqual(
+            supervision_log.watcher_unavailable_run_length(
+                event_rows, str(availability_state)
+            ),
+            0,
         )
 
     def concurrent_cli(self, arguments: list[str]) -> list[dict[str, object]]:

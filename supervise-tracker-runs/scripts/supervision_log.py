@@ -81,6 +81,7 @@ OUTCOME_COMPLETION_STATUSES = {"verified", "failed"}
 WATCHER_UNAVAILABLE_CATEGORY = "watcher-status-read-unavailable"
 WATCHER_VERIFIED_CATEGORY = "watcher-status-read-verified"
 WATCHER_AVAILABILITY_INCIDENT_CATEGORY = "persistent-watcher-read-unavailability"
+WATCHER_COMPACT_CURRENTNESS_CATEGORY = "compact-state-currentness"
 WATCHER_AVAILABILITY_THRESHOLD = 3
 WATCHER_AVAILABILITY_TERMINAL_STATUSES = {
     "effectiveness-verified",
@@ -5165,7 +5166,16 @@ def watcher_unavailable_run_length(
     count = 0
     for item in reversed(all_events):
         category = item.get("category")
-        if category == WATCHER_VERIFIED_CATEGORY:
+        successful_compact_read = (
+            item.get("kind") == "check"
+            and category == WATCHER_COMPACT_CURRENTNESS_CATEGORY
+            and item.get("status") == "no-intervention"
+            and item.get("model") == "gpt-5.6-terra"
+            and item.get("reasoning") == "max"
+            and isinstance(item.get("state_fingerprint"), str)
+            and bool(item["state_fingerprint"])
+        )
+        if category == WATCHER_VERIFIED_CATEGORY or successful_compact_read:
             break
         item_fingerprint = item.get("watcher_availability_state_fingerprint")
         if category not in {

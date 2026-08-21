@@ -2038,6 +2038,10 @@ current incident, returns an autonomous retry plus bound Max route, and must
 suppress identical unavailable checks until a genuine target or maintained-
 release revision changes the trigger. One incident owns later trigger-specific
 recurrences until effectiveness is proven.
+A canonical successful compact-state-currentness watcher read—an exact Terra
+Max `check` with status `no-intervention`—resets the unavailable suffix. Other
+records are transparent to that suffix, so only truly consecutive compound
+read failures reach the threshold.
 
 While the latest retained target-read projection is unavailable, supervision is
 stale and advisory: required target posture is `in-progress`, and no new hold,
