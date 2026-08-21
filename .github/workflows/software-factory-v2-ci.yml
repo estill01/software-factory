@@ -46,6 +46,7 @@ jobs:
           gzip -dc "$RUNNER_TEMP/supervision.patch.gz" > "$RUNNER_TEMP/supervision.patch"
           test "$(sha256sum "$RUNNER_TEMP/supervision.patch" | awk '{print $1}')" = "b2813473b8311a51e742b885b5d6e6a7491612b21933b1992168fd72a5e12bb6"
           git am "$RUNNER_TEMP/supervision.patch"
+          git mv .sf-upload/supervision-v2/test_reflection.py runtime/tests/test_reflection.py
           git rm -r .sf-upload/supervision-v2
           git commit --amend --no-edit
           echo "applied=true" >> "$GITHUB_OUTPUT"
