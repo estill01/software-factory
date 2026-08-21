@@ -29,6 +29,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
           cat .sf-upload/controller-provider/part-* > "$RUNNER_TEMP/slice.patch.gz.b64"
           test "$(sha256sum "$RUNNER_TEMP/slice.patch.gz.b64" | awk '{print $1}')" = "648f556b693141bd02ec9e2a71223d90dff804896f8cb7d96add8b6e3899c116"
           base64 --decode "$RUNNER_TEMP/slice.patch.gz.b64" > "$RUNNER_TEMP/slice.patch.gz"
