@@ -1,18 +1,18 @@
-name: Software Factory v2 full capability landing
+name: Software Factory v2 integrated runtime landing
 
 on:
   push:
     branches:
       - agent/software-factory-v2-native-refactor
     paths:
-      - .v2-full-landing-pending
+      - .v2-next-integration-pending
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: software-factory-v2-full-capability-landing
+  group: software-factory-v2-integrated-runtime-landing
   cancel-in-progress: false
 
 jobs:
@@ -24,15 +24,36 @@ jobs:
           ref: agent/software-factory-v2-native-refactor
           fetch-depth: 0
 
-      - name: Detect request
+      - name: Detect immutable integration request
         id: request
         shell: bash
         run: |
-          if [[ -f .v2-full-landing-pending ]]; then
+          set -euo pipefail
+          if [[ -f .v2-next-integration-pending ]]; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
           else
             echo "pending=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Reconstruct and apply exact integration commit
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(.sf-upload/next-integration/part-*)
+          test ${#parts[@]} -eq 10
+          cat "${parts[@]}" > "$RUNNER_TEMP/integration.patch.gz.b64"
+          test "$(sha256sum "$RUNNER_TEMP/integration.patch.gz.b64" | awk '{print $1}')" = "5983a3f023e142ca7be934d4d3efbeb5e79e6871bd02d93f2a2a50ec6c963b72"
+          base64 --decode "$RUNNER_TEMP/integration.patch.gz.b64" > "$RUNNER_TEMP/integration.patch.gz"
+          test "$(sha256sum "$RUNNER_TEMP/integration.patch.gz" | awk '{print $1}')" = "3ef2413338f85e01395657881b6a4bf884354fd6a4848864f90b8ac95b3bfc3e"
+          gzip -dc "$RUNNER_TEMP/integration.patch.gz" > "$RUNNER_TEMP/integration.patch"
+          test "$(sha256sum "$RUNNER_TEMP/integration.patch" | awk '{print $1}')" = "e08d96977c636e48d706f3247c2277f110c1fa16cea159b3407ccec066d46fd6"
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git am "$RUNNER_TEMP/integration.patch"
+          git rm -r .sf-upload/next-integration .v2-next-integration-pending
+          git commit --amend --no-edit
 
       - uses: actions/setup-python@v5
         if: steps.request.outputs.pending == 'true'
@@ -41,39 +62,27 @@ jobs:
           cache: pip
           cache-dependency-path: runtime/pyproject.toml
 
-      - name: Apply complete readable integration chain
-        if: steps.request.outputs.pending == 'true'
-        run: |
-          set -euo pipefail
-          python scripts/land_v2_runtime_integration.py
-          python scripts/repair_v2_advanced_v2.py
-          python scripts/repair_v2_advanced_v3.py
-          python scripts/repair_v2_advanced_v4.py
-          python scripts/repair_v2_advanced_v5.py
-          python scripts/repair_v2_advanced_v6.py
-          python scripts/repair_v2_advanced_v7.py
-          python scripts/repair_v2_advanced_v8.py
-          python scripts/repair_v2_advanced_v9.py
-          python scripts/repair_v2_advanced_v10.py
-          rm -f .v2-*-pending
-
       - name: Install development dependencies
         if: steps.request.outputs.pending == 'true'
         run: python -m pip install -e 'runtime[dev]'
 
-      - name: Normalize owned source
+      - name: Normalize newly integrated source
         if: steps.request.outputs.pending == 'true'
+        shell: bash
         run: |
-          python -m ruff check --fix runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py scripts/repair_v2_advanced_v6.py scripts/repair_v2_advanced_v7.py scripts/repair_v2_advanced_v8.py scripts/repair_v2_advanced_v9.py scripts/repair_v2_advanced_v10.py
-          python -m ruff format runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py scripts/repair_v2_advanced_v6.py scripts/repair_v2_advanced_v7.py scripts/repair_v2_advanced_v8.py scripts/repair_v2_advanced_v9.py scripts/repair_v2_advanced_v10.py
+          set -euo pipefail
+          python -m ruff check --fix runtime/src runtime/tests
+          python -m ruff format runtime/src runtime/tests
+          git add -- runtime/src runtime/tests
+          git commit --amend --no-edit
 
       - name: Lint
         if: steps.request.outputs.pending == 'true'
-        run: python -m ruff check runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py scripts/repair_v2_advanced_v6.py scripts/repair_v2_advanced_v7.py scripts/repair_v2_advanced_v8.py scripts/repair_v2_advanced_v9.py scripts/repair_v2_advanced_v10.py
+        run: python -m ruff check runtime/src runtime/tests
 
       - name: Format check
         if: steps.request.outputs.pending == 'true'
-        run: python -m ruff format --check runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py scripts/repair_v2_advanced_v6.py scripts/repair_v2_advanced_v7.py scripts/repair_v2_advanced_v8.py scripts/repair_v2_advanced_v9.py scripts/repair_v2_advanced_v10.py
+        run: python -m ruff format --check runtime/src runtime/tests
 
       - name: Type check
         if: steps.request.outputs.pending == 'true'
@@ -81,7 +90,7 @@ jobs:
 
       - name: Compile
         if: steps.request.outputs.pending == 'true'
-        run: python -m compileall -q runtime/src runtime/tests scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py scripts/repair_v2_advanced_v6.py scripts/repair_v2_advanced_v7.py scripts/repair_v2_advanced_v8.py scripts/repair_v2_advanced_v9.py scripts/repair_v2_advanced_v10.py
+        run: python -m compileall -q runtime/src runtime/tests
 
       - name: Behavioral tests with branch coverage
         if: steps.request.outputs.pending == 'true'
@@ -110,14 +119,9 @@ jobs:
           "$RUNNER_TEMP/v2-install/bin/software-factory-api" --help
           "$RUNNER_TEMP/v2-install/bin/sf-skill" --help
 
-      - name: Commit validated full capability integration
+      - name: Push validated normal source
         if: steps.request.outputs.pending == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "software-factory-v2-bot"
-          git config user.email "software-factory-v2-bot@users.noreply.github.com"
-          git add -- runtime scripts/land_v2_runtime_integration.py scripts/repair_v2_advanced_v2.py scripts/repair_v2_advanced_v3.py scripts/repair_v2_advanced_v4.py scripts/repair_v2_advanced_v5.py scripts/repair_v2_advanced_v6.py scripts/repair_v2_advanced_v7.py scripts/repair_v2_advanced_v8.py scripts/repair_v2_advanced_v9.py scripts/repair_v2_advanced_v10.py .v2-full-landing-pending .v2-integration-pending .v2-repair-pending .v2-repair-v2-pending .v2-repair-v3-pending .v2-governance-pending
-          git diff --cached --check
-          git commit -m "feat(v2): integrate full adaptive runtime capabilities"
           git push origin HEAD:agent/software-factory-v2-native-refactor
