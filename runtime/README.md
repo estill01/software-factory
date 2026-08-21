@@ -7,8 +7,10 @@ test, report, and provider evidence.
 
 Current implemented foundation includes mission/capability/obligation/program state,
 authority and idempotent commands, event integrity, real Git workspaces, fenced leases,
-observed command execution, and revision-bound candidate QA. The refactor remains in
-progress until every case in `../docs/software-factory-v2-capability-matrix.json` is behaviorally accepted and
+observed provider execution, revision-bound candidate QA, live supervision assignments,
+material-change gating, incident containment, correction-effectiveness review, and
+outcome-driven strategy adaptation. The refactor remains in progress until every case
+in `../docs/software-factory-v2-capability-matrix.json` is behaviorally accepted and
 the legacy runtime is removed from active execution.
 
 ## Local usage

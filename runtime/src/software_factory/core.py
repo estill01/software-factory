@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .adaptive import AdaptiveExecutionService
 from .agents import AgentService
 from .artifacts import ArtifactService
 from .capability import CapabilityService
@@ -13,6 +14,7 @@ from .program import ProgramService
 from .providers import ProviderRegistry
 from .qa import QAService
 from .store import Store
+from .supervision import SupervisionService
 from .work_items import WorkItemService
 from .workspaces import WorkspaceService
 
@@ -45,6 +47,16 @@ class CoreService:
         self.executions = ExecutionService(store, self.artifact_service)
         self.qa = QAService(store, self.workspaces, self.executions)
         self.continuation = ContinuationService(store, self.work_items)
+        self.supervision = SupervisionService(
+            store, work_items=self.work_items, continuation=self.continuation
+        )
+        self.adaptive = AdaptiveExecutionService(
+            store,
+            work_items=self.work_items,
+            continuation=self.continuation,
+            supervision=self.supervision,
+        )
+        self.supervision.bind_adaptive(self.adaptive)
         self.controller = ControllerService(
             store,
             work_items=self.work_items,
@@ -52,6 +64,8 @@ class CoreService:
             workspaces=self.workspaces,
             executions=self.executions,
             continuation=self.continuation,
+            supervision=self.supervision,
+            adaptive=self.adaptive,
             providers=self.providers,
             default_provider=default_provider,
         )
@@ -65,6 +79,8 @@ class CoreService:
             self.executions,
             self.qa,
             self.continuation,
+            self.supervision,
+            self.adaptive,
             self.controller,
         )
 

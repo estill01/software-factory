@@ -18,6 +18,8 @@ MIGRATIONS = (
     Migration(5, "0005_foundation_hardening.sql"),
     Migration(6, "0006_execution_runtime.sql"),
     Migration(7, "0007_controller_runtime.sql"),
+    Migration(8, "0008_supervision_runtime.sql"),
+    Migration(9, "0009_learning_runtime.sql"),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version
 

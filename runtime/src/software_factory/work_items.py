@@ -57,6 +57,8 @@ class WorkItemService:
         repository_id: str | None = None,
         required_role: str = "implementer",
         provider_key: str | None = None,
+        strategy_key: str | None = None,
+        strategy_revision: int = 1,
     ) -> str:
         work_id = new_id("wrk")
         now = utc_now()
@@ -99,8 +101,8 @@ class WorkItemService:
                     qa_status,acceptance_status,priority,proposed_by,
                     expected_effect_json,acceptance_spec_json,writable_scope_json,
                     lane_key,state_version,created_at,updated_at,repository_id,
-                    required_role,provider_key
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    required_role,provider_key,strategy_key,strategy_revision
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     work_id,
                     mission_id,
@@ -127,6 +129,8 @@ class WorkItemService:
                     repository_id,
                     required_role,
                     provider_key,
+                    strategy_key or f"{work_type}:1",
+                    strategy_revision,
                 ),
             )
             self.store.append_event(
@@ -147,6 +151,8 @@ class WorkItemService:
                     "repository_id": repository_id,
                     "required_role": required_role,
                     "provider_key": provider_key,
+                    "strategy_key": strategy_key or f"{work_type}:1",
+                    "strategy_revision": strategy_revision,
                 },
             )
         return work_id

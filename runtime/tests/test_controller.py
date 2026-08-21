@@ -347,7 +347,8 @@ def test_dispatch_failure_is_observed_without_closing_obligation_or_crashing_tic
             store.one("SELECT status FROM obligations WHERE id=?", (obligation,))["status"]
             == "in_progress"
         )
-        assert tick["posture"]["action"] == "diagnose_reflect_or_replan"
+        assert tick["generated_problem_solving_work"]
+        assert tick["posture"]["action"] == "dispatch_ready_work"
 
 
 def test_expired_dispatch_revokes_callback_and_rejects_late_result() -> None:
@@ -420,7 +421,7 @@ def test_existing_schema_upgrades_transactionally_from_v6_to_v7() -> None:
             db.close()
 
         store = Store(path)
-        assert store.health()["schema_version"] == 7
+        assert store.health()["schema_version"] == MIGRATIONS[-1].version
         columns = {row["name"] for row in store.all("PRAGMA table_info(executions)")}
         assert {"provider_key", "provider_handle_json", "dispatch_attempts"} <= columns
         indexes = {row["name"] for row in store.all("PRAGMA index_list(workspaces)")}

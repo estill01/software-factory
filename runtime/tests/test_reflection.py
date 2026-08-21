@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from software_factory import CoreService, InvalidTransition, Store
+from software_factory import CoreService, InvalidTransition, StaleState, Store
 from software_factory.reflection import ReflectionService
 from software_factory.util import canonical_json, json_load, new_id, utc_now
 
@@ -124,9 +124,12 @@ def test_failure_reflection_is_idempotent_and_retains_competing_hypotheses() -> 
         )
         assert {row["hypothesis_type"] for row in hypotheses} == {"causal", "problem_framing"}
         assert all(json_load(row["expected_evidence_json"], {}) for row in hypotheses)
-        assert store.one(
-            "SELECT COUNT(*) AS count FROM executions WHERE idempotency_key LIKE 'reflection:%'"
-        )["count"] == 1
+        assert (
+            store.one(
+                "SELECT COUNT(*) AS count FROM executions WHERE idempotency_key LIKE 'reflection:%'"
+            )["count"]
+            == 1
+        )
 
 
 def test_unexpected_success_and_ordinary_success_choose_different_routes() -> None:
@@ -234,7 +237,7 @@ def test_hypothesis_updates_are_versioned_deduplicated_and_validated() -> None:
         assert json_load(updated["contrary_evidence_json"], []) == ["counterexample"]
         assert updated["current_evidence_root"]
 
-        with pytest.raises(Exception):
+        with pytest.raises(StaleState):
             reflection.update_hypothesis(
                 hypothesis,
                 expected_version=1,

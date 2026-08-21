@@ -44,6 +44,8 @@ class ControllerService:
         workspaces: Any,
         executions: Any,
         continuation: Any,
+        supervision: Any | None,
+        adaptive: Any | None,
         providers: ProviderRegistry,
         default_provider: str | None = None,
     ) -> None:
@@ -53,6 +55,8 @@ class ControllerService:
         self.workspaces = workspaces
         self.executions = executions
         self.continuation = continuation
+        self.supervision = supervision
+        self.adaptive = adaptive
         self.providers = providers
         self.default_provider = default_provider
 
@@ -199,6 +203,8 @@ class ControllerService:
             if work_row is None:
                 raise StoreError("work item not found")
             work = dict(work_row)
+            if self.adaptive is not None:
+                self.adaptive.assert_strategy_allowed(work_id)
             if work["planning_status"] != "selected" or work["execution_status"] not in {
                 "not_started",
                 "abandoned",
@@ -323,7 +329,7 @@ class ControllerService:
                     assignment_id,
                     "implementation",
                     "dispatching",
-                    f"provider:{provider_key}",
+                    work.get("strategy_key") or f"provider:{provider_key}",
                     attempt_number,
                     f"dispatch:{work_id}:{attempt_number}",
                     0,
@@ -662,6 +668,8 @@ class ControllerService:
                 stdout=observation.stdout,
                 stderr=observation.stderr,
             )
+            if self.adaptive is not None:
+                self.adaptive.observe_execution(execution_id)
             return
         if observation.status in {"lost", "cancelled"}:
             self._abandon_dispatch(
@@ -740,6 +748,8 @@ class ControllerService:
                 subject_id=execution_id,
                 payload=dict(reason),
             )
+        if self.adaptive is not None:
+            self.adaptive.observe_execution(execution_id)
 
     def _cancel_recovered_provider(self, execution_id: str) -> dict[str, Any] | None:
         execution = self.store.one(
@@ -818,6 +828,8 @@ class ControllerService:
                 result=dict(result),
                 succeeded=succeeded,
             )
+        if self.adaptive is not None:
+            self.adaptive.observe_execution(execution_id)
         return self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
 
     def poll_provider_executions(self, mission_id: str | None = None) -> list[dict[str, Any]]:
@@ -909,7 +921,19 @@ class ControllerService:
             if (value := self._cancel_recovered_provider(execution_id)) is not None
         ]
         provider_updates = self.poll_provider_executions(mission_id)
+        adaptive_updates = (
+            self.adaptive.observe_new_execution_outcomes(mission_id)
+            if self.adaptive is not None
+            else []
+        )
+        supervision_updates = (
+            self.supervision.run_due_checks(mission_id) if self.supervision is not None else []
+        )
         posture = self.continuation.next_action(mission_id)
+        generated_problem_solving: list[str] = []
+        if posture["action"] == "diagnose_reflect_or_replan" and self.adaptive is not None:
+            generated_problem_solving = self.adaptive.ensure_problem_solving(mission_id)
+            posture = self.continuation.next_action(mission_id)
         dispatches: list[dict[str, Any]] = []
         blocked: list[dict[str, Any]] = []
         if posture["action"] == "dispatch_ready_work":
@@ -925,12 +949,29 @@ class ControllerService:
                             "message": str(exc),
                         }
                     )
+        if blocked and self.adaptive is not None:
+            blocked_ids = [item["work_item_id"] for item in blocked]
+            placeholders = ",".join("?" for _ in blocked_ids)
+            rows = self.store.all(
+                f"""SELECT DISTINCT a.selected_work_item_id
+                    FROM adaptive_actions a
+                    JOIN executions e ON e.id=a.source_execution_id
+                    WHERE a.mission_id=? AND e.work_item_id IN ({placeholders})
+                      AND a.status IN ('proposed','selected','running')
+                      AND a.selected_work_item_id IS NOT NULL""",
+                (mission_id, *blocked_ids),
+            )
+            generated_problem_solving.extend(str(row["selected_work_item_id"]) for row in rows)
+            generated_problem_solving = sorted(set(generated_problem_solving))
         final_posture = self.continuation.next_action(mission_id)
         result = {
             "mission_id": mission_id,
             "recovered_execution_ids": recovered,
             "recovered_provider_cancellations": recovered_provider_cancellations,
             "provider_updates": provider_updates,
+            "adaptive_updates": adaptive_updates,
+            "supervision_updates": supervision_updates,
+            "generated_problem_solving_work": generated_problem_solving,
             "initial_posture": posture,
             "dispatches": dispatches,
             "dispatch_blockers": blocked,
