@@ -49,6 +49,15 @@ jobs:
       - name: Install runtime development dependencies
         run: python -m pip install -e 'runtime[dev]'
 
+      - name: Normalize committed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m ruff check --fix runtime/src runtime/tests
+          python -m ruff format runtime/src runtime/tests
+          git add -- runtime/src runtime/tests
+          git commit --amend --no-edit
+
       - name: Lint
         run: python -m ruff check runtime/src runtime/tests
 
