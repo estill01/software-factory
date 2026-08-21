@@ -1,90 +1,13 @@
-name: Software Factory v2 controller/provider landing
+name: Software Factory v2 controller/provider landing (paused)
 
 on:
-  push:
-    branches:
-      - agent/software-factory-v2-native-refactor
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: software-factory-v2-controller-provider-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  land:
+  paused:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: agent/software-factory-v2-native-refactor
-          fetch-depth: 0
-
-      - name: Reconstruct and apply exact committed slice
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "software-factory-v2-bot"
-          git config user.email "software-factory-v2-bot@users.noreply.github.com"
-          cat .sf-upload/controller-provider-v2/part-* > "$RUNNER_TEMP/slice.patch.gz.b64"
-          test "$(sha256sum "$RUNNER_TEMP/slice.patch.gz.b64" | awk '{print $1}')" = "0a94257d1d0de33b6f00a653cd8f216e5fb93cbf3857cc1de00c0c4957ec20f6"
-          base64 --decode "$RUNNER_TEMP/slice.patch.gz.b64" > "$RUNNER_TEMP/slice.patch.gz"
-          gzip -dc "$RUNNER_TEMP/slice.patch.gz" > "$RUNNER_TEMP/slice.patch"
-          test "$(sha256sum "$RUNNER_TEMP/slice.patch" | awk '{print $1}')" = "5fb03fbfb8bb557e3b52fc66295b5012609b639a1a76bdc987b3a5637f5bb9c4"
-          git am "$RUNNER_TEMP/slice.patch"
-          git rm -r .sf-upload
-          git commit --amend --no-edit
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-          cache-dependency-path: runtime/pyproject.toml
-
-      - name: Install runtime development dependencies
-        run: python -m pip install -e 'runtime[dev]'
-
-      - name: Lint
-        run: python -m ruff check runtime/src runtime/tests
-
-      - name: Format check
-        run: python -m ruff format --check runtime/src runtime/tests
-
-      - name: Type check
-        run: python -m mypy runtime/src/software_factory
-
-      - name: Compile
-        run: python -m compileall -q runtime/src runtime/tests
-
-      - name: Runtime tests with branch coverage
-        run: >-
-          python -m pytest runtime/tests -q
-          --cov=software_factory --cov-branch
-          --cov-report=term-missing
-          --cov-fail-under=72
-
-      - name: Build wheel
-        run: python -m build --wheel runtime
-
-      - name: Smoke-test installed entrypoints
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m venv "$RUNNER_TEMP/install-smoke"
-          "$RUNNER_TEMP/install-smoke/bin/python" -m pip install runtime/dist/*.whl
-          HOME_DIR="$RUNNER_TEMP/factory-home"
-          "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" init
-          "$RUNNER_TEMP/install-smoke/bin/software-factory" --home "$HOME_DIR" health
-          "$RUNNER_TEMP/install-smoke/bin/software-factoryd" --home "$HOME_DIR" --once
-
-      - name: Push validated normal source
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          set -euo pipefail
-          git push origin HEAD:agent/software-factory-v2-native-refactor
+      - run: echo "Landing is paused while the immutable corrected slice is uploaded."
