@@ -17,7 +17,6 @@ MIGRATIONS = (
     Migration(4, "0004_operations.sql"),
     Migration(5, "0005_foundation_hardening.sql"),
     Migration(6, "0006_execution_runtime.sql"),
-    Migration(7, "0007_controller_runtime.sql"),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version
 

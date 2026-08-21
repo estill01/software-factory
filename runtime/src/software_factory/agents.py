@@ -7,10 +7,10 @@ from .util import canonical_json, new_id, utc_now
 
 
 class AgentService:
-    """Durable Codex/worker sessions and attributable work-role assignments."""
-
     def __init__(self, store: Any):
         self.store = store
+
+    """Durable Codex/worker sessions and attributable work-role assignments."""
 
     def create_agent_session(
         self,

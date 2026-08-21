@@ -31,7 +31,3 @@ class StaleLease(StoreError):
 
 class RoleConflict(StoreError):
     """Required independent roles are not distinct."""
-
-
-class ProviderError(StoreError):
-    """An external execution provider failed to dispatch, poll, or cancel work."""

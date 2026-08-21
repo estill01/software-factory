@@ -14,7 +14,6 @@ class RuntimePaths:
     artifacts: Path
     workspaces: Path
     releases: Path
-    providers: Path
 
     @classmethod
     def from_root(cls, root: str | Path) -> RuntimePaths:
@@ -25,7 +24,6 @@ class RuntimePaths:
             artifacts=resolved / "artifacts",
             workspaces=resolved / "workspaces",
             releases=resolved / "releases",
-            providers=resolved / "providers",
         )
 
     @classmethod
@@ -35,12 +33,6 @@ class RuntimePaths:
         return cls.from_root(root)
 
     def ensure(self) -> RuntimePaths:
-        for directory in (
-            self.root,
-            self.artifacts,
-            self.workspaces,
-            self.releases,
-            self.providers,
-        ):
+        for directory in (self.root, self.artifacts, self.workspaces, self.releases):
             directory.mkdir(parents=True, exist_ok=True)
         return self

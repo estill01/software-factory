@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import mimetypes
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -26,22 +25,13 @@ class ArtifactService:
         subject_type: str | None = None,
         subject_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-        db: sqlite3.Connection | None = None,
     ) -> str:
         sha256 = digest_bytes(payload)
-        existing_row = (
-            db.execute(
-                "SELECT id FROM artifacts WHERE sha256=? AND byte_count=?",
-                (sha256, len(payload)),
-            ).fetchone()
-            if db is not None
-            else self.store.one(
-                "SELECT id FROM artifacts WHERE sha256=? AND byte_count=?",
-                (sha256, len(payload)),
-                required=False,
-            )
+        existing = self.store.one(
+            "SELECT id FROM artifacts WHERE sha256=? AND byte_count=?",
+            (sha256, len(payload)),
+            required=False,
         )
-        existing = dict(existing_row) if existing_row is not None else None
         if existing is not None:
             return str(existing["id"])
         artifact_id = new_id("art")
@@ -49,28 +39,26 @@ class ArtifactService:
         path = self.artifact_root / sha256[:2] / f"{sha256}{extension}"
         if not path.exists():
             atomic_write(path, payload, mode=0o600)
-        values = (
-            artifact_id,
-            producer_execution_id,
-            sha256,
-            len(payload),
-            media_type or "application/octet-stream",
-            path.as_uri(),
-            canonical_json(metadata or {}),
-            utc_now(),
-            mission_id,
-            subject_type,
-            subject_id,
-        )
-        statement = """INSERT INTO artifacts(
-            id,producer_execution_id,sha256,byte_count,media_type,storage_uri,
-            metadata_json,created_at,mission_id,subject_type,subject_id
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)"""
-        if db is not None:
-            db.execute(statement, values)
-        else:
-            with self.store.transaction() as connection:
-                connection.execute(statement, values)
+        with self.store.transaction() as db:
+            db.execute(
+                """INSERT INTO artifacts(
+                    id,producer_execution_id,sha256,byte_count,media_type,storage_uri,
+                    metadata_json,created_at,mission_id,subject_type,subject_id
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    artifact_id,
+                    producer_execution_id,
+                    sha256,
+                    len(payload),
+                    media_type or "application/octet-stream",
+                    path.as_uri(),
+                    canonical_json(metadata or {}),
+                    utc_now(),
+                    mission_id,
+                    subject_type,
+                    subject_id,
+                ),
+            )
         return artifact_id
 
     def store_text(self, text: str, **kwargs: Any) -> str:

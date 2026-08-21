@@ -31,19 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Show bounded runtime or mission status.")
     status.add_argument("--mission")
 
-    tick = sub.add_parser("tick", help="Recover, poll, and dispatch one mission.")
+    tick = sub.add_parser("tick", help="Compute the next authoritative action for a mission.")
     tick.add_argument("mission")
-    tick.add_argument("--max-dispatch", type=int)
-    tick.add_argument("--no-auto-spawn", action="store_true")
-
-    callback = sub.add_parser(
-        "provider-callback", help="Submit a fenced provider result to a durable execution."
-    )
-    callback.add_argument("execution")
-    callback.add_argument("generation", type=int)
-    callback.add_argument("token")
-    callback.add_argument("status", choices=("succeeded", "failed"))
-    callback.add_argument("--result", default="{}", help="JSON result/error payload.")
 
     verify = sub.add_parser("verify-events", help="Verify a hash-chained event stream.")
     verify.add_argument("--mission")
@@ -123,27 +112,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return 0
     if args.command == "tick":
-        _json(
-            context.core.tick_mission(
-                args.mission,
-                max_dispatch=args.max_dispatch,
-                auto_spawn=not args.no_auto_spawn,
-            )
-        )
-        return 0
-    if args.command == "provider-callback":
-        payload = json.loads(args.result)
-        if not isinstance(payload, dict):
-            raise ValueError("provider callback result must be a JSON object")
-        _json(
-            context.core.accept_provider_callback(
-                args.execution,
-                token=args.token,
-                generation=args.generation,
-                succeeded=args.status == "succeeded",
-                result=payload,
-            )
-        )
+        _json(context.core.next_action(args.mission))
         return 0
     if args.command == "verify-events":
         _json(context.store.verify_event_chain(args.mission))

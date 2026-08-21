@@ -569,114 +569,40 @@ class ExecutionService:
         generation: int,
         result: Mapping[str, Any],
         succeeded: bool,
-        usage: Mapping[str, Any] | None = None,
-        stdout: bytes | None = None,
-        stderr: bytes | None = None,
     ) -> dict[str, Any]:
         with self.store.transaction() as db:
-            current = db.execute("SELECT * FROM executions WHERE id=?", (execution_id,)).fetchone()
-            if current is None:
+            execution = db.execute(
+                "SELECT * FROM executions WHERE id=?", (execution_id,)
+            ).fetchone()
+            if execution is None:
                 raise StoreError("execution not found")
-            if current["status"] == "abandoned":
+            if execution["status"] == "abandoned":
                 raise StaleLease("abandoned execution cannot submit a late result")
-            if current["status"] in _TERMINAL_EXECUTION_STATES:
+            if execution["status"] in _TERMINAL_EXECUTION_STATES:
                 raise InvalidTransition("execution is already terminal")
-            self._assert_generation(db, current, generation)
-            stdout_id = (
-                self.artifacts.store_bytes(
-                    stdout,
-                    mission_id=current["mission_id"],
-                    producer_execution_id=execution_id,
-                    media_type="text/plain",
-                    subject_type="execution",
-                    subject_id=execution_id,
-                    metadata={"stream": "stdout", "provider": current["provider_key"]},
-                    db=db,
-                )
-                if stdout is not None
-                else None
-            )
-            stderr_id = (
-                self.artifacts.store_bytes(
-                    stderr,
-                    mission_id=current["mission_id"],
-                    producer_execution_id=execution_id,
-                    media_type="text/plain",
-                    subject_type="execution",
-                    subject_id=execution_id,
-                    metadata={"stream": "stderr", "provider": current["provider_key"]},
-                    db=db,
-                )
-                if stderr is not None
-                else None
-            )
+            self._assert_generation(db, execution, generation)
             status = "succeeded" if succeeded else "failed"
-            now = utc_now()
             db.execute(
-                """UPDATE executions SET status=?,result_json=?,error_json=?,usage_json=?,
-                   stdout_artifact_id=COALESCE(?,stdout_artifact_id),
-                   stderr_artifact_id=COALESCE(?,stderr_artifact_id),finished_at=?,
+                """UPDATE executions SET status=?,result_json=?,error_json=?,finished_at=?,
                    state_version=state_version+1 WHERE id=?""",
                 (
                     status,
                     canonical_json(dict(result) if succeeded else {}),
                     canonical_json({} if succeeded else dict(result)),
-                    canonical_json(dict(usage or {})),
-                    stdout_id,
-                    stderr_id,
-                    now,
+                    utc_now(),
                     execution_id,
                 ),
             )
             db.execute(
                 """UPDATE leases SET status='released',released_at=?
                    WHERE owner_execution_id=? AND status='active' AND generation=?""",
-                (now, execution_id, generation),
+                (utc_now(), execution_id, generation),
             )
-            if current["assignment_id"]:
-                assignment_status = "completed" if succeeded else "released"
+            if execution["work_item_id"]:
                 db.execute(
-                    """UPDATE work_assignments SET status=?,
-                       completed_at=CASE WHEN ?='completed' THEN ? ELSE completed_at END,
-                       released_at=CASE WHEN ?='released' THEN ? ELSE released_at END,
-                       state_version=state_version+1 WHERE id=?""",
-                    (
-                        assignment_status,
-                        assignment_status,
-                        now,
-                        assignment_status,
-                        now,
-                        current["assignment_id"],
-                    ),
+                    "UPDATE work_items SET execution_status=?,updated_at=? WHERE id=?",
+                    ("submitted" if succeeded else "failed", utc_now(), execution["work_item_id"]),
                 )
-            if current["agent_session_id"]:
-                db.execute(
-                    """UPDATE agent_sessions SET observed_status='idle',last_heartbeat_at=?,
-                       state_version=state_version+1 WHERE id=?
-                       AND observed_status NOT IN ('lost','stopped')""",
-                    (now, current["agent_session_id"]),
-                )
-            if current["work_item_id"]:
-                db.execute(
-                    """UPDATE work_items SET execution_status=?,updated_at=?,
-                       state_version=state_version+1 WHERE id=?""",
-                    ("submitted" if succeeded else "failed", now, current["work_item_id"]),
-                )
-            self.store.append_event(
-                db,
-                mission_id=current["mission_id"],
-                stream_key="execution",
-                event_type=f"execution.{status}",
-                subject_type="execution",
-                subject_id=execution_id,
-                payload={
-                    "provider_key": current["provider_key"],
-                    "result": dict(result),
-                    "usage": dict(usage or {}),
-                    "stdout_artifact_id": stdout_id,
-                    "stderr_artifact_id": stderr_id,
-                },
-            )
         return self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
 
     def recover_expired_leases(self, *, mission_id: str | None = None) -> list[str]:
@@ -707,17 +633,6 @@ class ExecutionService:
                            state_version=state_version+1 WHERE id=?""",
                         (utc_now(), execution["assignment_id"]),
                     )
-                if execution["workspace_id"]:
-                    db.execute(
-                        """UPDATE workspaces SET owner_assignment_id=NULL,status='retained',
-                           updated_at=?,state_version=state_version+1 WHERE id=?""",
-                        (utc_now(), execution["workspace_id"]),
-                    )
-                db.execute(
-                    """UPDATE provider_callbacks SET status='revoked',used_at=?
-                       WHERE execution_id=? AND status='pending'""",
-                    (utc_now(), execution["id"]),
-                )
                 if execution["agent_session_id"]:
                     db.execute(
                         """UPDATE agent_sessions SET observed_status='lost',stopped_at=?,
