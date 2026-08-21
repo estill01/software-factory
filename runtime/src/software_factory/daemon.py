@@ -17,25 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _tick_all(context: RuntimeContext) -> None:
-    store = context.store
-    core = context.core
-    for row in store.all(
-        "SELECT id FROM missions WHERE status IN ('active','terminal_verification') ORDER BY created_at"
-    ):
-        # This daemon computes posture durably and emits an audit event. Effectful
-        # dispatch is owned by the controller service added in the execution milestone.
-        action = core.next_action(row["id"])
-        with store.transaction() as db:
-            store.append_event(
-                db,
-                mission_id=row["id"],
-                stream_key="controller",
-                event_type="controller.posture_computed",
-                subject_type="mission",
-                subject_id=row["id"],
-                payload=action,
-            )
+def _tick_all(context: RuntimeContext) -> list[dict[str, object]]:
+    return context.core.tick_all()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

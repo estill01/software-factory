@@ -54,6 +54,9 @@ class WorkItemService:
         acceptance_spec: dict[str, Any] | None = None,
         writable_scope: list[str] | None = None,
         lane_key: str | None = None,
+        repository_id: str | None = None,
+        required_role: str = "implementer",
+        provider_key: str | None = None,
     ) -> str:
         work_id = new_id("wrk")
         now = utc_now()
@@ -74,14 +77,30 @@ class WorkItemService:
                 ).fetchone()
                 if obligation is None or obligation["mission_id"] != mission_id:
                     raise StoreError("obligation not found in mission")
+            if repository_id:
+                repository = db.execute(
+                    "SELECT project_id FROM repositories WHERE id=?", (repository_id,)
+                ).fetchone()
+                mission = db.execute(
+                    "SELECT project_id FROM missions WHERE id=?", (mission_id,)
+                ).fetchone()
+                if (
+                    repository is None
+                    or mission is None
+                    or repository["project_id"] != mission["project_id"]
+                ):
+                    raise StoreError("repository does not belong to the mission project")
+            if not required_role:
+                raise ValueError("required_role is required")
             db.execute(
                 """INSERT INTO work_items(
                     id,mission_id,program_id,program_revision_id,obligation_id,parent_id,
                     work_type,title,description,planning_status,execution_status,
                     qa_status,acceptance_status,priority,proposed_by,
                     expected_effect_json,acceptance_spec_json,writable_scope_json,
-                    lane_key,state_version,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    lane_key,state_version,created_at,updated_at,repository_id,
+                    required_role,provider_key
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     work_id,
                     mission_id,
@@ -105,6 +124,9 @@ class WorkItemService:
                     1,
                     now,
                     now,
+                    repository_id,
+                    required_role,
+                    provider_key,
                 ),
             )
             self.store.append_event(
@@ -122,6 +144,9 @@ class WorkItemService:
                     "program_id": program_id,
                     "proposed_by": proposed_by,
                     "writable_scope": scope,
+                    "repository_id": repository_id,
+                    "required_role": required_role,
+                    "provider_key": provider_key,
                 },
             )
         return work_id

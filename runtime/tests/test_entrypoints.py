@@ -36,7 +36,8 @@ def test_cli_init_health_and_create_mission(capsys) -> None:
         assert mission_id.startswith("mis_")
 
         assert cli_main(["--home", str(home), "tick", mission_id]) == 0
-        assert json.loads(capsys.readouterr().out)["action"] in {
+        tick = json.loads(capsys.readouterr().out)
+        assert tick["posture"]["action"] in {
             "run_terminal_verification",
             "diagnose_reflect_or_replan",
         }

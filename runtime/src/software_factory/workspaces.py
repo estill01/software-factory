@@ -49,10 +49,20 @@ def _safe_branch(value: str) -> str:
 
 
 class WorkspaceService:
+    """Real Git branch/worktree lifecycle owner for implementation and candidate lanes."""
+
     def __init__(self, store: Any):
         self.store = store
 
-    """Real Git branch/worktree lifecycle owner for implementation and candidate lanes."""
+    def workspace_path(self, workspace_id: str) -> Path:
+        row = self.store.one("SELECT path FROM workspaces WHERE id=?", (workspace_id,))
+        return Path(row["path"]).resolve()
+
+    def repository_path(self, repository_id: str | None) -> Path:
+        if repository_id is None:
+            raise InvalidTransition("repository is required")
+        row = self.store.one("SELECT path FROM repositories WHERE id=?", (repository_id,))
+        return Path(row["path"]).resolve()
 
     def git_revision(self, path: str | Path) -> str:
         return _run(["git", "rev-parse", "HEAD"], cwd=Path(path)).stdout.strip()
