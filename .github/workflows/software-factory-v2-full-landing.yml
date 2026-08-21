@@ -6,6 +6,9 @@ on:
       - agent/software-factory-v2-native-refactor
     paths:
       - .v2-next-integration-pending
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
