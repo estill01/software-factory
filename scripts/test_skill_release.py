@@ -972,6 +972,37 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release.activate_release(self.activate_args(release_id))
         self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
 
+    def test_validator_pin_rotation_preserves_historical_release_evidence(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        staged = skill_release.stage_release(self.stage_args(commit))
+        release_id = staged["release_id"]
+        historical = skill_release.TRUSTED_VALIDATOR_SHA256
+        successor = "a" * 64
+
+        with mock.patch.object(
+            skill_release, "TRUSTED_VALIDATOR_SHA256", successor
+        ), mock.patch.object(
+            skill_release,
+            "TRUSTED_HISTORICAL_VALIDATOR_SHA256S",
+            (historical,),
+        ):
+            manifest = skill_release.read_manifest(
+                self.release_root, release_id, require_acceptance=False
+            )
+            self.assertEqual(manifest["release_id"], release_id)
+
+        with mock.patch.object(
+            skill_release, "TRUSTED_VALIDATOR_SHA256", successor
+        ), mock.patch.object(
+            skill_release, "TRUSTED_HISTORICAL_VALIDATOR_SHA256S", (),
+        ):
+            with self.assertRaisesRegex(
+                skill_release.ReleaseError, "validator evidence is invalid"
+            ):
+                skill_release.read_manifest(
+                    self.release_root, release_id, require_acceptance=False
+                )
+
     def test_interrupted_bootstrap_restores_all_links_and_pointer(self) -> None:
         commit = self.git("rev-parse", "HEAD")
         staged = self.stage(commit)

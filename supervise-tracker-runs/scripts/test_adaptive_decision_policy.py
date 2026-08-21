@@ -181,6 +181,7 @@ Stop after exact review.
         for name, value in (
             ("ADAPTIVE_REVIEW_PUBLIC_KEY_PATH", self.public_key),
             ("ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256", self.public_key_sha),
+            ("ADAPTIVE_REVIEW_PRIVATE_KEY_PATH", self.private_key),
             ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_PATH", self.evaluator_public_key),
             ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256", self.evaluator_public_key_sha),
         ):
@@ -1203,6 +1204,157 @@ Stop after exact review.
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "stale|already has"):
             self.run_review(source)
 
+    def test_public_signer_reuses_clean_semantic_review_for_currentness_refresh(self) -> None:
+        self.init()
+        self.adjust("--adaptive-decision-mode", "recommend")
+        evidence = self.decision_evidence(decision_id="signer-owner-decision-1234")
+        reviewed_source = self.run_gate(self.gate_args(evidence))["record"]
+        directory = self.root / self.target
+        existing = supervision_log.events(directory / "events.jsonl")
+        semantic_review_record = f"EVT-{len(existing) + 1:06d}"
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": semantic_review_record,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "meta-review",
+                "category": "implementation-range-owner",
+                "status": "independent-review-clean-signature-unavailable",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": reviewed_source["policy_sha256"],
+                "evidence": [
+                    reviewed_source["record_id"],
+                    reviewed_source["record_sha256"],
+                    "reviewer:base-reviewer-1234:turn-1234:item-1234",
+                ],
+            },
+        )
+        refreshed_source = self.run_gate(self.gate_args(evidence))["record"]
+        self.assertNotEqual(
+            refreshed_source["record_id"], reviewed_source["record_id"]
+        )
+        self.assertEqual(
+            refreshed_source["decision_fingerprint"],
+            reviewed_source["decision_fingerprint"],
+        )
+        self.assertNotEqual(
+            refreshed_source["decision_semantics_root"],
+            reviewed_source["decision_semantics_root"],
+        )
+        self.assertEqual(
+            refreshed_source["decision_source_root"],
+            reviewed_source["decision_source_root"],
+        )
+        output_path = self.root / "sealed-adaptive-review.json"
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "adaptive-decision-review-sign",
+                "--target-thread",
+                self.target,
+                "--source-record",
+                refreshed_source["record_id"],
+                "--review-evidence-record",
+                semantic_review_record,
+                "--output-json",
+                str(output_path),
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_adaptive_decision_review_sign(args)
+        signed = json.loads(output_path.read_bytes())
+        signing_result = json.loads(output.getvalue())
+        self.assertFalse(signing_result["duplicate"])
+        self.assertEqual(
+            signed["source_decision_record"], refreshed_source["record_id"]
+        )
+        self.assertEqual(
+            signed["evidence_root"],
+            supervision_log.events(directory / "events.jsonl")[-2]["record_sha256"],
+        )
+        supervision_log.validate_external_adaptive_review(
+            signed,
+            source=refreshed_source,
+            policy=supervision_log.read_json(directory / "policy.json"),
+        )
+        import_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "adaptive-decision-review",
+                "--target-thread",
+                self.target,
+                "--review-json",
+                str(output_path),
+            ]
+        )
+        imported_output = io.StringIO()
+        with redirect_stdout(imported_output):
+            supervision_log.cmd_adaptive_decision_review(import_args)
+        imported = json.loads(imported_output.getvalue())["record"]
+        self.assertEqual(
+            imported["source_decision_record"], refreshed_source["record_id"]
+        )
+        self.assertEqual(imported["review_disposition"], "accepted")
+
+    def test_public_signer_rejects_unreviewed_or_wrong_authority_material(self) -> None:
+        self.init()
+        self.adjust("--adaptive-decision-mode", "recommend")
+        evidence = self.decision_evidence(decision_id="signer-attack-decision-1234")
+        source = self.run_gate(self.gate_args(evidence))["record"]
+        directory = self.root / self.target
+        existing = supervision_log.events(directory / "events.jsonl")
+        evidence_record = f"EVT-{len(existing) + 1:06d}"
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": evidence_record,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "meta-review",
+                "category": "implementation-range-owner",
+                "status": "independent-review-rejected",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": source["policy_sha256"],
+                "evidence": [
+                    source["record_id"],
+                    source["record_sha256"],
+                    "reviewer:base-reviewer-1234:turn-1234:item-1234",
+                ],
+            },
+        )
+        refreshed = self.run_gate(self.gate_args(evidence))["record"]
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "adaptive-decision-review-sign",
+                "--target-thread",
+                self.target,
+                "--source-record",
+                refreshed["record_id"],
+                "--review-evidence-record",
+                evidence_record,
+                "--output-json",
+                str(self.root / "must-not-exist.json"),
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "accepted independent semantic review"
+        ):
+            supervision_log.cmd_adaptive_decision_review_sign(args)
+
     def test_fabricated_or_replayed_review_rejects(self) -> None:
         self.init()
         self.adjust("--adaptive-decision-mode", "recommend")
@@ -1924,10 +2076,25 @@ Stop after exact review.
             ]
         )
         self.assertEqual(parsed.command, "adaptive-decision-gate")
+        signer = supervision_log.parser().parse_args(
+            [
+                "adaptive-decision-review-sign",
+                "--target-thread",
+                self.target,
+                "--source-record",
+                "EVT-000123",
+                "--review-evidence-record",
+                "EVT-000124",
+                "--output-json",
+                "/tmp/adaptive-review.json",
+            ]
+        )
+        self.assertEqual(signer.command, "adaptive-decision-review-sign")
         text = MODULE_PATH.parent.parent.joinpath("SKILL.md").read_text(encoding="utf-8")
         text += MODULE_PATH.parent.parent.joinpath("references", "supervision-policy.md").read_text(encoding="utf-8")
         for token in (
-            "adaptive-decision-review", "--decision-evidence", "--review-json",
+            "adaptive-decision-review", "adaptive-decision-review-sign",
+            "--decision-evidence", "--review-json", "--review-evidence-record",
             "adaptive-target-class", "adaptive-target-repository-root",
             "separately signed", "full-autonomous",
         ):

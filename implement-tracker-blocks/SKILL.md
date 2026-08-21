@@ -13,6 +13,35 @@ while treating live repository instructions and authorities as controlling.
 
 1. Resolve the exact referenced tracker and active repository.
 2. Read applicable repository instructions before changing files.
+   Resolve `docs/tracker.md` as the repository's canonical implementation-
+   program entry point before resolving any detailed tracker or Block. Every
+   compatible repository must keep that stable path:
+
+   - If it exists, read and validate it first. Follow the active tracker and
+     required successor chain it names, its program-qualified Block identities,
+     current frontier, terminal outcome, and metadata-authority rules.
+   - If it is absent, create it through the repository's tracker-authoring
+     owner as bounded preflight work before implementation effects. Preserve
+     existing detailed tracker bytes and history. The minimal index must name
+     each active or required successor program, its exact tracker path and
+     current hash, Block range or identities, accepted/current status, first
+     eligible Block, dependency or activation boundary, and terminal observable
+     outcome. When one detailed tracker is the complete program, that tracker
+     may itself live at `docs/tracker.md`.
+   - Reconcile an explicitly named detailed tracker with the index instead of
+     silently activating a second work queue. If it is absent, stale, or
+     contradictory there, amend the index through its repository owner, retain
+     the old bytes under an explicit historical disposition when migration is
+     needed, validate the index, and continue without asking for manual Resume.
+   - Assigned spans, task labels, run IDs, waves, reviewer scopes, watcher
+     cursors, and automation batches are scheduling metadata only unless the
+     canonical index explicitly grants them range authority.
+
+   Creating or repairing the canonical index does not contract the direct-user
+   requested range, replace detailed Block contracts, replay accepted proof,
+   or authorize unrelated implementation. Record it with the repository's
+   ordinary scoped checkpoint workflow, then resume the exact eligible
+   frontier.
 3. Extract the requested block's dependencies, objective, required work,
    deliverables, acceptance criteria, stopping point, status rules, and required
    evidence.

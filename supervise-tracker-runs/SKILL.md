@@ -496,6 +496,21 @@ ordinary judgment from current sources, choose the safest reversible supported
 option, or record `reserved-external` with exact blockers and continue the safe
 frontier. Do not send a Resume instruction.
 
+When a target-repository semantic review is already retained as the exact
+`independent-review-clean-signature-unavailable` supervision event, seal the
+current review-required decision through
+`adaptive-decision-review-sign --source-record --review-evidence-record
+--output-json`. The signer accepts only an exact decision-source/fingerprint
+match to the independently reviewed decision, permits a governing-head-only
+currentness and semantics refresh, derives every review field from the current
+canonical event, uses the fixed owner-only reviewer key, revalidates the
+resulting signature through the sealed public authority, and writes one
+immutable canonical artifact. It does
+not reinterpret findings, sign rejected or inconclusive evidence, sign a
+Software Factory self-change without its distinct evaluator, or import or apply
+the result. Run the signer and `adaptive-decision-review` without an intervening
+event.
+
 An accepted `amend-structure` adaptive decision is only the trigger for the
 existing tracker-authoring owner. It is not tracker bytes or range authority.
 Before authoring begins, bind one immutable `tracker-authoring` policy profile
