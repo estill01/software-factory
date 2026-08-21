@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           parts=(.sf-upload/next-integration/part-*)
-          test ${#parts[@]} -eq 10
+          test ${#parts[@]} -eq 4
           cat "${parts[@]}" > "$RUNNER_TEMP/integration.patch.gz.b64"
           test "$(sha256sum "$RUNNER_TEMP/integration.patch.gz.b64" | awk '{print $1}')" = "5983a3f023e142ca7be934d4d3efbeb5e79e6871bd02d93f2a2a50ec6c963b72"
           base64 --decode "$RUNNER_TEMP/integration.patch.gz.b64" > "$RUNNER_TEMP/integration.patch.gz"
