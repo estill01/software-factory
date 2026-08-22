@@ -1658,6 +1658,144 @@ class SkillReleaseTests(unittest.TestCase):
                     (self.release_root / skill_release.HISTORY_NAME).read_bytes(),
                 )
 
+    def test_pending_recovery_interlocks_competing_owner_mutations(self) -> None:
+        args, evidence = self.prepare_recovery()
+        release_root = self.release_root.resolve()
+        release_id = str(evidence["release_id"])
+        candidate_commit = str(evidence["candidate_commit"])
+
+        def process_loss(position: str) -> None:
+            if position == "after-link-3":
+                raise SimulatedProcessLoss(position)
+
+        with self.assertRaisesRegex(SimulatedProcessLoss, "after-link-3"):
+            skill_release.recover_installed_links(args, crash_hook=process_loss)
+
+        def file_bytes(path: Path) -> bytes | None:
+            return path.read_bytes() if path.exists() else None
+
+        def owner_snapshot() -> dict[str, object]:
+            return {
+                "pointer": os.readlink(release_root / "current"),
+                "links": {
+                    name: os.readlink(self.install_root / name)
+                    for name in skill_release.SKILLS
+                },
+                "acceptance": file_bytes(
+                    release_root / skill_release.ACCEPTANCE_NAME
+                ),
+                "activation": file_bytes(release_root / skill_release.HISTORY_NAME),
+                "recovery_ledger": file_bytes(
+                    release_root / skill_release.RECOVERY_NAME
+                ),
+                "recovery_pending": file_bytes(
+                    release_root / skill_release.RECOVERY_PENDING_NAME
+                ),
+                "releases": tuple(
+                    sorted(path.name for path in (release_root / "releases").iterdir())
+                ),
+            }
+
+        baseline = owner_snapshot()
+        observed = skill_release.status(
+            argparse.Namespace(
+                release_root=str(release_root),
+                install_root=str(self.install_root),
+            )
+        )["pending_installed_link_recovery"]
+        self.assertIsNotNone(observed)
+        self.assertEqual(observed["phase"], "prepared")
+        self.assertEqual(observed["link_posture"], "stable")
+        self.assertEqual(observed["recovery_ledger_posture"], "absent")
+        self.assertTrue(observed["owner_current"])
+        self.assertEqual(observed["reconciliation_owner"], "recover-installed-links")
+        self.assertNotIn("original_links", observed)
+        self.assertNotIn("desired_links", observed)
+        self.assertNotIn("receipt", observed)
+        self.assertEqual(baseline, owner_snapshot())
+
+        review = skill_release.review_request(
+            argparse.Namespace(repo=str(self.repo), source_commit=candidate_commit)
+        )
+        self.assertEqual(review["source_commit"], candidate_commit)
+        self.assertEqual(baseline, owner_snapshot())
+
+        stage_args = self.stage_args(candidate_commit)
+        competing = {
+            "stage": lambda: skill_release.stage_release(stage_args),
+            "activate": lambda: skill_release.activate_release(
+                argparse.Namespace(
+                    release_root=str(release_root),
+                    install_root=str(self.install_root),
+                    release_id=release_id,
+                    quiescent_evidence=None,
+                )
+            ),
+            "bootstrap": lambda: skill_release.bootstrap_release(
+                argparse.Namespace(
+                    release_root=str(release_root),
+                    install_root=str(self.install_root),
+                    release_id=release_id,
+                    quiescent_evidence=None,
+                    legacy_source_root=None,
+                )
+            ),
+            "promote": lambda: skill_release.promote_release(
+                self.automated_args(candidate_commit)
+            ),
+            "rollback": lambda: skill_release.rollback_release(
+                argparse.Namespace(
+                    release_root=str(release_root),
+                    install_root=str(self.install_root),
+                    release_id=None,
+                    quiescent_evidence=None,
+                    expected_current_release=None,
+                    expected_current_activation_record=None,
+                )
+            ),
+            "adopt": lambda: skill_release.adopt_release(
+                argparse.Namespace(
+                    release_root=str(release_root),
+                    install_root=str(self.install_root),
+                )
+            ),
+            "adoption-rollback": lambda: skill_release.restore_adoption_release(
+                argparse.Namespace(
+                    release_root=str(release_root),
+                    install_root=str(self.install_root),
+                )
+            ),
+        }
+        for operation, invoke in competing.items():
+            with self.subTest(operation=operation):
+                with self.assertRaisesRegex(
+                    skill_release.ReleaseError, "authenticated pending recovery"
+                ):
+                    invoke()
+                self.assertEqual(baseline, owner_snapshot())
+
+        recovered = skill_release.recover_installed_links(args)
+        self.assertEqual(recovered["recovery"], "completed-after-retry")
+        self.assertIsNone(skill_release.load_recovery_pending(release_root))
+        after_recovery = skill_release.status(
+            argparse.Namespace(
+                release_root=str(release_root),
+                install_root=str(self.install_root),
+            )
+        )
+        self.assertIsNone(after_recovery["pending_installed_link_recovery"])
+        with mock.patch.object(
+            skill_release,
+            "run_automated_checks",
+            return_value=self.automated_checks(),
+        ):
+            promoted = skill_release.promote_release(
+                self.automated_args(candidate_commit)
+            )
+        self.assertEqual(promoted["promotion"], "completed")
+        self.assertEqual(promoted["source_commit"], candidate_commit)
+        self.assertNotEqual(promoted["release_id"], release_id)
+
     def test_recover_installed_links_resolves_caught_receipt_ambiguity(self) -> None:
         args, evidence = self.prepare_recovery()
         release_id = str(evidence["release_id"])

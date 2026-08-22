@@ -119,6 +119,15 @@ before receipt commitment restore and reprove all three original override
 links. Release acceptance and activation histories are byte-unchanged by
 link-only recovery.
 
+Any authenticated pending recovery intent is a global release-owner mutation
+interlock. Staging or acceptance, bootstrap, activation, rollback, adoption,
+promotion, and their internal pointer/history boundaries all reject before
+mutation while it exists; `recover-installed-links` remains the sole command
+that may reconcile or remove it. Read-only inspection remains available.
+`status` validates the intent HMAC and retained recovery-ledger prefix, then
+reports only its bounded identity plus phase, link/ledger posture, currentness,
+and reconciliation owner. Invalid or divergent pending state fails closed.
+
 `activate` requires the stable-link set already established. It validates the
 complete accepted release, atomically renames one temporary `current` symlink,
 and never rewrites an installed skill link. A fresh child process resolves and
@@ -154,8 +163,8 @@ valid activation wins and a stale health rollback is rejected without
 overwriting it. These expected-current inputs are internal owner guards, not a
 caller-selectable release or rollback authority.
 `status` reports the source commit, manifest roots, exact discovery targets,
-current resolved roots, and history length without scanning unrelated skills
-or repositories.
+current resolved roots, history length, and any authenticated pending-recovery
+identity/posture without scanning unrelated skills or repositories.
 
 ## Automatic monitor updates
 

@@ -524,6 +524,7 @@ def append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
 
 
 def append_history(release_root: Path, record: Mapping[str, Any]) -> None:
+    require_no_pending_recovery(release_root, operation="activation-history append")
     append_jsonl(release_root / HISTORY_NAME, record)
 
 
@@ -644,6 +645,7 @@ def accepted_automated_stage(
 def append_acceptance(
     release_root: Path, manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
+    require_no_pending_recovery(release_root, operation="release-acceptance append")
     records = acceptance_records(release_root)
     candidate = candidate_material(
         str(manifest["source_commit"]),
@@ -1142,6 +1144,21 @@ def recovery_pending_ledger_posture(
     if receipt_bytes.startswith(suffix):
         return "partial", prior_records
     raise ReleaseError("Installed-link recovery ledger suffix is divergent")
+
+
+def require_no_pending_recovery(release_root: Path, *, operation: str) -> None:
+    """Fail closed while the recovery owner has authenticated unfinished work."""
+    pending = load_recovery_pending(release_root)
+    if pending is None:
+        return
+    ledger_posture, _records = recovery_pending_ledger_posture(
+        release_root, pending
+    )
+    raise ReleaseError(
+        f"Release-owner mutation {operation} is blocked by authenticated pending "
+        f"recovery {pending['intent_id']} ({pending['phase']}/{ledger_posture}); "
+        "recover-installed-links is the sole reconciliation owner"
+    )
 
 
 def make_recovery_receipt(
@@ -2097,6 +2114,7 @@ def review_request(args: argparse.Namespace) -> dict[str, Any]:
 def stage_release(args: argparse.Namespace) -> dict[str, Any]:
     repo = ensure_directory(Path(args.repo), label="source repository", create=False)
     release_root = ensure_directory(Path(args.release_root), label="release root")
+    require_no_pending_recovery(release_root, operation="stage")
     releases = ensure_directory(release_root / "releases", label="release directory")
     source_commit = exact_git_commit(args.source_commit)
     verified_source(repo, source_commit)
@@ -2130,6 +2148,7 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
         checks = run_automated_checks(repo, source_commit, baseline_commit)
     temporary = releases / f".stage-{os.getpid()}-{secrets.token_hex(6)}"
     with release_lock(release_root):
+        require_no_pending_recovery(release_root, operation="stage")
         try:
             temporary.mkdir(mode=0o700)
             candidate = build_candidate(repo, source_commit, temporary)
@@ -2225,7 +2244,60 @@ def installed_link_state(install_root: Path, release_root: Path) -> dict[str, An
     return state
 
 
+def pending_recovery_status(
+    release_root: Path,
+    installed: Mapping[str, Mapping[str, Any]],
+    active_release_id: str | None,
+    records: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Return authenticated, content-minimized recovery identity and posture."""
+    pending = load_recovery_pending(release_root)
+    if pending is None:
+        return None
+    ledger_posture, _prior_records = recovery_pending_ledger_posture(
+        release_root, pending
+    )
+    targets = {name: installed[name]["target"] for name in SKILLS}
+    original = dict(pending["original_links"])
+    desired = dict(pending["desired_links"])
+    if targets == original:
+        link_posture = "override"
+    elif targets == desired:
+        link_posture = "stable"
+    elif all(targets[name] in {original[name], desired[name]} for name in SKILLS):
+        link_posture = "partial"
+    else:
+        link_posture = "divergent"
+    activation = records[-1] if records else None
+    owner_current = bool(activation) and all(
+        (
+            active_release_id == pending["current_release_id"],
+            len(records) == pending["activation_history_count"],
+            activation.get("record_id") == pending["activation_record_id"],
+            activation.get("record_hmac_sha256")
+            == pending["activation_record_hmac_sha256"],
+        )
+    )
+    return {
+        "kind": pending["kind"],
+        "intent_id": pending["intent_id"],
+        "phase": pending["phase"],
+        "current_release_id": pending["current_release_id"],
+        "activation_record_id": pending["activation_record_id"],
+        "activation_record_hmac_sha256": pending[
+            "activation_record_hmac_sha256"
+        ],
+        "override_source_commit": pending["override_source_commit"],
+        "candidate_source_commit": pending["candidate_source_commit"],
+        "link_posture": link_posture,
+        "recovery_ledger_posture": ledger_posture,
+        "owner_current": owner_current,
+        "reconciliation_owner": "recover-installed-links",
+    }
+
+
 def swap_pointer(release_root: Path, release_id: str | None) -> None:
+    require_no_pending_recovery(release_root, operation="current-pointer swap")
     pointer = release_root / "current"
     if release_id is None:
         if pointer.exists() or pointer.is_symlink():
@@ -2961,6 +3033,7 @@ def activate_release(
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
     release_id = bounded_id(args.release_id, label="release ID")
     with release_lock(release_root):
+        require_no_pending_recovery(release_root, operation=action)
         read_manifest(release_root, release_id)
         prior = current_release_id(release_root)
         prior_history = history(release_root)
@@ -3049,6 +3122,7 @@ def bootstrap_release(
     release_id = bounded_id(args.release_id, label="release ID")
     source_root = Path(args.legacy_source_root) if args.legacy_source_root else None
     with release_lock(release_root):
+        require_no_pending_recovery(release_root, operation="bootstrap")
         manifest = read_manifest(release_root, release_id)
         if current_release_id(release_root) is not None:
             raise ReleaseError("Release owner is already bootstrapped")
@@ -3125,6 +3199,7 @@ def bootstrap_release(
 
 def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
+    require_no_pending_recovery(release_root, operation="rollback")
     expected_current_release = getattr(args, "expected_current_release", None)
     expected_current_activation = getattr(
         args, "expected_current_activation_record", None
@@ -3168,9 +3243,10 @@ def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def promote_release(args: argparse.Namespace) -> dict[str, Any]:
+    release_root = ensure_directory(Path(args.release_root), label="release root")
+    require_no_pending_recovery(release_root, operation="promote")
     staged = stage_release(args)
     release_id = str(staged["release_id"])
-    release_root = ensure_directory(Path(args.release_root), label="release root")
     args.release_id = release_id
     args.quiescent_evidence = None
     current = current_release_id(release_root)
@@ -3208,6 +3284,7 @@ def restore_adoption_release(args: argparse.Namespace) -> dict[str, Any]:
     """
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
+    require_no_pending_recovery(release_root, operation="adoption rollback")
     target_release_id = bounded_id(args.release_id, label="rollback release ID")
     expected_candidate_release_id = bounded_id(
         args.expected_candidate_release_id, label="adopted release ID"
@@ -3277,6 +3354,7 @@ def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
     """
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
+    require_no_pending_recovery(release_root, operation="adopt")
     baseline_source_commit = exact_git_commit(args.baseline_source_commit)
     before = status(
         argparse.Namespace(
@@ -3421,6 +3499,9 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
             "activation_history_records": len(records),
             "activation_record": records[-1] if records else None,
         }
+        result["pending_installed_link_recovery"] = pending_recovery_status(
+            release_root, installed, active, records
+        )
         acceptance = accepted_release_record(release_root, active) if active else None
         result["acceptance_record"] = acceptance
         if active and result["installed_complete"]:
