@@ -10,6 +10,7 @@ import datetime as dt
 import fcntl
 import hashlib
 import hmac
+import io
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 from typing import Any, Iterator, Mapping, Sequence
 
@@ -31,9 +33,13 @@ SKILLS = (
 MANIFEST_NAME = "release-manifest.json"
 HISTORY_NAME = "activation-history.jsonl"
 ACCEPTANCE_NAME = "accepted-releases.jsonl"
+RECOVERY_NAME = "installed-link-recoveries.jsonl"
 LOCK_NAME = ".release.lock"
 KEY_DIRECTORY = ".software-factory-release-keys"
 SCHEMA_VERSION = 1
+CANONICAL_RELEASE_ROOT = Path.home() / ".codex/software-factory-releases"
+CANONICAL_INSTALL_ROOT = Path.home() / ".codex/skills"
+CANONICAL_DEV_OVERRIDES_ROOT = Path.home() / ".codex/software-factory-dev-overrides"
 AUTHORITY_ROOT = Path(
     "/Users/ethanstillman/.codex/software-factory-release-authority"
 )
@@ -751,6 +757,104 @@ def history(release_root: Path) -> list[dict[str, Any]]:
     return records
 
 
+def archive_projection_summary(
+    projection: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    return {
+        name: {
+            "content_root_sha256": projection[name]["content_root_sha256"],
+            "file_count": projection[name]["file_count"],
+        }
+        for name in SKILLS
+    }
+
+
+def installed_link_recovery_records(release_root: Path) -> list[dict[str, Any]]:
+    records = jsonl_records(
+        release_root / RECOVERY_NAME, label="Installed-link recovery history"
+    )
+    if not records:
+        return []
+    key = release_key(release_root, allow_create=False)
+    previous: str | None = None
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "timestamp",
+        "current_release_id",
+        "current_source_commit",
+        "activation_record_id",
+        "activation_record_hmac_sha256",
+        "activation_history_count",
+        "override_source_commit",
+        "override_archive_projection",
+        "candidate_source_commit",
+        "candidate_parent_commit",
+        "post_recovery_links",
+        "installed_verification_root_sha256",
+        "previous_record_hmac_sha256",
+        "record_hmac_sha256",
+    }
+    for index, value in enumerate(records, start=1):
+        material = {
+            field: member
+            for field, member in value.items()
+            if field != "record_hmac_sha256"
+        }
+        projection = value.get("override_archive_projection")
+        links = value.get("post_recovery_links")
+        if (
+            set(value) != exact_keys
+            or type(value.get("schema_version")) is not int
+            or value.get("schema_version") != SCHEMA_VERSION
+            or value.get("kind") != "software-factory-installed-link-recovery"
+            or value.get("record_id") != f"INSTALLED-LINK-RECOVERY-{index}"
+            or not isinstance(value.get("timestamp"), str)
+            or not value["timestamp"]
+            or value.get("previous_record_hmac_sha256") != previous
+            or value.get("record_hmac_sha256") != record_hmac(key, material)
+            or type(value.get("activation_history_count")) is not int
+            or value["activation_history_count"] < 1
+            or not isinstance(projection, dict)
+            or set(projection) != set(SKILLS)
+            or not isinstance(links, dict)
+            or set(links) != set(SKILLS)
+        ):
+            raise ReleaseError("Installed-link recovery history was forged or reordered")
+        bounded_id(str(value["current_release_id"]), label="recovery release ID")
+        bounded_id(str(value["activation_record_id"]), label="recovery activation record")
+        for field in (
+            "current_source_commit",
+            "override_source_commit",
+            "candidate_source_commit",
+            "candidate_parent_commit",
+        ):
+            exact_git_commit(str(value[field]))
+        for label, field in (
+            ("recovery activation HMAC", "activation_record_hmac_sha256"),
+            ("recovery installed verification", "installed_verification_root_sha256"),
+        ):
+            exact_sha256(str(value[field]), label=label)
+        for name in SKILLS:
+            member = projection[name]
+            if (
+                not isinstance(member, dict)
+                or set(member) != {"content_root_sha256", "file_count"}
+                or type(member.get("file_count")) is not int
+                or member["file_count"] < 1
+            ):
+                raise ReleaseError("Installed-link recovery projection is invalid")
+            exact_sha256(
+                str(member.get("content_root_sha256", "")),
+                label="recovery archive content root",
+            )
+            if links[name] != desired_link(release_root, name):
+                raise ReleaseError("Installed-link recovery stable-link binding differs")
+        previous = str(value["record_hmac_sha256"])
+    return records
+
+
 def make_history_record(
     release_root: Path,
     *,
@@ -811,6 +915,118 @@ def tree_projection(path: Path) -> tuple[str, int]:
     if not entries or not any(item["path"] == "SKILL.md" for item in entries):
         raise ReleaseError(f"Skill tree is incomplete: {path.name}")
     return digest(entries), len(entries)
+
+
+def git_archive_projection(repo: Path, commit: str) -> dict[str, dict[str, Any]]:
+    """Project the exported skill bytes, including declared export-subst filters."""
+    source = exact_git_commit(commit)
+    result = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", source, "--", *SKILLS],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ReleaseError(f"Git archive projection failed: {detail or 'git archive'}")
+    if not result.stdout or len(result.stdout) > 64 * 1024 * 1024:
+        raise ReleaseError("Git archive projection is empty or exceeds its size limit")
+    entries: dict[str, list[dict[str, str]]] = {name: [] for name in SKILLS}
+    try:
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+            for member in archive.getmembers():
+                relative = member.name.rstrip("/")
+                if not relative:
+                    continue
+                parts = relative.split("/")
+                if (
+                    parts[0] not in SKILLS
+                    or any(part in {"", ".", ".."} for part in parts)
+                ):
+                    raise ReleaseError("Git archive entry escaped the exact skill set")
+                if member.isdir():
+                    continue
+                if not member.isfile() or len(parts) < 2:
+                    raise ReleaseError("Git archive contains a non-regular skill entry")
+                source_file = archive.extractfile(member)
+                if source_file is None:
+                    raise ReleaseError("Git archive regular entry has no content")
+                payload = source_file.read()
+                if len(payload) != member.size:
+                    raise ReleaseError("Git archive entry changed during projection")
+                entries[parts[0]].append(
+                    {
+                        "path": "/".join(parts[1:]),
+                        "mode": "100755" if member.mode & 0o100 else "100644",
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                    }
+                )
+    except (tarfile.TarError, OSError) as exc:
+        raise ReleaseError("Git archive projection is invalid") from exc
+    projection: dict[str, dict[str, Any]] = {}
+    for name in SKILLS:
+        ordered = sorted(entries[name], key=lambda item: item["path"])
+        if not ordered or not any(item["path"] == "SKILL.md" for item in ordered):
+            raise ReleaseError("Git archive lacks the complete three-skill set")
+        projection[name] = {
+            "content_root_sha256": digest(ordered),
+            "file_count": len(ordered),
+            "entries": ordered,
+        }
+    return projection
+
+
+def sealed_override_projection(
+    override_root: Path,
+    expected: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    if override_root.is_symlink() or not override_root.is_dir():
+        raise ReleaseError("Development override root must be one real directory")
+    if override_root.stat().st_mode & 0o222:
+        raise ReleaseError("Development override root is writable")
+    if {item.name for item in override_root.iterdir()} != set(SKILLS):
+        raise ReleaseError("Development override does not contain exactly three skills")
+    actual: dict[str, dict[str, Any]] = {}
+    for name in SKILLS:
+        root = override_root / name
+        if root.is_symlink() or not root.is_dir() or root.stat().st_mode & 0o222:
+            raise ReleaseError("Development override skill root is invalid or writable")
+        entries: list[dict[str, str]] = []
+        for base, directory_names, file_names in os.walk(root, followlinks=False):
+            directory_names.sort()
+            file_names.sort()
+            base_path = Path(base)
+            if base_path.is_symlink() or base_path.stat().st_mode & 0o222:
+                raise ReleaseError("Development override contains a symlink or writable directory")
+            for directory_name in directory_names:
+                child = base_path / directory_name
+                if child.is_symlink() or child.stat().st_mode & 0o222:
+                    raise ReleaseError("Development override contains a symlink or writable directory")
+            for file_name in file_names:
+                child = base_path / file_name
+                metadata = child.lstat()
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_mode & 0o222
+                ):
+                    raise ReleaseError("Development override contains an invalid or writable file")
+                entries.append(
+                    {
+                        "path": child.relative_to(root).as_posix(),
+                        "mode": "100755" if metadata.st_mode & stat.S_IXUSR else "100644",
+                        "sha256": hashlib.sha256(child.read_bytes()).hexdigest(),
+                    }
+                )
+        entries.sort(key=lambda item: item["path"])
+        projected = {
+            "content_root_sha256": digest(entries),
+            "file_count": len(entries),
+            "entries": entries,
+        }
+        if projected != expected.get(name):
+            raise ReleaseError("Development override differs from the exact Git archive projection")
+        actual[name] = projected
+    return actual
 
 
 def git_tree_entries(repo: Path, commit: str) -> list[tuple[str, str, str]]:
@@ -1810,6 +2026,268 @@ def child_reload_verify(
     return value
 
 
+def canonical_recovery_roots(args: argparse.Namespace) -> tuple[Path, Path, Path]:
+    release_root = ensure_directory(
+        Path(args.release_root), label="release root", create=False
+    )
+    install_root = ensure_directory(
+        Path(args.install_root), label="skill install root", create=False
+    )
+    canonical_release = ensure_directory(
+        CANONICAL_RELEASE_ROOT, label="canonical release root", create=False
+    )
+    canonical_install = ensure_directory(
+        CANONICAL_INSTALL_ROOT, label="canonical skill install root", create=False
+    )
+    override_parent = ensure_directory(
+        CANONICAL_DEV_OVERRIDES_ROOT,
+        label="canonical development-override root",
+        create=False,
+    )
+    if release_root != canonical_release or install_root != canonical_install:
+        raise ReleaseError("Installed-link recovery requires canonical owner roots")
+    return release_root, install_root, override_parent
+
+
+def recovery_state(
+    *,
+    repo: Path,
+    release_root: Path,
+    install_root: Path,
+    override_parent: Path,
+    override_source_commit: str,
+    candidate_source_commit: str,
+    expected_current_release: str,
+    expected_activation_hmac: str,
+) -> dict[str, Any]:
+    if run_git(repo, "rev-parse", "--show-toplevel") != str(repo):
+        raise ReleaseError("Recovery repository is not the exact Git worktree root")
+    verified_source(repo, candidate_source_commit)
+    if run_git(repo, "rev-parse", "HEAD") != candidate_source_commit:
+        raise ReleaseError("Recovery candidate is not the exact repository HEAD")
+    candidate_parent = run_git(repo, "rev-parse", f"{candidate_source_commit}^")
+    if candidate_parent != override_source_commit:
+        raise ReleaseError("Recovery candidate does not have the exact override parent")
+
+    active = current_release_id(release_root)
+    if active != expected_current_release:
+        raise ReleaseError("Current release differs from the recovery expectation")
+    manifest = read_manifest(release_root, expected_current_release)
+    active_source = exact_git_commit(str(manifest["source_commit"]))
+    run_git(repo, "merge-base", "--is-ancestor", active_source, override_source_commit)
+    records = history(release_root)
+    if not records or records[-1]["release_id"] != expected_current_release:
+        raise ReleaseError("Activation head differs from the current release")
+    if records[-1]["record_hmac_sha256"] != expected_activation_hmac:
+        raise ReleaseError("Activation head HMAC differs from the recovery expectation")
+
+    override_root = override_parent / override_source_commit
+    if (
+        override_root.is_symlink()
+        or not override_root.is_dir()
+        or override_root.resolve(strict=True).parent != override_parent
+        or override_root.resolve(strict=True).name != override_source_commit
+    ):
+        raise ReleaseError("Development override is outside its canonical commit root")
+    archive = git_archive_projection(repo, override_source_commit)
+    sealed_override_projection(override_root, archive)
+
+    targets: dict[str, str | None] = {}
+    for name in SKILLS:
+        link = install_root / name
+        targets[name] = os.readlink(link) if link.is_symlink() else None
+    override_targets = {
+        name: str(override_root / name) for name in SKILLS
+    }
+    stable_targets = {
+        name: desired_link(release_root, name) for name in SKILLS
+    }
+    if targets == override_targets:
+        link_mode = "override"
+    elif targets == stable_targets:
+        link_mode = "stable"
+    else:
+        raise ReleaseError("Installed skill links are partial, mixed, or foreign")
+    return {
+        "current_release_id": active,
+        "current_source_commit": active_source,
+        "activation_record": records[-1],
+        "activation_history_count": len(records),
+        "override_source_commit": override_source_commit,
+        "override_root": str(override_root),
+        "override_archive_projection": archive_projection_summary(archive),
+        "candidate_source_commit": candidate_source_commit,
+        "candidate_parent_commit": candidate_parent,
+        "link_mode": link_mode,
+        "link_targets": targets,
+    }
+
+
+def recovery_record_matches(
+    record: Mapping[str, Any], state: Mapping[str, Any]
+) -> bool:
+    activation = state["activation_record"]
+    return all(
+        record.get(field) == expected
+        for field, expected in (
+            ("current_release_id", state["current_release_id"]),
+            ("current_source_commit", state["current_source_commit"]),
+            ("activation_record_id", activation["record_id"]),
+            ("activation_record_hmac_sha256", activation["record_hmac_sha256"]),
+            ("activation_history_count", state["activation_history_count"]),
+            ("override_source_commit", state["override_source_commit"]),
+            ("override_archive_projection", state["override_archive_projection"]),
+            ("candidate_source_commit", state["candidate_source_commit"]),
+            ("candidate_parent_commit", state["candidate_parent_commit"]),
+        )
+    )
+
+
+def recover_installed_links(
+    args: argparse.Namespace,
+    *,
+    fail_after_links: int | None = None,
+    after_lock_acquired: Any | None = None,
+) -> dict[str, Any]:
+    release_root, install_root, override_parent = canonical_recovery_roots(args)
+    repo = ensure_directory(Path(args.repo), label="recovery repository", create=False)
+    override_source_commit = exact_git_commit(args.override_source_commit)
+    candidate_source_commit = exact_git_commit(args.expected_candidate_source_commit)
+    expected_current_release = bounded_id(
+        args.expected_current_release, label="expected current release"
+    )
+    expected_activation_hmac = exact_sha256(
+        args.expected_activation_record_hmac_sha256,
+        label="expected activation-record HMAC",
+    )
+    preflight = recovery_state(
+        repo=repo,
+        release_root=release_root,
+        install_root=install_root,
+        override_parent=override_parent,
+        override_source_commit=override_source_commit,
+        candidate_source_commit=candidate_source_commit,
+        expected_current_release=expected_current_release,
+        expected_activation_hmac=expected_activation_hmac,
+    )
+    with release_lock(release_root):
+        if after_lock_acquired is not None:
+            after_lock_acquired()
+        locked = recovery_state(
+            repo=repo,
+            release_root=release_root,
+            install_root=install_root,
+            override_parent=override_parent,
+            override_source_commit=override_source_commit,
+            candidate_source_commit=candidate_source_commit,
+            expected_current_release=expected_current_release,
+            expected_activation_hmac=expected_activation_hmac,
+        )
+        if locked != preflight:
+            raise ReleaseError("Installed-link recovery state changed under the owner lock")
+        recovery_records = installed_link_recovery_records(release_root)
+        matching = [
+            item for item in recovery_records if recovery_record_matches(item, locked)
+        ]
+        if locked["link_mode"] == "stable":
+            if len(matching) != 1 or matching[0] != recovery_records[-1]:
+                raise ReleaseError("Stable installed links lack one current recovery receipt")
+            child = child_reload_verify(
+                release_root, install_root, expected_current_release
+            )
+            installed = verify_installed(
+                release_root, install_root, expected_current_release
+            )
+            if child != installed or matching[0]["installed_verification_root_sha256"] != installed["verification_root_sha256"]:
+                raise ReleaseError("Idempotent recovery verification differs")
+            return {
+                "recovery": "already-complete",
+                "duplicate": True,
+                "receipt": matching[0],
+                "installed": installed,
+            }
+        if matching:
+            raise ReleaseError("Recovery receipt replayed after installed-link drift")
+
+        originals = [locked["link_targets"][name] for name in SKILLS]
+        archive = git_archive_projection(repo, override_source_commit)
+        override_root = Path(str(locked["override_root"]))
+        try:
+            for index, name in enumerate(SKILLS, start=1):
+                replace_link(
+                    install_root / name, desired_link(release_root, name)
+                )
+                if fail_after_links == index:
+                    raise ReleaseError("Injected installed-link recovery interruption")
+            child = child_reload_verify(
+                release_root, install_root, expected_current_release
+            )
+            installed = verify_installed(
+                release_root, install_root, expected_current_release
+            )
+            if child != installed:
+                raise ReleaseError("Fresh-process and in-process recovery evidence differ")
+            if current_release_id(release_root) != expected_current_release:
+                raise ReleaseError("Current pointer changed during installed-link recovery")
+            current_history = history(release_root)
+            if (
+                len(current_history) != locked["activation_history_count"]
+                or current_history[-1] != locked["activation_record"]
+            ):
+                raise ReleaseError("Activation history changed during installed-link recovery")
+            material: dict[str, Any] = {
+                "schema_version": SCHEMA_VERSION,
+                "kind": "software-factory-installed-link-recovery",
+                "record_id": f"INSTALLED-LINK-RECOVERY-{len(recovery_records) + 1}",
+                "timestamp": utc_now(),
+                "current_release_id": expected_current_release,
+                "current_source_commit": locked["current_source_commit"],
+                "activation_record_id": locked["activation_record"]["record_id"],
+                "activation_record_hmac_sha256": locked["activation_record"]["record_hmac_sha256"],
+                "activation_history_count": locked["activation_history_count"],
+                "override_source_commit": override_source_commit,
+                "override_archive_projection": locked["override_archive_projection"],
+                "candidate_source_commit": candidate_source_commit,
+                "candidate_parent_commit": locked["candidate_parent_commit"],
+                "post_recovery_links": {
+                    name: desired_link(release_root, name) for name in SKILLS
+                },
+                "installed_verification_root_sha256": installed["verification_root_sha256"],
+                "previous_record_hmac_sha256": (
+                    recovery_records[-1]["record_hmac_sha256"]
+                    if recovery_records
+                    else None
+                ),
+            }
+            material["record_hmac_sha256"] = record_hmac(
+                release_key(release_root, allow_create=False), material
+            )
+            append_jsonl(release_root / RECOVERY_NAME, material)
+            return {
+                "recovery": "completed",
+                "duplicate": False,
+                "receipt": material,
+                "installed": installed,
+            }
+        except Exception:
+            restore_links(install_root, originals)
+            sealed_override_projection(override_root, archive)
+            restored = {
+                name: os.readlink(install_root / name)
+                if (install_root / name).is_symlink()
+                else None
+                for name in SKILLS
+            }
+            if restored != locked["link_targets"]:
+                raise ReleaseError("Installed-link recovery could not restore all original links")
+            if (
+                current_release_id(release_root) != expected_current_release
+                or history(release_root)[-1] != locked["activation_record"]
+            ):
+                raise ReleaseError("Installed-link recovery restoration changed owner state")
+            raise
+
+
 def validate_quiescent_evidence(
     path: Path,
     *,
@@ -2412,10 +2890,10 @@ def parser() -> argparse.ArgumentParser:
     value = argparse.ArgumentParser(description=__doc__)
     value.add_argument(
         "--release-root",
-        default=str(Path.home() / ".codex/software-factory-releases"),
+        default=str(CANONICAL_RELEASE_ROOT),
     )
     value.add_argument(
-        "--install-root", default=str(Path.home() / ".codex/skills")
+        "--install-root", default=str(CANONICAL_INSTALL_ROOT)
     )
     subcommands = value.add_subparsers(dest="command", required=True)
 
@@ -2467,6 +2945,19 @@ def parser() -> argparse.ArgumentParser:
         "--expected-current-activation-record", help=argparse.SUPPRESS
     )
     rollback.set_defaults(func=rollback_release)
+
+    recover = subcommands.add_parser(
+        "recover-installed-links",
+        help="restore the stable discovery links from one verified development override",
+    )
+    recover.add_argument("--repo", required=True)
+    recover.add_argument("--override-source-commit", required=True)
+    recover.add_argument("--expected-candidate-source-commit", required=True)
+    recover.add_argument("--expected-current-release", required=True)
+    recover.add_argument(
+        "--expected-activation-record-hmac-sha256", required=True
+    )
+    recover.set_defaults(func=recover_installed_links)
 
     promote = subcommands.add_parser(
         "promote",

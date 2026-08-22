@@ -26,6 +26,7 @@ The default release root is
 ├── current -> releases/<release-id>
 ├── accepted-releases.jsonl
 ├── activation-history.jsonl
+├── installed-link-recoveries.jsonl
 └── .release.lock
 
 ~/.codex/.software-factory-release-keys/
@@ -82,6 +83,28 @@ links with stable links, verifies them in a fresh process, and records the
 result. An interruption restores every original link and removes the new
 pointer before returning. Partial or mixed installations reject rather than
 being repaired speculatively.
+
+`recover-installed-links` is a narrowly bounded recovery owner for a complete
+development-override link set left in place after an otherwise current release
+activation. It is not an alternate promotion or pointer-selection path. The
+command accepts only the exact repository, override source commit, expected
+candidate child commit, expected current release, and expected activation-record
+HMAC. Production always resolves the canonical release, install, and
+development-override roots; callers cannot select any of them.
+
+Before mutation and again under the release-owner lock, recovery requires all
+three installed links to name one sealed commit-rooted override, verifies its
+path, modes, and bytes against `git archive` (including declared
+`export-subst` transformations), verifies active-to-override ancestry and the
+candidate's exact override parent, and rechecks the current pointer and
+activation-history HMAC. It then replaces the complete set with the stable
+`current/<skill>` links and performs child-process plus in-process installed
+verification without moving `current`. Any interruption restores all three
+original override links and reproves the archive projection. A successful
+recovery appends one HMAC-chained `installed-link-recoveries.jsonl` receipt;
+an exact retry returns that receipt idempotently, while pointer, activation,
+link, archive, lineage, or ledger drift fails closed. Release acceptance and
+activation histories are not changed by link-only recovery.
 
 `activate` requires the stable-link set already established. It validates the
 complete accepted release, atomically renames one temporary `current` symlink,

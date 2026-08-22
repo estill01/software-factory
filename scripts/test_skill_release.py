@@ -4,11 +4,13 @@ import argparse
 import base64
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -28,8 +30,10 @@ class SkillReleaseTests(unittest.TestCase):
         self.repo = self.root / "repo"
         self.release_root = self.root / "releases-owner"
         self.install_root = self.root / "installed"
+        self.dev_overrides_root = self.root / "dev-overrides"
         self.repo.mkdir()
         self.install_root.mkdir()
+        self.dev_overrides_root.mkdir()
         self.evidence_counter = 0
         self.authority_root = self.root / "authority"
         (self.authority_root / "reviewers").mkdir(parents=True)
@@ -38,6 +42,21 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release, "AUTHORITY_ROOT", self.authority_root
         )
         self.authority_patcher.start()
+        self.root_patchers = (
+            mock.patch.object(
+                skill_release, "CANONICAL_RELEASE_ROOT", self.release_root
+            ),
+            mock.patch.object(
+                skill_release, "CANONICAL_INSTALL_ROOT", self.install_root
+            ),
+            mock.patch.object(
+                skill_release,
+                "CANONICAL_DEV_OVERRIDES_ROOT",
+                self.dev_overrides_root,
+            ),
+        )
+        for patcher in self.root_patchers:
+            patcher.start()
         (
             self.reviewer_private,
             self.reviewer_key_sha256,
@@ -70,6 +89,8 @@ class SkillReleaseTests(unittest.TestCase):
         self.commit("initial skills")
 
     def tearDown(self) -> None:
+        for patcher in reversed(self.root_patchers):
+            patcher.stop()
         self.authority_patcher.stop()
         for base, directory_names, file_names in os.walk(self.root):
             Path(base).chmod(0o755)
@@ -297,6 +318,114 @@ class SkillReleaseTests(unittest.TestCase):
             review_evidence=None,
             quiescent_evidence=None,
             legacy_source_root=str(self.repo),
+        )
+
+    def recovery_args(
+        self,
+        *,
+        override_commit: str,
+        candidate_commit: str,
+        release_id: str,
+        activation_hmac: str,
+    ) -> argparse.Namespace:
+        return argparse.Namespace(
+            repo=str(self.repo),
+            release_root=str(self.release_root),
+            install_root=str(self.install_root),
+            override_source_commit=override_commit,
+            expected_candidate_source_commit=candidate_commit,
+            expected_current_release=release_id,
+            expected_activation_record_hmac_sha256=activation_hmac,
+        )
+
+    def materialize_archive_override(self, commit: str) -> Path:
+        override = self.dev_overrides_root / commit
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "archive",
+                "--format=tar",
+                commit,
+                "--",
+                *skill_release.SKILLS,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
+            for member in archive.getmembers():
+                parts = member.name.rstrip("/").split("/")
+                if not parts or parts[0] not in skill_release.SKILLS:
+                    raise AssertionError("unexpected test archive entry")
+                destination = override.joinpath(*parts)
+                if member.isdir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                elif member.isfile():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    source = archive.extractfile(member)
+                    assert source is not None
+                    destination.write_bytes(source.read())
+                    destination.chmod(0o755 if member.mode & 0o100 else 0o644)
+                else:
+                    raise AssertionError("unexpected nonregular test archive entry")
+        skill_release.seal_release_tree(override)
+        return override
+
+    def prepare_recovery(
+        self, *, export_subst: bool = False
+    ) -> tuple[argparse.Namespace, dict[str, object]]:
+        active_commit = self.git("rev-parse", "HEAD")
+        staged = self.stage(active_commit)
+        release_id = str(staged["release_id"])
+        skill_release.bootstrap_release(self.activate_args(release_id))
+        for name in skill_release.SKILLS:
+            (self.repo / name / "OVERRIDE").write_text(
+                f"{name} override\n", encoding="utf-8"
+            )
+        if export_subst:
+            exported = self.repo / skill_release.SKILLS[-1] / "exported.txt"
+            exported.write_text("revision=$Format:%H$\n", encoding="utf-8")
+            (self.repo / ".gitattributes").write_text(
+                f"{skill_release.SKILLS[-1]}/exported.txt export-subst\n",
+                encoding="utf-8",
+            )
+        override_commit = self.commit("development override")
+        (self.repo / "candidate-marker.txt").write_text(
+            "accepted candidate child\n", encoding="utf-8"
+        )
+        candidate_commit = self.commit("accepted candidate child")
+        override_root = self.materialize_archive_override(override_commit).resolve()
+        for name in skill_release.SKILLS:
+            skill_release.replace_link(
+                self.install_root / name, str(override_root / name)
+            )
+        activation = skill_release.history(self.release_root.resolve())[-1]
+        args = self.recovery_args(
+            override_commit=override_commit,
+            candidate_commit=candidate_commit,
+            release_id=release_id,
+            activation_hmac=str(activation["record_hmac_sha256"]),
+        )
+        return args, {
+            "active_commit": active_commit,
+            "release_id": release_id,
+            "override_commit": override_commit,
+            "candidate_commit": candidate_commit,
+            "override_root": override_root,
+            "activation": activation,
+        }
+
+    def assert_override_links(self, override_root: Path) -> None:
+        self.assertEqual(
+            {
+                name: str(override_root / name) for name in skill_release.SKILLS
+            },
+            {
+                name: os.readlink(self.install_root / name)
+                for name in skill_release.SKILLS
+            },
         )
 
     def test_promote_checks_stages_and_activates_without_manual_permits(self) -> None:
@@ -1368,6 +1497,245 @@ class SkillReleaseTests(unittest.TestCase):
         commit = self.git("rev-parse", "HEAD")
         with self.assertRaisesRegex(skill_release.ReleaseError, "real directory"):
             self.stage(commit)
+
+    def test_recover_installed_links_uses_exact_exported_archive_and_is_idempotent(self) -> None:
+        args, evidence = self.prepare_recovery(export_subst=True)
+        raw = self.git(
+            "show",
+            f"{evidence['override_commit']}:{skill_release.SKILLS[-1]}/exported.txt",
+        )
+        exported = (
+            Path(evidence["override_root"])
+            / skill_release.SKILLS[-1]
+            / "exported.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("$Format:%H$", raw)
+        self.assertIn(str(evidence["override_commit"]), exported)
+        acceptance_before = (self.release_root / skill_release.ACCEPTANCE_NAME).read_bytes()
+        history_before = (self.release_root / skill_release.HISTORY_NAME).read_bytes()
+
+        completed = skill_release.recover_installed_links(args)
+        self.assertEqual(completed["recovery"], "completed")
+        self.assertFalse(completed["duplicate"])
+        self.assertEqual(
+            {
+                name: skill_release.desired_link(self.release_root.resolve(), name)
+                for name in skill_release.SKILLS
+            },
+            {
+                name: os.readlink(self.install_root / name)
+                for name in skill_release.SKILLS
+            },
+        )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            evidence["release_id"],
+        )
+        self.assertEqual(
+            completed["installed"],
+            skill_release.child_reload_verify(
+                self.release_root.resolve(),
+                self.install_root.resolve(),
+                str(evidence["release_id"]),
+            ),
+        )
+        self.assertEqual(
+            acceptance_before,
+            (self.release_root / skill_release.ACCEPTANCE_NAME).read_bytes(),
+        )
+        self.assertEqual(
+            history_before, (self.release_root / skill_release.HISTORY_NAME).read_bytes()
+        )
+        ledger_before = (self.release_root / skill_release.RECOVERY_NAME).read_bytes()
+
+        duplicate = skill_release.recover_installed_links(args)
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["receipt"], completed["receipt"])
+        self.assertEqual(
+            ledger_before, (self.release_root / skill_release.RECOVERY_NAME).read_bytes()
+        )
+
+    def test_recover_installed_links_restores_complete_override_after_interruptions(self) -> None:
+        args, evidence = self.prepare_recovery()
+        override_root = Path(evidence["override_root"])
+        for failure_point in (1, 2):
+            with self.assertRaisesRegex(skill_release.ReleaseError, "interruption"):
+                skill_release.recover_installed_links(
+                    args, fail_after_links=failure_point
+                )
+            self.assert_override_links(override_root)
+            expected = skill_release.git_archive_projection(
+                self.repo.resolve(), str(evidence["override_commit"])
+            )
+            skill_release.sealed_override_projection(override_root, expected)
+        self.assertFalse((self.release_root / skill_release.RECOVERY_NAME).exists())
+
+    def test_recover_installed_links_rejects_invalid_link_and_override_shapes(self) -> None:
+        args, evidence = self.prepare_recovery()
+        override_root = Path(evidence["override_root"])
+        originals = {
+            name: str(override_root / name) for name in skill_release.SKILLS
+        }
+        first = self.install_root / skill_release.SKILLS[0]
+
+        first.unlink()
+        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+            skill_release.recover_installed_links(args)
+        skill_release.replace_link(first, originals[skill_release.SKILLS[0]])
+
+        skill_release.replace_link(
+            first,
+            skill_release.desired_link(
+                self.release_root.resolve(), skill_release.SKILLS[0]
+            ),
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+            skill_release.recover_installed_links(args)
+        skill_release.replace_link(first, originals[skill_release.SKILLS[0]])
+
+        foreign = self.root / "foreign"
+        foreign.mkdir()
+        skill_release.replace_link(first, str(foreign))
+        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+            skill_release.recover_installed_links(args)
+        skill_release.replace_link(first, originals[skill_release.SKILLS[0]])
+
+        override_root.chmod(0o755)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "writable"):
+            skill_release.recover_installed_links(args)
+        override_root.chmod(0o555)
+
+        affected = override_root / skill_release.SKILLS[0] / "OVERRIDE"
+        original_payload = affected.read_bytes()
+        affected.chmod(0o644)
+        affected.write_bytes(original_payload + b"changed\n")
+        affected.chmod(0o444)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "differs"):
+            skill_release.recover_installed_links(args)
+        affected.chmod(0o644)
+        affected.write_bytes(original_payload)
+        affected.chmod(0o444)
+
+        affected.chmod(0o555)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "differs"):
+            skill_release.recover_installed_links(args)
+        affected.chmod(0o444)
+
+        skill_root = affected.parent
+        skill_root.chmod(0o755)
+        affected.unlink()
+        os.symlink("SKILL.md", affected)
+        skill_root.chmod(0o555)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "invalid"):
+            skill_release.recover_installed_links(args)
+        skill_root.chmod(0o755)
+        affected.unlink()
+        affected.write_bytes(original_payload)
+        affected.chmod(0o444)
+        skill_root.chmod(0o555)
+        self.assert_override_links(override_root)
+        self.assertFalse((self.release_root / skill_release.RECOVERY_NAME).exists())
+
+    def test_recover_installed_links_rejects_stale_identity_and_post_lock_cas(self) -> None:
+        args, evidence = self.prepare_recovery()
+        override_root = Path(evidence["override_root"])
+
+        stale_hmac = argparse.Namespace(**vars(args))
+        stale_hmac.expected_activation_record_hmac_sha256 = "0" * 64
+        with self.assertRaisesRegex(skill_release.ReleaseError, "Activation head HMAC"):
+            skill_release.recover_installed_links(stale_hmac)
+
+        stale_release = argparse.Namespace(**vars(args))
+        stale_release.expected_current_release = "different-release-1234"
+        with self.assertRaisesRegex(skill_release.ReleaseError, "Current release differs"):
+            skill_release.recover_installed_links(stale_release)
+
+        wrong_candidate = argparse.Namespace(**vars(args))
+        wrong_candidate.expected_candidate_source_commit = str(
+            evidence["override_commit"]
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "repository HEAD"):
+            skill_release.recover_installed_links(wrong_candidate)
+
+        wrong_parent = argparse.Namespace(**vars(args))
+        wrong_parent.override_source_commit = str(evidence["active_commit"])
+        with self.assertRaisesRegex(skill_release.ReleaseError, "exact override parent"):
+            skill_release.recover_installed_links(wrong_parent)
+
+        original_run_git = skill_release.run_git
+
+        def reject_ancestry(repo: Path, *arguments: str, binary: bool = False):
+            if arguments[:2] == ("merge-base", "--is-ancestor"):
+                raise skill_release.ReleaseError("Git command failed: unrelated ancestry")
+            return original_run_git(repo, *arguments, binary=binary)
+
+        with (
+            mock.patch.object(skill_release, "run_git", side_effect=reject_ancestry),
+            self.assertRaisesRegex(skill_release.ReleaseError, "unrelated ancestry"),
+        ):
+            skill_release.recover_installed_links(args)
+
+        def drift_after_lock() -> None:
+            skill_release.replace_link(
+                self.install_root / skill_release.SKILLS[0],
+                skill_release.desired_link(
+                    self.release_root.resolve(), skill_release.SKILLS[0]
+                ),
+            )
+
+        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+            skill_release.recover_installed_links(
+                args, after_lock_acquired=drift_after_lock
+            )
+        skill_release.replace_link(
+            self.install_root / skill_release.SKILLS[0],
+            str(override_root / skill_release.SKILLS[0]),
+        )
+        self.assert_override_links(override_root)
+        self.assertFalse((self.release_root / skill_release.RECOVERY_NAME).exists())
+
+    def test_recovery_ledger_rejects_tamper_prefix_and_replay_drift(self) -> None:
+        args, evidence = self.prepare_recovery()
+        completed = skill_release.recover_installed_links(args)
+        ledger = self.release_root / skill_release.RECOVERY_NAME
+        exact_bytes = ledger.read_bytes()
+        record = json.loads(exact_bytes)
+        record["record_hmac_sha256"] = "0" * 64
+        ledger.write_bytes(skill_release.canonical(record) + b"\n")
+        with self.assertRaisesRegex(skill_release.ReleaseError, "forged or reordered"):
+            skill_release.installed_link_recovery_records(self.release_root.resolve())
+
+        ledger.write_bytes(exact_bytes)
+        forged = dict(completed["receipt"])
+        forged["record_id"] = "INSTALLED-LINK-RECOVERY-2"
+        forged["timestamp"] = "2026-08-21T00:00:00+00:00"
+        forged["previous_record_hmac_sha256"] = "0" * 64
+        forged.pop("record_hmac_sha256")
+        forged["record_hmac_sha256"] = skill_release.record_hmac(
+            skill_release.release_key(self.release_root.resolve(), allow_create=False),
+            forged,
+        )
+        skill_release.append_jsonl(ledger, forged)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "forged or reordered"):
+            skill_release.installed_link_recovery_records(self.release_root.resolve())
+
+        ledger.write_bytes(exact_bytes)
+        override_root = Path(evidence["override_root"])
+        for name in skill_release.SKILLS:
+            skill_release.replace_link(
+                self.install_root / name, str(override_root / name)
+            )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "replayed"):
+            skill_release.recover_installed_links(args)
+
+    def test_recover_installed_links_rejects_noncanonical_owner_roots(self) -> None:
+        args, _evidence = self.prepare_recovery()
+        alternate = self.root / "alternate-install"
+        alternate.mkdir()
+        changed = argparse.Namespace(**vars(args))
+        changed.install_root = str(alternate)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "canonical owner roots"):
+            skill_release.recover_installed_links(changed)
 
 
 if __name__ == "__main__":
