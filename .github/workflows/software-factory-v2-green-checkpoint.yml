@@ -1,0 +1,152 @@
+name: Software Factory v2 green integration checkpoint
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+    paths:
+      - .v2-green-checkpoint-pending
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: software-factory-v2-green-checkpoint
+  cancel-in-progress: false
+
+jobs:
+  validate-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-native-refactor
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: runtime/pyproject.toml
+
+      - name: Repair deterministic integration defects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path.cwd()
+          source = root / "runtime/src/software_factory"
+
+          def ensure_import(path: Path, module: str, usage: str) -> None:
+              if not path.exists():
+                  return
+              text = path.read_text(encoding="utf-8")
+              if usage not in text or re.search(rf"^import {re.escape(module)}$", text, re.M):
+                  return
+              marker = "from __future__ import annotations\n\n"
+              if marker not in text:
+                  raise RuntimeError(f"cannot place {module} import in {path}")
+              path.write_text(text.replace(marker, marker + f"import {module}\n", 1), encoding="utf-8")
+
+          ensure_import(source / "migration.py", "subprocess", "subprocess.")
+          ensure_import(source / "recovery.py", "json", "json.")
+
+          migrations = []
+          for path in (source / "migrations").glob("[0-9][0-9][0-9][0-9]_*.sql"):
+              migrations.append(int(path.name.split("_", 1)[0]))
+          if migrations:
+              schema = source / "schema.py"
+              text = schema.read_text(encoding="utf-8")
+              text, count = re.subn(
+                  r"(SCHEMA_VERSION\s*=\s*)\d+\b",
+                  rf"\g<1>{max(migrations)}",
+                  text,
+                  count=1,
+              )
+              if count != 1:
+                  raise RuntimeError("schema version owner is missing")
+              schema.write_text(text, encoding="utf-8")
+          PY
+          for script in scripts/repair_v2_acceptance.py scripts/repair_v2_acceptance_fencing.py; do
+            if [[ -f "$script" ]]; then
+              python "$script"
+            fi
+          done
+
+      - name: Install development dependencies
+        run: python -m pip install -e 'runtime[dev]'
+
+      - name: Normalize owned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m ruff check --fix --unsafe-fixes runtime/src runtime/tests
+          python -m ruff format runtime/src runtime/tests
+
+      - name: Lint
+        run: python -m ruff check runtime/src runtime/tests
+
+      - name: Format check
+        run: python -m ruff format --check runtime/src runtime/tests
+
+      - name: Type check
+        run: python -m mypy runtime/src/software_factory
+
+      - name: Compile
+        run: python -m compileall -q runtime/src runtime/tests
+
+      - name: Focused acceptance and readiness tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=()
+          [[ -f runtime/tests/test_acceptance.py ]] && files+=(runtime/tests/test_acceptance.py)
+          [[ -f runtime/tests/test_merge_readiness.py ]] && files+=(runtime/tests/test_merge_readiness.py)
+          if (( ${#files[@]} > 0 )); then
+            python -m pytest "${files[@]}" -q
+          fi
+
+      - name: Full behavioral suite with branch coverage
+        run: >-
+          python -m pytest runtime/tests -q
+          --cov=software_factory --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=72
+
+      - name: Build wheel
+        run: python -m build --wheel runtime
+
+      - name: Smoke installed entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/v2-install"
+          "$RUNNER_TEMP/v2-install/bin/python" -m pip install runtime/dist/*.whl
+          HOME_DIR="$RUNNER_TEMP/factory-home"
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" init
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" health
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" doctor --root "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/v2-install/bin/software-factoryd" --home "$HOME_DIR" --once
+          "$RUNNER_TEMP/v2-install/bin/software-factory-api" --help
+          "$RUNNER_TEMP/v2-install/bin/sf-skill" --help
+
+      - name: Commit accepted integration checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .v2-*-pending
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git add -- runtime/src runtime/tests runtime/pyproject.toml runtime/acceptance-matrix.json .v2-green-checkpoint-pending .v2-acceptance-pending .v2-acceptance-v2-pending .v2-integration-gate-pending .v2-normalize-pending
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No source changes after validation"
+            exit 0
+          fi
+          git commit -m "fix(v2): establish green integrated runtime checkpoint"
+          git push origin HEAD:agent/software-factory-v2-native-refactor

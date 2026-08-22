@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "minimum_behavioral_cases": 70,
+  "domains": {
+    "mission_continuation": {
+      "required": [
+        "test_core.py::test_mission_cannot_complete_with_open_capability",
+        "test_core.py::test_requested_range_survives_program_revision"
+      ]
+    },
+    "multi_agent_execution": {
+      "required": [
+        "test_controller.py::test_controller_dispatches_maximal_safe_parallel_set",
+        "test_controller.py::test_concurrent_dispatch_reserves_one_execution"
+      ]
+    },
+    "qa_acceptance": {
+      "required": [
+        "test_execution_qa.py::test_candidate_revision_is_bound_to_qa_evidence",
+        "test_execution_qa.py::test_changed_candidate_stales_prior_qa"
+      ]
+    },
+    "supervision_adaptation": {
+      "required": [
+        "test_supervision.py::test_ineffective_strategy_forces_new_evidence_and_causal_escalation",
+        "test_supervision.py::test_effective_correction_resolves_incident_only_after_later_review",
+        "test_supervision.py::test_safe_frontier_preserves_unrelated_parallel_work"
+      ]
+    },
+    "signals_learning": {
+      "required": [
+        "test_learning.py::test_recurring_unknown_sequences_become_candidates_not_active_rules",
+        "test_learning.py::test_detector_and_route_promote_atomically_then_match_later_event",
+        "test_learning.py::test_harmful_or_false_positive_route_rolls_bundle_back"
+      ]
+    },
+    "reflection_experiments": {
+      "required": [
+        "test_learning.py::test_reflection_hypothesis_and_counterexample_remain_distinct_records",
+        "test_learning.py::test_command_experiment_executes_real_process_and_updates_hypothesis",
+        "test_learning.py::test_failed_experiment_is_counterevidence_not_a_supported_claim"
+      ]
+    },
+    "program_evolution": {
+      "required": [
+        "test_evolution.py::test_program_change_requires_independent_review_and_currentness",
+        "test_evolution.py::test_tracker_change_is_exact_byte_bound_and_rolls_back_failed_validation",
+        "test_evolution.py::test_sequential_and_parallel_portfolios_have_distinct_lane_semantics"
+      ]
+    },
+    "selection_quality_rsi": {
+      "required": [
+        "test_evolution.py::test_selection_is_selected_by_an_attributed_selector_after_independent_challenge",
+        "test_evolution.py::test_selector_policy_requires_frozen_history_forward_shadow_and_review"
+      ]
+    },
+    "release_refresh_rollback": {
+      "required": [
+        "test_operations.py::test_release_is_staged_immutably_reviewed_activated_and_verified",
+        "test_operations.py::test_failed_fresh_process_verification_restores_previous_release"
+      ]
+    },
+    "systemic_recovery": {
+      "required": [
+        "test_operations.py::test_factory_recovery_preserves_target_and_resumes_exactly_once"
+      ]
+    },
+    "cleanup_reconciliation": {
+      "required": [
+        "test_operations.py::test_repository_inventory_and_preservation_capture_dirty_and_untracked_state",
+        "test_operations.py::test_redundant_branch_retires_only_after_verified_no_loss_bundle"
+      ]
+    },
+    "reporting_notifications": {
+      "required": [
+        "test_reporting.py::test_report_generation_is_content_addressed_and_writes_pdf",
+        "test_reporting.py::test_notification_outbox_deduplicates_delivers_and_records_readback",
+        "test_reporting.py::test_failed_notification_retries_with_bounded_budget"
+      ]
+    },
+    "operator_api_ui": {
+      "required": [
+        "test_api.py::test_health_factory_floor_and_html_are_available",
+        "test_api.py::test_operator_post_requires_bearer_token_and_applies_governed_owner"
+      ]
+    },
+    "migration_parity_cutover": {
+      "required": [
+        "test_migration.py::test_unmapped_legacy_test_fails_closed_until_explicitly_adjudicated",
+        "test_migration.py::test_actual_cutover_moves_legacy_owner_and_rolls_back_exact_bytes",
+        "test_migration.py::test_interrupted_cutover_reconciles_already_moved_path"
+      ]
+    },
+    "native_composition": {
+      "required": [
+        "test_advanced_integration.py::test_real_database_discovers_all_advanced_migrations",
+        "test_v2_entrypoints.py::test_core_exposes_advanced_services_without_multiple_inheritance",
+        "test_v2_entrypoints.py::test_installed_entrypoints_target_native_v2_owners"
+      ]
+    }
+  }
+}

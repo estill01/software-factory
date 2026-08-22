@@ -1,0 +1,94 @@
+name: Software Factory v2 acceptance landing v2
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+    paths:
+      - .v2-acceptance-v2-pending
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: software-factory-v2-acceptance-v2
+  cancel-in-progress: false
+
+jobs:
+  validate-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-native-refactor
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: runtime/pyproject.toml
+
+      - name: Apply acceptance integration repair
+        run: python scripts/repair_v2_acceptance.py
+
+      - name: Install development dependencies
+        run: python -m pip install -e 'runtime[dev]'
+
+      - name: Normalize owned source
+        run: |
+          python -m ruff check --fix runtime/src runtime/tests scripts/repair_v2_acceptance.py
+          python -m ruff format runtime/src runtime/tests scripts/repair_v2_acceptance.py
+
+      - name: Lint
+        run: python -m ruff check runtime/src runtime/tests scripts/repair_v2_acceptance.py
+
+      - name: Format check
+        run: python -m ruff format --check runtime/src runtime/tests scripts/repair_v2_acceptance.py
+
+      - name: Type check
+        run: python -m mypy runtime/src/software_factory
+
+      - name: Compile
+        run: python -m compileall -q runtime/src runtime/tests scripts/repair_v2_acceptance.py
+
+      - name: Acceptance owner tests
+        run: python -m pytest runtime/tests/test_acceptance.py runtime/tests/test_merge_readiness.py -q
+
+      - name: Full behavioral suite with branch coverage
+        run: >-
+          python -m pytest runtime/tests -q
+          --cov=software_factory --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=72
+
+      - name: Build wheel
+        run: python -m build --wheel runtime
+
+      - name: Smoke installed entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/v2-install"
+          "$RUNNER_TEMP/v2-install/bin/python" -m pip install runtime/dist/*.whl
+          HOME_DIR="$RUNNER_TEMP/factory-home"
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" init
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" health
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" doctor --root "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/v2-install/bin/software-factoryd" --home "$HOME_DIR" --once
+          "$RUNNER_TEMP/v2-install/bin/software-factory-api" --help
+          "$RUNNER_TEMP/v2-install/bin/sf-skill" --help
+
+      - name: Commit accepted revision-bound acceptance owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .v2-acceptance-pending .v2-acceptance-v2-pending
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git add -- runtime/src runtime/tests scripts/repair_v2_acceptance.py .v2-acceptance-pending .v2-acceptance-v2-pending
+          git diff --cached --check
+          git commit -m "feat(v2): enforce executable revision-bound acceptance"
+          git push origin HEAD:agent/software-factory-v2-native-refactor

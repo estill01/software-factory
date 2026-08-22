@@ -1,0 +1,130 @@
+name: Software Factory v2 integrated runtime landing
+
+on:
+  push:
+    branches:
+      - agent/software-factory-v2-native-refactor
+    paths:
+      - .v2-next-integration-pending
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: software-factory-v2-integrated-runtime-landing
+  cancel-in-progress: false
+
+jobs:
+  land:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/software-factory-v2-native-refactor
+          fetch-depth: 0
+
+      - name: Detect immutable integration request
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f .v2-next-integration-pending ]]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reconstruct and apply exact integration commit
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          parts=(.sf-upload/next-integration/part-*)
+          test ${#parts[@]} -eq 4
+          cat "${parts[@]}" > "$RUNNER_TEMP/integration.patch.gz.b64"
+          test "$(sha256sum "$RUNNER_TEMP/integration.patch.gz.b64" | awk '{print $1}')" = "5983a3f023e142ca7be934d4d3efbeb5e79e6871bd02d93f2a2a50ec6c963b72"
+          base64 --decode "$RUNNER_TEMP/integration.patch.gz.b64" > "$RUNNER_TEMP/integration.patch.gz"
+          test "$(sha256sum "$RUNNER_TEMP/integration.patch.gz" | awk '{print $1}')" = "3ef2413338f85e01395657881b6a4bf884354fd6a4848864f90b8ac95b3bfc3e"
+          gzip -dc "$RUNNER_TEMP/integration.patch.gz" > "$RUNNER_TEMP/integration.patch"
+          test "$(sha256sum "$RUNNER_TEMP/integration.patch" | awk '{print $1}')" = "e08d96977c636e48d706f3247c2277f110c1fa16cea159b3407ccec066d46fd6"
+          git config user.name "software-factory-v2-bot"
+          git config user.email "software-factory-v2-bot@users.noreply.github.com"
+          git am "$RUNNER_TEMP/integration.patch"
+          git rm -r .sf-upload/next-integration .v2-next-integration-pending
+          git commit --amend --no-edit
+
+      - uses: actions/setup-python@v5
+        if: steps.request.outputs.pending == 'true'
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: runtime/pyproject.toml
+
+      - name: Install development dependencies
+        if: steps.request.outputs.pending == 'true'
+        run: python -m pip install -e 'runtime[dev]'
+
+      - name: Normalize newly integrated source
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m ruff check --fix runtime/src runtime/tests
+          python -m ruff format runtime/src runtime/tests
+          git add -- runtime/src runtime/tests
+          git commit --amend --no-edit
+
+      - name: Lint
+        if: steps.request.outputs.pending == 'true'
+        run: python -m ruff check runtime/src runtime/tests
+
+      - name: Format check
+        if: steps.request.outputs.pending == 'true'
+        run: python -m ruff format --check runtime/src runtime/tests
+
+      - name: Type check
+        if: steps.request.outputs.pending == 'true'
+        run: python -m mypy runtime/src/software_factory
+
+      - name: Compile
+        if: steps.request.outputs.pending == 'true'
+        run: python -m compileall -q runtime/src runtime/tests
+
+      - name: Behavioral tests with branch coverage
+        if: steps.request.outputs.pending == 'true'
+        run: >-
+          python -m pytest runtime/tests -q
+          --cov=software_factory --cov-branch
+          --cov-report=term-missing
+          --cov-fail-under=72
+
+      - name: Build wheel
+        if: steps.request.outputs.pending == 'true'
+        run: python -m build --wheel runtime
+
+      - name: Smoke installed entrypoints
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/v2-install"
+          "$RUNNER_TEMP/v2-install/bin/python" -m pip install runtime/dist/*.whl
+          HOME_DIR="$RUNNER_TEMP/factory-home"
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" init
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" health
+          "$RUNNER_TEMP/v2-install/bin/software-factory" --home "$HOME_DIR" doctor --root "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/v2-install/bin/software-factoryd" --home "$HOME_DIR" --once
+          "$RUNNER_TEMP/v2-install/bin/software-factory-api" --help
+          "$RUNNER_TEMP/v2-install/bin/sf-skill" --help
+
+      - name: Push validated normal source
+        if: steps.request.outputs.pending == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:agent/software-factory-v2-native-refactor
