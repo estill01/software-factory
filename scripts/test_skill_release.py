@@ -23,6 +23,10 @@ skill_release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(skill_release)
 
 
+class SimulatedProcessLoss(BaseException):
+    """Bypass the owner's caught-failure rollback to model process death."""
+
+
 class SkillReleaseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -410,6 +414,39 @@ class SkillReleaseTests(unittest.TestCase):
         )
         return args, {
             "active_commit": active_commit,
+            "release_id": release_id,
+            "override_commit": override_commit,
+            "candidate_commit": candidate_commit,
+            "override_root": override_root,
+            "activation": activation,
+        }
+
+    def prepare_followup_recovery(
+        self, *, release_id: str, sequence: int
+    ) -> tuple[argparse.Namespace, dict[str, object]]:
+        for name in skill_release.SKILLS:
+            override = self.repo / name / "OVERRIDE"
+            override.write_text(
+                f"{name} follow-up override {sequence}\n", encoding="utf-8"
+            )
+        override_commit = self.commit(f"development override {sequence}")
+        (self.repo / "candidate-marker.txt").write_text(
+            f"accepted candidate child {sequence}\n", encoding="utf-8"
+        )
+        candidate_commit = self.commit(f"accepted candidate child {sequence}")
+        override_root = self.materialize_archive_override(override_commit).resolve()
+        for name in skill_release.SKILLS:
+            skill_release.replace_link(
+                self.install_root / name, str(override_root / name)
+            )
+        activation = skill_release.history(self.release_root.resolve())[-1]
+        args = self.recovery_args(
+            override_commit=override_commit,
+            candidate_commit=candidate_commit,
+            release_id=release_id,
+            activation_hmac=str(activation["record_hmac_sha256"]),
+        )
+        return args, {
             "release_id": release_id,
             "override_commit": override_commit,
             "candidate_commit": candidate_commit,
@@ -1555,6 +1592,248 @@ class SkillReleaseTests(unittest.TestCase):
             ledger_before, (self.release_root / skill_release.RECOVERY_NAME).read_bytes()
         )
 
+    def test_recover_installed_links_reconciles_every_durable_crash_boundary(self) -> None:
+        args, evidence = self.prepare_recovery()
+        release_id = str(evidence["release_id"])
+        acceptance_before = (
+            self.release_root / skill_release.ACCEPTANCE_NAME
+        ).read_bytes()
+        history_before = (self.release_root / skill_release.HISTORY_NAME).read_bytes()
+        phases = (
+            "after-intent-persistence",
+            "after-link-1",
+            "after-link-2",
+            "after-link-3",
+            "after-installed-verification",
+            "before-receipt-persistence",
+            "after-receipt-persistence",
+        )
+        for sequence, phase in enumerate(phases, start=1):
+            if sequence > 1:
+                args, evidence = self.prepare_followup_recovery(
+                    release_id=release_id, sequence=sequence
+                )
+
+            def process_loss(position: str, *, expected: str = phase) -> None:
+                if position == expected:
+                    raise SimulatedProcessLoss(expected)
+
+            with self.subTest(phase=phase):
+                with self.assertRaisesRegex(SimulatedProcessLoss, phase):
+                    skill_release.recover_installed_links(
+                        args, crash_hook=process_loss
+                    )
+                self.assertIsNotNone(
+                    skill_release.load_recovery_pending(self.release_root.resolve())
+                )
+                recovered = skill_release.recover_installed_links(args)
+                self.assertEqual(recovered["recovery"], "completed-after-retry")
+                self.assertFalse(recovered["duplicate"])
+                self.assertFalse(
+                    (
+                        self.release_root / skill_release.RECOVERY_PENDING_NAME
+                    ).exists()
+                )
+                self.assertEqual(
+                    {
+                        name: skill_release.desired_link(
+                            self.release_root.resolve(), name
+                        )
+                        for name in skill_release.SKILLS
+                    },
+                    {
+                        name: os.readlink(self.install_root / name)
+                        for name in skill_release.SKILLS
+                    },
+                )
+                duplicate = skill_release.recover_installed_links(args)
+                self.assertTrue(duplicate["duplicate"])
+                self.assertEqual(duplicate["receipt"], recovered["receipt"])
+                self.assertEqual(
+                    acceptance_before,
+                    (self.release_root / skill_release.ACCEPTANCE_NAME).read_bytes(),
+                )
+                self.assertEqual(
+                    history_before,
+                    (self.release_root / skill_release.HISTORY_NAME).read_bytes(),
+                )
+
+    def test_recover_installed_links_resolves_caught_receipt_ambiguity(self) -> None:
+        args, evidence = self.prepare_recovery()
+        release_id = str(evidence["release_id"])
+        for sequence, phase in enumerate(
+            ("before-receipt-persistence", "after-receipt-persistence"), start=1
+        ):
+            if sequence > 1:
+                args, _evidence = self.prepare_followup_recovery(
+                    release_id=release_id, sequence=sequence
+                )
+            injected = False
+
+            def ambiguous(position: str, *, expected: str = phase) -> None:
+                nonlocal injected
+                if position == expected and not injected:
+                    injected = True
+                    raise skill_release.ReleaseError(f"ambiguous {expected}")
+
+            with self.subTest(phase=phase):
+                completed = skill_release.recover_installed_links(
+                    args, crash_hook=ambiguous
+                )
+                self.assertTrue(injected)
+                self.assertFalse(completed["duplicate"])
+                self.assertFalse(
+                    (
+                        self.release_root / skill_release.RECOVERY_PENDING_NAME
+                    ).exists()
+                )
+                records = skill_release.installed_link_recovery_records(
+                    self.release_root.resolve()
+                )
+                self.assertEqual(records[-1], completed["receipt"])
+
+    def test_recover_installed_links_repairs_one_partial_receipt_suffix(self) -> None:
+        args, _evidence = self.prepare_recovery()
+        original = skill_release.persist_recovery_receipt
+        invocation_count = 0
+
+        def ambiguous_partial_append(
+            release_root: Path,
+            pending: dict[str, object],
+            *,
+            crash_hook: object | None = None,
+        ) -> dict[str, object]:
+            nonlocal invocation_count
+            invocation_count += 1
+            if invocation_count == 1:
+                receipt = skill_release.canonical(pending["receipt"]) + b"\n"
+                path = release_root / skill_release.RECOVERY_NAME
+                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                try:
+                    os.write(descriptor, receipt[: len(receipt) // 2])
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+                raise skill_release.ReleaseError("ambiguous partial append")
+            return original(release_root, pending, crash_hook=crash_hook)
+
+        with mock.patch.object(
+            skill_release,
+            "persist_recovery_receipt",
+            side_effect=ambiguous_partial_append,
+        ):
+            completed = skill_release.recover_installed_links(args)
+        self.assertEqual(invocation_count, 2)
+        self.assertEqual(
+            skill_release.installed_link_recovery_records(
+                self.release_root.resolve()
+            ),
+            [completed["receipt"]],
+        )
+        self.assertFalse(
+            (self.release_root / skill_release.RECOVERY_PENDING_NAME).exists()
+        )
+
+    def test_committed_recovery_receipt_never_rolls_links_back_on_cleanup_error(self) -> None:
+        args, evidence = self.prepare_recovery()
+        original = skill_release.remove_recovery_pending
+        injected = False
+
+        def remove_then_fail(release_root: Path) -> None:
+            nonlocal injected
+            original(release_root)
+            if not injected:
+                injected = True
+                raise skill_release.ReleaseError("ambiguous intent cleanup")
+
+        with (
+            mock.patch.object(
+                skill_release,
+                "remove_recovery_pending",
+                side_effect=remove_then_fail,
+            ),
+            self.assertRaisesRegex(skill_release.ReleaseError, "unexpected ledger suffix"),
+        ):
+            skill_release.recover_installed_links(args)
+        self.assertTrue(injected)
+        self.assertEqual(
+            {
+                name: skill_release.desired_link(self.release_root.resolve(), name)
+                for name in skill_release.SKILLS
+            },
+            {
+                name: os.readlink(self.install_root / name)
+                for name in skill_release.SKILLS
+            },
+        )
+        duplicate = skill_release.recover_installed_links(args)
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(
+            duplicate["receipt"],
+            skill_release.installed_link_recovery_records(
+                self.release_root.resolve()
+            )[-1],
+        )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            evidence["release_id"],
+        )
+
+    def test_pending_recovery_authentication_and_currentness_fail_before_mutation(self) -> None:
+        args, evidence = self.prepare_recovery()
+
+        def lose_after_first_link(position: str) -> None:
+            if position == "after-link-1":
+                raise SimulatedProcessLoss(position)
+
+        with self.assertRaises(SimulatedProcessLoss):
+            skill_release.recover_installed_links(
+                args, crash_hook=lose_after_first_link
+            )
+        partial_links = {
+            name: os.readlink(self.install_root / name)
+            for name in skill_release.SKILLS
+        }
+        stale = argparse.Namespace(**vars(args))
+        stale.expected_activation_record_hmac_sha256 = "0" * 64
+        with self.assertRaisesRegex(skill_release.ReleaseError, "Activation head HMAC"):
+            skill_release.recover_installed_links(stale)
+        self.assertEqual(
+            partial_links,
+            {
+                name: os.readlink(self.install_root / name)
+                for name in skill_release.SKILLS
+            },
+        )
+        skill_release.recover_installed_links(args)
+
+        followup, _followup_evidence = self.prepare_followup_recovery(
+            release_id=str(evidence["release_id"]), sequence=2
+        )
+        with self.assertRaises(SimulatedProcessLoss):
+            skill_release.recover_installed_links(
+                followup, crash_hook=lose_after_first_link
+            )
+        pending_path = self.release_root / skill_release.RECOVERY_PENDING_NAME
+        pending = json.loads(pending_path.read_bytes())
+        pending["intent_hmac_sha256"] = "0" * 64
+        skill_release.atomic_json(pending_path, pending)
+        tampered_links = {
+            name: os.readlink(self.install_root / name)
+            for name in skill_release.SKILLS
+        }
+        with self.assertRaisesRegex(
+            skill_release.ReleaseError, "invalid or unauthenticated"
+        ):
+            skill_release.recover_installed_links(followup)
+        self.assertEqual(
+            tampered_links,
+            {
+                name: os.readlink(self.install_root / name)
+                for name in skill_release.SKILLS
+            },
+        )
+
     def test_recover_installed_links_restores_complete_override_after_interruptions(self) -> None:
         args, evidence = self.prepare_recovery()
         override_root = Path(evidence["override_root"])
@@ -1579,7 +1858,7 @@ class SkillReleaseTests(unittest.TestCase):
         first = self.install_root / skill_release.SKILLS[0]
 
         first.unlink()
-        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+        with self.assertRaisesRegex(skill_release.ReleaseError, "foreign or invalid"):
             skill_release.recover_installed_links(args)
         skill_release.replace_link(first, originals[skill_release.SKILLS[0]])
 
@@ -1589,14 +1868,16 @@ class SkillReleaseTests(unittest.TestCase):
                 self.release_root.resolve(), skill_release.SKILLS[0]
             ),
         )
-        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+        with self.assertRaisesRegex(
+            skill_release.ReleaseError, "Partial installed links.*intent"
+        ):
             skill_release.recover_installed_links(args)
         skill_release.replace_link(first, originals[skill_release.SKILLS[0]])
 
         foreign = self.root / "foreign"
         foreign.mkdir()
         skill_release.replace_link(first, str(foreign))
-        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+        with self.assertRaisesRegex(skill_release.ReleaseError, "foreign or invalid"):
             skill_release.recover_installed_links(args)
         skill_release.replace_link(first, originals[skill_release.SKILLS[0]])
 
@@ -1683,7 +1964,7 @@ class SkillReleaseTests(unittest.TestCase):
                 ),
             )
 
-        with self.assertRaisesRegex(skill_release.ReleaseError, "partial, mixed, or foreign"):
+        with self.assertRaisesRegex(skill_release.ReleaseError, "state changed"):
             skill_release.recover_installed_links(
                 args, after_lock_acquired=drift_after_lock
             )

@@ -34,6 +34,7 @@ MANIFEST_NAME = "release-manifest.json"
 HISTORY_NAME = "activation-history.jsonl"
 ACCEPTANCE_NAME = "accepted-releases.jsonl"
 RECOVERY_NAME = "installed-link-recoveries.jsonl"
+RECOVERY_PENDING_NAME = "installed-link-recovery-pending.json"
 LOCK_NAME = ".release.lock"
 KEY_DIRECTORY = ".software-factory-release-keys"
 SCHEMA_VERSION = 1
@@ -769,10 +770,9 @@ def archive_projection_summary(
     }
 
 
-def installed_link_recovery_records(release_root: Path) -> list[dict[str, Any]]:
-    records = jsonl_records(
-        release_root / RECOVERY_NAME, label="Installed-link recovery history"
-    )
+def validate_installed_link_recovery_records(
+    release_root: Path, records: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
     if not records:
         return []
     key = release_key(release_root, allow_create=False)
@@ -852,7 +852,405 @@ def installed_link_recovery_records(release_root: Path) -> list[dict[str, Any]]:
             if links[name] != desired_link(release_root, name):
                 raise ReleaseError("Installed-link recovery stable-link binding differs")
         previous = str(value["record_hmac_sha256"])
-    return records
+    return [dict(item) for item in records]
+
+
+def installed_link_recovery_records(release_root: Path) -> list[dict[str, Any]]:
+    return validate_installed_link_recovery_records(
+        release_root,
+        jsonl_records(
+            release_root / RECOVERY_NAME, label="Installed-link recovery history"
+        ),
+    )
+
+
+def recovery_records_from_bytes(
+    release_root: Path, raw: bytes
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ReleaseError("Installed-link recovery history is invalid JSON") from exc
+        if not isinstance(value, dict) or line != canonical(value):
+            raise ReleaseError("Installed-link recovery history is noncanonical")
+        records.append(value)
+    if raw != b"".join(canonical(item) + b"\n" for item in records):
+        raise ReleaseError("Installed-link recovery history has an incomplete record")
+    return validate_installed_link_recovery_records(release_root, records)
+
+
+def recovery_ledger_bytes(release_root: Path) -> bytes:
+    path = release_root / RECOVERY_NAME
+    if not path.exists():
+        return b""
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+        raise ReleaseError("Installed-link recovery history is not a bounded regular file")
+    with path.open("rb") as source:
+        raw = source.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise ReleaseError("Installed-link recovery history exceeds its size limit")
+    return raw
+
+
+def recovery_pending_path(release_root: Path) -> Path:
+    return release_root / RECOVERY_PENDING_NAME
+
+
+def recovery_pending_record(
+    release_root: Path,
+    state: Mapping[str, Any],
+    recovery_records: Sequence[Mapping[str, Any]],
+    ledger_raw: bytes,
+) -> dict[str, Any]:
+    identity = {
+        "current_release_id": state["current_release_id"],
+        "current_source_commit": state["current_source_commit"],
+        "activation_record_id": state["activation_record"]["record_id"],
+        "activation_record_hmac_sha256": state["activation_record"][
+            "record_hmac_sha256"
+        ],
+        "activation_history_count": state["activation_history_count"],
+        "override_source_commit": state["override_source_commit"],
+        "override_archive_projection": state["override_archive_projection"],
+        "candidate_source_commit": state["candidate_source_commit"],
+        "candidate_parent_commit": state["candidate_parent_commit"],
+        "original_links": state["override_link_targets"],
+        "desired_links": state["stable_link_targets"],
+        "prior_recovery_ledger_size": len(ledger_raw),
+        "prior_recovery_ledger_sha256": hashlib.sha256(ledger_raw).hexdigest(),
+        "prior_recovery_record_count": len(recovery_records),
+        "prior_recovery_record_hmac_sha256": (
+            recovery_records[-1]["record_hmac_sha256"]
+            if recovery_records
+            else None
+        ),
+    }
+    material: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-installed-link-recovery-intent",
+        "intent_id": f"RECOVERY-{digest(identity)[:24]}",
+        "phase": "prepared",
+        "created_at": utc_now(),
+        **identity,
+        "installed_verification_root_sha256": None,
+        "receipt": None,
+    }
+    material["intent_hmac_sha256"] = record_hmac(
+        release_key(release_root, allow_create=False), material
+    )
+    return material
+
+
+def validate_recovery_pending_record(
+    release_root: Path, value: Mapping[str, Any]
+) -> dict[str, Any]:
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "intent_id",
+        "phase",
+        "created_at",
+        "current_release_id",
+        "current_source_commit",
+        "activation_record_id",
+        "activation_record_hmac_sha256",
+        "activation_history_count",
+        "override_source_commit",
+        "override_archive_projection",
+        "candidate_source_commit",
+        "candidate_parent_commit",
+        "original_links",
+        "desired_links",
+        "prior_recovery_ledger_size",
+        "prior_recovery_ledger_sha256",
+        "prior_recovery_record_count",
+        "prior_recovery_record_hmac_sha256",
+        "installed_verification_root_sha256",
+        "receipt",
+        "intent_hmac_sha256",
+    }
+    material = {
+        field: member
+        for field, member in value.items()
+        if field != "intent_hmac_sha256"
+    }
+    projection = value.get("override_archive_projection")
+    if (
+        set(value) != exact_keys
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != SCHEMA_VERSION
+        or value.get("kind")
+        != "software-factory-installed-link-recovery-intent"
+        or value.get("phase") not in {"prepared", "verified"}
+        or not isinstance(value.get("created_at"), str)
+        or not value["created_at"]
+        or type(value.get("activation_history_count")) is not int
+        or value["activation_history_count"] < 1
+        or type(value.get("prior_recovery_ledger_size")) is not int
+        or value["prior_recovery_ledger_size"] < 0
+        or type(value.get("prior_recovery_record_count")) is not int
+        or value["prior_recovery_record_count"] < 0
+        or not isinstance(projection, dict)
+        or set(projection) != set(SKILLS)
+        or not isinstance(value.get("original_links"), dict)
+        or set(value["original_links"]) != set(SKILLS)
+        or not isinstance(value.get("desired_links"), dict)
+        or set(value["desired_links"]) != set(SKILLS)
+        or value.get("intent_hmac_sha256")
+        != record_hmac(release_key(release_root, allow_create=False), material)
+    ):
+        raise ReleaseError("Installed-link recovery intent is invalid or unauthenticated")
+    bounded_id(str(value["intent_id"]), label="recovery intent ID")
+    bounded_id(str(value["current_release_id"]), label="recovery release ID")
+    bounded_id(str(value["activation_record_id"]), label="recovery activation record")
+    for field in (
+        "current_source_commit",
+        "override_source_commit",
+        "candidate_source_commit",
+        "candidate_parent_commit",
+    ):
+        exact_git_commit(str(value[field]))
+    for label, field in (
+        ("recovery activation HMAC", "activation_record_hmac_sha256"),
+        ("recovery prior ledger", "prior_recovery_ledger_sha256"),
+    ):
+        exact_sha256(str(value[field]), label=label)
+    prior_hmac = value.get("prior_recovery_record_hmac_sha256")
+    if value["prior_recovery_record_count"] == 0:
+        if prior_hmac is not None:
+            raise ReleaseError("Empty recovery prefix has a prior record HMAC")
+    else:
+        exact_sha256(str(prior_hmac), label="recovery prior record HMAC")
+    for name in SKILLS:
+        member = projection[name]
+        if (
+            not isinstance(member, dict)
+            or set(member) != {"content_root_sha256", "file_count"}
+            or type(member.get("file_count")) is not int
+            or member["file_count"] < 1
+        ):
+            raise ReleaseError("Installed-link recovery intent projection is invalid")
+        exact_sha256(
+            str(member.get("content_root_sha256", "")),
+            label="recovery intent archive root",
+        )
+        if not isinstance(value["original_links"][name], str) or not isinstance(
+            value["desired_links"][name], str
+        ):
+            raise ReleaseError("Installed-link recovery intent link set is invalid")
+    receipt = value.get("receipt")
+    if value["phase"] == "prepared":
+        if receipt is not None or value.get("installed_verification_root_sha256") is not None:
+            raise ReleaseError("Prepared recovery intent contains final evidence")
+    else:
+        if not isinstance(receipt, dict):
+            raise ReleaseError("Verified recovery intent lacks its exact receipt")
+        exact_sha256(
+            str(value.get("installed_verification_root_sha256", "")),
+            label="recovery intent installed verification",
+        )
+        if receipt.get("installed_verification_root_sha256") != value[
+            "installed_verification_root_sha256"
+        ]:
+            raise ReleaseError("Recovery intent and receipt verification roots differ")
+    return dict(value)
+
+
+def load_recovery_pending(release_root: Path) -> dict[str, Any] | None:
+    path = recovery_pending_path(release_root)
+    if not path.exists() and not path.is_symlink():
+        return None
+    return validate_recovery_pending_record(
+        release_root,
+        load_bounded_json(path, label="Installed-link recovery intent"),
+    )
+
+
+def write_recovery_pending(release_root: Path, value: Mapping[str, Any]) -> None:
+    validated = validate_recovery_pending_record(release_root, value)
+    atomic_json(recovery_pending_path(release_root), validated)
+    if load_recovery_pending(release_root) != validated:
+        raise ReleaseError("Installed-link recovery intent durability check failed")
+
+
+def remove_recovery_pending(release_root: Path) -> None:
+    path = recovery_pending_path(release_root)
+    if path.exists() or path.is_symlink():
+        path.unlink()
+        fsync_directory(release_root)
+
+
+def recovery_pending_matches_state(
+    pending: Mapping[str, Any], state: Mapping[str, Any]
+) -> bool:
+    activation = state["activation_record"]
+    return all(
+        pending.get(field) == expected
+        for field, expected in (
+            ("current_release_id", state["current_release_id"]),
+            ("current_source_commit", state["current_source_commit"]),
+            ("activation_record_id", activation["record_id"]),
+            ("activation_record_hmac_sha256", activation["record_hmac_sha256"]),
+            ("activation_history_count", state["activation_history_count"]),
+            ("override_source_commit", state["override_source_commit"]),
+            ("override_archive_projection", state["override_archive_projection"]),
+            ("candidate_source_commit", state["candidate_source_commit"]),
+            ("candidate_parent_commit", state["candidate_parent_commit"]),
+            ("original_links", state["override_link_targets"]),
+            ("desired_links", state["stable_link_targets"]),
+        )
+    )
+
+
+def recovery_pending_ledger_posture(
+    release_root: Path, pending: Mapping[str, Any]
+) -> tuple[str, list[dict[str, Any]]]:
+    raw = recovery_ledger_bytes(release_root)
+    prior_size = int(pending["prior_recovery_ledger_size"])
+    if len(raw) < prior_size:
+        raise ReleaseError("Installed-link recovery ledger lost its retained prefix")
+    prefix = raw[:prior_size]
+    if hashlib.sha256(prefix).hexdigest() != pending[
+        "prior_recovery_ledger_sha256"
+    ]:
+        raise ReleaseError("Installed-link recovery ledger prefix changed")
+    prior_records = recovery_records_from_bytes(release_root, prefix)
+    if (
+        len(prior_records) != pending["prior_recovery_record_count"]
+        or (
+            prior_records[-1]["record_hmac_sha256"] if prior_records else None
+        )
+        != pending["prior_recovery_record_hmac_sha256"]
+    ):
+        raise ReleaseError("Installed-link recovery ledger prefix identity differs")
+    suffix = raw[prior_size:]
+    receipt = pending.get("receipt")
+    if receipt is None:
+        if suffix:
+            raise ReleaseError("Prepared recovery intent has an unexpected ledger suffix")
+        return "absent", prior_records
+    receipt_bytes = canonical(receipt) + b"\n"
+    validate_installed_link_recovery_records(
+        release_root, [*prior_records, dict(receipt)]
+    )
+    if suffix == receipt_bytes:
+        return "complete", prior_records
+    if not suffix:
+        return "absent", prior_records
+    if receipt_bytes.startswith(suffix):
+        return "partial", prior_records
+    raise ReleaseError("Installed-link recovery ledger suffix is divergent")
+
+
+def make_recovery_receipt(
+    release_root: Path,
+    pending: Mapping[str, Any],
+    prior_records: Sequence[Mapping[str, Any]],
+    installed: Mapping[str, Any],
+) -> dict[str, Any]:
+    material: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-installed-link-recovery",
+        "record_id": f"INSTALLED-LINK-RECOVERY-{len(prior_records) + 1}",
+        "timestamp": utc_now(),
+        "current_release_id": pending["current_release_id"],
+        "current_source_commit": pending["current_source_commit"],
+        "activation_record_id": pending["activation_record_id"],
+        "activation_record_hmac_sha256": pending[
+            "activation_record_hmac_sha256"
+        ],
+        "activation_history_count": pending["activation_history_count"],
+        "override_source_commit": pending["override_source_commit"],
+        "override_archive_projection": pending["override_archive_projection"],
+        "candidate_source_commit": pending["candidate_source_commit"],
+        "candidate_parent_commit": pending["candidate_parent_commit"],
+        "post_recovery_links": pending["desired_links"],
+        "installed_verification_root_sha256": installed[
+            "verification_root_sha256"
+        ],
+        "previous_record_hmac_sha256": (
+            prior_records[-1]["record_hmac_sha256"] if prior_records else None
+        ),
+    }
+    material["record_hmac_sha256"] = record_hmac(
+        release_key(release_root, allow_create=False), material
+    )
+    validate_installed_link_recovery_records(
+        release_root, [*prior_records, material]
+    )
+    return material
+
+
+def verified_recovery_pending(
+    release_root: Path,
+    pending: Mapping[str, Any],
+    prior_records: Sequence[Mapping[str, Any]],
+    installed: Mapping[str, Any],
+) -> dict[str, Any]:
+    receipt = make_recovery_receipt(
+        release_root, pending, prior_records, installed
+    )
+    material = {
+        field: member
+        for field, member in pending.items()
+        if field != "intent_hmac_sha256"
+    }
+    material["phase"] = "verified"
+    material["installed_verification_root_sha256"] = installed[
+        "verification_root_sha256"
+    ]
+    material["receipt"] = receipt
+    material["intent_hmac_sha256"] = record_hmac(
+        release_key(release_root, allow_create=False), material
+    )
+    return validate_recovery_pending_record(release_root, material)
+
+
+def persist_recovery_receipt(
+    release_root: Path,
+    pending: Mapping[str, Any],
+    *,
+    crash_hook: Any | None = None,
+) -> dict[str, Any]:
+    if pending.get("phase") != "verified" or not isinstance(
+        pending.get("receipt"), dict
+    ):
+        raise ReleaseError("Recovery receipt persistence requires verified intent")
+    posture, _records = recovery_pending_ledger_posture(release_root, pending)
+    if posture == "complete":
+        fsync_directory(release_root)
+        return dict(pending["receipt"])
+    if crash_hook is not None:
+        crash_hook("before-receipt-persistence")
+    receipt_bytes = canonical(pending["receipt"]) + b"\n"
+    raw = recovery_ledger_bytes(release_root)
+    prior_size = int(pending["prior_recovery_ledger_size"])
+    suffix = raw[prior_size:]
+    remaining = receipt_bytes[len(suffix):]
+    path = release_root / RECOVERY_NAME
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        offset = 0
+        while offset < len(remaining):
+            written = os.write(descriptor, remaining[offset:])
+            if written <= 0:
+                raise ReleaseError("Recovery receipt append made no progress")
+            offset += written
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    fsync_directory(release_root)
+    if crash_hook is not None:
+        crash_hook("after-receipt-persistence")
+    if recovery_pending_ledger_posture(release_root, pending)[0] != "complete":
+        raise ReleaseError("Recovery receipt persistence did not become canonical")
+    return dict(pending["receipt"])
 
 
 def make_history_record(
@@ -2096,18 +2494,19 @@ def recovery_state(
     for name in SKILLS:
         link = install_root / name
         targets[name] = os.readlink(link) if link.is_symlink() else None
-    override_targets = {
-        name: str(override_root / name) for name in SKILLS
-    }
-    stable_targets = {
-        name: desired_link(release_root, name) for name in SKILLS
-    }
+    override_targets = {name: str(override_root / name) for name in SKILLS}
+    stable_targets = {name: desired_link(release_root, name) for name in SKILLS}
     if targets == override_targets:
         link_mode = "override"
     elif targets == stable_targets:
         link_mode = "stable"
+    elif all(
+        targets[name] in {override_targets[name], stable_targets[name]}
+        for name in SKILLS
+    ):
+        link_mode = "partial"
     else:
-        raise ReleaseError("Installed skill links are partial, mixed, or foreign")
+        raise ReleaseError("Installed skill links are foreign or invalid")
     return {
         "current_release_id": active,
         "current_source_commit": active_source,
@@ -2120,6 +2519,8 @@ def recovery_state(
         "candidate_parent_commit": candidate_parent,
         "link_mode": link_mode,
         "link_targets": targets,
+        "override_link_targets": override_targets,
+        "stable_link_targets": stable_targets,
     }
 
 
@@ -2148,6 +2549,7 @@ def recover_installed_links(
     *,
     fail_after_links: int | None = None,
     after_lock_acquired: Any | None = None,
+    crash_hook: Any | None = None,
 ) -> dict[str, Any]:
     release_root, install_root, override_parent = canonical_recovery_roots(args)
     repo = ensure_directory(Path(args.repo), label="recovery repository", create=False)
@@ -2170,6 +2572,13 @@ def recover_installed_links(
         expected_current_release=expected_current_release,
         expected_activation_hmac=expected_activation_hmac,
     )
+    preflight_pending = load_recovery_pending(release_root)
+    if preflight_pending is not None:
+        if not recovery_pending_matches_state(preflight_pending, preflight):
+            raise ReleaseError("Pending recovery intent differs from current owner state")
+        recovery_pending_ledger_posture(release_root, preflight_pending)
+    elif preflight["link_mode"] == "partial":
+        raise ReleaseError("Partial installed links have no durable recovery intent")
     with release_lock(release_root):
         if after_lock_acquired is not None:
             after_lock_acquired()
@@ -2183,108 +2592,244 @@ def recover_installed_links(
             expected_current_release=expected_current_release,
             expected_activation_hmac=expected_activation_hmac,
         )
-        if locked != preflight:
+        pending = load_recovery_pending(release_root)
+        if locked != preflight or pending != preflight_pending:
             raise ReleaseError("Installed-link recovery state changed under the owner lock")
-        recovery_records = installed_link_recovery_records(release_root)
-        matching = [
-            item for item in recovery_records if recovery_record_matches(item, locked)
-        ]
-        if locked["link_mode"] == "stable":
-            if len(matching) != 1 or matching[0] != recovery_records[-1]:
-                raise ReleaseError("Stable installed links lack one current recovery receipt")
-            child = child_reload_verify(
-                release_root, install_root, expected_current_release
+        recovered_intent = pending is not None
+        if pending is None:
+            recovery_records = installed_link_recovery_records(release_root)
+            matching = [
+                item
+                for item in recovery_records
+                if recovery_record_matches(item, locked)
+            ]
+            if locked["link_mode"] == "stable":
+                if len(matching) != 1 or matching[0] != recovery_records[-1]:
+                    raise ReleaseError(
+                        "Stable installed links lack one current recovery receipt"
+                    )
+                child = child_reload_verify(
+                    release_root, install_root, expected_current_release
+                )
+                installed = verify_installed(
+                    release_root, install_root, expected_current_release
+                )
+                if (
+                    child != installed
+                    or matching[0]["installed_verification_root_sha256"]
+                    != installed["verification_root_sha256"]
+                ):
+                    raise ReleaseError("Idempotent recovery verification differs")
+                return {
+                    "recovery": "already-complete",
+                    "duplicate": True,
+                    "receipt": matching[0],
+                    "installed": installed,
+                }
+            if locked["link_mode"] == "partial":
+                raise ReleaseError("Partial installed links have no durable recovery intent")
+            if matching:
+                raise ReleaseError("Recovery receipt replayed after installed-link drift")
+            ledger_raw = recovery_ledger_bytes(release_root)
+            if recovery_records_from_bytes(release_root, ledger_raw) != recovery_records:
+                raise ReleaseError("Recovery ledger changed during intent preparation")
+            pending = recovery_pending_record(
+                release_root, locked, recovery_records, ledger_raw
             )
-            installed = verify_installed(
-                release_root, install_root, expected_current_release
-            )
-            if child != installed or matching[0]["installed_verification_root_sha256"] != installed["verification_root_sha256"]:
-                raise ReleaseError("Idempotent recovery verification differs")
-            return {
-                "recovery": "already-complete",
-                "duplicate": True,
-                "receipt": matching[0],
-                "installed": installed,
-            }
-        if matching:
-            raise ReleaseError("Recovery receipt replayed after installed-link drift")
+            write_recovery_pending(release_root, pending)
+            if crash_hook is not None:
+                crash_hook("after-intent-persistence")
+        else:
+            if not recovery_pending_matches_state(pending, locked):
+                raise ReleaseError("Pending recovery intent differs under owner lock")
 
-        originals = [locked["link_targets"][name] for name in SKILLS]
+        ledger_posture, prior_records = recovery_pending_ledger_posture(
+            release_root, pending
+        )
+        if locked["link_mode"] == "override" and ledger_posture == "complete":
+            raise ReleaseError("Completed recovery receipt conflicts with override links")
+        if locked["link_mode"] == "partial":
+            restore_links(
+                install_root, [pending["original_links"][name] for name in SKILLS]
+            )
+            locked = recovery_state(
+                repo=repo,
+                release_root=release_root,
+                install_root=install_root,
+                override_parent=override_parent,
+                override_source_commit=override_source_commit,
+                candidate_source_commit=candidate_source_commit,
+                expected_current_release=expected_current_release,
+                expected_activation_hmac=expected_activation_hmac,
+            )
+            if locked["link_mode"] != "override" or not recovery_pending_matches_state(
+                pending, locked
+            ):
+                raise ReleaseError("Partial-link recovery did not restore the exact override")
+
         archive = git_archive_projection(repo, override_source_commit)
         override_root = Path(str(locked["override_root"]))
-        try:
-            for index, name in enumerate(SKILLS, start=1):
-                replace_link(
-                    install_root / name, desired_link(release_root, name)
-                )
-                if fail_after_links == index:
-                    raise ReleaseError("Injected installed-link recovery interruption")
+
+        def verify_stable() -> dict[str, Any]:
             child = child_reload_verify(
                 release_root, install_root, expected_current_release
             )
-            installed = verify_installed(
+            installed_value = verify_installed(
                 release_root, install_root, expected_current_release
             )
-            if child != installed:
-                raise ReleaseError("Fresh-process and in-process recovery evidence differ")
+            if child != installed_value:
+                raise ReleaseError(
+                    "Fresh-process and in-process recovery evidence differ"
+                )
             if current_release_id(release_root) != expected_current_release:
                 raise ReleaseError("Current pointer changed during installed-link recovery")
             current_history = history(release_root)
             if (
-                len(current_history) != locked["activation_history_count"]
-                or current_history[-1] != locked["activation_record"]
+                len(current_history) != pending["activation_history_count"]
+                or current_history[-1]["record_id"] != pending["activation_record_id"]
+                or current_history[-1]["record_hmac_sha256"]
+                != pending["activation_record_hmac_sha256"]
             ):
-                raise ReleaseError("Activation history changed during installed-link recovery")
-            material: dict[str, Any] = {
-                "schema_version": SCHEMA_VERSION,
-                "kind": "software-factory-installed-link-recovery",
-                "record_id": f"INSTALLED-LINK-RECOVERY-{len(recovery_records) + 1}",
-                "timestamp": utc_now(),
-                "current_release_id": expected_current_release,
-                "current_source_commit": locked["current_source_commit"],
-                "activation_record_id": locked["activation_record"]["record_id"],
-                "activation_record_hmac_sha256": locked["activation_record"]["record_hmac_sha256"],
-                "activation_history_count": locked["activation_history_count"],
-                "override_source_commit": override_source_commit,
-                "override_archive_projection": locked["override_archive_projection"],
-                "candidate_source_commit": candidate_source_commit,
-                "candidate_parent_commit": locked["candidate_parent_commit"],
-                "post_recovery_links": {
-                    name: desired_link(release_root, name) for name in SKILLS
-                },
-                "installed_verification_root_sha256": installed["verification_root_sha256"],
-                "previous_record_hmac_sha256": (
-                    recovery_records[-1]["record_hmac_sha256"]
-                    if recovery_records
-                    else None
-                ),
-            }
-            material["record_hmac_sha256"] = record_hmac(
-                release_key(release_root, allow_create=False), material
-            )
-            append_jsonl(release_root / RECOVERY_NAME, material)
+                raise ReleaseError(
+                    "Activation history changed during installed-link recovery"
+                )
+            return installed_value
+
+        def finalize_stable(
+            current_pending: Mapping[str, Any], *, recovered: bool
+        ) -> dict[str, Any]:
+            installed_value = verify_stable()
+            if crash_hook is not None:
+                crash_hook("after-installed-verification")
+            if current_pending["phase"] == "prepared":
+                current_pending = verified_recovery_pending(
+                    release_root, current_pending, prior_records, installed_value
+                )
+                write_recovery_pending(release_root, current_pending)
+            elif current_pending["installed_verification_root_sha256"] != installed_value[
+                "verification_root_sha256"
+            ]:
+                raise ReleaseError("Retained recovery verification root differs")
+            try:
+                receipt = persist_recovery_receipt(
+                    release_root, current_pending, crash_hook=crash_hook
+                )
+            except Exception:
+                reopened = load_recovery_pending(release_root)
+                if (
+                    reopened is None
+                    or reopened != current_pending
+                    or not recovery_pending_matches_state(reopened, locked)
+                ):
+                    raise
+                verify_stable()
+                receipt = persist_recovery_receipt(release_root, reopened)
+            if recovery_pending_ledger_posture(release_root, current_pending)[0] != "complete":
+                raise ReleaseError("Recovery receipt is not durably complete")
+            remove_recovery_pending(release_root)
             return {
-                "recovery": "completed",
+                "recovery": "completed-after-retry" if recovered else "completed",
                 "duplicate": False,
-                "receipt": material,
-                "installed": installed,
+                "receipt": receipt,
+                "installed": installed_value,
             }
+
+        if locked["link_mode"] == "stable":
+            return finalize_stable(pending, recovered=True)
+
+        try:
+            for index, name in enumerate(SKILLS, start=1):
+                replace_link(install_root / name, pending["desired_links"][name])
+                if crash_hook is not None:
+                    crash_hook(f"after-link-{index}")
+                if fail_after_links == index:
+                    raise ReleaseError("Injected installed-link recovery interruption")
+            return finalize_stable(pending, recovered=recovered_intent)
         except Exception:
-            restore_links(install_root, originals)
+            reopened = load_recovery_pending(release_root)
+            ledger_pending = (
+                reopened
+                if reopened is not None and reopened.get("phase") == "verified"
+                else pending
+            )
+            ledger_posture, _ledger_prior = recovery_pending_ledger_posture(
+                release_root, ledger_pending
+            )
+            if ledger_posture == "complete":
+                if ledger_pending.get("phase") != "verified":
+                    raise ReleaseError(
+                        "Completed recovery receipt lacks verified owner state"
+                    )
+                committed = recovery_state(
+                    repo=repo,
+                    release_root=release_root,
+                    install_root=install_root,
+                    override_parent=override_parent,
+                    override_source_commit=override_source_commit,
+                    candidate_source_commit=candidate_source_commit,
+                    expected_current_release=expected_current_release,
+                    expected_activation_hmac=expected_activation_hmac,
+                )
+                if committed["link_mode"] != "stable":
+                    raise ReleaseError(
+                        "Completed recovery receipt conflicts with installed links"
+                    )
+                installed_value = verify_stable()
+                receipt = dict(ledger_pending["receipt"])
+                if receipt["installed_verification_root_sha256"] != installed_value[
+                    "verification_root_sha256"
+                ]:
+                    raise ReleaseError(
+                        "Committed recovery receipt verification root differs"
+                    )
+                if reopened is not None:
+                    remove_recovery_pending(release_root)
+                return {
+                    "recovery": "completed-after-retry",
+                    "duplicate": False,
+                    "receipt": receipt,
+                    "installed": installed_value,
+                }
+            if reopened is not None and reopened.get("phase") == "verified":
+                try:
+                    current = recovery_state(
+                        repo=repo,
+                        release_root=release_root,
+                        install_root=install_root,
+                        override_parent=override_parent,
+                        override_source_commit=override_source_commit,
+                        candidate_source_commit=candidate_source_commit,
+                        expected_current_release=expected_current_release,
+                        expected_activation_hmac=expected_activation_hmac,
+                    )
+                    if current["link_mode"] == "stable":
+                        return finalize_stable(reopened, recovered=True)
+                except Exception:
+                    if recovery_pending_ledger_posture(release_root, reopened)[0] == "complete":
+                        raise ReleaseError(
+                            "Recovery receipt is committed; stable cleanup remains retryable"
+                        )
+            restore_links(
+                install_root, [pending["original_links"][name] for name in SKILLS]
+            )
             sealed_override_projection(override_root, archive)
-            restored = {
-                name: os.readlink(install_root / name)
-                if (install_root / name).is_symlink()
-                else None
-                for name in SKILLS
-            }
-            if restored != locked["link_targets"]:
-                raise ReleaseError("Installed-link recovery could not restore all original links")
-            if (
-                current_release_id(release_root) != expected_current_release
-                or history(release_root)[-1] != locked["activation_record"]
-            ):
-                raise ReleaseError("Installed-link recovery restoration changed owner state")
+            restored = recovery_state(
+                repo=repo,
+                release_root=release_root,
+                install_root=install_root,
+                override_parent=override_parent,
+                override_source_commit=override_source_commit,
+                candidate_source_commit=candidate_source_commit,
+                expected_current_release=expected_current_release,
+                expected_activation_hmac=expected_activation_hmac,
+            )
+            if restored["link_mode"] != "override":
+                raise ReleaseError(
+                    "Installed-link recovery could not restore all original links"
+                )
+            posture, _prior = recovery_pending_ledger_posture(release_root, pending)
+            if posture == "absent":
+                remove_recovery_pending(release_root)
             raise
 
 

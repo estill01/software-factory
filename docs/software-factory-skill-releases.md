@@ -27,6 +27,7 @@ The default release root is
 ├── accepted-releases.jsonl
 ├── activation-history.jsonl
 ├── installed-link-recoveries.jsonl
+├── installed-link-recovery-pending.json  # only while recovery is pending
 └── .release.lock
 
 ~/.codex/.software-factory-release-keys/
@@ -97,14 +98,26 @@ three installed links to name one sealed commit-rooted override, verifies its
 path, modes, and bytes against `git archive` (including declared
 `export-subst` transformations), verifies active-to-override ancestry and the
 candidate's exact override parent, and rechecks the current pointer and
-activation-history HMAC. It then replaces the complete set with the stable
-`current/<skill>` links and performs child-process plus in-process installed
-verification without moving `current`. Any interruption restores all three
-original override links and reproves the archive projection. A successful
-recovery appends one HMAC-chained `installed-link-recoveries.jsonl` receipt;
-an exact retry returns that receipt idempotently, while pointer, activation,
-link, archive, lineage, or ledger drift fails closed. Release acceptance and
-activation histories are not changed by link-only recovery.
+activation-history HMAC. Before replacing the first link, it durably records an
+HMAC-authenticated recovery intent bound to those identities, the retained
+recovery-ledger prefix, and the exact original and desired complete link sets.
+It then replaces the complete set with the stable `current/<skill>` links and
+performs child-process plus in-process installed verification without moving
+`current`.
+
+A retry with that intent deterministically reconciles exact override, partial,
+or stable effects under the same owner lock. Partial effects are restored to
+and reverified against the exact sealed override before another complete swap;
+valid stable effects are freshly reverified before finalization. The verified
+intent retains the exact signed receipt while an absent or partially persisted
+receipt suffix is completed, so an ambiguous append cannot separate the links
+from recoverable owner state. The intent is removed only after the canonical
+HMAC-chained `installed-link-recoveries.jsonl` receipt is durably complete. An
+exact later retry returns that receipt idempotently, while pointer, activation,
+link, archive, lineage, intent, or ledger drift fails closed. Caught failures
+before receipt commitment restore and reprove all three original override
+links. Release acceptance and activation histories are byte-unchanged by
+link-only recovery.
 
 `activate` requires the stable-link set already established. It validates the
 complete accepted release, atomically renames one temporary `current` symlink,
