@@ -34,9 +34,10 @@ supplied digest.
    it. When the mission is tracker-governed, also identify its tracker and active
    Block. Never invent tracker or Block identity for a direct-user main-thread
    mission.
-3. Default to one isolated four-role supervision group per target: Terra
-   watcher, Sol XHigh semantic base reviewer, Sol Max escalation/meta reviewer,
-   and Sol XHigh fix executor. When material Gmail notices are enabled, add one
+3. Default to one isolated supervision group per target with four analytic
+   roles—Terra watcher, Sol XHigh semantic base reviewer, Sol Max escalation/
+   meta reviewer, and Sol XHigh fix executor—plus one mechanical Luna Low
+   liveness sentinel. When material Gmail notices are enabled, add one
    event-driven Sol XHigh notice reviewer. When bidirectional Gmail is enabled,
    also add one project-scoped Luna Low mailbox gate and one idle Sol XHigh reply
    processor.
@@ -57,12 +58,16 @@ supplied digest.
 4. Create a projectless watcher thread using `gpt-5.6-terra` at `max` reasoning.
    Give it the watcher role prompt, target ID, base-reviewer ID, and Max reviewer
    ID.
-5. When material Gmail notices are enabled, create a projectless notice-review
+5. Create one projectless liveness thread using `gpt-5.6-luna` at `low`
+   reasoning. Give it only the liveness-sentinel prompt, target ID, and stable
+   helper path. It is part of this same supervision group, not a replacement
+   watcher, semantic reviewer, or second group.
+6. When material Gmail notices are enabled, create a projectless notice-review
    thread using `gpt-5.6-sol` at `xhigh` reasoning. Give it the notice-reviewer
    role prompt, target ID, Max reviewer ID, and bound Gmail seed. It remains idle
    until a notice opens an incident or a changed target state can verify an open
    incident. Do not schedule it.
-6. Derive the preferred mission binding from the versioned generic completion
+7. Derive the preferred mission binding from the versioned generic completion
    meta-charter and the exact current controlling-source hash, then initialize
    the target's local supervision state:
 
@@ -76,6 +81,7 @@ supplied digest.
    python3 scripts/supervision_log.py init \
      --target-thread <target-thread-id> \
      --target-label <short-label> \
+     --liveness-thread <liveness-thread-id> \
      --watcher-thread <watcher-thread-id> \
      --reviewer-thread <reviewer-thread-id> \
      --base-reviewer-thread <base-reviewer-thread-id> \
@@ -117,14 +123,18 @@ supplied digest.
    create a successor task, request a manual Resume, use `bind` to overwrite a
    mission, or synthesize this obligation for initial or already-current
    missions.
-7. Create a thread heartbeat on the watcher every 20 minutes. Create a second
-   heartbeat on the reviewer every 4 hours for supervisor-effectiveness review.
-   Attach both to their existing threads rather than creating a new chat per run.
-8. Bind the returned automation IDs and all role-thread IDs with
+8. Create a one-minute heartbeat on the liveness thread, a 20-minute heartbeat
+   on the watcher, and a 4-hour heartbeat on the reviewer for supervisor-
+   effectiveness review. Attach each heartbeat to its existing role thread
+   rather than creating a new chat per run.
+9. Bind the returned automation IDs and all role-thread IDs with
    `supervision_log.py bind`. Binding also backfills the current execution-
    economy baseline into a legacy group without granting cross-skill write
-   authority; a missing mode becomes `propose-only`.
-9. Resolve the monitored project key and create or reuse its primary self-email
+   authority; a missing mode becomes `propose-only`. Also bind
+   `--liveness-thread` and `--liveness-automation`. When attaching to a legacy
+   active group that lacks these bindings, add this sentinel to that same group
+   without replacing its existing threads, ledgers, or automation IDs.
+10. Resolve the monitored project key and create or reuse its primary self-email
    thread for the default terminal-completion report delivery. Bind it with the
    terminal-only Gmail options so this required final delivery does not enable
    ordinary intermediate alerts. When blocked/stopped priority delivery is
@@ -139,7 +149,7 @@ supplied digest.
    ordinary intermediate, priority, inbound-reply, and roundup delivery remain
    opt-in. Do not substitute the primary or roundup thread for a missing
    priority binding, or create a replacement thread during recovery.
-10. When the user requests Gmail reply processing, create one projectless
+11. When the user requests Gmail reply processing, create one projectless
    `gpt-5.6-luna` thread at `low` reasoning using the Gmail gate prompt and one
    projectless `gpt-5.6-sol` thread at `xhigh` reasoning using the Gmail reply
    processor prompt. Create a two-minute quiet heartbeat on the Luna thread,
@@ -149,7 +159,7 @@ supplied digest.
    active cadence after conversational activity and restore two minutes after
    the 30-minute quiet window. The Sol XHigh processor remains idle until Luna
    finds a genuinely new reply.
-11. When the user requests periodic roundups, create one separate self-email
+12. When the user requests periodic roundups, create one separate self-email
    roundup thread for the monitored project, one projectless `gpt-5.6-sol`
    thread at `xhigh` reasoning using the roundup prompt, and one Pacific-time
    heartbeat at 7:00 AM, 1:00 PM, 5:00 PM, and 11:00 PM on it. Reuse that
@@ -160,8 +170,9 @@ supplied digest.
    writer and Gmail thread. Add one Monday 8:00 AM America/Los_Angeles heartbeat
    by default. Do not create another writer thread, email conversation, metric
    store, or report authority.
-12. Send the watcher one immediate check after logging and schedules are ready.
-13. Read all applicable role threads, view every automation, and run
+13. Send the liveness sentinel and watcher one immediate check after logging and
+   schedules are ready.
+14. Read all applicable role threads, view every automation, and run
    `supervision_log.py status` to verify the boot. Report all thread IDs,
    automation IDs, cadence, models, target IDs, log roots, and notification
    binding when enabled.
@@ -170,6 +181,16 @@ Repeat independently for additional targets.
 
 ## Operate supervision
 
+- Use the Luna Low sentinel only for a one-minute mechanical liveness gate. It
+  reads the compact target status/update marker and calls `liveness-gate`; it
+  never reads target turns, repositories, trackers, or test output and never
+  decides whether inactivity is semantically valid. When canonical posture is
+  `in-progress` and the target is non-active beyond the 90-second grace, the
+  helper pulls forward the already-bound watcher, then Sol XHigh, then Sol Max
+  on consecutive unresolved minutes. Each send still requires
+  `thread-route-gate`. Identical state is suppressed after that ladder, and an
+  active target records recovery without a route. The sentinel never messages
+  the target, creates a replacement task/group, runs proof, or performs a fix.
 - Use the watcher for proactive 20-minute checks. Tighten to 15 minutes only
   during a concrete high-risk/expensive phase and restore 20 minutes afterward.
 - If the compact target read is unavailable, call `watcher-availability`

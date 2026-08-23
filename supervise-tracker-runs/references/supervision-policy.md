@@ -20,6 +20,8 @@
 
 ## Defaults
 
+- Liveness sentinel: `gpt-5.6-luna`, reasoning `low`, every 1 minute, with a
+  90-second grace before the first inactive-target route.
 - Routine watcher: `gpt-5.6-terra`, reasoning `max`, every 20 minutes.
 - High-risk temporary cadence: 15 minutes.
 - Escalation reviewer: `gpt-5.6-sol`, reasoning `max`.
@@ -34,8 +36,9 @@
 - Supervisor-effectiveness review: every 4 hours when new evidence exists.
 - Escalation cooldown: 60 minutes per unchanged incident.
 - Read bound: target status plus four newest turns, summaries first.
-- One isolated four-role supervision group per target thread, plus one
-  event-driven notice reviewer when material Gmail notices are enabled.
+- One isolated supervision group per target thread with the four analytic roles
+  plus the mechanical liveness sentinel, and one event-driven notice reviewer
+  when material Gmail notices are enabled.
 - Gmail notification: disabled unless the operator explicitly enables a bound
   self-delivery thread.
 - Gmail reply gate when enabled: `gpt-5.6-luna`, reasoning `low`, every 2
@@ -57,9 +60,11 @@
   release directory, release hash, policy hash, active Block, or frontier in the
   recurring prompt as authority.
 
-The scheduled wake is not a polling loop. Between runs, no model is active. A
-single scheduled run uses one configured model. Terra routes every changed state
-to Sol XHigh and routes relevant open incidents to the event-driven notice
+No model remains active between scheduled wakes. The one-minute liveness pulse
+is a content-minimized status sample, not a semantic target review. A single
+scheduled run uses one configured model. Luna pulls the existing review path
+forward only when the helper reports an unresolved liveness mismatch. Terra
+routes every changed state to Sol XHigh and routes relevant open incidents to the event-driven notice
 reviewer. Sol XHigh routes concerns, checkpoints, and deterministic Max samples
 to Sol Max. The notice reviewer routes supported concerns and meaningful
 uncertainty to Sol Max. Sol Max may steer the target or route a bounded
@@ -2021,6 +2026,53 @@ root, and manifest root, then one ordinary notification receipt containing the
 Gmail message ID. Email failure does not invalidate the report or block
 supervision; retain a retryable delivery posture.
 
+## Liveness-sentinel role prompt
+
+Replace every angle-bracket placeholder before use.
+
+```text
+You are the mechanical Luna Low liveness sentinel for monitored Codex thread
+<TARGET_THREAD_ID>. You are one bounded role in its existing supervision group.
+You are not a watcher, reviewer, implementation owner, or second supervision
+group.
+
+At each one-minute wake, read only the target's compact task status and exact
+updated-at marker. Do not read target turns, outputs, files, repositories,
+trackers, tests, logs other than the helper result, or hidden reasoning. Do not
+interpret whether inactivity is substantively justified.
+
+Call:
+
+python3 <LOG_HELPER> liveness-gate \
+  --target-thread <TARGET_THREAD_ID> \
+  --thread-status <EXACT_COMPACT_STATUS> \
+  --thread-updated-at <EXACT_COMPACT_UPDATED_AT>
+
+If `route_required=false`, stop without prose or another action. If
+`route_required=true`, call `thread-route-gate` using exactly the returned
+recipient thread ID, purpose, source record, severity, and action. Send only
+when `send_allowed=true`, and send only that bounded action to the returned
+existing supervision role. Never message the target directly, retry a denied
+route, create a task or group, run a test or command other than the helper,
+change an automation, edit state outside the supervision ledger, or perform the
+correction yourself.
+
+The helper owns the fixed ladder: existing Terra watcher on the first stale
+observation, existing Sol XHigh base reviewer on the next unresolved minute,
+and existing Sol Max reviewer on the following unresolved minute. Do not skip,
+repeat, reset, or extend that ladder. An active target records recovery and
+requires no route. Canonical terminal posture requires no liveness correction.
+
+Logging and messages are content-minimized. Retain only the target ID, compact
+status, updated-at marker, helper record/root, and exact routed action. Never
+copy target prose or implementation evidence.
+```
+
+The heartbeat is a low-cost backstop within the Codex automation scheduler; it
+does not claim independent availability if that scheduler itself is down. Use a
+platform lifecycle-event wake in addition when one is available, while keeping
+this same helper gate and deduplication ladder authoritative.
+
 ## Watcher role prompt
 
 ### Watcher read-availability contract
@@ -3078,6 +3130,9 @@ python3 <LOG_HELPER> adjust --target-thread <TARGET> \
 Create thread-attached heartbeat automations through the Codex app automation
 tool:
 
+- Liveness name: `Tracker liveness - <short target>`
+- Liveness recurrence: `RRULE:FREQ=MINUTELY;INTERVAL=1`
+- Liveness target thread: the bound Luna Low liveness-sentinel thread
 - Watcher name: `Tracker watcher - <short target>`
 - Watcher recurrence: `RRULE:FREQ=MINUTELY;INTERVAL=20`
 - Reviewer name: `Supervisor QA - <short target>`
@@ -3094,7 +3149,8 @@ tool:
 - Weekly review target thread: the existing roundup writer thread
 - Kind: heartbeat
 - Status: active
-- Target thread: the applicable watcher or reviewer thread
+- Target thread: the applicable liveness, watcher, reviewer, Gmail, or roundup
+  role thread
 
 After creation, view all applicable automations and bind their IDs. Avoid
 standalone cron tasks: continuity, incident deduplication, and role context
@@ -3135,10 +3191,10 @@ python3 <LOG_HELPER> resume-gate --target-thread <TARGET> \
 
 The gate validates the current policy/history/event heads, active mission,
 group genesis, exact current `supervision-pause` predecessor, source record and
-fingerprint, and every policy-bound automation owner. It derives the watcher,
-reviewer, optional Gmail gate, roundup, and weekly-report schedules from the
-maintained policy. It reads only those named manifests and returns their exact
-configuration roots, the paused IDs to activate, and one eligibility root that
+fingerprint, and every policy-bound automation owner. It derives the liveness,
+watcher, reviewer, optional Gmail gate, roundup, and weekly-report schedules
+from the maintained policy. It reads only those named manifests and returns
+their exact configuration roots, the paused IDs to activate, and one eligibility root that
 excludes only owner-controlled status/update-time changes. Missing, extra or
 duplicate bindings, unreadable/symlinked/oversized/malformed owners, target or
 RRULE disagreement, unsupported state, stale source/policy/event head, or a

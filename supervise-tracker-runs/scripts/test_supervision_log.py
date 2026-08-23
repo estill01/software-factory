@@ -17480,5 +17480,160 @@ class DecisionResolutionTests(unittest.TestCase):
         self.assertIn("`carry-forward: false`", tracker_template)
 
 
+class TargetLivenessGateTests(unittest.TestCase):
+    target = "target-liveness-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name) / "supervision"
+        self.directory = self.root / self.target
+        self.directory.mkdir(parents=True)
+        args = argparse.Namespace(
+            target_thread=self.target,
+            target_label="liveness fixture",
+            liveness_thread="luna-liveness-1234",
+            watcher_thread="watcher-liveness-1234",
+            reviewer_thread="reviewer-liveness-1234",
+            base_reviewer_thread="base-liveness-1234",
+            notice_reviewer_thread=None,
+            fix_executor_thread="fixer-liveness-1234",
+            mission_root="a" * 64,
+            mission_source_record="direct-liveness-1234",
+        )
+        self.policy = supervision_log.default_policy(args)
+        self.policy["runtime"]["liveness_automation_id"] = (
+            "automation-liveness-1234"
+        )
+        self.policy["runtime"]["routine_automation_id"] = "automation-watcher-1234"
+        self.policy["runtime"]["meta_automation_id"] = "automation-reviewer-1234"
+        self.policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(self.policy)
+        )
+        supervision_log.atomic_json(self.directory / "policy.json", self.policy)
+        supervision_log.append_raw(
+            self.directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-1",
+                "timestamp": "2026-08-23T12:00:00+00:00",
+                "kind": "policy-init",
+                "policy": self.policy,
+            },
+        )
+        supervision_log.atomic_json(
+            self.directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            supervision_log.event_ledger_anchor([]),
+        )
+        self.control = {
+            "required_target_posture": "in-progress",
+            "next_action": "continue-governing-outcome",
+            "governing_outcome_currentness_sha256": "b" * 64,
+        }
+
+    def run_gate(
+        self,
+        status: str,
+        *,
+        updated_at: str = "2026-08-23T12:00:00+00:00",
+        now: str = "2026-08-23T12:02:00+00:00",
+    ) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "liveness-gate",
+                "--target-thread",
+                self.target,
+                "--thread-status",
+                status,
+                "--thread-updated-at",
+                updated_at,
+                "--now",
+                now,
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "reduce_control_posture",
+                return_value=self.control,
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_liveness_gate(args)
+        return json.loads(output.getvalue())
+
+    def test_default_contract_is_one_minute_luna_low(self) -> None:
+        self.assertEqual(
+            self.policy["models"]["liveness"],
+            {"model": "gpt-5.6-luna", "reasoning": "low"},
+        )
+        self.assertEqual(self.policy["schedule"]["liveness_minutes"], 1)
+        self.assertEqual(self.policy["schedule"]["liveness_grace_seconds"], 90)
+
+        resume = supervision_log.expected_resume_automation_specs(
+            self.policy, [], now=supervision_log.parse_time("2026-08-23T12:00:00+00:00")
+        )
+        self.assertEqual(resume[0]["role"], "liveness")
+        owners = supervision_log.expected_terminal_automation_owners(self.policy)
+        self.assertEqual(
+            owners["automation-liveness-1234"], "luna-liveness-1234"
+        )
+        skill_root = HELPER_PATH.parent.parent
+        skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
+        policy_text = (skill_root / "references" / "supervision-policy.md").read_text(
+            encoding="utf-8"
+        )
+        for text in (skill, policy_text):
+            self.assertIn("liveness-gate", text)
+            self.assertIn("gpt-5.6-luna", text)
+            self.assertIn("one-minute", text)
+
+    def test_stale_target_pulls_forward_existing_escalation_ladder_once(self) -> None:
+        first = self.run_gate("idle")
+        second = self.run_gate("idle", now="2026-08-23T12:03:00+00:00")
+        third = self.run_gate("idle", now="2026-08-23T12:04:00+00:00")
+        fourth = self.run_gate("idle", now="2026-08-23T12:05:00+00:00")
+
+        self.assertEqual(first["route"]["purpose"], "watcher-action")
+        self.assertEqual(second["route"]["purpose"], "changed-state-review")
+        self.assertEqual(third["route"]["purpose"], "semantic-escalation")
+        self.assertFalse(fourth["route_required"])
+        self.assertEqual(fourth["status"], "escalation-ladder-exhausted")
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 3
+        )
+
+        recovered = self.run_gate(
+            "running",
+            updated_at="2026-08-23T12:05:30+00:00",
+            now="2026-08-23T12:05:30+00:00",
+        )
+        self.assertEqual(recovered["status"], "recovered")
+        self.assertFalse(recovered["route_required"])
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 4
+        )
+        self.assertTrue(
+            all(
+                not supervision_log.is_completion_check(item)
+                for item in supervision_log.events(self.directory / "events.jsonl")
+            )
+        )
+
+    def test_active_or_terminal_canonical_posture_is_silent(self) -> None:
+        self.assertEqual(self.run_gate("running")["status"], "healthy")
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 0
+        )
+
+        self.control["required_target_posture"] = "completed"
+        terminal = self.run_gate("completed")
+        self.assertEqual(terminal["status"], "canonical-posture-not-active")
+        self.assertFalse(terminal["route_required"])
+
+
 if __name__ == "__main__":
     unittest.main()

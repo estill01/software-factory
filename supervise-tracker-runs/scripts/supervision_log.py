@@ -75,7 +75,11 @@ TERMINAL_INCIDENT_STATUSES = {
     "closed",
     "resolved",
 }
-NON_COMPLETION_CHECK_CATEGORIES = {"max-sample", "meta-sample"}
+NON_COMPLETION_CHECK_CATEGORIES = {
+    "max-sample",
+    "meta-sample",
+    "target-liveness",
+}
 OUTCOME_COMPLETION_CATEGORY = "observable-outcome-completion"
 OUTCOME_COMPLETION_STATUSES = {"verified", "failed"}
 WATCHER_UNAVAILABLE_CATEGORY = "watcher-status-read-unavailable"
@@ -87,6 +91,19 @@ WATCHER_AVAILABILITY_TERMINAL_STATUSES = {
     "resolved",
     "closed",
     "corrected",
+}
+LIVENESS_CATEGORY = "target-liveness"
+LIVENESS_ACTIVE_STATUSES = {
+    "active",
+    "in-progress",
+    "processing",
+    "running",
+    "working",
+}
+LIVENESS_STALE_STATUSES = {
+    "stale-detected",
+    "stale-escalated-xhigh",
+    "stale-escalated-max",
 }
 WATCHER_INCIDENT_REPORT_MARKER = re.compile(
     r"^<!-- canonical-watcher-event ([A-Za-z0-9][A-Za-z0-9._:-]{3,127}) "
@@ -534,6 +551,7 @@ THREAD_ROUTE_PURPOSE_ROLES = {
         "base_reviewer",
         "fix_executor",
         "gmail_processor",
+        "liveness",
         "notice_reviewer",
         "reviewer",
         "roundup_writer",
@@ -545,6 +563,7 @@ THREAD_ROUTE_PURPOSE_ROLES = {
     "watcher-action": ("watcher",),
 }
 THREAD_ROUTE_ROLE_FIELDS = {
+    "liveness": "liveness_thread_id",
     "watcher": "watcher_thread_id",
     "reviewer": "reviewer_thread_id",
     "base_reviewer": "base_reviewer_thread_id",
@@ -1619,6 +1638,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
         "target_label": clean(args.target_label, label="target label", maximum=80)
         or target[:12],
         "models": {
+            "liveness": {"model": "gpt-5.6-luna", "reasoning": "low"},
             "routine": {"model": "gpt-5.6-terra", "reasoning": "max"},
             "base_reviewer": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
             "notice_reviewer": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
@@ -1629,6 +1649,8 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
             "roundup_writer": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
         },
         "schedule": {
+            "liveness_minutes": 1,
+            "liveness_grace_seconds": 90,
             "routine_minutes": 20,
             "high_risk_minutes": 15,
             "meta_review_hours": 4,
@@ -1718,6 +1740,10 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
             },
         },
         "runtime": {
+            "liveness_thread_id": optional_safe_id(
+                getattr(args, "liveness_thread", None),
+                label="liveness thread ID",
+            ),
             "watcher_thread_id": safe_id(args.watcher_thread, label="watcher thread ID"),
             "reviewer_thread_id": safe_id(args.reviewer_thread, label="reviewer thread ID"),
             "base_reviewer_thread_id": optional_safe_id(
@@ -1731,6 +1757,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
                 args.fix_executor_thread, label="fix executor thread ID"
             ),
             "routine_automation_id": None,
+            "liveness_automation_id": None,
             "meta_automation_id": None,
             "gmail_gate_thread_id": None,
             "gmail_processor_thread_id": None,
@@ -3826,6 +3853,8 @@ def cmd_bind(args: argparse.Namespace) -> None:
             args.base_reviewer_thread,
             args.notice_reviewer_thread,
             args.fix_executor_thread,
+            getattr(args, "liveness_thread", None),
+            getattr(args, "liveness_automation", None),
             args.routine_automation,
             args.meta_automation,
             args.gmail_gate_thread,
@@ -3941,6 +3970,8 @@ def cmd_bind(args: argparse.Namespace) -> None:
         "base_reviewer_thread_id": args.base_reviewer_thread,
         "notice_reviewer_thread_id": args.notice_reviewer_thread,
         "fix_executor_thread_id": args.fix_executor_thread,
+        "liveness_thread_id": getattr(args, "liveness_thread", None),
+        "liveness_automation_id": getattr(args, "liveness_automation", None),
         "routine_automation_id": args.routine_automation,
         "meta_automation_id": args.meta_automation,
         "gmail_gate_thread_id": args.gmail_gate_thread,
@@ -3976,6 +4007,7 @@ def cmd_bind(args: argparse.Namespace) -> None:
             runtime[key] = value
             changed = True
     model_defaults = {
+        "liveness": {"model": "gpt-5.6-luna", "reasoning": "low"},
         "base_reviewer": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
         "notice_reviewer": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
         "fix_executor": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
@@ -3986,6 +4018,18 @@ def cmd_bind(args: argparse.Namespace) -> None:
     for key, value in model_defaults.items():
         if policy.setdefault("models", {}).get(key) != value:
             policy["models"][key] = value
+            changed = True
+    schedule_defaults = {
+        "liveness_minutes": 1,
+        "liveness_grace_seconds": 90,
+    }
+    for key, value in schedule_defaults.items():
+        if policy.setdefault("schedule", {}).get(key) != value:
+            policy["schedule"][key] = value
+            changed = True
+    for key in ("liveness_thread_id", "liveness_automation_id"):
+        if key not in runtime:
+            runtime[key] = None
             changed = True
     if not policy.setdefault("permissions", {}).get(
         "bounded_supervision_maintenance", False
@@ -16851,6 +16895,234 @@ def cmd_control_posture_gate(args: argparse.Namespace) -> None:
     print(json.dumps(result, sort_keys=True))
 
 
+def cmd_liveness_gate(args: argparse.Namespace) -> None:
+    """Detect an inactive target cheaply and pull existing review roles forward."""
+
+    (
+        directory,
+        policy,
+        _policy_snapshot,
+        owner_events,
+        _event_snapshot,
+        _directory_snapshot,
+    ) = load_control_snapshot(args)
+    runtime = policy.get("runtime")
+    schedule = policy.get("schedule")
+    models = policy.get("models")
+    if not all(isinstance(item, Mapping) for item in (runtime, schedule, models)):
+        raise SupervisionLogError("Liveness policy is incomplete")
+    assert isinstance(runtime, Mapping)
+    assert isinstance(schedule, Mapping)
+    assert isinstance(models, Mapping)
+    required_bindings = {
+        "liveness task": runtime.get("liveness_thread_id"),
+        "liveness automation": runtime.get("liveness_automation_id"),
+        "watcher task": runtime.get("watcher_thread_id"),
+        "base reviewer task": runtime.get("base_reviewer_thread_id"),
+        "reviewer task": runtime.get("reviewer_thread_id"),
+    }
+    missing = [label for label, value in required_bindings.items() if not value]
+    if missing:
+        raise SupervisionLogError(
+            "Liveness gate requires bound " + ", ".join(missing)
+        )
+    if models.get("liveness") != {
+        "model": "gpt-5.6-luna",
+        "reasoning": "low",
+    }:
+        raise SupervisionLogError("Liveness role must use gpt-5.6-luna low")
+    if schedule.get("liveness_minutes") != 1:
+        raise SupervisionLogError("Liveness cadence must be one minute")
+    grace_seconds = schedule.get("liveness_grace_seconds")
+    if type(grace_seconds) is not int or not 60 <= grace_seconds <= 300:
+        raise SupervisionLogError("Liveness grace must be 60-300 seconds")
+
+    observed_status = clean(
+        args.thread_status, label="thread status", maximum=40
+    ).lower().replace("_", "-")
+    if not observed_status:
+        raise SupervisionLogError("Liveness gate requires an exact thread status")
+    observed_at = parse_time(args.thread_updated_at)
+    now = parse_time(args.now) if args.now else dt.datetime.now(dt.timezone.utc)
+    if observed_at > now + dt.timedelta(seconds=5):
+        raise SupervisionLogError("Target update time is in the future")
+
+    control = reduce_control_posture(
+        directory=directory,
+        policy=policy,
+        owner_events=owner_events,
+    )
+    required_posture = str(control["required_target_posture"])
+    fingerprint = digest(
+        {
+            "kind": LIVENESS_CATEGORY,
+            "target_thread_id": args.target_thread,
+            "thread_status": observed_status,
+            "thread_updated_at": observed_at.isoformat(),
+            "required_target_posture": required_posture,
+            "next_action": control["next_action"],
+            "policy_sha256": policy["policy_sha256"],
+        }
+    )
+    prior_liveness = next(
+        (
+            item
+            for item in reversed(owner_events)
+            if item.get("category") == LIVENESS_CATEGORY
+        ),
+        None,
+    )
+    base_result: dict[str, Any] = {
+        "kind": "target-liveness-gate",
+        "target_thread_id": args.target_thread,
+        "thread_status": observed_status,
+        "thread_updated_at": observed_at.isoformat(),
+        "age_seconds": max(0, int((now - observed_at).total_seconds())),
+        "grace_seconds": grace_seconds,
+        "required_target_posture": required_posture,
+        "control_next_action": control["next_action"],
+        "control_currentness_sha256": control[
+            "governing_outcome_currentness_sha256"
+        ],
+        "state_fingerprint": fingerprint,
+        "route_required": False,
+        "route": None,
+        "source_record": None,
+    }
+
+    if required_posture != "in-progress":
+        base_result["status"] = "canonical-posture-not-active"
+        print(json.dumps(base_result, sort_keys=True))
+        return
+
+    is_active = observed_status in LIVENESS_ACTIVE_STATUSES
+    age_seconds = int(base_result["age_seconds"])
+    needs_recovery_record = bool(
+        is_active
+        and prior_liveness is not None
+        and prior_liveness.get("status") in LIVENESS_STALE_STATUSES
+    )
+    if is_active and not needs_recovery_record:
+        base_result["status"] = "healthy"
+        print(json.dumps(base_result, sort_keys=True))
+        return
+    if not is_active and age_seconds <= grace_seconds:
+        base_result["status"] = "within-grace"
+        print(json.dumps(base_result, sort_keys=True))
+        return
+
+    same_fingerprint = [
+        item
+        for item in owner_events
+        if item.get("category") == LIVENESS_CATEGORY
+        and item.get("state_fingerprint") == fingerprint
+    ]
+    latest_same_status = (
+        str(same_fingerprint[-1].get("status")) if same_fingerprint else ""
+    )
+    if needs_recovery_record:
+        record_status = "recovered"
+        route: dict[str, str] | None = None
+        summary = "Target activity returned under an in-progress canonical posture."
+        action = "Continue normal supervision cadence."
+        severity = "info"
+    elif latest_same_status == "stale-escalated-max":
+        base_result["status"] = "escalation-ladder-exhausted"
+        base_result["source_record"] = same_fingerprint[-1].get("record_id")
+        print(json.dumps(base_result, sort_keys=True))
+        return
+    elif latest_same_status == "stale-escalated-xhigh":
+        record_status = "stale-escalated-max"
+        route = {
+            "recipient_thread_id": str(runtime["reviewer_thread_id"]),
+            "purpose": "semantic-escalation",
+            "action": (
+                "Adjudicate the unresolved target liveness mismatch now. Direct "
+                "the existing owner to resume the current mission or establish an "
+                "exact valid terminal posture; do not create a replacement group."
+            ),
+        }
+        summary = "Inactive target remained unresolved after XHigh escalation."
+        action = route["action"]
+        severity = "high"
+    elif latest_same_status == "stale-detected":
+        record_status = "stale-escalated-xhigh"
+        route = {
+            "recipient_thread_id": str(runtime["base_reviewer_thread_id"]),
+            "purpose": "changed-state-review",
+            "action": (
+                "Independently review the exact target status and current mission "
+                "boundary now. If this is an unauthorized early return, route the "
+                "narrow resume correction under the existing supervision binding."
+            ),
+        }
+        summary = "Inactive target remained unresolved after the watcher wake."
+        action = route["action"]
+        severity = "high"
+    else:
+        record_status = "stale-detected"
+        route = {
+            "recipient_thread_id": str(runtime["watcher_thread_id"]),
+            "purpose": "watcher-action",
+            "action": (
+                "Recheck the target now under the existing watcher policy. If the "
+                "canonical posture remains in-progress and the target is inactive, "
+                "start the existing semantic correction path."
+            ),
+        }
+        summary = "Inactive target detected while canonical posture requires progress."
+        action = route["action"]
+        severity = "warning"
+
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": now.isoformat(),
+        "target_thread_id": args.target_thread,
+        "kind": "check",
+        "model": "gpt-5.6-luna",
+        "reasoning": "low",
+        "state_fingerprint": fingerprint,
+        "status": record_status,
+        "severity": severity,
+        "category": LIVENESS_CATEGORY,
+        "active_block": "",
+        "checkpoint": "",
+        "summary": summary,
+        "evidence": [
+            f"thread-status:{observed_status}",
+            f"thread-updated-at:{observed_at.isoformat()}",
+            "control-currentness:"
+            + str(control["governing_outcome_currentness_sha256"]),
+        ],
+        "action": action,
+        "resolution_owner": "supervisor",
+        "user_action_required": False,
+        "policy_sha256": policy["policy_sha256"],
+    }
+    with append_lock(directory):
+        current_events = events(directory / "events.jsonl")
+        expected_head = owner_events[-1].get("record_sha256") if owner_events else None
+        current_head = current_events[-1].get("record_sha256") if current_events else None
+        if current_head != expected_head:
+            base_result["status"] = "retry-control-currentness"
+            print(json.dumps(base_result, sort_keys=True))
+            return
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        append_event_locked(args, directory, record)
+
+    base_result["status"] = record_status
+    base_result["source_record"] = record["record_id"]
+    if route is not None:
+        base_result["route_required"] = True
+        base_result["route"] = {
+            **route,
+            "source_record": record["record_id"],
+            "severity": severity,
+        }
+    print(json.dumps(base_result, sort_keys=True))
+
+
 def validate_decision_transition(
     prior: dict[str, Any] | None,
     *,
@@ -23185,6 +23457,23 @@ def expected_resume_automation_specs(
             }
         )
 
+    liveness_bound = any(
+        (
+            runtime.get("liveness_automation_id"),
+            runtime.get("liveness_thread_id"),
+        )
+    )
+    if liveness_bound:
+        liveness_minutes = schedule.get("liveness_minutes")
+        if type(liveness_minutes) is not int or liveness_minutes != 1:
+            raise SupervisionLogError("Resume liveness schedule is invalid")
+        add(
+            "liveness",
+            runtime.get("liveness_automation_id"),
+            runtime.get("liveness_thread_id"),
+            "RRULE:FREQ=MINUTELY;INTERVAL=1",
+        )
+
     routine_minutes = schedule.get("routine_minutes")
     if type(routine_minutes) is not int or routine_minutes <= 0:
         raise SupervisionLogError("Resume watcher schedule is invalid")
@@ -24060,6 +24349,7 @@ def expected_terminal_automation_owners(
     if not isinstance(runtime, Mapping):
         raise SupervisionLogError("Terminal automation runtime binding is invalid")
     bindings = [
+        (runtime.get("liveness_automation_id"), runtime.get("liveness_thread_id")),
         (runtime.get("routine_automation_id"), runtime.get("watcher_thread_id")),
         (runtime.get("meta_automation_id"), runtime.get("reviewer_thread_id")),
         (runtime.get("gmail_poll_automation_id"), runtime.get("gmail_gate_thread_id")),
@@ -35569,6 +35859,7 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--target-thread", required=True)
     init.add_argument("--target-label", required=True)
     init.add_argument("--watcher-thread", required=True)
+    init.add_argument("--liveness-thread")
     init.add_argument("--reviewer-thread", required=True)
     init.add_argument("--base-reviewer-thread")
     init.add_argument("--notice-reviewer-thread")
@@ -35587,6 +35878,8 @@ def parser() -> argparse.ArgumentParser:
     bind.add_argument("--base-reviewer-thread")
     bind.add_argument("--notice-reviewer-thread")
     bind.add_argument("--fix-executor-thread")
+    bind.add_argument("--liveness-thread")
+    bind.add_argument("--liveness-automation")
     bind.add_argument("--routine-automation")
     bind.add_argument("--meta-automation")
     bind.add_argument("--gmail-gate-thread")
@@ -35909,6 +36202,13 @@ def parser() -> argparse.ArgumentParser:
     control_posture_gate = subparsers.add_parser("control-posture-gate")
     control_posture_gate.add_argument("--target-thread", required=True)
     control_posture_gate.set_defaults(func=cmd_control_posture_gate)
+
+    liveness_gate = subparsers.add_parser("liveness-gate")
+    liveness_gate.add_argument("--target-thread", required=True)
+    liveness_gate.add_argument("--thread-status", required=True)
+    liveness_gate.add_argument("--thread-updated-at", required=True)
+    liveness_gate.add_argument("--now")
+    liveness_gate.set_defaults(func=cmd_liveness_gate)
 
     direct_authority_ingest = subparsers.add_parser(
         "direct-authority-ingest"
