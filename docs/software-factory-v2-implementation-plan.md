@@ -226,6 +226,32 @@ Codex app-server is the preferred maintained Codex execution substrate, not a re
 - app-server thread/turn completion is operational evidence only and cannot accept work or close a mission; and
 - WebSocket or other experimental transports do not become required merely because app-server exposes them.
 
+### 6.2 Shared-utility production and consumption gates
+
+The canonical producer is `https://github.com/estill01/utils` and its
+`docs/tracker.md`. Utilities implements and qualifies neutral packages only;
+Software Factory owns every Factory adapter, pin, migration, integration test,
+cutover, and resulting runtime effect.
+
+- Factory provider integration may begin from an exact pushed
+  `codex-app-server-client` revision only after utils Block 3 is accepted.
+- Factory embedded/service conformance may consume
+  `embedded-service-contract` only after utils Block 4 is accepted.
+- Factory component and compatibility reporting may consume
+  `runtime-manifest` only after utils Block 5 is accepted.
+- Final Factory qualification of any consumed package requires the exact
+  current package set to have passed utils Block 7. Utils Block 8 records the
+  no-license/unpublished posture; it does not make a dependency publicly
+  installable or authorize redistribution, publication, or release.
+- If a package is not yet accepted, unaffected Factory runtime work continues.
+  Only the mapped adoption and its dependent acceptance are held. Factory does
+  not copy the planned package, create a temporary competing shared owner, or
+  infer acceptance from a utils commit, wheel, or passing test.
+
+Every adoption records the exact utils commit, distribution/version, artifact
+hash, compatibility/schema root, and Factory adapter revision. A changed
+depended-on utility root selectively stales the mapped Factory proof.
+
 ## 7. Target internal architecture
 
 The repository should converge toward this shape without requiring an immediate repository or Python-package rename:
@@ -427,6 +453,9 @@ Continue independently of later libRSI workflow milestones:
 
 - real Codex multi-agent lifecycle and restart/reattachment proof;
 - replace dashboard-local app-server process/RPC code with the shared typed utility package and a Factory-owned provider adapter;
+- adopt the accepted shared embedded/service structural contract and
+  runtime-manifest package when available, while retaining Factory lifecycle,
+  authority, and state;
 - embedded/service equivalence, idempotent mission submission, cancellation, bounded event streaming, and restart proof;
 - atomic scheduling, assignment, lease, workspace, execution, and provider reservation;
 - authenticated callbacks and exact provider-task correlation;
@@ -646,5 +675,8 @@ The v2 program is complete only when all of the following are true at one exact 
 17. The OSS core contains no Patent Studio, OMNI, Celltonomy, or other consumer-specific workflow/schema authority.
 18. Hosted/multi-tenant deployment remains an explicit successor unless separately activated; v2 nevertheless exposes a service-ready, restartable, bounded standalone host.
 19. The PR, source archive, wheel, checksums, docs, runbook, and acceptance evidence reproduce the same revision.
+20. Every shared utility dependency is bound to an exact accepted and qualified
+    utils package root; Factory owns the adapter and cannot publish or release a
+    dependent artifact beyond the utility's current license/publication posture.
 
 Until then, the PR remains draft and status reporting must identify the exact partial state.

@@ -115,6 +115,8 @@ an already managed provider, but exactly one host owns each process.
 | Agents and execution | `agents.py`, `execution.py`, `providers.py`, `controller.py` | split by owner without semantic duplication |
 | Release and recovery | `release.py`, `recovery.py`, `reconciliation.py` | preserve as authoritative effects |
 | Codex app-server client | `dashboard/server/src/software_factory_dashboard/app_server.py` | extract generic transport/process code to `estill01/utils`; retain Factory projections locally |
+| Embedded/service structural conformance | `estill01/utils` `embedded-service-contract` | consume only after exact utils Block 4 acceptance; Factory retains engine semantics and state |
+| Runtime compatibility metadata | `estill01/utils` `runtime-manifest` | consume only after exact utils Block 5 acceptance; descriptive only |
 | libRSI integration | current `evolution.py`, `learning.py`, `reflection.py`, and immutable libRSI dependency | map then remove duplicate generic semantics |
 | Dashboard/operator views | `dashboard/` | project one runtime; never become authority |
 
@@ -125,6 +127,7 @@ an already managed provider, but exactly one host owns each process.
 | v2 implementation plan | source branch `b34cdd9fab6830bf2ee5b9ac457e48914082e660` plus this tracker-authoring delta | adopt | 0–12 | convert phases into accepted implementation |
 | Existing runtime and 70+ acceptance cases | same source revision | reuse/remediate | 0–12 | classify currentness, gaps, and cutovers |
 | Existing dashboard app-server client | same source revision | adapt/extract | 4 | separate generic client from Factory projections |
+| Shared utilities program | `estill01/utils` canonical `docs/tracker.md`; resolve exact accepted producer revisions at consumption | consume, never implement from Factory | 4, 9, 12 | bind app client after utils B3, embedded/service after B4, runtime manifest after B5, and terminal qualification after B7 |
 | Current libRSI main | resolve exact accepted revision at Block 7 start | consume | 7 | pin only accepted contracts |
 | Historical detailed trackers | repository history | preserve as evidence | 0 | map retained owners; do not replay accepted proof |
 
@@ -148,6 +151,19 @@ Extract to `estill01/utils` only code that is domain-neutral, independently
 versionable, imports none of the three products, and has two concrete consumers
 or an imminent active second implementation. Everything else remains behind
 Factory modules or target profiles.
+
+### Shared-utility dependency contract
+
+The utils repository is a producer only. Its Blocks 3, 4, and 5 provide the
+first accepted handoff points for `codex-app-server-client`,
+`embedded-service-contract`, and `runtime-manifest`, respectively; utils
+Block 7 qualifies the frozen package set. Software Factory owns all downstream
+adapters, pins, migrations, tests, and acceptance. Unavailable utility work
+blocks only its mapped adoption; earlier and independent Factory Blocks
+continue. Final Factory acceptance records exact producer commit,
+distribution/version, artifact and compatibility roots, and the no-license/
+unpublished posture. No public release or redistribution of a dependent
+artifact is implied or authorized.
 
 ## 6. Block execution contract
 
@@ -524,11 +540,13 @@ external-agent providers without giving providers mission authority.
 
 ### Inputs and dependencies
 
-- Blocks 2–3 and an exact accepted utility-client revision.
+- Blocks 2–3 and an exact pushed `codex-app-server-client` revision accepted
+  by utils Block 3.
 
 ### Required work
 
-- Extract generic app-server client mechanics without Factory projections.
+- Pin the exact accepted shared client; extract/move the generic source through
+  the utils owner rather than retaining a second Factory implementation.
 - Implement Factory provider adapters, process ownership, bounded context,
   callbacks, retries, cancellation, restart/reattachment, and attribution.
 
@@ -557,13 +575,15 @@ restart, and provider-success/acceptance separation.
 ### Acceptance
 
 - Each provider can execute the same assignment contract and return evidence;
-  only Factory routes its consequences.
+  only Factory routes its consequences. The shared-client pin binds its utils
+  commit, distribution/version, artifact hash, and protocol/schema root.
 
 ### Negative tests
 
 - Reject two process owners, provider objects in canonical mission state,
   app-server turn completion as acceptance, stale callback, approval bypass, or
-  consumer-domain code in the OSS adapter.
+  consumer-domain code in the OSS adapter. Also reject a pre-utils-B3 client,
+  mutable branch dependency, copied utility source, or stale producer root.
 
 ### Completion evidence
 
@@ -892,12 +912,17 @@ deployment readiness without creating a hosted product.
 
 ### Inputs and dependencies
 
-- Blocks 2, 6, and 8.
+- Blocks 2, 6, and 8; exact pushed utils Block 4
+  `embedded-service-contract` and Block 5 `runtime-manifest` revisions for
+  their mapped adoption. Service work not using those packages may proceed
+  before they are available, but its dependent acceptance may not.
 
 ### Required work
 
 - Complete service schemas, health/readiness, bounded events, authorization,
   idempotency, graceful shutdown, operator views, and deployment documentation.
+- Adopt the shared structural conformance and descriptive runtime-manifest
+  packages without moving Factory lifecycle, authority, or state into them.
 
 ### Scope and non-goals
 
@@ -922,12 +947,16 @@ equivalence, and false authority.
 ### Acceptance
 
 - Service and embedded users observe the same current mission state and can
-  perform only registered authorized operations.
+  perform only registered authorized operations. Both hosts pass the accepted
+  shared structural contract, and runtime manifests bind exact descriptive
+  component/protocol/schema roots without representing authority.
 
 ### Negative tests
 
 - Reject session authority, arbitrary commands, secret leakage, oversized
-  requests, stale workflow hashes, or transport-only completion.
+  requests, stale workflow hashes, transport-only completion, a pre-acceptance
+  utility package, manifest authorization/acceptance fields, or a shared
+  structural contract that owns Factory state.
 
 ### Completion evidence
 
@@ -1106,13 +1135,17 @@ deploying or activating it.
 
 ### Inputs and dependencies
 
-- Block 11 and one frozen exact commit.
+- Block 11, one frozen exact commit, and current utils Block 7 qualification
+  for every consumed shared package.
 
 ### Required work
 
 - Run the acceptance matrix, security/crash/concurrency/migration checks,
   wheel/install/entrypoint proof, real-provider diagnostic if authorized,
   artifacts/checksums/runbook, and independent outcome audit.
+- Reconcile every utility pin to its accepted producer commit, package
+  version/artifact, compatibility root, and current qualification; record the
+  no-license/unpublished consequence for distribution and release.
 
 ### Scope and non-goals
 
@@ -1139,13 +1172,16 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
 ### Acceptance
 
 - Every verification-matrix row is current at the same revision; no retained
-  gap contradicts the primary outcome.
+  gap contradicts the primary outcome. Every consumed utility is current at
+  one utils Block 7-qualified package set and no handoff overstates public
+  installability, reuse rights, redistribution, or release authority.
 
 ### Negative tests
 
 - Reject mixed revisions, missing artifact provenance, simulated provider
-  labeled live, stale migration proof, missing operator outcome, or activation
-  without authority.
+  labeled live, stale migration proof, missing operator outcome, unqualified or
+  stale utility pins, license/publication overclaim, or activation without
+  authority.
 
 ### Completion evidence
 
@@ -1164,6 +1200,7 @@ implementation, or consumer-domain mutation.
 | Embedded/service equivalence | 2 | 3–9 | 12 |
 | Autonomous safe continuation | 3 | 4–8 | 12 |
 | Replaceable providers/app-server boundary | 4 | 6, 9–10 | 12 |
+| Shared utility package currentness | 4, 9 | 10–11 | 12 |
 | Target profiles and effects | 5 | 8, 10–11 | 12 |
 | QA/supervision/acceptance | 6 | 7–12 | 12 |
 | libRSI ownership split | 7 | 8, 10–11 | 12 |

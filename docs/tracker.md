@@ -10,11 +10,11 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact candidate binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `2ea14a737ee393fee482b355eff281ada97a3ecd1d9b0f585704e59efaa0330c`; source parent `b34cdd9fab6830bf2ee5b9ac457e48914082e660` | `SFV2/B0`–`SFV2/B12` | 0 | `planning-candidate` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `6cea328b0396fa6924b9baeae6dc1c1be08244979bbf6c987c4f87a3e243ccb8`; source parent `b34cdd9fab6830bf2ee5b9ac457e48914082e660` | `SFV2/B0`–`SFV2/B12` | 0 | `planning-candidate` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
-`291e045ba29919e8d6e8f865ebda3e2ce5820d2bf5d4e84713ee8b19364c3324`.
+`58dc4c81aa204ffe0c27b0eb1f30d3c5d3f08536671b3f041a84349bff1b89ad`.
 The candidate becomes active only after distinct exact-revision review and
 integration into the implementation branch. Tracker authoring does not start
 Block 0.
