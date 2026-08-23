@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact candidate binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `60715c196399ce80dc3d016ee5ba2b1212944be5438307cb08ae4546adddba37`; source parent `b34cdd9fab6830bf2ee5b9ac457e48914082e660` | `SFV2/B0`–`SFV2/B12` | 0 | `planning-candidate` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `3c311d1cb51d6f567cd2642322c050a8f9cfc55f2b4bf9b677f9e88328f7d101`; source candidate `0a052011ab2e3ede7b90ca105d4d9b7a3ccf703e` | `SFV2/B0`–`SFV2/B12` | 0 | `planning-candidate` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -41,11 +41,14 @@ or tenant administration.
 
 ## Supervision posture
 
-When SFV2 implementation starts, its implementation thread receives one
+When SFV2 implementation starts, its implementation thread must invoke
+`implement-tracker-blocks` for the full active `SFV2/B0`–`SFV2/B12` range.
+Before its first implementation-producing Block 0 effect, it receives one
 isolated `supervise-tracker-runs` group bound to the exact accepted tracker,
-branch, requested range, and active Block. Monitoring is read-only with respect
-to implementation and cannot combine consumer repositories or contract the
-program.
+branch, requested range, thread, and active Block. Monitoring is read-only with
+respect to implementation and cannot combine consumer repositories or contract
+the program. Tracker activation alone starts neither skill-driven implementation
+nor Block 0.
 
 ## Terminal completion
 
