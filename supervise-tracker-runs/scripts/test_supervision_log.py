@@ -17686,6 +17686,15 @@ class TargetLivenessGateTests(unittest.TestCase):
         self.assertEqual(
             len(supervision_log.events(self.directory / "events.jsonl")), 0
         )
+        native_epoch = self.run_gate(
+            "active",
+            updated_at="1787527447",
+            now="2026-08-23T23:25:00+00:00",
+        )
+        self.assertEqual(native_epoch["status"], "healthy")
+        self.assertEqual(
+            native_epoch["thread_updated_at"], "2026-08-23T23:24:07+00:00"
+        )
 
         self.control["required_target_posture"] = "completed"
         terminal = self.run_gate("completed")

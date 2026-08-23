@@ -1340,6 +1340,23 @@ def parse_time(value: str | None) -> dt.datetime:
     return result.astimezone(dt.timezone.utc).replace(microsecond=0)
 
 
+def parse_compact_thread_time(value: str) -> dt.datetime:
+    """Accept the app's native epoch marker or an exact ISO-8601 timestamp."""
+
+    marker = clean(value, label="thread updated at", maximum=80)
+    if re.fullmatch(r"(?:\d{10}|\d{13})", marker):
+        epoch = int(marker)
+        if len(marker) == 13:
+            epoch /= 1000
+        try:
+            return dt.datetime.fromtimestamp(epoch, dt.timezone.utc).replace(
+                microsecond=0
+            )
+        except (OSError, OverflowError, ValueError) as exc:
+            raise SupervisionLogError("Thread update epoch is invalid") from exc
+    return parse_time(marker)
+
+
 def iso_time(value: dt.datetime) -> str:
     return value.astimezone(dt.timezone.utc).replace(microsecond=0).isoformat()
 
@@ -16955,7 +16972,7 @@ def cmd_liveness_gate(args: argparse.Namespace) -> None:
     ).lower().replace("_", "-")
     if not observed_status:
         raise SupervisionLogError("Liveness gate requires an exact thread status")
-    observed_at = parse_time(args.thread_updated_at)
+    observed_at = parse_compact_thread_time(args.thread_updated_at)
     now = parse_time(args.now) if args.now else dt.datetime.now(dt.timezone.utc)
     if observed_at > now + dt.timedelta(seconds=5):
         raise SupervisionLogError("Target update time is in the future")
