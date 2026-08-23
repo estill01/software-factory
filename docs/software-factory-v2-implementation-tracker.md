@@ -127,7 +127,7 @@ an already managed provider, but exactly one host owns each process.
 | v2 implementation plan | source branch `b34cdd9fab6830bf2ee5b9ac457e48914082e660` plus this tracker-authoring delta | adopt | 0–12 | convert phases into accepted implementation |
 | Existing runtime and 70+ acceptance cases | same source revision | reuse/remediate | 0–12 | classify currentness, gaps, and cutovers |
 | Existing dashboard app-server client | same source revision | adapt/extract | 4 | separate generic client from Factory projections |
-| Shared utilities program | `estill01/utils` canonical `docs/tracker.md`; resolve exact accepted producer revisions at consumption | consume, never implement from Factory | 4, 9, 12 | bind app client after utils B9, embedded/service after B10, runtime manifest after B11, and terminal qualification after utils B12–B15 |
+| Shared utilities program | `estill01/utils` canonical `docs/tracker.md`; resolve exact accepted producer revisions at consumption | consume, never implement from Factory | 4, 9, 12 | bind app client after utils B9, embedded/service after B10, runtime manifest after B11, and terminal qualification after utils B12–B15 with the Block 16 no-license/unpublished terminal posture |
 | Current libRSI main | resolve exact accepted revision at Block 7 start | consume | 7 | pin only accepted contracts |
 | Historical detailed trackers | repository history | preserve as evidence | 0 | map retained owners; do not replay accepted proof |
 
@@ -167,6 +167,18 @@ no-license/unpublished posture. No public release or redistribution of a depende
 artifact is implied or authorized.
 
 ## 6. Block execution contract
+
+### Required implementation and supervision skills
+
+Tracker activation is a documentation and control-plane transition; it does not
+start Block 0. The eventual SFV2 implementation thread must invoke
+`implement-tracker-blocks` against the exact active canonical index and detailed
+tracker for the full requested `SFV2/B0`–`SFV2/B12` range. Before that thread's
+first implementation-producing Block 0 effect, initialize one isolated
+`supervise-tracker-runs` group bound to its exact thread, active branch, tracker
+hash, requested range, and Block 0. These skills preserve the tracker and
+supervision contracts; they do not expand implementation authority or permit a
+monitor to mutate the implementation target.
 
 1. Execute Blocks 0–12 in dependency order from the exact integrated v2 branch.
 2. Re-read the Block and live repository before editing; preserve concurrent
@@ -583,7 +595,7 @@ restart, and provider-success/acceptance separation.
 
 - Reject two process owners, provider objects in canonical mission state,
   app-server turn completion as acceptance, stale callback, approval bypass, or
-  consumer-domain code in the OSS adapter. Also reject a pre-utils-B3 client,
+  consumer-domain code in the OSS adapter. Also reject a pre-utils-B9 client,
   mutable branch dependency, copied utility source, or stale producer root.
 
 ### Completion evidence
