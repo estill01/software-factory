@@ -8,16 +8,17 @@ Block or narrow a direct requested range.
 
 ## Current program
 
-| Program ID | Role | Detailed tracker | Exact candidate binding | Block range | First eligible Block | Status |
+| Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `3c311d1cb51d6f567cd2642322c050a8f9cfc55f2b4bf9b677f9e88328f7d101`; source candidate `0a052011ab2e3ede7b90ca105d4d9b7a3ccf703e` | `SFV2/B0`–`SFV2/B12` | 0 | `planning-candidate` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `c67862c146ca9bf7a620300dbd0f3e140aab8a26514a999c9ae5ddfd7db6f29a`; active content commit `2b394303c58203772a3e80cf4a2a83779fd8deb0` | `SFV2/B0`–`SFV2/B12` | 0 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
 `0dc5d28f097b2660fce9c8b4857f0992b6bd5fe37813f8e16c396e80a85054af`.
-The candidate becomes active only after distinct exact-revision review and
-integration into the implementation branch. Tracker authoring does not start
-Block 0.
+Distinct read-only review thread `01a02da5-caf4-7a02-bf09-dbc7bf774bc1`
+accepted exact candidate `65c7bae2e69b25547b2914372ee7b9ee6ea9c1db`
+with no material findings. This index activates that reviewed program;
+activation does not start Block 0.
 
 ## Required outcome
 
