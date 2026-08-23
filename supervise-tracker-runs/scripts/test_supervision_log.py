@@ -17623,6 +17623,64 @@ class TargetLivenessGateTests(unittest.TestCase):
             )
         )
 
+    def test_bind_migrates_exact_pre_liveness_group_without_replacement(self) -> None:
+        legacy = copy.deepcopy(self.policy)
+        legacy["models"].pop("liveness")
+        legacy["schedule"].pop("liveness_minutes")
+        legacy["schedule"].pop("liveness_grace_seconds")
+        legacy["runtime"].pop("liveness_thread_id")
+        legacy["runtime"].pop("liveness_automation_id")
+        legacy["cross_thread_routing"] = (
+            supervision_log.legacy_cross_thread_routing_contract_without_liveness()
+        )
+        legacy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(legacy)
+        )
+        supervision_log.atomic_json(self.directory / "policy.json", legacy)
+        (self.directory / "policy-history.jsonl").unlink()
+        supervision_log.append_raw(
+            self.directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-1",
+                "timestamp": "2026-08-23T12:00:00+00:00",
+                "kind": "policy-init",
+                "policy": legacy,
+            },
+        )
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "bind",
+                "--target-thread",
+                self.target,
+                "--liveness-thread",
+                "luna-liveness-1234",
+                "--liveness-automation",
+                "automation-liveness-1234",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_bind(args)
+        result = json.loads(output.getvalue())
+
+        self.assertTrue(result["changed"])
+        upgraded = result["policy"]
+        self.assertEqual(upgraded["policy_version"], 2)
+        self.assertEqual(
+            upgraded["runtime"]["watcher_thread_id"],
+            legacy["runtime"]["watcher_thread_id"],
+        )
+        self.assertEqual(
+            upgraded["runtime"]["liveness_thread_id"], "luna-liveness-1234"
+        )
+        self.assertEqual(
+            upgraded["cross_thread_routing"],
+            supervision_log.cross_thread_routing_contract(),
+        )
+
     def test_active_or_terminal_canonical_posture_is_silent(self) -> None:
         self.assertEqual(self.run_gate("running")["status"], "healthy")
         self.assertEqual(

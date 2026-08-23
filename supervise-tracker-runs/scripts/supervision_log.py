@@ -1221,6 +1221,18 @@ def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
     return contract
 
 
+def legacy_cross_thread_routing_contract_without_liveness() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can add the sentinel role."""
+
+    contract = cross_thread_routing_contract()
+    contract["purpose_roles"]["role-refresh"] = [
+        role
+        for role in contract["purpose_roles"]["role-refresh"]
+        if role != "liveness"
+    ]
+    return contract
+
+
 def legacy_wait_first_decision_resolution_contract() -> dict[str, Any]:
     """Exact predecessor accepted only so `bind` can upgrade a live policy."""
     contract = decision_resolution_contract()
@@ -2025,6 +2037,7 @@ def validate_policy(
     if thread_routing is not None and canonical(thread_routing) not in {
         canonical(cross_thread_routing_contract()),
         canonical(legacy_single_role_cross_thread_routing_contract()),
+        canonical(legacy_cross_thread_routing_contract_without_liveness()),
     }:
         raise SupervisionLogError("Cross-thread routing contract differs")
     weekly = policy.get("reports", {}).get("weekly")
