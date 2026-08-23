@@ -1,10 +1,12 @@
 # Software Factory v2 Autonomous Work, QA, and Delivery Runtime Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `active`
 - Tracker sequence: Blocks 0–12
 - Repository: `https://github.com/estill01/software-factory`
 - Governing objective: implement the maintained Software Factory v2 plan as one standalone and embeddable autonomous work, QA, supervision, acceptance, and delivery runtime.
 - Architecture authority: `docs/software-factory-v2-implementation-plan.md`.
+- Activation evidence: distinct read-only review thread `01a02da5-caf4-7a02-bf09-dbc7bf774bc1` accepted exact candidate `65c7bae2e69b25547b2914372ee7b9ee6ea9c1db` with no material findings after the full 13-Block verifier and exact binding checks passed.
+- Implementation posture at activation: Block 0 remains `not-started`; activation initiated no implementation effect.
 
 ## 1. Purpose and intended outcome
 
