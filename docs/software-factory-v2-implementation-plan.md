@@ -234,15 +234,18 @@ Software Factory owns every Factory adapter, pin, migration, integration test,
 cutover, and resulting runtime effect.
 
 - Factory provider integration may begin from an exact pushed
-  `codex-app-server-client` revision only after utils Block 3 is accepted.
+  `codex-app-server-client` revision only after utils Block 9 freezes and accepts
+  the complete client distribution.
 - Factory embedded/service conformance may consume
-  `embedded-service-contract` only after utils Block 4 is accepted.
+  `embedded-service-contract` only after utils Block 10 is accepted.
 - Factory component and compatibility reporting may consume
-  `runtime-manifest` only after utils Block 5 is accepted.
+  `runtime-manifest` only after utils Block 11 is accepted.
 - Final Factory qualification of any consumed package requires the exact
-  current package set to have passed utils Block 7. Utils Block 8 records the
-  no-license/unpublished posture; it does not make a dependency publicly
-  installable or authorize redistribution, publication, or release.
+  current package set to have passed isolated distribution and neutral
+  composition in utils Blocks 12–13 plus technical and authority-boundary
+  qualification in Blocks 14–15. Utils Block 16 records the no-license/
+  unpublished posture; it does not make a dependency publicly installable or
+  authorize redistribution, publication, or release.
 - If a package is not yet accepted, unaffected Factory runtime work continues.
   Only the mapped adoption and its dependent acceptance are held. Factory does
   not copy the planned package, create a temporary competing shared owner, or

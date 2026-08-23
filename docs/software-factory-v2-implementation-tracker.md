@@ -115,8 +115,8 @@ an already managed provider, but exactly one host owns each process.
 | Agents and execution | `agents.py`, `execution.py`, `providers.py`, `controller.py` | split by owner without semantic duplication |
 | Release and recovery | `release.py`, `recovery.py`, `reconciliation.py` | preserve as authoritative effects |
 | Codex app-server client | `dashboard/server/src/software_factory_dashboard/app_server.py` | extract generic transport/process code to `estill01/utils`; retain Factory projections locally |
-| Embedded/service structural conformance | `estill01/utils` `embedded-service-contract` | consume only after exact utils Block 4 acceptance; Factory retains engine semantics and state |
-| Runtime compatibility metadata | `estill01/utils` `runtime-manifest` | consume only after exact utils Block 5 acceptance; descriptive only |
+| Embedded/service structural conformance | `estill01/utils` `embedded-service-contract` | consume only after exact utils Block 10 acceptance; Factory retains engine semantics and state |
+| Runtime compatibility metadata | `estill01/utils` `runtime-manifest` | consume only after exact utils Block 11 acceptance; descriptive only |
 | libRSI integration | current `evolution.py`, `learning.py`, `reflection.py`, and immutable libRSI dependency | map then remove duplicate generic semantics |
 | Dashboard/operator views | `dashboard/` | project one runtime; never become authority |
 
@@ -127,7 +127,7 @@ an already managed provider, but exactly one host owns each process.
 | v2 implementation plan | source branch `b34cdd9fab6830bf2ee5b9ac457e48914082e660` plus this tracker-authoring delta | adopt | 0–12 | convert phases into accepted implementation |
 | Existing runtime and 70+ acceptance cases | same source revision | reuse/remediate | 0–12 | classify currentness, gaps, and cutovers |
 | Existing dashboard app-server client | same source revision | adapt/extract | 4 | separate generic client from Factory projections |
-| Shared utilities program | `estill01/utils` canonical `docs/tracker.md`; resolve exact accepted producer revisions at consumption | consume, never implement from Factory | 4, 9, 12 | bind app client after utils B3, embedded/service after B4, runtime manifest after B5, and terminal qualification after B7 |
+| Shared utilities program | `estill01/utils` canonical `docs/tracker.md`; resolve exact accepted producer revisions at consumption | consume, never implement from Factory | 4, 9, 12 | bind app client after utils B9, embedded/service after B10, runtime manifest after B11, and terminal qualification after utils B12–B15 |
 | Current libRSI main | resolve exact accepted revision at Block 7 start | consume | 7 | pin only accepted contracts |
 | Historical detailed trackers | repository history | preserve as evidence | 0 | map retained owners; do not replay accepted proof |
 
@@ -154,15 +154,16 @@ Factory modules or target profiles.
 
 ### Shared-utility dependency contract
 
-The utils repository is a producer only. Its Blocks 3, 4, and 5 provide the
+The utils repository is a producer only. Its Blocks 9, 10, and 11 provide the
 first accepted handoff points for `codex-app-server-client`,
-`embedded-service-contract`, and `runtime-manifest`, respectively; utils
-Block 7 qualifies the frozen package set. Software Factory owns all downstream
-adapters, pins, migrations, tests, and acceptance. Unavailable utility work
-blocks only its mapped adoption; earlier and independent Factory Blocks
-continue. Final Factory acceptance records exact producer commit,
-distribution/version, artifact and compatibility roots, and the no-license/
-unpublished posture. No public release or redistribution of a dependent
+`embedded-service-contract`, and `runtime-manifest`, respectively. Utils Blocks
+12–13 prove isolated distribution and neutral composition; Blocks 14–15 qualify
+the frozen technical package set and authority/downstream boundary. Software
+Factory owns all downstream adapters, pins, migrations, tests, and acceptance.
+Unavailable utility work blocks only its mapped adoption; earlier and independent
+Factory Blocks continue. Final Factory acceptance records exact producer commit,
+distribution/version, artifact and compatibility roots, and the Block 16
+no-license/unpublished posture. No public release or redistribution of a dependent
 artifact is implied or authorized.
 
 ## 6. Block execution contract
@@ -541,7 +542,7 @@ external-agent providers without giving providers mission authority.
 ### Inputs and dependencies
 
 - Blocks 2–3 and an exact pushed `codex-app-server-client` revision accepted
-  by utils Block 3.
+  by utils Block 9.
 
 ### Required work
 
@@ -912,8 +913,8 @@ deployment readiness without creating a hosted product.
 
 ### Inputs and dependencies
 
-- Blocks 2, 6, and 8; exact pushed utils Block 4
-  `embedded-service-contract` and Block 5 `runtime-manifest` revisions for
+- Blocks 2, 6, and 8; exact pushed utils Block 10
+  `embedded-service-contract` and Block 11 `runtime-manifest` revisions for
   their mapped adoption. Service work not using those packages may proceed
   before they are available, but its dependent acceptance may not.
 
@@ -1135,8 +1136,8 @@ deploying or activating it.
 
 ### Inputs and dependencies
 
-- Block 11, one frozen exact commit, and current utils Block 7 qualification
-  for every consumed shared package.
+- Block 11, one frozen exact commit, current utils Blocks 14–15 qualification
+  for every consumed shared package, and the exact Block 16 terminal posture.
 
 ### Required work
 
@@ -1173,7 +1174,7 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
 
 - Every verification-matrix row is current at the same revision; no retained
   gap contradicts the primary outcome. Every consumed utility is current at
-  one utils Block 7-qualified package set and no handoff overstates public
+  one utils Blocks 14–15-qualified package set and no handoff overstates public
   installability, reuse rights, redistribution, or release authority.
 
 ### Negative tests
