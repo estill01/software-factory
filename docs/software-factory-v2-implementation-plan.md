@@ -1,4 +1,4 @@
-# Software Factory v2 — Autonomous Mission Runtime Implementation Plan
+# Software Factory v2 — Autonomous Work, QA, and Delivery Runtime Implementation Plan
 
 **Status:** Active implementation authority for the v2 refactor  
 **Repository:** `https://github.com/estill01/software-factory`  
@@ -13,7 +13,14 @@ This document is the maintained implementation plan for the v2 program. It prese
 1. the product core is broader than software engineering; and
 2. reusable epistemic, experimental, improvement, selection, and recursive-self-improvement semantics belong in `libRSI`, which this repository consumes.
 
-The repository and current product name may remain `software-factory` during implementation. The architectural core is an **autonomous mission execution runtime**. Software engineering is the first and most demanding target profile, not the ontology of the core.
+The repository and current product name may remain `software-factory` during implementation. The architectural core is an **autonomous work, QA, supervision, acceptance, and delivery runtime**. Software engineering is the first and most demanding target profile, not the ontology of the core.
+
+One engine must support two first-class hosting modes:
+
+- **embedded mode**, where a product calls the mission runtime through a typed in-process API and retains its domain authority; and
+- **standalone service mode**, where an operator or product submits a bounded mission and target/profile binding through maintained service APIs.
+
+The two modes share mission, work, QA, supervision, acceptance, delivery, and recovery semantics. Neither hosting mode is a second controller. A future hosted multi-tenant product may wrap the standalone service, but tenant billing, fleet deployment, public authentication, and commercial control-plane work are a separately activated successor rather than implicit v2 scope.
 
 This plan does not reduce scope. It changes ownership so the same required behaviors are implemented once, in the correct system.
 
@@ -39,6 +46,8 @@ authorized mission / goal / requested outcome
 
 The runtime must support work whose outputs are source code, documents, analyses, decisions, reports, data products, experiments, operational changes, or other verifiable target-state changes. A target profile supplies the domain-specific capabilities required to inspect, change, validate, apply, and verify a target.
 
+The same mission must be resumable through either the embedded or standalone host without changing its semantic or operational identity. Hosting success, provider completion, and target-profile build success do not establish QA, acceptance, delivery, or mission completion.
+
 ## 3. Non-negotiable functional goals
 
 The following goals remain required regardless of module or repository ownership:
@@ -61,6 +70,8 @@ The following goals remain required regardless of module or repository ownership
 - immutable releases, safe refresh, rollback, systemic self-repair, and exact target resumption;
 - no-loss cleanup, repository reconciliation, and unfinished-work restart;
 - durable reporting, notifications, API, operator controls, and historical inspection;
+- one embedded engine API and one service facade over the same authoritative runtime;
+- replaceable Codex app-server, local-process, and external-agent providers whose completion never implies acceptance;
 - truthful distinction among designed, implemented, tested, provider-integrated, behaviorally accepted, and production-ready states.
 
 No capability is removed merely because its reusable semantic portion moves to `libRSI` or its domain-specific portion moves to a target profile.
@@ -83,6 +94,7 @@ The mission runtime owns operational authority and real execution:
 - immutable releases, installed verification, live refresh, rollback, and Factory repair;
 - cleanup, reconciliation, reports, notifications, API, UI, and operator commands;
 - the outer controller that decides which mission work may run and applies all authoritative effects.
+- the embedded and standalone host facades that expose this one controller without duplicating it.
 
 These concerns remain in one modular monolith and one authoritative SQL deployment because their invariants must be transactionally coordinated.
 
@@ -129,7 +141,7 @@ profiles/software/
     repository cleanup and rollback
 ```
 
-A content profile should be added as the first non-software proof:
+A small invention-neutral content-production profile should be added as the first non-software proof:
 
 ```text
 profiles/content/
@@ -140,6 +152,8 @@ profiles/content/
     publication handoff and verification
 ```
 
+The content profile is a generic fixture and extension proof. It must not contain Patent Studio, OMNI, Celltonomy, patent-domain schemas, workflow IDs, or product-specific gateway behavior. Patent Studio remains an external consumer that implements its own domain profile/effect adapter against the generic Factory contracts.
+
 Additional research, data, operations, simulation, robotics, or laboratory profiles are later capability packs, not reasons to generalize the core prematurely.
 
 ### 4.4 Providers and effect adapters
@@ -147,7 +161,7 @@ Additional research, data, operations, simulation, robotics, or laboratory profi
 Provider implementations remain replaceable:
 
 ```text
-providers/codex
+providers/codex_app_server
 providers/local_process
 providers/external_agent
 integrations/notifications
@@ -155,7 +169,7 @@ integrations/artifacts
 integrations/librsi
 ```
 
-The mission runtime owns provider lifecycle and authority. A provider never becomes the source of mission truth, acceptance, or epistemic truth merely by returning a successful response.
+The mission runtime owns provider lifecycle and authority. A provider never becomes the source of mission truth, QA, acceptance, delivery, or epistemic truth merely by returning a successful response. The Codex app-server provider uses the maintained typed client from `estill01/utils` and owns process/thread/turn/approval/event lifecycle only when Software Factory is the active host. It does not expose app-server as the public Factory API.
 
 ## 5. One control plane and one active owner
 
@@ -185,7 +199,9 @@ Software Factory obligation
 
 ## 6. Extraction policy
 
-`libRSI` remains the only major standalone extraction planned now.
+`libRSI` remains the only major semantic product extraction planned now.
+
+Narrow domain-neutral enabling packages may be consumed from `estill01/utils` when they satisfy that repository's admission rule: at least two concrete consumers or an existing consumer plus an imminent active second implementation, one-way dependencies, independent tests/versioning, and no product authority or policy. The initial justified package is the typed Codex app-server client already implemented inside the dashboard and needed by libRSI and Patent Studio. Shared utilities may never own missions, QA, supervision, acceptance, delivery, libRSI semantics, target profiles, or product persistence.
 
 Do not create additional repositories for the scheduler, QA system, authority model, supervision, release, recovery, or target profiles. First create strong internal module boundaries and prove them with at least two profiles.
 
@@ -198,7 +214,17 @@ A future protocol/SDK package may be extracted only when all of the following ar
 5. independent versioning removes more coupling than it creates;
 6. conformance tests prove interchangeability.
 
-Do not create a shared `common-models` package. `libRSI` owns semantic records; the mission runtime owns operational records; adapters explicitly map between them.
+Do not create a shared `common-models` package. `libRSI` owns semantic records; the mission runtime owns operational records; adapters explicitly map between them. Utilities may carry transport/version/runtime metadata only when those records are non-authoritative and independently useful to multiple consumers.
+
+### 6.1 Codex app-server provider boundary
+
+Codex app-server is the preferred maintained Codex execution substrate, not a replacement for Software Factory:
+
+- `estill01/utils` owns the domain-neutral typed client, process/transport primitives, schema compatibility, event stream, cancellation, and approval callback contracts;
+- Software Factory owns provider reservations, agent assignments, bounded prompts/context, retries, restart/reattachment, QA obligations, supervision, acceptance, and delivery;
+- an embedded consumer may let Software Factory own app-server or may supply an already managed provider through the same interface, but exactly one composition owner starts each app-server process;
+- app-server thread/turn completion is operational evidence only and cannot accept work or close a mission; and
+- WebSocket or other experimental transports do not become required merely because app-server exposes them.
 
 ## 7. Target internal architecture
 
@@ -206,6 +232,10 @@ The repository should converge toward this shape without requiring an immediate 
 
 ```text
 runtime/src/software_factory/
+    hosts/
+        embedded.py
+        service.py
+
     core/
         missions/
         programs/
@@ -251,7 +281,7 @@ runtime/src/software_factory/
             validation.py
 
     providers/
-        codex.py
+        codex_app_server.py
         local_process.py
         external_agent.py
 ```
@@ -348,6 +378,8 @@ This phase is required even when a failure is mechanically simple. No later inte
 - add dependency rules preventing `libRSI` reverse imports and preventing generic core imports of software-profile internals;
 - add a treatment matrix with cutover and deletion conditions;
 - preserve all existing runtime behavior while creating the boundary.
+- define one typed engine contract used unchanged by the embedded and standalone service hosts;
+- define host/process ownership so only the outer active host launches provider processes.
 
 ### Phase 2 — Integrate verified libRSI semantic foundations
 
@@ -394,6 +426,8 @@ After conformance proof, make libRSI authoritative for the migrated semantics an
 Continue independently of later libRSI workflow milestones:
 
 - real Codex multi-agent lifecycle and restart/reattachment proof;
+- replace dashboard-local app-server process/RPC code with the shared typed utility package and a Factory-owned provider adapter;
+- embedded/service equivalence, idempotent mission submission, cancellation, bounded event streaming, and restart proof;
 - atomic scheduling, assignment, lease, workspace, execution, and provider reservation;
 - authenticated callbacks and exact provider-task correlation;
 - crash injection at every SQL/Git/provider boundary;
@@ -424,7 +458,7 @@ Software Factory may integrate accepted lower-level contracts before the complet
 
 ### Phase 6 — Prove the core is broader than software
 
-Add a maintained content-production dogfood using the same mission runtime:
+Add a maintained invention-neutral content-production dogfood using the same mission runtime:
 
 ```text
 mission
@@ -437,7 +471,7 @@ mission
 → terminal outcome
 ```
 
-The content profile must not use Git-specific domain types in generic workflow code. It should reuse mission, obligation, work, scheduling, agent, QA, supervision, release/delivery, and libRSI integration semantics.
+The content profile must not use Git-specific domain types in generic workflow code. It should reuse mission, obligation, work, scheduling, agent, QA, supervision, release/delivery, and libRSI integration semantics. A second proof must demonstrate that an external domain extension can be registered without importing that domain's code into the Software Factory OSS core; Patent Studio may later supply such a consumer proof, but its code and workflow identities remain outside this repository.
 
 ### Phase 7 — Migration, cutover, and duplicate removal
 
@@ -607,6 +641,10 @@ The v2 program is complete only when all of the following are true at one exact 
 12. Migration and rollback are idempotent, verified, and reversible.
 13. CI, coverage, build, installation, security, crash, concurrency, and acceptance gates are green.
 14. Real-provider and adapter-only validation boundaries are explicitly recorded.
-15. The PR, source archive, wheel, checksums, docs, runbook, and acceptance evidence reproduce the same revision.
+15. The same mission engine is usable through embedded and standalone service hosts with equivalent lifecycle, QA, supervision, acceptance, and delivery outcomes.
+16. Codex app-server is a replaceable provider substrate through the shared typed utility client, with one process owner per composition and no provider-completion shortcut to acceptance.
+17. The OSS core contains no Patent Studio, OMNI, Celltonomy, or other consumer-specific workflow/schema authority.
+18. Hosted/multi-tenant deployment remains an explicit successor unless separately activated; v2 nevertheless exposes a service-ready, restartable, bounded standalone host.
+19. The PR, source archive, wheel, checksums, docs, runbook, and acceptance evidence reproduce the same revision.
 
 Until then, the PR remains draft and status reporting must identify the exact partial state.
