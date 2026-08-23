@@ -232,7 +232,7 @@ for this tracker may inspect Patent Studio patent content.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Exact baseline, owner inventory, and cutover map | — | `not-started` |
+| 0 | Exact baseline, owner inventory, and cutover map | — | `in-progress` |
 | 1 | Operational authority and persistence boundaries | 0 | `not-started` |
 | 2 | One embedded/standalone engine contract | 1 | `not-started` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
@@ -252,7 +252,7 @@ Required order:
 
 ## Block 0 — Freeze exact baseline and migration map
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
