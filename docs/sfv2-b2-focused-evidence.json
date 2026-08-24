@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B2",
+  "purpose": "embedded and standalone engine candidate proof",
+  "pytest": {
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_engine_hosts.py runtime/tests/test_v2_entrypoints.py runtime/tests/test_api.py runtime/tests/test_composition.py runtime/tests/test_entrypoints.py runtime/tests/test_operational_boundaries.py runtime/tests/test_advanced_integration.py",
+    "selected_files": [
+      "runtime/tests/test_engine_hosts.py",
+      "runtime/tests/test_v2_entrypoints.py",
+      "runtime/tests/test_api.py",
+      "runtime/tests/test_composition.py",
+      "runtime/tests/test_entrypoints.py",
+      "runtime/tests/test_operational_boundaries.py",
+      "runtime/tests/test_advanced_integration.py"
+    ],
+    "result": "26 passed"
+  },
+  "collection": "163 tests collected with one recorded legacy TestStore collection warning",
+  "static_proofs": [
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
+      "result": "pass"
+    },
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff format --check runtime/src runtime/tests",
+      "result": "83 files already formatted"
+    },
+    {
+      "command": "MYPYPATH=runtime/src uv run --no-project --with 'mypy>=1.11' mypy runtime/src/software_factory",
+      "result": "Success: no issues found in 56 source files"
+    }
+  ],
+  "ownership_reconciliation": {
+    "runtime_written_tables": 90,
+    "registered_tables": 90,
+    "missing": [],
+    "stale": []
+  },
+  "installed_entrypoint_proof": {
+    "version": "2.0.0.dev6",
+    "wheel_sha256": "a89b563db3c6adc56c9574b49298dbb631ca885a1e3255fab6cc27263fce8f88",
+    "posture": "ephemeral local qualification artifact, not a release artifact",
+    "entrypoints": [
+      "sf-skill",
+      "software-factory",
+      "software-factory-api",
+      "software-factoryd"
+    ],
+    "result": "all four installed --help probes passed"
+  },
+  "scope_boundary": {
+    "utils_consumed": [],
+    "provider_effects_started": false,
+    "autonomous_scheduling_implemented": false,
+    "public_hosting_implemented": false
+  }
+}

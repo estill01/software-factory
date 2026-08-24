@@ -34,6 +34,7 @@ MIGRATIONS = (
     Migration(18, "0018_governed_release.sql"),
     Migration(19, "0019_operational_reconciliation.sql"),
     Migration(20, "0020_acceptance_fencing.sql"),
+    Migration(21, "0021_engine_host_contract.sql"),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version
 

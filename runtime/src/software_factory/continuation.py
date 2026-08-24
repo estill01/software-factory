@@ -61,6 +61,12 @@ class ContinuationService:
         mission = self.store.one("SELECT * FROM missions WHERE id=?", (mission_id,))
         if mission["status"] == "completed":
             return {"posture": "complete", "action": "none", "reason": "mission_completed"}
+        if mission["status"] == "cancelled_by_authority":
+            return {
+                "posture": "cancelled",
+                "action": "none",
+                "reason": "mission_cancelled_by_authority",
+            }
 
         expired = self.store.all(
             """SELECT l.*,e.work_item_id FROM leases l

@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .advanced import AdvancedServices
 from .errors import InvalidTransition, StoreError
+from .hosts.service import StandaloneFactoryService
 from .reporting import ReportingService
 from .store import Store
 from .util import utc_now
@@ -46,10 +47,17 @@ class FactoryAPI:
         advanced: AdvancedServices | None = None,
         *,
         reporting: ReportingService | None = None,
+        engine_service: StandaloneFactoryService | None = None,
     ):
         self.store = store
         self.advanced = advanced or AdvancedServices(store)
         self.reporting = reporting or ReportingService(store)
+        self.engine_service = engine_service
+
+    def apply_engine_operation(self, operation: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+        if self.engine_service is None:
+            raise InvalidTransition("engine service is not configured for this host")
+        return self.engine_service.invoke(operation, payload)
 
     def health(self) -> dict[str, Any]:
         try:
@@ -260,6 +268,10 @@ def make_handler(api: FactoryAPI) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             try:
+                if self.path.startswith("/api/engine/"):
+                    operation = self.path.removeprefix("/api/engine/")
+                    self._json(HTTPStatus.OK, api.apply_engine_operation(operation, self._body()))
+                    return
                 if self.path != "/api/operator-actions":
                     self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                     return

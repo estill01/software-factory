@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import RuntimePaths
 from .core import CoreService
+from .engine import FactoryEngine
 from .providers import CodexCLIProvider, ProviderRegistry
 from .store import Store
 
@@ -22,6 +23,7 @@ class RuntimeContext:
     paths: RuntimePaths
     store: Store
     core: CoreService
+    engine: FactoryEngine
 
 
 def open_runtime(home: str | Path | None = None) -> RuntimeContext:
@@ -45,4 +47,5 @@ def open_runtime(home: str | Path | None = None) -> RuntimeContext:
         ),
     )
     core = CoreService(store, providers=providers, default_provider="codex_cli")
-    return RuntimeContext(paths=paths, store=store, core=core)
+    engine = FactoryEngine(store, core)
+    return RuntimeContext(paths=paths, store=store, core=core, engine=engine)

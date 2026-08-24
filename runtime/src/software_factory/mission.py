@@ -139,6 +139,51 @@ class MissionService:
             )
         return mission_id
 
+    def cancel_mission(self, mission_id: str, *, reason: str) -> dict[str, Any]:
+        """Cancel a mission when no provider-owned execution is still active."""
+
+        if not reason.strip():
+            raise ValueError("mission cancellation requires a reason")
+        with self.store.transaction() as db:
+            mission = db.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
+            if mission is None:
+                raise StoreError("mission does not exist")
+            if mission["status"] == "cancelled_by_authority":
+                return dict(mission)
+            if mission["status"] == "completed":
+                raise InvalidTransition("completed mission cannot be cancelled")
+            active = db.execute(
+                """SELECT id FROM executions WHERE mission_id=? AND status IN (
+                       'queued','dispatching','leased','running','verifying'
+                   ) LIMIT 1""",
+                (mission_id,),
+            ).fetchone()
+            if active is not None:
+                raise InvalidTransition(
+                    "mission has active execution; provider cancellation must complete first"
+                )
+            prior_version = int(mission["state_version"])
+            new_version = prior_version + 1
+            now = utc_now()
+            db.execute(
+                """UPDATE missions SET status='cancelled_by_authority',state_version=?,
+                   updated_at=?,completed_at=? WHERE id=?""",
+                (new_version, now, now, mission_id),
+            )
+            self.store.append_event(
+                db,
+                project_id=mission["project_id"],
+                mission_id=mission_id,
+                stream_key="mission",
+                event_type="mission.cancelled_by_authority",
+                subject_type="mission",
+                subject_id=mission_id,
+                prior_version=prior_version,
+                new_version=new_version,
+                payload={"reason": reason},
+            )
+        return self.store.one("SELECT * FROM missions WHERE id=?", (mission_id,))
+
     @staticmethod
     def _authority_set_root(db: Any, mission_id: str) -> str | None:
         rows = db.execute(

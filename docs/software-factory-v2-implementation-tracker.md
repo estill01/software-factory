@@ -624,14 +624,65 @@ Review state ownership, idempotency, restart, cancellation, and error parity.
   `3429a4be1ba019736a9c04a0bdf26c92cfe49bf7` on branch
   `agent/software-factory-v2-native-refactor`, with zero local/remote
   divergence and the full `SFV2/B0`–`SFV2/B12` range preserved.
-- Planned bounded candidate: one Factory-owned typed engine and two thin local
-  hosts over the same `Database` and `CoreService`; durable idempotent mission
-  submission, bounded event reads, restart, host transfer, cancellation, and
-  outcome equivalence are in scope.
+- Implemented bounded candidate: `FactoryEngine` defines typed start, status,
+  continue, cancel, outcome, and cursor/limit-bounded event operations.
+  `EmbeddedFactoryHost` and `StandaloneFactoryService` delegate those exact
+  operations without retaining host-local mission state. The loopback API
+  exposes the same service operations at `POST /api/engine/{operation}`.
+- Durable identity and restart: additive migration
+  `0021_engine_host_contract.sql` stores only the canonical request-root and
+  idempotency-key-to-mission binding. Mission creation, binding, and submission
+  event commit atomically; concurrent exact duplicates resolve to one mission,
+  while a changed request under the same key fails closed. A restarted runtime
+  and the other host recover the same mission ID, state, frontier, events, and
+  outcome.
+- Lifecycle ownership: cancellation routes through `MissionService`, refuses
+  to strand an active provider execution, and produces canonical mission state
+  and an audit event. `continue_mission` is deliberately a durable reattachment
+  to the current safe frontier; Block 3 owns autonomous scheduling and this
+  candidate starts no provider effect.
+- Contract and ownership documentation:
+  `docs/software-factory-v2-engine-contract.md`, SHA-256
+  `60837b01475af2c20b6796e3e4350caefdf9fb9d86641ebd7176d735dfcc4364`,
+  records the operation schemas, host/process shape, loopback route, and Stop.
+  The executable ownership registry reconciles `90 written = 90 owned` after
+  adding the one Block 2 table.
+- Focused evidence: `docs/sfv2-b2-focused-evidence.json`, SHA-256
+  `21c36100aee4860e24e653756ff205e099ac064bfedccb825bb88ed853e3e86f`,
+  records the exact seven-file command and `26 passed`, repository collection
+  at `163 tests`, Ruff and 83-file format success, and mypy success across 56
+  source files. No broad runtime suite was run.
+- Installed-entrypoint proof: an ephemeral wheel for version `2.0.0.dev6`,
+  SHA-256 `a89b563db3c6adc56c9574b49298dbb631ca885a1e3255fab6cc27263fce8f88`,
+  installed into an isolated environment; `software-factory`,
+  `software-factoryd`, `software-factory-api`, and `sf-skill` were present and
+  all four installed `--help` probes passed. The wheel is qualification
+  evidence, not a release artifact.
 - Producer boundary: Block 2 does not consume `embedded-service-contract`,
   `runtime-manifest`, or any other utils artifact. Those accepted producer
   outputs remain reserved for their tracker-assigned Blocks 4, 9, 11, and 12.
-- Acceptance posture: implementation and exact-revision review pending.
+- Product-capability review:
+  - Trigger: consequential Block posture.
+  - Capability added or preserved: one durable mission identity can be started,
+    inspected, reattached, cancelled, and observed through either permitted
+    local host without changing operational or terminal truth.
+  - Paths compared: duplicate host controllers; a transport-owned session
+    model; thin hosts over the Block 1 engine and state plane.
+  - Selected level and owner: thin hosts over `FactoryEngine`, `Database`, and
+    the canonical lifecycle services.
+  - Protected-capability result: host transfer and restart retain mission ID,
+    state version, safe frontier, event sequence, and outcome; no host-specific
+    acceptance or provider-success shortcut exists.
+  - Rejected alternatives: host controllers duplicate authority, session state
+    loses restart identity, and pulling the utils structural contract into this
+    Block violates the assigned consumer lanes.
+  - Tradeoff and uncertainty: `continue_mission` reattaches but does not yet
+    schedule; Block 3 owns atomic frontier execution, and Block 9 later adopts
+    the accepted structural package and hardens the service boundary.
+- Independent review: pending the exact committed and pushed candidate;
+  process success and focused green results are not acceptance.
+- Acceptance posture: `candidate`; Block 2 remains `in-progress` until exact
+  independent review accepts the pushed revision.
 
 ### Stop
 

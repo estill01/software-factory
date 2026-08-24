@@ -59,6 +59,7 @@ LIFECYCLE_OWNERS = (
         ("continuation", "controller", "qa"),
     ),
     LifecycleOwner("program", "program", ("programs", "program_revisions")),
+    LifecycleOwner("engine_submission", "engine", ("engine_submissions_v2",)),
     LifecycleOwner(
         "work",
         "work_items",

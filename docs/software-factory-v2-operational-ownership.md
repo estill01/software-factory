@@ -25,7 +25,10 @@ dependency test.
 ## Lifecycle owners
 
 `software_factory.ownership.LIFECYCLE_OWNERS` is the executable form of this
-table. It covers all 89 tables written by top-level runtime Python, including
+table. At the accepted Block 1 checkpoint it covered all 89 tables written by
+top-level runtime Python. Block 2 adds the single `engine_submissions_v2`
+idempotency table under `FactoryEngine`, so the current registry covers 90
+tables, including
 the schema lineage, operational lifecycle, evidence, and semantic records. A
 transaction participant is not a second authority: it may update an owner
 table only as part of the named coupled transition and must use the same
@@ -38,6 +41,7 @@ database transaction.
 | Mission and authority | `MissionService` | projects, repositories, missions, authority records | continuation terminalization; audit use consumption |
 | Capability and obligation | `CapabilityService` | capabilities, obligations, obligation dependencies | continuation, controller, QA |
 | Program | `ProgramService` | programs and accepted revisions | none |
+| Engine submission | `FactoryEngine` | durable idempotency key to mission binding | none |
 | Work | `WorkItemService` | work items and work dependencies | controller, execution, QA |
 | Agent sessions and assignments | `AgentService` | agent sessions and work assignments | controller and execution coordination |
 | Workspaces | `WorkspaceService` | workspaces | agent, controller, and execution coordination |
@@ -83,7 +87,7 @@ an applied decision is idempotent.
 ## Migration lineage
 
 The active lineage is exactly `0001_core.sql` through
-`0020_acceptance_fencing.sql`, with one file per contiguous version. Every SQL
+`0021_engine_host_contract.sql`, with one file per contiguous version. Every SQL
 migration file must be present in `MIGRATIONS`, and every catalog entry must
 have one matching file. Applied name or checksum drift, version gaps, unknown
 applied versions, duplicate files, or inert SQL files fail initialization.

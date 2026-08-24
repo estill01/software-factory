@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from .api import APIServer, FactoryAPI
 from .entrypoints import context_core, context_store, open_context
+from .hosts import StandaloneFactoryService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,7 +22,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = context_store(context)
     core = context_core(context)
     server = APIServer(
-        FactoryAPI(store, core.advanced, reporting=core.reporting),
+        FactoryAPI(
+            store,
+            core.advanced,
+            reporting=core.reporting,
+            engine_service=StandaloneFactoryService(context.engine),
+        ),
         host=args.host,
         port=args.port,
     )

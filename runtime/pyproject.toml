@@ -20,9 +20,10 @@ dev = [
 ]
 
 [project.scripts]
-software-factory = "software_factory.cli:main"
-software-factoryd = "software_factory.daemon:main"
-sf-skill = "software_factory.skill_bridge:main"
+software-factory = "software_factory.v2_cli:main"
+software-factoryd = "software_factory.runtime_daemon:main"
+software-factory-api = "software_factory.api_main:main"
+sf-skill = "software_factory.native_skills:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

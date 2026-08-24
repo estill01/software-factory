@@ -5,6 +5,16 @@ from .audit import CommandEnvelope
 from .controller import ControllerService
 from .core import CoreService
 from .database import Database
+from .engine import (
+    ENGINE_CONTRACT_VERSION,
+    CancelResult,
+    EventRecord,
+    FactoryEngine,
+    MissionOutcome,
+    MissionRef,
+    MissionSnapshot,
+    MissionSubmission,
+)
 from .errors import (
     AuthorityDenied,
     EvidenceInvalid,
@@ -33,6 +43,14 @@ __all__ = [
     "CommandEnvelope",
     "CoreService",
     "Database",
+    "ENGINE_CONTRACT_VERSION",
+    "CancelResult",
+    "EventRecord",
+    "FactoryEngine",
+    "MissionOutcome",
+    "MissionRef",
+    "MissionSnapshot",
+    "MissionSubmission",
     "ControllerService",
     "EvidenceInvalid",
     "InvalidTransition",
