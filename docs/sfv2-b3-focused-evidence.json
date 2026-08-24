@@ -10,9 +10,9 @@
       "runtime/tests/test_engine_hosts.py",
       "runtime/tests/test_execution_qa.py"
     ],
-    "result": "38 passed"
+    "result": "39 passed"
   },
-  "collection": "171 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "collection": "172 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
   "static_proofs": [
     {
       "command": "ruff check runtime/src runtime/tests",
@@ -29,10 +29,11 @@
   ],
   "wheel_proof": {
     "version": "2.0.0.dev6",
-    "sha256": "cb068434649deb9f2ccc01468482c0fee04fa2bd45096773e6cb46d9048c11ab",
+    "sha256": "38182c2befc00bc1b29213172ec605d5ba4673053879a1598747f608d50b8f9b",
     "posture": "ephemeral local qualification artifact, not a release artifact",
     "required_members": [
       "software_factory/scheduling.py",
+      "software_factory/work_items.py",
       "software_factory/controller.py",
       "software_factory/continuation.py",
       "software_factory/program.py"
@@ -42,6 +43,7 @@
     "atomic_parallel_limit": "two disjoint concurrent direct dispatchers under max_parallel=1 create one active execution and one provider request",
     "restart_continuation": "a second CoreService observes zero remaining capacity, then dispatches the next disjoint work only after the first execution releases capacity",
     "attempt_budget": "an expired final allowed attempt is not repeated and its obligation remains open for diagnosis or replanning",
+    "mixed_frontier": "an exhausted high-priority item is excluded before scope selection, so a conflicting lower-priority unattempted item remains dispatchable",
     "accepted_history": "a successor program revision cannot omit accepted work and the requested range remains byte-equivalent"
   },
   "scope_boundary": {

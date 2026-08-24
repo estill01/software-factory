@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `ff1223dc01a3a0729eade86ed2ce26d66205ea991712eceffff8aedad3731104`; Blocks 0–2 accepted; Block 3 active from clean acceptance successor `53c926aaf03c5cc88ce2420273661e13df39de82`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 3 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `3cbb5a632e1815eac836ba552fc2c0f8a648c79fc1307d3a06c57ce1f9fa7680`; Blocks 0–2 accepted; Block 3 active from clean acceptance successor `53c926aaf03c5cc88ce2420273661e13df39de82`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 3 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256

@@ -780,9 +780,10 @@ Test race/crash/stale/partial/failure scenarios and review range preservation.
   from canonical `missions.resource_limits_json`, with bounded defaults of
   4/4/3. Mission creation validates the known policy fields before persistence;
   unrelated resource-limit fields remain owned by their later consumers.
-- Atomic and durable enforcement: continuation returns only the dependency-safe,
-  scope-compatible frontier that fits current capacity and per-work attempt
-  budget. The controller applies the tick limit and rechecks both parallel
+- Atomic and durable enforcement: attempt eligibility is applied before the
+  dependency-safe, scope-compatible maximal frontier is constructed; continuation
+  then bounds that useful frontier by current capacity. The controller applies
+  the tick limit and rechecks both parallel
   capacity and attempt count inside its `BEGIN IMMEDIATE` reservation before
   creating an execution, so concurrent direct dispatchers cannot oversubscribe.
   Restart reconstructs the same policy and active capacity from durable state.
@@ -798,20 +799,22 @@ Test race/crash/stale/partial/failure scenarios and review range preservation.
   generation fencing, heartbeats, expiry recovery, and stale-result rejection.
   Block 3 adds no alternate scheduler, state store, or provider authority.
 - Focused evidence: `docs/sfv2-b3-focused-evidence.json`, SHA-256
-  `f29ad3531da2d9eb9810727b4cb6891a8bc858c3ac022ac6e671742a9d309fac`,
-  records the four-file command and `38 passed`, repository collection at `171
+  `433b7323bc87c17cdbc8b14144398eba41ea134456499f7703ca1bb9f354cc4c`,
+  records the four-file command and `39 passed`, repository collection at `172
   tests`, Ruff and 84-file format success, and mypy success across 57 source
   files. No broad runtime suite was run.
 - Artifact proof: an ephemeral wheel for version `2.0.0.dev6`, SHA-256
-  `cb068434649deb9f2ccc01468482c0fee04fa2bd45096773e6cb46d9048c11ab`,
-  contains the scheduling, controller, continuation, and program modules. It is
-  local qualification evidence, not a release artifact.
+  `38182c2befc00bc1b29213172ec605d5ba4673053879a1598747f608d50b8f9b`,
+  contains the scheduling, work-item, controller, continuation, and program
+  modules. It is local qualification evidence, not a release artifact.
 - Negative proofs: under `max_parallel=1`, two disjoint concurrent dispatchers
   create exactly one active execution and one deterministic-provider request;
   a restarted runtime waits at zero capacity and dispatches the next safe item
   only after capacity releases; an expired final attempt remains an open
   obligation and rejects another direct dispatch; a revision that drops prior
-  accepted history fails before persistence.
+  accepted history fails before persistence. An exhausted high-priority item is
+  removed before scope selection, so a conflicting lower-priority unattempted
+  item remains visible and dispatches.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Capability added or preserved: the engine advances the maximum bounded safe
@@ -831,8 +834,16 @@ Test race/crash/stale/partial/failure scenarios and review range preservation.
   - Tradeoff and uncertainty: defaults intentionally bound local concurrency;
     Block 4 supplies replaceable live providers while preserving these Factory
     reservations and budgets.
-- Candidate posture: `candidate`; exact pushed-revision independent review is
-  required before Block 3 acceptance. No utils artifact is consumed and no live
+- Preserved reviewed history: exact pushed candidate
+  `908fd11f09513e926fb6b020bd14777a67da5caa`, tree
+  `fd02d9ef028383b4fa9ef859ac08256d3bc0556b`, returned `REVISE` with one P1
+  and no P0/P2. The reviewer proved that filtering attempt-exhausted work after
+  greedy scope selection let an exhausted high-priority item hide useful
+  conflicting work. That candidate is rejected evidence and remains preserved.
+- Corrected candidate posture: `candidate`; attempt exhaustion is now excluded
+  before maximal-frontier scope selection and the exact mixed-frontier
+  regression passes. Fresh exact pushed-revision independent review is required
+  before Block 3 acceptance. No utils artifact is consumed and no live
   agent/provider lifecycle is started in this Block.
 
 ### Stop

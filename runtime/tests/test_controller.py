@@ -333,6 +333,48 @@ def test_attempt_budget_stops_repeat_dispatch_and_leaves_obligation_open() -> No
         assert len(provider.requests) == 1
 
 
+def test_exhausted_conflicting_work_does_not_hide_useful_safe_frontier() -> None:
+    provider = DeterministicProvider()
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, _, mission, repository_id, _ = make_runtime(
+            Path(directory), provider, resource_limits={"max_attempts_per_work": 1}
+        )
+        _, exhausted = add_selected_work(
+            core,
+            mission,
+            repository_id,
+            title="exhausted",
+            scope=["src/shared"],
+            priority=20,
+        )
+        _, useful = add_selected_work(
+            core,
+            mission,
+            repository_id,
+            title="useful",
+            scope=["src/shared"],
+            priority=10,
+        )
+        first = core.dispatch_work(exhausted, lease_ttl_seconds=60)
+        expired = (dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)).isoformat()
+        with store.transaction() as db:
+            db.execute(
+                "UPDATE leases SET expires_at=? WHERE owner_execution_id=?",
+                (expired, first["execution_id"]),
+            )
+        core.executions.recover_expired_leases(mission_id=mission)
+
+        assert [row["id"] for row in core.ready_work(mission)] == [useful]
+        posture = core.next_action(mission)
+        assert posture["action"] == "dispatch_ready_work"
+        assert posture["work_item_ids"] == [useful]
+        assert posture["budget_exhausted_work_item_ids"] == [exhausted]
+
+        resumed = core.tick_mission(mission)
+        assert [item["work_item_id"] for item in resumed["dispatches"]] == [useful]
+        assert len(provider.requests) == 2
+
+
 def test_provider_callback_is_generation_fenced_single_use_and_atomic() -> None:
     provider = DeterministicProvider()
     with tempfile.TemporaryDirectory() as directory:

@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Any
 
 from .errors import InvalidTransition, StoreError
+from .scheduling import SchedulingPolicy, budget_exhausted_work_item_ids
 from .util import (
     canonical_json,
     json_load,
@@ -347,6 +348,11 @@ class WorkItemService:
         blocked = {
             dep["work_item_id"] for dep in dependencies if not self._dependency_satisfied(dep)
         }
+        mission = self.store.one(
+            "SELECT resource_limits_json FROM missions WHERE id=?", (mission_id,)
+        )
+        policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
+        exhausted = set(budget_exhausted_work_item_ids(self.store, mission_id, policy))
 
         active_rows = self.store.all(
             """SELECT DISTINCT w.writable_scope_json FROM work_items w
@@ -361,7 +367,7 @@ class WorkItemService:
         selected: list[dict[str, Any]] = []
         selected_scopes: list[list[str]] = []
         for row in rows:
-            if row["id"] in blocked:
+            if row["id"] in blocked or row["id"] in exhausted:
                 continue
             scopes = json_load(row["writable_scope_json"], [])
             if any(_scope_conflicts(scopes, current) for current in active_scopes):

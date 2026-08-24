@@ -95,3 +95,26 @@ def implementation_attempt_counts(
         db=db,
     )
     return {str(row["work_item_id"]): int(row["attempts"]) for row in rows}
+
+
+def budget_exhausted_work_item_ids(
+    store: Any,
+    mission_id: str,
+    policy: SchedulingPolicy,
+    *,
+    db: Any | None = None,
+) -> list[str]:
+    rows = store.all(
+        """SELECT w.id,COUNT(e.id) AS attempts
+           FROM work_items w
+           LEFT JOIN executions e
+             ON e.work_item_id=w.id AND e.execution_type='implementation'
+           WHERE w.mission_id=? AND w.planning_status='selected'
+             AND w.execution_status IN ('not_started','queued','abandoned')
+           GROUP BY w.id,w.priority,w.created_at
+           HAVING COUNT(e.id)>=?
+           ORDER BY w.priority DESC,w.created_at,w.id""",
+        (mission_id, policy.max_attempts_per_work),
+        db=db,
+    )
+    return [str(row["id"]) for row in rows]

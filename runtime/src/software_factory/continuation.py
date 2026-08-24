@@ -6,7 +6,7 @@ from .errors import EvidenceInvalid, InvalidTransition, RoleConflict
 from .scheduling import (
     SchedulingPolicy,
     active_execution_count,
-    implementation_attempt_counts,
+    budget_exhausted_work_item_ids,
 )
 from .util import canonical_json, utc_now
 
@@ -94,17 +94,9 @@ class ContinuationService:
                ) ORDER BY created_at""",
             (mission_id,),
         )
-        ready = self.work_items.ready_work(mission_id)
         policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
-        attempts = implementation_attempt_counts(self.store, [str(row["id"]) for row in ready])
-        dispatchable = [
-            row for row in ready if attempts.get(str(row["id"]), 0) < policy.max_attempts_per_work
-        ]
-        exhausted_ids = [
-            str(row["id"])
-            for row in ready
-            if attempts.get(str(row["id"]), 0) >= policy.max_attempts_per_work
-        ]
+        exhausted_ids = budget_exhausted_work_item_ids(self.store, mission_id, policy)
+        dispatchable = self.work_items.ready_work(mission_id)
         active_count = active_execution_count(self.store, mission_id)
         capacity = max(0, policy.max_parallel - active_count)
         if dispatchable and capacity:
