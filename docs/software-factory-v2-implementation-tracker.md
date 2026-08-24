@@ -234,7 +234,7 @@ for this tracker may inspect Patent Studio patent content.
 |---:|---|---:|---|
 | 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
-| 2 | One embedded/standalone engine contract | 1 | `in-progress` |
+| 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
@@ -560,7 +560,7 @@ Stop before exposing embedded or service hosts.
 
 ## Block 2 — Implement one embedded and standalone engine contract
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -681,7 +681,7 @@ Review state ownership, idempotency, restart, cancellation, and error parity.
   - Tradeoff and uncertainty: `continue_mission` reattaches but does not yet
     schedule; Block 3 owns atomic frontier execution, and Block 9 later adopts
     the accepted structural package and hardens the service boundary.
-- Independent review: exact candidate
+- Preserved reviewed history: exact candidate
   `891ae0723c8b5d522f92f95ab8f1aae63a00851a` returned `REVISE` with two P1
   findings and no P0/P2: cancellation did not fence a later dispatch, and the
   three legacy entrypoint cutovers activated scheduling/provider paths beyond
@@ -689,10 +689,21 @@ Review state ownership, idempotency, restart, cancellation, and error parity.
   before dispatch preparation and atomically inside reservation; a negative
   cancel/dispatch race plus restart probe proves a cancelled mission never
   reaches the provider. The three entrypoint cutovers are reverted while the
-  bounded service entrypoint remains. Fresh exact-revision review is pending;
-  process success and focused green results are not acceptance.
-- Acceptance posture: `candidate`; Block 2 remains `in-progress` until exact
-  independent review accepts the pushed revision.
+  bounded service entrypoint remains. That candidate is rejected evidence and
+  remains preserved.
+- Accepted correction checkpoint: branch
+  `agent/software-factory-v2-native-refactor`, commit
+  `c32ac92f0df3c0c884996da8911aa18d8014c7df`, tree
+  `0644e8b121c32d9b0a56fa2c13326b0442d9d136`, pushed with a clean worktree
+  and zero local/remote divergence.
+- Independent review: the existing reviewer `/root/sfv2_b0_exact_review`
+  reviewed exact correction `c32ac92f0df3c0c884996da8911aa18d8014c7df`,
+  reproduced `27 passed`, verified both cancellation race orderings and the
+  installed entrypoint delta, and returned `ACCEPT` with no P0, P1, or P2
+  findings.
+- Acceptance posture: `accepted`. Retained open work: none in Block 2; Blocks
+  3–12 remain unaccepted inside the current full range. Continue automatically
+  to dependency-eligible Block 3.
 
 ### Stop
 
