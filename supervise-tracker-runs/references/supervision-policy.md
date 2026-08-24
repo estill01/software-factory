@@ -1233,10 +1233,12 @@ and new identities.
 ## Target-state fingerprint
 
 Construct a content-minimized fingerprint from the target thread ID and the
-bounded state markers available before detailed inspection: target updated-at,
-status, active Block, latest message/item ID, and latest known checkpoint when
-available. Do not include prose. The helper hashes the supplied markers; the
-watcher must not manually calculate a hash.
+bounded state markers available before detailed inspection: status, active
+Block, latest turn, latest assistant/tool item, and latest known checkpoint when
+available. When latest turn is available, updated-at is observation metadata,
+not semantic identity; without it, updated-at retains the legacy identity. Do
+not include prose. The helper hashes the supplied markers; the watcher must not
+manually calculate a hash.
 
 Before reading target turns, use the app's compact thread listing/status and
 call:
@@ -1245,16 +1247,17 @@ call:
 python3 <absolute-skill-path>/scripts/supervision_log.py gate \
   --target-thread <target-thread-id> \
   --thread-updated-at <updated-at> \
-  --thread-status <status>
+  --thread-status <status> \
+  --latest-turn <latest-turn-id> --latest-item <latest-assistant-or-tool-id>
 ```
 
 If `changed` is false, perform no deep review. Record a compact unchanged check
 and stop. If `changed` is true, route the state to Sol XHigh for direct semantic
 review. Use the returned `state_fingerprint` and `max_sample` flag in the handoff.
 The legacy `sol_sample` output means only that a changed state needs XHigh review;
-it is not the Max sampling decision. Add active Block, latest item, or checkpoint
-markers only when already available without widening the read; target updated-at
-plus status is normally sufficient for the gate.
+it is not the Max sampling decision. Pass the compact latest turn ID plus latest
+assistant/tool item marker when available, and add Block or checkpoint only when
+already available; never widen the compact read to obtain them.
 
 Only Terra's unchanged check and Sol XHigh's completed semantic check are live
 gate-completion watermarks. A later Sol Max or meta sample may review an older
@@ -2147,6 +2150,8 @@ At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
    gate command. If the compact read is unavailable, call
    `watcher-availability`; never emit an ordinary no-intervention conclusion.
+   Pass the latest turn ID and latest assistant/tool marker when the compact
+   listing supplies them; do not widen the read to obtain either marker.
    Let the helper enforce the three consecutive read threshold, suppress
    identical unavailable records, and return any autonomous retry/Max route.
    After availability returns, retain the real read plus a distinct next-state

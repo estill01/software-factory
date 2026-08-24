@@ -5054,6 +5054,7 @@ def last_check(all_events: list[dict[str, Any]]) -> dict[str, Any] | None:
 def gate_fingerprint(args: argparse.Namespace) -> str:
     if args.state_fingerprint:
         return safe_id(args.state_fingerprint, label="state fingerprint")
+    latest_turn = clean(args.latest_turn, label="latest turn", maximum=128)
     material = {
         "target_thread_id": args.target_thread,
         "thread_updated_at": clean(
@@ -5064,6 +5065,9 @@ def gate_fingerprint(args: argparse.Namespace) -> str:
         "latest_item": clean(args.latest_item, label="latest item", maximum=128),
         "checkpoint": clean(args.checkpoint, label="checkpoint", maximum=160),
     }
+    if latest_turn:
+        material["latest_turn"] = latest_turn
+        material.pop("thread_updated_at")
     if not any(value for key, value in material.items() if key != "target_thread_id"):
         raise SupervisionLogError(
             "Gate requires a state fingerprint or at least one bounded state marker"
@@ -36044,6 +36048,7 @@ def parser() -> argparse.ArgumentParser:
     gate.add_argument("--thread-updated-at", default="")
     gate.add_argument("--thread-status", default="")
     gate.add_argument("--active-block", default="")
+    gate.add_argument("--latest-turn", default="")
     gate.add_argument("--latest-item", default="")
     gate.add_argument("--checkpoint", default="")
     gate.set_defaults(func=cmd_gate)

@@ -14551,6 +14551,75 @@ class MissionActivationContractTests(unittest.TestCase):
         )
 
 
+class GateFingerprintTests(unittest.TestCase):
+    def args(self, **changes: str) -> argparse.Namespace:
+        values = {
+            "thread_updated_at": "2026-08-24T12:00:00+00:00",
+            "thread_status": "active",
+            "active_block": "0",
+            "latest_turn": "turn-active-1234",
+            "latest_item": "",
+            "checkpoint": "checkpoint-1234",
+            **changes,
+        }
+        arguments = ["gate", "--target-thread", "target-gate-1234"]
+        for name, value in values.items():
+            arguments.extend([f"--{name.replace('_', '-')}", value])
+        return supervision_log.parser().parse_args(arguments)
+
+    def test_turn_identity_ignores_only_updated_at_churn(self) -> None:
+        fingerprint = supervision_log.gate_fingerprint(self.args())
+        churn = supervision_log.gate_fingerprint(
+            self.args(thread_updated_at="2026-08-24T12:05:00+00:00")
+        )
+        self.assertEqual(churn, fingerprint)
+        for field, value in (
+            ("thread_status", "idle"),
+            ("latest_turn", "turn-new-1234"),
+            ("latest_item", "tool-new-1234"),
+            ("active_block", "1"),
+            ("checkpoint", "checkpoint-new-1234"),
+        ):
+            with self.subTest(field=field):
+                self.assertNotEqual(
+                    supervision_log.gate_fingerprint(self.args(**{field: value})),
+                    fingerprint,
+                )
+        self.assertNotEqual(
+            supervision_log.gate_fingerprint(self.args(latest_turn="")),
+            supervision_log.gate_fingerprint(
+                self.args(latest_turn="", thread_updated_at="2026-08-24T12:05:00+00:00")
+            ),
+        )
+
+    def test_completed_review_suppresses_turn_stable_timestamp_churn(self) -> None:
+        fingerprint = supervision_log.gate_fingerprint(self.args())
+        policy = {
+            "routing": {"max_sample_denominator": 6},
+            "policy_sha256": "a" * 64,
+        }
+        output = io.StringIO()
+        with (
+            mock.patch.object(supervision_log, "load_policy", return_value=(Path("."), policy)),
+            mock.patch.object(supervision_log, "events", return_value=[]),
+            mock.patch.object(supervision_log, "mission_scoped_events", return_value=[]),
+            mock.patch.object(
+                supervision_log,
+                "last_check",
+                return_value={"kind": "check", "model": "gpt-5.6-sol", "reasoning": "xhigh", "status": "no-intervention", "state_fingerprint": fingerprint},
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_gate(
+                self.args(thread_updated_at="2026-08-24T12:05:00+00:00")
+            )
+        result = json.loads(output.getvalue())
+        self.assertEqual(
+            (result["changed"], result["xhigh_review"], result["max_sample"]),
+            (False, False, False),
+        )
+
+
 class WatcherAvailabilityContractTests(unittest.TestCase):
     target = "target-watcher-1234"
     state = "state-watcher-1234"
