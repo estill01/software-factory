@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `b95912b325a765cbc37178499c4c1d08ad0115568484f3fa43dff9e10da788a0`; Blocks 0–3 accepted; Block 4 active from clean acceptance successor `61ddd8d986f7d61e13b7ad399f9d96458b1a4b42`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 4 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `bc67a79439e18a44f96ded031835f74508ca38f9473366eace792bd9a24dffa5`; Blocks 0–4 accepted; Block 5 candidate at `fd8e7ade288292981cfb88c2209eebb8f694fec5`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 5 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -25,9 +25,13 @@ no P0–P2 findings. Block 2 is accepted at exact pushed correction
 `c32ac92f0df3c0c884996da8911aa18d8014c7df` after independent review returned
 no P0–P2 findings. Block 3 is accepted at exact pushed correction
 `c2bc0a2174d077dbe49a94fb58fd61a90d0613fa` after independent review returned
-no P0–P2 findings. Block 4 is active from clean acceptance successor
-`61ddd8d986f7d61e13b7ad399f9d96458b1a4b42` and is the dependency-safe
-frontier.
+no P0–P2 findings. Block 4 is accepted at exact pushed candidate
+`635531016150d77a5de8592592f16420bb538505` after its rejected candidates were
+preserved and independent review returned no P0–P2 findings; acceptance is
+recorded in pushed successor `1dd84e7510684bf617b35079c2734035e5bae2ca`.
+Block 5 is the dependency-safe candidate frontier at exact pushed revision
+`fd8e7ade288292981cfb88c2209eebb8f694fec5`; its runtime review is green and
+this index reconciliation is the remaining exact-review item before acceptance.
 
 ## Required outcome
 

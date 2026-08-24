@@ -1156,6 +1156,14 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   share one predicate. The successor correction centralizes both routes on
   `activate()`; the recurrence invariant rejects an accepted physical review
   with no governed decision through either public entrypoint.
+- Preserved runtime-sound/index-stale successor: exact commit
+  `fd8e7ade288292981cfb88c2209eebb8f694fec5`, tree
+  `84d7d0637662f7835c52ca0bc48c34e6e56bad59`, remains clean and pushed.
+  Exact review confirmed the runtime correction, all earlier authority defects,
+  the `44 passed` evidence, and the Block boundary, then returned `REVISE`
+  solely because canonical `docs/tracker.md` still routed Block 4 and its older
+  detailed-tracker hash. The correction is index-only: bind this current
+  detailed tracker, record Blocks 0–4 accepted, and route Block 5 as candidate.
 - Domain-neutral profile contract: `TargetProfileRegistry` owns unique profile
   composition, fixed `EffectClass` admission, exact before/after snapshots, and
   revision/currentness fencing. Unknown profiles, free-form effect strings, and
