@@ -1077,6 +1077,63 @@ append-only proof; signer, verifier, payload, and receipt drift still fail
 closed. Legacy event and receipt shapes retain their existing current-runtime
 role checks.
 
+### Post-effect authority successor records
+
+An already-existing effect whose pre-effect authority transport is unresolved
+may be adopted or corrected only prospectively through the dedicated owner:
+
+```bash
+python3 <LOG_HELPER> post-effect-authority-successor-record \
+  --target-thread <TARGET> \
+  --source-task <CANONICAL_SOURCE_TASK> \
+  --source-submission <CANONICAL_TURN_INPUT_SUBMISSION> \
+  --incident-id <CURRENT_OPEN_INCIDENT> \
+  --existing-effect-id <EXACT_INCIDENT_EFFECT_IDENTITY> \
+  --expected-policy-sha256 <CURRENT_POLICY_SHA256> \
+  --expected-source-sha256 <ASSERTED_SOURCE_SHA256> \
+  --expected-source-byte-count <ASSERTED_SOURCE_BYTE_COUNT> \
+  --review-json <SEALED_SIGNED_PROSPECTIVE_REVIEW>
+```
+
+The public surface accepts identity, currentness assertions, and the bounded
+signed review only. It accepts no source text or base64, log path, row ID, or
+caller-selected source-evidence path. Its private source owner resolves the OS
+account home from `pwd.getpwuid(os.getuid()).pw_dir`, rejects ambient `HOME`,
+root, symlink, ownership, path, file, or database substitution, and derives only
+`<owner-home>/.codex/logs_2.sqlite`. It opens that database read-only with
+`query_only` in one stable transaction and requires exactly one handler-level
+raw `TurnInput` for the exact task and submission. The complete outer handler
+shape must contain one `UserInput` content item and one `Text` value with valid
+Rust-debug escaping. Quoted or replayed mentions, a wrapped
+`<codex_delegation>` transport, malformed or divergent corroboration,
+missing/pruned or ambiguous rows, changed snapshots, and source hash/count
+mismatch all reject before ledger mutation.
+
+The owner stores no raw prompt. It retains only exact source hash/count and
+body, process, time, row, and aggregate capture roots. Expected SHA/count are
+assertions and can never reconstruct missing evidence. The sealed Ed25519
+review binds that capture, exact task/submission, current target, current open
+incident head and SHA, exact incident effect, current policy and event head,
+eligible base-or-Max verifier distinct from target/watcher/fix executor,
+`direct-user` source class, accepted zero-finding disposition, and temporal
+disposition `prospective-post-effect-adoption-correction`. Policy, event bytes
+and head, incident/effect, source snapshot, and review are revalidated under the
+owner append lock immediately before append.
+
+The resulting prompt-free `post-effect-authority-successor` record is a
+separate prospective-only shape. Its `authority_effective_from_record_id` is
+the new record itself; `pre_effect_authority_gap` remains
+`unresolved-retained`; the existing effect is preserved;
+`repository_effect=false`; `implementation_range_authority=false`; and the
+incident remains open. It is never a `direct-user-authority-source`, authority
+receipt, range binding/amendment, policy mutation, incident closure, or
+retroactive authorization. Exact tuple-plus-review-root retry is idempotent and
+may rehydrate the already-recorded result after source retention expires;
+conflicting tuple, review, or capture reuse fails. Before a first successful
+owner record, missing source bytes must not be reconstructed from delegation,
+copied text, expected hashes/counts, policy or supervision records, or reviewer
+acceptance. A new canonical direct instruction is required.
+
 If an older derived mission binding made a false content-digest assertion but
 the exact mission root and source-record identity remain correct, first ingest
 and accept the canonical source receipt. Then convert only that same identity

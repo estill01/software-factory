@@ -10,13 +10,14 @@ import io
 import json
 import os
 import pwd
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 import test_adaptive_decision_policy as adaptive_test_support
-from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from contextlib import closing, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -17478,6 +17479,571 @@ class DecisionResolutionTests(unittest.TestCase):
         self.assertIn("tracker-level mission frame", author_skill)
         self.assertIn("### Mission frame", tracker_template)
         self.assertIn("`carry-forward: false`", tracker_template)
+
+
+class PostEffectAuthoritySuccessorTests(unittest.TestCase):
+    source_task = "source-task-1234"
+    source_submission = "source-submission-1234"
+    incident_id = "incident-post-effect-1234"
+    existing_effect = "commit:995c5d634c4306be3458c6d7b54d1ee54bc2d7b8:preserved"
+    source_text = "adopt this existing effect prospectively\n"
+
+    def setUp(self) -> None:
+        self.case = ImplementationRangeControlTests(
+            methodName="test_status_table_header_ignores_unrelated_numeric_table_and_normalizes_complete"
+        )
+        self.case.setUp()
+        self.addCleanup(self.case.doCleanups)
+        self.root = self.case.root
+        self.target = self.case.target
+        self.owner_home = (self.root / "owner-home").resolve()
+        self.codex_root = self.owner_home / ".codex"
+        self.codex_root.mkdir(parents=True)
+        self.database = self.codex_root / "logs_2.sqlite"
+        with closing(sqlite3.connect(self.database)) as connection, connection:
+            connection.execute(
+                "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "ts INTEGER NOT NULL, ts_nanos INTEGER NOT NULL, level TEXT NOT NULL, "
+                "target TEXT NOT NULL, feedback_log_body TEXT, module_path TEXT, "
+                "file TEXT, line INTEGER, thread_id TEXT, process_uuid TEXT, "
+                "estimated_bytes INTEGER NOT NULL DEFAULT 0)"
+            )
+        passwd = mock.Mock(pw_dir=str(self.owner_home))
+        pwd_patch = mock.patch.object(
+            supervision_log.pwd, "getpwuid", return_value=passwd
+        )
+        pwd_patch.start()
+        self.addCleanup(pwd_patch.stop)
+        self.review_counter = 0
+        self.incident_head = self.call(
+            "record",
+            "--target-thread",
+            self.target,
+            "--kind",
+            "incident",
+            "--model",
+            "gpt-5.6-sol",
+            "--reasoning",
+            "max",
+            "--status",
+            "supported-finding",
+            "--severity",
+            "high",
+            "--category",
+            "authority-provenance",
+            "--summary",
+            "Existing effect lacks pre-effect authority provenance.",
+            "--evidence",
+            self.existing_effect,
+            "--incident-id",
+            self.incident_id,
+            "--resolution-owner",
+            "supervisor",
+            "--user-action-required",
+            "no",
+        )["record"]
+
+    def call(self, *arguments: str) -> dict[str, object]:
+        return self.case.call(*arguments)
+
+    @staticmethod
+    def rust_debug(value: str) -> str:
+        return json.dumps(value, ensure_ascii=False)
+
+    def handler_body(
+        self,
+        *,
+        text: str | None = None,
+        task: str | None = None,
+        submission: str | None = None,
+        content: str | None = None,
+    ) -> str:
+        task = task or self.source_task
+        submission = submission or self.source_submission
+        content = content or (
+            "[Text { text: "
+            + self.rust_debug(self.source_text if text is None else text)
+            + ", text_elements: [] }]"
+        )
+        return (
+            f"session_loop{{thread_id={task}}}: Submission sub=Submission "
+            f'{{ id: "{submission}", op: TurnInput {{ request: TurnInputRequest '
+            f"{{ input: UserInput {{ content: {content}, client_id: None }}, "
+            "thread_settings: ThreadSettingsOverrides { environments: None }, "
+            "start: TurnStartOptions { final_output_json_schema: None }, "
+            "additional_context: {}, responsesapi_client_metadata: None, trace: None }, "
+            "mode: StartOrSteer, reply: Sender { inner: None }, trace: None, "
+            "parent_turn_id: None, root_turn_id: None }"
+        )
+
+    def add_log(
+        self,
+        *,
+        text: str | None = None,
+        task: str | None = None,
+        submission: str | None = None,
+        body: str | None = None,
+        target: str = "codex_core::session::handlers",
+        module_path: str = "codex_core::session::handlers",
+        file: str = "core/src/session/handlers.rs",
+        process_uuid: str = "pid:1234:process-1234",
+    ) -> None:
+        task = task or self.source_task
+        body = body or self.handler_body(
+            text=text, task=task, submission=submission
+        )
+        with closing(sqlite3.connect(self.database)) as connection, connection:
+            connection.execute(
+                "INSERT INTO logs (ts, ts_nanos, level, target, feedback_log_body, "
+                "module_path, file, line, thread_id, process_uuid, estimated_bytes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    1787538922,
+                    293970000,
+                    "DEBUG",
+                    target,
+                    body,
+                    module_path,
+                    file,
+                    523,
+                    task,
+                    process_uuid,
+                    len(body.encode("utf-8")),
+                ),
+            )
+
+    def clear_logs(self) -> None:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
+            connection.execute("DELETE FROM logs")
+
+    def capture(self) -> dict[str, object]:
+        with supervision_log.canonical_codex_turn_input_capture(
+            source_task_id=self.source_task,
+            source_submission_id=self.source_submission,
+        ) as (capture, _connection, _database_identity):
+            return capture
+
+    def sign_review(
+        self,
+        *,
+        capture: dict[str, object] | None = None,
+        overrides: dict[str, object] | None = None,
+        resign: bool = True,
+    ) -> Path:
+        capture = capture or self.capture()
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        all_events = supervision_log.events(directory / "events.jsonl")
+        incident_head = supervision_log.current_open_incident_head(
+            all_events, self.incident_id
+        )
+        review: dict[str, object] = {
+            "schema_version": 1,
+            "kind": supervision_log.POST_EFFECT_AUTHORITY_REVIEW_KIND,
+            "record_id": f"post-effect-review-{self.review_counter:04d}",
+            "target_thread_id": self.target,
+            "source_task_id": self.source_task,
+            "source_submission_id": self.source_submission,
+            "incident_id": self.incident_id,
+            "incident_head_record_id": incident_head["record_id"],
+            "incident_head_sha256": incident_head["record_sha256"],
+            "existing_effect_id": self.existing_effect,
+            "source_capture_root": capture["source_capture_root"],
+            "source_sha256": capture["source_sha256"],
+            "source_byte_count": capture["source_byte_count"],
+            "verifier_thread_id": self.case.reviewer,
+            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "source_authority_class": "direct-user",
+            "review_disposition": "accepted",
+            "temporal_disposition": supervision_log.POST_EFFECT_AUTHORITY_DISPOSITION,
+            "finding_count": 0,
+            "policy_sha256": policy["policy_sha256"],
+            "event_head_sha256": all_events[-1]["record_sha256"],
+            "authority_key_sha256": self.case.public_key_sha256,
+            "observed_at": supervision_log.utc_now(),
+            "review_root": "",
+            "signature_base64": "",
+        }
+        self.review_counter += 1
+        if overrides:
+            review.update(overrides)
+        review["review_root"] = supervision_log.digest(
+            supervision_log.direct_authority_review_root_material(review)
+        )
+        content = self.root / f"post-effect-review-{self.review_counter}.content"
+        signature = self.root / f"post-effect-review-{self.review_counter}.sig"
+        if resign:
+            content.write_bytes(
+                supervision_log.canonical(
+                    supervision_log.adaptive_external_review_signed_material(review)
+                )
+            )
+            subprocess.run(
+                [
+                    str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                    "pkeyutl",
+                    "-sign",
+                    "-inkey",
+                    str(self.case.private_key),
+                    "-rawin",
+                    "-in",
+                    str(content),
+                    "-out",
+                    str(signature),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            review["signature_base64"] = base64.b64encode(
+                signature.read_bytes()
+            ).decode("ascii")
+        path = self.root / f"post-effect-review-{self.review_counter}.json"
+        path.write_bytes(supervision_log.canonical(review) + b"\n")
+        return path
+
+    def invoke(
+        self,
+        review: Path,
+        *,
+        source_sha256: str | None = None,
+        source_byte_count: int | None = None,
+        source_task: str | None = None,
+        source_submission: str | None = None,
+        existing_effect: str | None = None,
+        expected_policy_sha256: str | None = None,
+    ) -> dict[str, object]:
+        policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+        source_bytes = self.source_text.encode("utf-8")
+        return self.call(
+            "post-effect-authority-successor-record",
+            "--target-thread",
+            self.target,
+            "--source-task",
+            source_task or self.source_task,
+            "--source-submission",
+            source_submission or self.source_submission,
+            "--incident-id",
+            self.incident_id,
+            "--existing-effect-id",
+            existing_effect or self.existing_effect,
+            "--expected-policy-sha256",
+            expected_policy_sha256 or str(policy["policy_sha256"]),
+            "--expected-source-sha256",
+            source_sha256 or hashlib.sha256(source_bytes).hexdigest(),
+            "--expected-source-byte-count",
+            str(
+                len(source_bytes)
+                if source_byte_count is None
+                else source_byte_count
+            ),
+            "--review-json",
+            str(review),
+        )
+
+    def ledger_snapshot(self) -> dict[str, bytes]:
+        directory = self.root / self.target
+        return {
+            name: (directory / name).read_bytes()
+            for name in ("events.jsonl", supervision_log.EVENT_LEDGER_ANCHOR_NAME)
+        }
+
+    def assert_ledger_unchanged(self, before: dict[str, bytes]) -> None:
+        directory = self.root / self.target
+        for name, value in before.items():
+            self.assertEqual((directory / name).read_bytes(), value, name)
+
+    def prepared_review(self) -> Path:
+        self.add_log()
+        review = self.sign_review()
+        self.clear_logs()
+        return review
+
+    def test_exact_success_is_prompt_free_prospective_and_zero_effect(self) -> None:
+        self.add_log()
+        review = self.sign_review()
+        directory = self.root / self.target
+        policy_before = (directory / "policy.json").read_bytes()
+        result = self.invoke(review)
+        record = result["record"]
+        encoded = json.dumps(record, sort_keys=True)
+
+        self.assertFalse(result["duplicate"])
+        self.assertNotIn(self.source_text, encoded)
+        self.assertNotIn(
+            base64.b64encode(self.source_text.encode()).decode(), encoded
+        )
+        self.assertEqual(
+            record["authority_effective_from_record_id"], record["record_id"]
+        )
+        self.assertEqual(record["pre_effect_authority_gap"], "unresolved-retained")
+        self.assertTrue(record["existing_effect_preserved"])
+        self.assertFalse(record["repository_effect"])
+        self.assertFalse(record["implementation_range_authority"])
+        self.assertEqual(record["incident_disposition"], "open")
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        events = supervision_log.events(directory / "events.jsonl")
+        self.assertFalse(
+            any(
+                item.get("kind")
+                in {
+                    supervision_log.DIRECT_AUTHORITY_EVENT_KIND,
+                    "implementation-range",
+                }
+                for item in events
+            )
+        )
+        self.assertFalse(
+            supervision_log.is_terminal_incident_record(record, self.incident_id)
+        )
+
+    def test_missing_pruned_ambiguous_quoted_wrong_and_malformed_turn_inputs_reject(self) -> None:
+        review = self.prepared_review()
+        cases = ("missing", "pruned", "ambiguous", "quoted", "wrong", "malformed")
+        for case in cases:
+            with self.subTest(case=case):
+                self.clear_logs()
+                if case == "pruned":
+                    self.add_log()
+                    self.clear_logs()
+                elif case == "ambiguous":
+                    self.add_log(process_uuid="process-one-1234")
+                    self.add_log(process_uuid="process-two-1234")
+                elif case == "quoted":
+                    self.add_log(
+                        submission="other-submission-1234",
+                        text=f'quoted id: "{self.source_submission}"',
+                    )
+                elif case == "wrong":
+                    self.add_log(task="wrong-source-task-1234")
+                elif case == "malformed":
+                    prefix = self.handler_body().split("content:", 1)[0]
+                    self.add_log(
+                        body=prefix
+                        + 'content: [Text { text: "bad\\q", text_elements: [] }], client_id: None }, '
+                        + "thread_settings: ThreadSettingsOverrides {}, start: TurnStartOptions {}, "
+                        + "additional_context: {}, responsesapi_client_metadata: None, trace: None }, "
+                        + "mode: StartOrSteer, reply: Sender {}, trace: None, parent_turn_id: None, root_turn_id: None }"
+                    )
+                before = self.ledger_snapshot()
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.invoke(review)
+                self.assert_ledger_unchanged(before)
+
+    def test_hash_count_and_divergent_corroboration_reject(self) -> None:
+        self.add_log()
+        review = self.sign_review()
+        for label, kwargs in (
+            ("hash", {"source_sha256": "f" * 64}),
+            ("count", {"source_byte_count": len(self.source_text.encode()) + 1}),
+            ("submission", {"source_submission": "wrong-submission-1234"}),
+            ("task", {"source_task": "wrong-source-task-1234"}),
+        ):
+            with self.subTest(label=label):
+                before = self.ledger_snapshot()
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.invoke(review, **kwargs)
+                self.assert_ledger_unchanged(before)
+
+    def test_missing_or_changed_canonical_snapshot_rejects_before_append(self) -> None:
+        self.add_log()
+        review = self.sign_review()
+        original_reader = supervision_log.read_canonical_turn_input_capture
+        reads = 0
+
+        def changed(connection, **kwargs):
+            nonlocal reads
+            reads += 1
+            capture = original_reader(connection, **kwargs)
+            if reads == 2:
+                capture = dict(capture)
+                capture["source_row_root"] = "f" * 64
+            return capture
+
+        before = self.ledger_snapshot()
+        with mock.patch.object(
+            supervision_log,
+            "read_canonical_turn_input_capture",
+            side_effect=changed,
+        ), self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "snapshot changed"
+        ):
+            self.invoke(review)
+        self.assert_ledger_unchanged(before)
+
+        link = self.root / "owner-home-link"
+        link.symlink_to(self.owner_home, target_is_directory=True)
+        with mock.patch.object(
+            supervision_log.pwd,
+            "getpwuid",
+            return_value=mock.Mock(pw_dir=str(link)),
+        ), self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "owner home is invalid"
+        ):
+            self.invoke(review)
+        self.assert_ledger_unchanged(before)
+
+    def test_invalid_tampered_ineligible_and_wrong_disposition_reviews_reject(self) -> None:
+        self.add_log()
+        cases: list[tuple[str, Path]] = []
+        invalid = self.sign_review()
+        value = json.loads(invalid.read_text())
+        value["signature_base64"] = base64.b64encode(b"x" * 64).decode()
+        invalid.write_bytes(supervision_log.canonical(value) + b"\n")
+        cases.append(("invalid", invalid))
+        tampered = self.sign_review()
+        value = json.loads(tampered.read_text())
+        value["temporal_disposition"] = "retroactive"
+        tampered.write_bytes(supervision_log.canonical(value) + b"\n")
+        cases.append(("tampered", tampered))
+        cases.append(
+            (
+                "ineligible",
+                self.sign_review(overrides={"verifier_thread_id": self.target}),
+            )
+        )
+        cases.append(
+            (
+                "wrong-disposition",
+                self.sign_review(overrides={"review_disposition": "rejected"}),
+            )
+        )
+        for label, review in cases:
+            with self.subTest(label=label):
+                before = self.ledger_snapshot()
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.invoke(review)
+                self.assert_ledger_unchanged(before)
+
+    def test_stale_policy_event_head_incident_head_and_capture_root_reject(self) -> None:
+        self.add_log()
+        cases = {
+            "policy": self.sign_review(overrides={"policy_sha256": "f" * 64}),
+            "event-head": self.sign_review(overrides={"event_head_sha256": "f" * 64}),
+            "incident-head": self.sign_review(
+                overrides={"incident_head_sha256": "f" * 64}
+            ),
+            "capture-root": self.sign_review(
+                overrides={"source_capture_root": "f" * 64}
+            ),
+        }
+        for label, review in cases.items():
+            with self.subTest(label=label):
+                before = self.ledger_snapshot()
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.invoke(review)
+                self.assert_ledger_unchanged(before)
+
+    def test_exact_retry_is_idempotent_and_conflicting_reuse_rejects(self) -> None:
+        self.add_log()
+        review = self.sign_review()
+        first = self.invoke(review)
+        after_first = self.ledger_snapshot()
+        self.database.unlink()
+        duplicate = self.invoke(review)
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(
+            duplicate["record"]["record_id"], first["record"]["record_id"]
+        )
+        self.assert_ledger_unchanged(after_first)
+
+        conflicting = json.loads(review.read_text())
+        conflicting["observed_at"] = "2026-08-24T04:00:00+00:00"
+        conflicting["review_root"] = supervision_log.digest(
+            supervision_log.direct_authority_review_root_material(conflicting)
+        )
+        path = self.root / "conflicting-review.json"
+        path.write_bytes(supervision_log.canonical(conflicting) + b"\n")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "reuse conflicts"
+        ):
+            self.invoke(path)
+        self.assert_ledger_unchanged(after_first)
+
+    def test_exact_retry_after_policy_advance_and_pruned_row_uses_source_policy(self) -> None:
+        self.add_log()
+        review = self.sign_review()
+        source_policy_sha256 = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )["policy_sha256"]
+        first = self.invoke(review)
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        supervision_log.write_policy_version(
+            directory,
+            policy,
+            kind="test-post-effect-retry-policy-advance",
+            reason="Advance policy after the prospective successor record.",
+            evidence_values=[str(first["record"]["record_id"])],
+        )
+        self.clear_logs()
+        after_advance = self.ledger_snapshot()
+        duplicate = self.invoke(
+            review,
+            expected_policy_sha256=str(source_policy_sha256),
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["record"]["record_id"], first["record"]["record_id"])
+        self.assert_ledger_unchanged(after_advance)
+
+    def test_ordinary_delegation_cannot_become_direct_authority(self) -> None:
+        review = self.prepared_review()
+        self.add_log(
+            text=(
+                "<codex_delegation><source_thread_id>side-task-1234"
+                "</source_thread_id><input>continue</input></codex_delegation>"
+            )
+        )
+        before = self.ledger_snapshot()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "codex_delegation transport is not direct authority",
+        ):
+            self.invoke(review)
+        self.assert_ledger_unchanged(before)
+        incidental = "Mention <codex_delegation> without wrapping this request."
+        parsed = supervision_log.parse_canonical_turn_input(
+            self.handler_body(text=incidental),
+            source_task_id=self.source_task,
+            source_submission_id=self.source_submission,
+        )
+        self.assertEqual(parsed, incidental.encode())
+
+    def test_original_source_cannot_retroactively_authorize_existing_effect(self) -> None:
+        self.add_log(text="original authoring request\n")
+        capture = self.capture()
+        review = self.sign_review(capture=capture)
+        result = self.invoke(
+            review,
+            source_sha256=str(capture["source_sha256"]),
+            source_byte_count=int(capture["source_byte_count"]),
+        )
+        record = result["record"]
+        self.assertEqual(record["temporal_disposition"], supervision_log.POST_EFFECT_AUTHORITY_DISPOSITION)
+        self.assertEqual(record["pre_effect_authority_gap"], "unresolved-retained")
+        self.assertNotEqual(record["kind"], supervision_log.DIRECT_AUTHORITY_EVENT_KIND)
+        self.assertFalse(record["implementation_range_authority"])
+
+    def test_successor_preserves_evt_000015_commit_gap_open_incident_and_no_graphy_effect(self) -> None:
+        self.add_log()
+        review = self.sign_review()
+        directory = self.root / self.target
+        preserved = {
+            name: (directory / name).read_bytes()
+            for name in ("policy.json", "policy-history.jsonl")
+        }
+        result = self.invoke(review)
+        record = result["record"]
+        for name, value in preserved.items():
+            self.assertEqual((directory / name).read_bytes(), value)
+        self.assertEqual(record["existing_effect_id"], self.existing_effect)
+        self.assertTrue(record["existing_effect_preserved"])
+        self.assertEqual(record["pre_effect_authority_gap"], "unresolved-retained")
+        self.assertEqual(record["incident_disposition"], "open")
+        self.assertFalse(record["repository_effect"])
+        self.assertFalse(record["implementation_range_authority"])
 
 
 if __name__ == "__main__":

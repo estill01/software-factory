@@ -15,6 +15,7 @@ import os
 import pwd
 import re
 import secrets
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -423,6 +424,14 @@ DIRECT_AUTHORITY_PROVENANCE_KIND = "direct-user-authority-provenance"
 DIRECT_AUTHORITY_REVIEW_CATEGORY = "direct-authority-ingestion"
 DIRECT_AUTHORITY_CLASSIFICATION = "full-tracker"
 DIRECT_AUTHORITY_SOURCE_KIND = "direct-user-message"
+POST_EFFECT_AUTHORITY_EVENT_KIND = "post-effect-authority-successor"
+POST_EFFECT_AUTHORITY_REVIEW_KIND = (
+    "software-factory-post-effect-authority-successor-review"
+)
+POST_EFFECT_AUTHORITY_DISPOSITION = (
+    "prospective-post-effect-adoption-correction"
+)
+MAX_POST_EFFECT_AUTHORITY_LOG_BODY_BYTES = 128 * 1024
 DELEGATED_DIRECT_AUTHORITY_PROVENANCE_KIND = (
     "delegated-direct-user-authority-provenance"
 )
@@ -25148,6 +25157,69 @@ DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS = {
     "provenance_signature_sha256",
 }
 
+POST_EFFECT_AUTHORITY_REVIEW_FIELDS = {
+    "schema_version",
+    "kind",
+    "record_id",
+    "target_thread_id",
+    "source_task_id",
+    "source_submission_id",
+    "incident_id",
+    "incident_head_record_id",
+    "incident_head_sha256",
+    "existing_effect_id",
+    "source_capture_root",
+    "source_sha256",
+    "source_byte_count",
+    "verifier_thread_id",
+    "reviewer_id",
+    "source_authority_class",
+    "review_disposition",
+    "temporal_disposition",
+    "finding_count",
+    "policy_sha256",
+    "event_head_sha256",
+    "authority_key_sha256",
+    "observed_at",
+    "review_root",
+    "signature_base64",
+}
+
+POST_EFFECT_AUTHORITY_EVENT_FIELDS = {
+    "schema_version",
+    "record_id",
+    "timestamp",
+    "target_thread_id",
+    "kind",
+    "status",
+    "incident_id",
+    "existing_effect_id",
+    "source_task_id",
+    "source_submission_id",
+    "source_sha256",
+    "source_byte_count",
+    "source_capture_root",
+    "source_row_root",
+    "source_body_root",
+    "source_process_root",
+    "source_time_root",
+    "verifier_id",
+    "review_payload",
+    "review_record_id",
+    "review_root",
+    "reviewer_id",
+    "temporal_disposition",
+    "authority_effective_from_record_id",
+    "pre_effect_authority_gap",
+    "existing_effect_preserved",
+    "repository_effect",
+    "implementation_range_authority",
+    "incident_disposition",
+    "policy_sha256",
+    "previous_record_sha256",
+    "record_sha256",
+}
+
 FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND = "factory-evolution-review-handoff"
 
 FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND = "factory-evolution-owner-handoff"
@@ -26018,6 +26090,559 @@ def validate_direct_authority_review(
         source_sha256=source_sha256,
         source_byte_count=source_byte_count,
     )
+
+
+def canonical_codex_turn_input_log_path() -> tuple[Path, tuple[int, int, int, int]]:
+    try:
+        declared_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        owner_home = declared_home.resolve(strict=True)
+    except (KeyError, OSError) as exc:
+        raise SupervisionLogError("Canonical Codex owner home is unavailable") from exc
+    if (
+        not declared_home.is_absolute()
+        or declared_home == Path("/")
+        or declared_home != owner_home
+    ):
+        raise SupervisionLogError("Canonical Codex owner home is invalid")
+    try:
+        home_stat = owner_home.lstat()
+        codex_root = owner_home / ".codex"
+        codex_stat = codex_root.lstat()
+        database = codex_root / "logs_2.sqlite"
+        database_stat = database.lstat()
+    except OSError as exc:
+        raise SupervisionLogError("Canonical Codex log owner is unavailable") from exc
+    if (
+        not stat.S_ISDIR(home_stat.st_mode)
+        or stat.S_ISLNK(home_stat.st_mode)
+        or home_stat.st_uid != os.getuid()
+        or not stat.S_ISDIR(codex_stat.st_mode)
+        or stat.S_ISLNK(codex_stat.st_mode)
+        or codex_stat.st_uid != os.getuid()
+        or not stat.S_ISREG(database_stat.st_mode)
+        or stat.S_ISLNK(database_stat.st_mode)
+        or database_stat.st_uid != os.getuid()
+    ):
+        raise SupervisionLogError("Canonical Codex log owner posture differs")
+    return database, file_snapshot(database_stat)
+
+
+def decode_rust_debug_string(value: str) -> str:
+    if len(value) < 2 or value[0] != '"' or value[-1] != '"':
+        raise SupervisionLogError("Canonical TurnInput text is malformed")
+    result: list[str] = []
+    index = 1
+    while index < len(value) - 1:
+        current = value[index]
+        if current != "\\":
+            result.append(current)
+            index += 1
+            continue
+        index += 1
+        if index >= len(value) - 1:
+            raise SupervisionLogError("Canonical TurnInput escape is malformed")
+        escaped = value[index]
+        simple = {"0": "\0", "n": "\n", "r": "\r", "t": "\t", '"': '"', "\\": "\\"}
+        if escaped in simple:
+            result.append(simple[escaped])
+            index += 1
+            continue
+        if escaped == "x" and re.fullmatch(r"[0-9A-Fa-f]{2}", value[index + 1 : index + 3]):
+            result.append(chr(int(value[index + 1 : index + 3], 16)))
+            index += 3
+            continue
+        unicode_escape = re.match(r"u\{([0-9A-Fa-f]{1,6})\}", value[index:])
+        if unicode_escape is not None:
+            codepoint = int(unicode_escape.group(1), 16)
+            if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                raise SupervisionLogError("Canonical TurnInput Unicode escape is invalid")
+            result.append(chr(codepoint))
+            index += len(unicode_escape.group(0))
+            continue
+        raise SupervisionLogError("Canonical TurnInput escape is unsupported")
+    return "".join(result)
+
+
+def parse_canonical_turn_input(
+    body: str, *, source_task_id: str, source_submission_id: str
+) -> bytes:
+    prefix = (
+        f"session_loop{{thread_id={source_task_id}}}: Submission sub=Submission "
+        f'{{ id: "{source_submission_id}", op: TurnInput {{'
+    )
+    text_token = r'(?P<text>"(?:\\(?:["\\nrt0]|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f]{1,6}\})|[^"\\])*")'
+    remainder = re.fullmatch(
+        r" request: TurnInputRequest \{ input: UserInput \{ content: \[Text \{ text: "
+        + text_token
+        + r", text_elements: \[\] \}\], client_id: (?:None|Some\(\"(?:\\.|[^\"\\])*\"\)) \}, "
+        r"thread_settings: ThreadSettingsOverrides \{.*\}, start: TurnStartOptions \{.*\}, "
+        r"additional_context: \{.*\}, responsesapi_client_metadata: .*?, trace: .*? \}, "
+        r"mode: (?:StartOrSteer|Steer), reply: Sender \{.*\}, trace: .*?, "
+        r"parent_turn_id: .*?, root_turn_id: .*? \}",
+        body[len(prefix) :] if body.startswith(prefix) else "",
+        re.DOTALL,
+    )
+    if remainder is None:
+        raise SupervisionLogError("Canonical TurnInput handler shape differs")
+    source_text = decode_rust_debug_string(remainder.group("text"))
+    source_bytes = source_text.encode("utf-8")
+    if not source_bytes or len(source_bytes) > MAX_DIRECT_AUTHORITY_SOURCE_BYTES:
+        raise SupervisionLogError("Canonical TurnInput source exceeds its byte bound")
+    if re.fullmatch(
+        r"\s*<codex_delegation(?:\s[^>]*)?>.*</codex_delegation>\s*",
+        source_text,
+        re.DOTALL,
+    ):
+        raise SupervisionLogError("Canonical codex_delegation transport is not direct authority")
+    return source_bytes
+
+
+def read_canonical_turn_input_capture(
+    connection: sqlite3.Connection,
+    *,
+    source_task_id: str,
+    source_submission_id: str,
+) -> dict[str, Any]:
+    required_columns = {
+        "id", "ts", "ts_nanos", "target", "feedback_log_body", "module_path",
+        "file", "line", "thread_id", "process_uuid",
+    }
+    columns = {str(item[1]) for item in connection.execute("PRAGMA table_info(logs)")}
+    if not required_columns <= columns:
+        raise SupervisionLogError("Canonical Codex log schema differs")
+    prefix = (
+        f"session_loop{{thread_id={source_task_id}}}: Submission sub=Submission "
+        f'{{ id: "{source_submission_id}", op: TurnInput {{'
+    )
+    rows = connection.execute(
+        "SELECT id, ts, ts_nanos, target, feedback_log_body, module_path, file, "
+        "line, thread_id, process_uuid FROM logs WHERE thread_id = ? AND target = ? "
+        "AND module_path = ? AND file = ? AND substr(feedback_log_body, 1, ?) = ? "
+        "ORDER BY id LIMIT 3",
+        (
+            source_task_id,
+            "codex_core::session::handlers",
+            "codex_core::session::handlers",
+            "core/src/session/handlers.rs",
+            len(prefix),
+            prefix,
+        ),
+    ).fetchall()
+    if len(rows) != 1:
+        raise SupervisionLogError("Canonical TurnInput source is missing or ambiguous")
+    row = rows[0]
+    body = row["feedback_log_body"]
+    if not isinstance(body, str) or len(body.encode("utf-8")) > MAX_POST_EFFECT_AUTHORITY_LOG_BODY_BYTES:
+        raise SupervisionLogError("Canonical TurnInput log body is malformed")
+    source_bytes = parse_canonical_turn_input(
+        body,
+        source_task_id=source_task_id,
+        source_submission_id=source_submission_id,
+    )
+    source_body_root = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    source_process_root = digest({"process_uuid": row["process_uuid"]})
+    source_time_root = digest({"ts": row["ts"], "ts_nanos": row["ts_nanos"]})
+    source_row_root = digest(
+        {
+            "id": row["id"],
+            "target": row["target"],
+            "module_path": row["module_path"],
+            "file": row["file"],
+            "line": row["line"],
+            "thread_id": row["thread_id"],
+            "source_body_root": source_body_root,
+            "source_process_root": source_process_root,
+            "source_time_root": source_time_root,
+        }
+    )
+    material = {
+        "schema_version": 1,
+        "source_task_id": source_task_id,
+        "source_submission_id": source_submission_id,
+        "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "source_byte_count": len(source_bytes),
+        "source_row_root": source_row_root,
+        "source_body_root": source_body_root,
+        "source_process_root": source_process_root,
+        "source_time_root": source_time_root,
+    }
+    return {**material, "source_capture_root": digest(material)}
+
+
+@contextmanager
+def canonical_codex_turn_input_capture(
+    *, source_task_id: str, source_submission_id: str
+) -> Iterator[
+    tuple[
+        dict[str, Any],
+        sqlite3.Connection,
+        tuple[Path, tuple[int, int, int, int]],
+    ]
+]:
+    database, database_snapshot = canonical_codex_turn_input_log_path()
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("BEGIN")
+        main_paths = [
+            Path(str(item[2])).resolve(strict=True)
+            for item in connection.execute("PRAGMA database_list")
+            if item[1] == "main"
+        ]
+        if (
+            main_paths != [database]
+            or path_snapshot(database) != database_snapshot
+        ):
+            raise SupervisionLogError("Canonical Codex database identity differs")
+        capture = read_canonical_turn_input_capture(
+            connection,
+            source_task_id=source_task_id,
+            source_submission_id=source_submission_id,
+        )
+        yield capture, connection, (database, database_snapshot)
+    except sqlite3.Error as exc:
+        raise SupervisionLogError("Canonical Codex log snapshot is unavailable") from exc
+    finally:
+        if connection is not None:
+            connection.rollback()
+            connection.close()
+
+
+def current_open_incident_head(
+    all_events: list[dict[str, Any]], incident_id: str
+) -> dict[str, Any]:
+    heads = [
+        item
+        for item in all_events
+        if is_substantive_incident_record(item, incident_id)
+    ]
+    if not heads or is_terminal_incident_record(heads[-1], incident_id):
+        raise SupervisionLogError("Post-effect authority incident is not current and open")
+    return heads[-1]
+
+
+def incident_lineage_contains_effect(
+    all_events: list[dict[str, Any]], *, incident_id: str, existing_effect_id: str
+) -> bool:
+    return any(
+        item.get("incident_id") == incident_id
+        and isinstance(item.get("evidence"), list)
+        and existing_effect_id in item["evidence"]
+        for item in all_events
+    )
+
+
+def validate_post_effect_authority_review(
+    value: Any,
+    *,
+    policy: Mapping[str, Any],
+    target_thread_id: str,
+    source_task_id: str,
+    source_submission_id: str,
+    incident_id: str,
+    incident_head: Mapping[str, Any],
+    existing_effect_id: str,
+    capture: Mapping[str, Any],
+    event_head_sha256: str,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != POST_EFFECT_AUTHORITY_REVIEW_FIELDS:
+        raise SupervisionLogError("Post-effect authority review shape differs")
+    review = dict(value)
+    identity_fields = (
+        "record_id", "target_thread_id", "source_task_id", "source_submission_id",
+        "incident_id", "incident_head_record_id", "existing_effect_id",
+        "verifier_thread_id", "reviewer_id",
+    )
+    hash_fields = (
+        "incident_head_sha256", "source_capture_root", "source_sha256",
+        "policy_sha256", "event_head_sha256", "authority_key_sha256", "review_root",
+    )
+    if any(type(review.get(field)) is not str for field in identity_fields + hash_fields):
+        raise SupervisionLogError("Post-effect authority review field type differs")
+    if (
+        type(review.get("schema_version")) is not int
+        or type(review.get("source_byte_count")) is not int
+        or type(review.get("finding_count")) is not int
+        or type(review.get("observed_at")) is not str
+        or type(review.get("kind")) is not str
+        or type(review.get("source_authority_class")) is not str
+        or type(review.get("review_disposition")) is not str
+        or type(review.get("temporal_disposition")) is not str
+        or type(review.get("signature_base64")) is not str
+    ):
+        raise SupervisionLogError("Post-effect authority review field type differs")
+    for field in identity_fields:
+        safe_id(str(review.get(field, "")), label=f"post-effect authority review {field}")
+    for field in hash_fields:
+        exact_sha256(str(review.get(field, "")), label=f"post-effect authority review {field}")
+    expected = {
+        "schema_version": 1,
+        "kind": POST_EFFECT_AUTHORITY_REVIEW_KIND,
+        "target_thread_id": target_thread_id,
+        "source_task_id": source_task_id,
+        "source_submission_id": source_submission_id,
+        "incident_id": incident_id,
+        "incident_head_record_id": incident_head.get("record_id"),
+        "incident_head_sha256": incident_head.get("record_sha256"),
+        "existing_effect_id": existing_effect_id,
+        "source_capture_root": capture.get("source_capture_root"),
+        "source_sha256": capture.get("source_sha256"),
+        "source_byte_count": capture.get("source_byte_count"),
+        "reviewer_id": ADAPTIVE_REVIEWER_ID,
+        "source_authority_class": "direct-user",
+        "review_disposition": "accepted",
+        "temporal_disposition": POST_EFFECT_AUTHORITY_DISPOSITION,
+        "finding_count": 0,
+        "policy_sha256": policy.get("policy_sha256"),
+        "event_head_sha256": event_head_sha256,
+        "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+    }
+    if any(review.get(key) != item for key, item in expected.items()):
+        raise SupervisionLogError("Post-effect authority review does not bind exact current evidence")
+    runtime = policy.get("runtime", {})
+    verifier = review["verifier_thread_id"]
+    if verifier not in {
+        runtime.get("base_reviewer_thread_id"), runtime.get("reviewer_thread_id")
+    } or verifier in {
+        target_thread_id, runtime.get("watcher_thread_id"), runtime.get("fix_executor_thread_id")
+    }:
+        raise SupervisionLogError("Post-effect authority review verifier is not eligible")
+    parse_time(str(review.get("observed_at", "")))
+    if review["review_root"] != digest(direct_authority_review_root_material(review)):
+        raise SupervisionLogError("Post-effect authority review root differs")
+    verify_adaptive_review_signature(review)
+    return review
+
+
+def post_effect_authority_event_material(
+    *,
+    record_id: str,
+    target_thread_id: str,
+    incident_id: str,
+    existing_effect_id: str,
+    capture: Mapping[str, Any],
+    review: Mapping[str, Any],
+    policy_sha256: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "record_id": record_id,
+        "timestamp": "",
+        "target_thread_id": target_thread_id,
+        "kind": POST_EFFECT_AUTHORITY_EVENT_KIND,
+        "status": "prospective-adoption-recorded",
+        "incident_id": incident_id,
+        "existing_effect_id": existing_effect_id,
+        "source_task_id": capture["source_task_id"],
+        "source_submission_id": capture["source_submission_id"],
+        "source_sha256": capture["source_sha256"],
+        "source_byte_count": capture["source_byte_count"],
+        "source_capture_root": capture["source_capture_root"],
+        "source_row_root": capture["source_row_root"],
+        "source_body_root": capture["source_body_root"],
+        "source_process_root": capture["source_process_root"],
+        "source_time_root": capture["source_time_root"],
+        "verifier_id": review["verifier_thread_id"],
+        "review_payload": dict(review),
+        "review_record_id": review["record_id"],
+        "review_root": review["review_root"],
+        "reviewer_id": review["reviewer_id"],
+        "temporal_disposition": POST_EFFECT_AUTHORITY_DISPOSITION,
+        "authority_effective_from_record_id": record_id,
+        "pre_effect_authority_gap": "unresolved-retained",
+        "existing_effect_preserved": True,
+        "repository_effect": False,
+        "implementation_range_authority": False,
+        "incident_disposition": "open",
+        "policy_sha256": policy_sha256,
+    }
+
+
+def cmd_post_effect_authority_successor_record(args: argparse.Namespace) -> None:
+    (
+        directory, policy, policy_snapshot, all_events, event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    target_thread_id = safe_id(args.target_thread, label="target thread ID")
+    source_task_id = safe_id(args.source_task, label="source task ID")
+    source_submission_id = safe_id(args.source_submission, label="source submission ID")
+    incident_id = safe_id(args.incident_id, label="incident ID")
+    existing_effect_id = safe_id(args.existing_effect_id, label="existing effect ID")
+    expected_policy_sha256 = exact_sha256(args.expected_policy_sha256, label="expected policy SHA-256")
+    expected_source_sha256 = exact_sha256(args.expected_source_sha256, label="expected source SHA-256")
+    if args.expected_source_byte_count <= 0 or args.expected_source_byte_count > MAX_DIRECT_AUTHORITY_SOURCE_BYTES:
+        raise SupervisionLogError("Post-effect authority source byte count is invalid")
+    review_value = load_bounded_canonical_json(
+        args.review_json,
+        label="post-effect authority review",
+        maximum_bytes=MAX_DIRECT_AUTHORITY_REVIEW_BYTES,
+    )
+    related = [
+        item for item in all_events
+        if item.get("kind") == POST_EFFECT_AUTHORITY_EVENT_KIND
+        and (
+            (item.get("incident_id"), item.get("existing_effect_id"))
+            == (incident_id, existing_effect_id)
+            or (item.get("source_task_id"), item.get("source_submission_id"))
+            == (source_task_id, source_submission_id)
+            or item.get("review_root") == review_value.get("review_root")
+        )
+    ]
+    if related:
+        if len(related) != 1 or set(related[0]) != POST_EFFECT_AUTHORITY_EVENT_FIELDS:
+            raise SupervisionLogError("Post-effect authority successor reuse conflicts")
+        stored = related[0]
+        source_policy = policy_snapshot_by_sha256(
+            validated_policy_history(directory, policy),
+            str(stored.get("policy_sha256", "")),
+        )
+        stored_review = stored.get("review_payload")
+        if (
+            stored_review != review_value
+            or stored.get("target_thread_id") != target_thread_id
+            or stored.get("incident_id") != incident_id
+            or stored.get("existing_effect_id") != existing_effect_id
+            or stored.get("source_task_id") != source_task_id
+            or stored.get("source_submission_id") != source_submission_id
+            or stored.get("source_sha256") != expected_source_sha256
+            or stored.get("source_byte_count") != args.expected_source_byte_count
+            or stored.get("policy_sha256") != expected_policy_sha256
+            or stored.get("authority_effective_from_record_id") != stored.get("record_id")
+            or stored.get("pre_effect_authority_gap") != "unresolved-retained"
+            or stored.get("existing_effect_preserved") is not True
+            or stored.get("repository_effect") is not False
+            or stored.get("implementation_range_authority") is not False
+            or stored.get("incident_disposition") != "open"
+        ):
+            raise SupervisionLogError("Post-effect authority successor reuse conflicts")
+        capture = {
+            key: stored[key]
+            for key in (
+                "source_task_id", "source_submission_id", "source_sha256",
+                "source_byte_count", "source_capture_root", "source_row_root",
+                "source_body_root", "source_process_root", "source_time_root",
+            )
+        }
+        validate_post_effect_authority_review(
+            review_value,
+            policy=source_policy,
+            target_thread_id=target_thread_id,
+            source_task_id=source_task_id,
+            source_submission_id=source_submission_id,
+            incident_id=incident_id,
+            incident_head={
+                "record_id": review_value["incident_head_record_id"],
+                "record_sha256": review_value["incident_head_sha256"],
+            },
+            existing_effect_id=existing_effect_id,
+            capture=capture,
+            event_head_sha256=str(stored["previous_record_sha256"]),
+        )
+        print(json.dumps({"duplicate": True, "record": stored}, sort_keys=True))
+        return
+    if policy.get("policy_sha256") != expected_policy_sha256:
+        raise SupervisionLogError("Post-effect authority policy is stale")
+    incident_head = current_open_incident_head(all_events, incident_id)
+    if not incident_lineage_contains_effect(
+        all_events, incident_id=incident_id, existing_effect_id=existing_effect_id
+    ):
+        raise SupervisionLogError("Existing effect is absent from the incident lineage")
+    event_head_sha256 = str(all_events[-1]["record_sha256"]) if all_events else ""
+    with canonical_codex_turn_input_capture(
+        source_task_id=source_task_id,
+        source_submission_id=source_submission_id,
+    ) as (capture, source_connection, source_database_identity):
+        if (
+            capture["source_sha256"] != expected_source_sha256
+            or capture["source_byte_count"] != args.expected_source_byte_count
+        ):
+            raise SupervisionLogError("Canonical TurnInput source assertions differ")
+        review = validate_post_effect_authority_review(
+            review_value,
+            policy=policy,
+            target_thread_id=target_thread_id,
+            source_task_id=source_task_id,
+            source_submission_id=source_submission_id,
+            incident_id=incident_id,
+            incident_head=incident_head,
+            existing_effect_id=existing_effect_id,
+            capture=capture,
+            event_head_sha256=event_head_sha256,
+        )
+        with owner_append_lock(
+            root_from(args), target_thread_id, directory_snapshot
+        ) as directory_fd:
+            require_bound_policy_at(
+                directory_fd,
+                expected_policy=policy,
+                expected_snapshot=policy_snapshot,
+            )
+            current_events, current_event_snapshot = events_snapshot(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            validate_event_ledger_anchor_at(
+                directory_fd, current_events, allow_missing=not current_events
+            )
+            if current_event_snapshot != event_snapshot or current_events != all_events:
+                raise SupervisionLogError("Post-effect authority event head changed before append")
+            current_incident_head = current_open_incident_head(current_events, incident_id)
+            if current_incident_head != incident_head or not incident_lineage_contains_effect(
+                current_events,
+                incident_id=incident_id,
+                existing_effect_id=existing_effect_id,
+            ):
+                raise SupervisionLogError("Post-effect authority incident changed before append")
+            current_capture = read_canonical_turn_input_capture(
+                source_connection,
+                source_task_id=source_task_id,
+                source_submission_id=source_submission_id,
+            )
+            if (
+                current_capture != capture
+                or canonical_codex_turn_input_log_path()
+                != source_database_identity
+            ):
+                raise SupervisionLogError("Canonical TurnInput snapshot changed before append")
+            validate_post_effect_authority_review(
+                review_value,
+                policy=policy,
+                target_thread_id=target_thread_id,
+                source_task_id=source_task_id,
+                source_submission_id=source_submission_id,
+                incident_id=incident_id,
+                incident_head=current_incident_head,
+                existing_effect_id=existing_effect_id,
+                capture=current_capture,
+                event_head_sha256=event_head_sha256,
+            )
+            record_id = f"EVT-{len(current_events) + 1:06d}"
+            record = post_effect_authority_event_material(
+                record_id=record_id,
+                target_thread_id=target_thread_id,
+                incident_id=incident_id,
+                existing_effect_id=existing_effect_id,
+                capture=current_capture,
+                review=review,
+                policy_sha256=expected_policy_sha256,
+            )
+            record["timestamp"] = utc_now()
+            append_raw_locked_at(
+                directory_fd,
+                "events.jsonl",
+                record,
+                previous_record_sha256=event_head_sha256 or None,
+                expected_file_snapshot=current_event_snapshot,
+                require_event_anchor=bool(current_events),
+            )
+            written_events, _written_snapshot = events_snapshot(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            stored = written_events[-1]
+            if set(stored) != POST_EFFECT_AUTHORITY_EVENT_FIELDS:
+                raise SupervisionLogError("Post-effect authority owner event shape differs")
+    print(json.dumps({"duplicate": False, "record": stored}, sort_keys=True))
 
 
 def validate_direct_authority_receipts(
@@ -35916,6 +36541,28 @@ def parser() -> argparse.ArgumentParser:
     direct_authority_ingest.add_argument("--target-thread", required=True)
     direct_authority_ingest.add_argument("--provenance-base64", required=True)
     direct_authority_ingest.set_defaults(func=cmd_direct_authority_ingest)
+
+    post_effect_authority = subparsers.add_parser(
+        "post-effect-authority-successor-record"
+    )
+    post_effect_authority.add_argument("--target-thread", required=True)
+    post_effect_authority.add_argument("--source-task", required=True)
+    post_effect_authority.add_argument("--source-submission", required=True)
+    post_effect_authority.add_argument("--incident-id", required=True)
+    post_effect_authority.add_argument("--existing-effect-id", required=True)
+    post_effect_authority.add_argument(
+        "--expected-policy-sha256", required=True
+    )
+    post_effect_authority.add_argument(
+        "--expected-source-sha256", required=True
+    )
+    post_effect_authority.add_argument(
+        "--expected-source-byte-count", type=int, required=True
+    )
+    post_effect_authority.add_argument("--review-json", required=True)
+    post_effect_authority.set_defaults(
+        func=cmd_post_effect_authority_successor_record
+    )
 
     delegated_authority_route = subparsers.add_parser(
         "delegated-direct-authority-route-record"
