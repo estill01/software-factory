@@ -2793,6 +2793,10 @@ def canonical_direct_authority_event(
     direct_user_source_record = (
         f"direct-user:{policy.get('target_thread_id')}:{source_item_id}"
     )
+    same_target_signed_source = (
+        signed_event and source_task_id == policy.get("target_thread_id")
+        and source_record == direct_user_source_record
+    )
     exact_current_direct_user_source = (
         source_task_id == policy.get("target_thread_id")
         and source_record == direct_user_source_record
@@ -2805,6 +2809,7 @@ def canonical_direct_authority_event(
     if (
         source_record != source_item_id
         and source_record != canonical_source_record
+        and not same_target_signed_source
         and not exact_current_direct_user_source
     ):
         raise SupervisionLogError(
@@ -10105,11 +10110,18 @@ def retained_full_tracker_authority(
         and source_record == controlling.get("record")
         and source_sha256 == controlling.get("sha256")
     )
+    source_is_exact_same_target_direct = (
+        frozenset(source_event) == frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS)
+        and source_event.get("source_task_id") == target_thread_id
+        and source_record == f"direct-user:{target_thread_id}:{source_event.get('source_item_id')}"
+    )
     signed_classification_review = None
     signed_source_event = frozenset(source_event) == frozenset(
         DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS
     )
-    if signed_source_event and not source_is_exact_direct_mission_source:
+    if signed_source_event and not (
+        source_is_exact_direct_mission_source or source_is_exact_same_target_direct
+    ):
         if request_text is None:
             raise SupervisionLogError(
                 "Signed routed full-tracker authority requires its exact source text"
@@ -10134,6 +10146,7 @@ def retained_full_tracker_authority(
     if signed_source_event and (
         signed_classification_review is not None
         or source_is_exact_direct_mission_source
+        or source_is_exact_same_target_direct
     ):
         if (
             source_event.get("source_record") != source_record
@@ -27647,14 +27660,21 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
         f"codex:{target_thread}:{source_task}:{source_item}"
     )
     direct_user_source_record = f"direct-user:{target_thread}:{source_item}"
-    if source_record != expected_source_record and (
-        source_task != target_thread or source_record != direct_user_source_record
-    ):
+    same_target_direct_source = source_task == target_thread and (
+        source_record == direct_user_source_record
+    )
+    if source_record != expected_source_record and not same_target_direct_source:
         raise SupervisionLogError(
             "Direct-authority source record differs from its exact tuple"
         )
     mission = bound_mission(policy)
-    if mission is None or mission.get("mission_source_record") != source_record:
+    if mission is None:
+        raise SupervisionLogError(
+            "Direct-authority source ingestion requires a current bound mission"
+        )
+    if not same_target_direct_source and (
+        mission.get("mission_source_record") != source_record
+    ):
         raise SupervisionLogError(
             "Direct-authority source tuple differs from the current mission"
         )
@@ -27665,11 +27685,13 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
     )
     source_sha256 = hashlib.sha256(source_bytes).hexdigest()
     mission_derivation = mission.get("mission_derivation")
-    if not isinstance(mission_derivation, Mapping):
+    if not same_target_direct_source and not isinstance(mission_derivation, Mapping):
         raise SupervisionLogError(
             "Direct-authority source ingestion requires a direct-user predecessor"
         )
-    if mission_derivation.get("mode") == "derived-from-versioned-meta-charter":
+    if same_target_direct_source:
+        pass
+    elif mission_derivation.get("mode") == "derived-from-versioned-meta-charter":
         controlling_source = mission_derivation.get("controlling_source")
         if (
             not isinstance(controlling_source, Mapping)

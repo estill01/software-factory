@@ -924,6 +924,11 @@ or manual Resume. The successor binding receives a fresh range ID, mission-bound
 genesis, exact source/receipt binding, and history sequence; it cites the
 predecessor range/genesis/head but never appends successor Blocks to predecessor
 history.
+An exact same-target `direct-user:<target>:<item>` range source may differ from a
+tracker, repository, or system mission source when its signed review binds the
+exact tuple and bytes under the current policy. Ingestion preserves the mission
+source, root, and class. Cross-task `codex:` transport remains subject to the
+current mission-activation, route, and derivation contract.
 The predecessor contract remains immutable in prior policy versions. A
 nonterminal predecessor, same-mission replacement, absent or ambiguous mission
 provenance, stale policy/event/tracker state, wrong or nonpending activation,

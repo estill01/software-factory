@@ -2829,6 +2829,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         sha_patch.start()
         self.addCleanup(sha_patch.stop)
         self.tracker = self.root / "tracker.md"
+        tracker_mission = self._testMethodName == "test_tracker_mission_accepts_same_target_direct_range_source_only"
         args = supervision_log.parser().parse_args(
             [
                 "--root",
@@ -2843,9 +2844,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "--reviewer-thread",
                 self.reviewer,
                 "--mission-source-class",
-                "direct-user",
+                "tracker" if tracker_mission else "direct-user",
                 "--mission-source-record",
-                self.initial_source,
+                "TRACKER-MISSION-1995" if tracker_mission else self.initial_source,
                 "--mission-source-sha256",
                 self.initial_mission_sha,
             ]
@@ -4568,6 +4569,80 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(receipt["source_event_record_id"], result["record"]["record_id"])
         self.assertEqual(retained_event["source_record"], source_record)
         self.assertIsNone(classification_review)
+
+    def test_tracker_mission_accepts_same_target_direct_range_source_only(self) -> None:
+        self.write_tracker(["not-started"])
+        directory = self.root / self.target
+        mission_before = copy.deepcopy(supervision_log.read_json(directory / "policy.json")["mission_binding"])
+        source_item = "item-1995"
+        source_record = f"direct-user:{self.target}:{source_item}"
+        source_bytes = self.initial_request.encode("utf-8")
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        review_path = self.ingest_direct_authority_event(source_record=source_record, source_sha256=source_sha256, source_text=self.initial_request, source_item=source_item)
+        policy = supervision_log.read_json(directory / "policy.json")
+        arguments = [
+            "implementation-range-authority-source-ingest",
+            "--target-thread", self.target,
+            "--source-task", self.target,
+            "--source-item", source_item,
+            "--source-record", source_record,
+            "--source-text-base64", base64.b64encode(source_bytes).decode("ascii"),
+            "--provenance-review-record", review_path,
+            "--expected-policy-sha256", policy["policy_sha256"],
+        ]
+        first = self.call(*arguments)
+        duplicate = self.call(*arguments)
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["record"]["record_id"], first["record"]["record_id"])
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread", self.target,
+            "--authority-event-record", first["record"]["record_id"],
+        )
+        bound = self.call(
+            "implementation-range-bind",
+            "--target-thread", self.target,
+            "--range-id", "RANGE-TRACKER-MISSION-1995",
+            "--tracker", str(self.tracker),
+            "--request-text-base64", base64.b64encode(source_bytes).decode("ascii"),
+            "--authority-source-record", source_record,
+            "--authority-source-sha256", source_sha256,
+        )
+        current_policy = supervision_log.read_json(directory / "policy.json")
+        self.assertEqual(current_policy["mission_binding"], mission_before)
+        self.assertEqual(bound["binding"]["range_intent"], "full-tracker")
+        gate = self.gate("block-boundary")
+        self.assertTrue(gate["range_binding_current"])
+        self.assertEqual(gate["required_target_posture"], "in-progress")
+        self.assertEqual(gate["next_action"], "continue-next-eligible-block")
+        cross_task = "origin-task-1995"
+        cross_item = "origin-item-1995"
+        cross_record = f"codex:{self.target}:{cross_task}:{cross_item}"
+        cross_review = self.ingest_direct_authority_event(source_record=cross_record, source_sha256=source_sha256, source_text=self.initial_request, source_item=cross_item, source_task=cross_task)
+        before = {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json", "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            )
+        }
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "source tuple differs from the current mission",
+        ):
+            self.call(
+                "implementation-range-authority-source-ingest",
+                "--target-thread", self.target,
+                "--source-task", cross_task,
+                "--source-item", cross_item,
+                "--source-record", cross_record,
+                "--source-text-base64", base64.b64encode(source_bytes).decode("ascii"),
+                "--provenance-review-record", cross_review,
+                "--expected-policy-sha256", current_policy["policy_sha256"],
+            )
+        for name, raw in before.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
 
     def test_long_exact_direct_source_does_not_bypass_request_classifier(
         self,
