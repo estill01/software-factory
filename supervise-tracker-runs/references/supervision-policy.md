@@ -1030,6 +1030,11 @@ A receipt resolves that separately ingested
 `direct-user-authority-source` owner event by exact ledger record:
 
 ```bash
+python3 <LOG_HELPER> implementation-range-authority-source-review-sign \
+  --target-thread <TARGET> --source-task <TASK> --source-turn <TURN> \
+  --source-item <ITEM> --source-record <RECORD> --source-text-base64 <BASE64> \
+  --review-evidence-record <CLEAN_MAX_REVIEW> --expected-policy-sha256 <SHA>
+
 python3 <LOG_HELPER> implementation-range-authority-source-ingest \
   --target-thread <TARGET> \
   --source-task <EXACT_SOURCE_TASK> --source-item <EXACT_SOURCE_ITEM> \
@@ -1042,7 +1047,9 @@ python3 <LOG_HELPER> implementation-range-authority-receipt \
   --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
 ```
 
-The ingestion command is the only public owner for this event shape. It
+The signer derives the fixed reviewer identity, clean disposition, roots,
+signature, timestamp, byte count, and deterministic immutable owner-relative
+path; it emits no ledger event. The ingestion command remains the only public owner for its event shape. It
 strictly decodes bounded UTF-8 bytes, computes their SHA-256 internally,
 requires the exact target/source-task/source-item record tuple and current
 policy, and verifies a bounded canonical source-review object signed by the

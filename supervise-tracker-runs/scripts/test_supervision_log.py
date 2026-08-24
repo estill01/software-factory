@@ -2820,6 +2820,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         path_patch.start()
         self.addCleanup(path_patch.stop)
+        private_key_patch = mock.patch.object(supervision_log, "ADAPTIVE_REVIEW_PRIVATE_KEY_PATH", self.private_key); private_key_patch.start(); self.addCleanup(private_key_patch.stop)
         sha_patch = mock.patch.object(
             supervision_log,
             "ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256",
@@ -4512,17 +4513,28 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(bound["binding"]["range_intent"], "full-tracker")
     def test_bound_direct_user_mission_source_ingest_is_exact(self) -> None:
         source_item = "item-192"
-        source_record = f"direct-user:{self.target}:{source_item}"
-        source_text = "[$implement-tracker-blocks](/Users/ethanstillman/.codex/software-factory-releases/releases/2109eeee4646-fb7861d1f68b/implement-tracker-blocks/SKILL.md) for the implementation tracker. also, notify 019ffd59-10b3-73a0-a644-15c5e6ca9db6 what you are doing in case it is relevant to its work\n"
+        source_record = f"codex-item-{source_item}"
+        source_text = "Implement every block in the full implementation tracker. " + "x" * 122
         source_bytes = source_text.encode("utf-8")
-        source_sha256 = "4ed853ff46abe2cfe4c549fa86f68bb4980f215a15f75f7ed9bb22d33f9ce66a"
-        self.assertEqual((len(source_bytes), hashlib.sha256(source_bytes).hexdigest()), (288, source_sha256))
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest(); self.assertEqual(len(source_bytes), 180)
         self.write_tracker(["completed"])
         self.bind()
         self.complete_predecessor_and_start_successor(retain_range_authority=False, mission_source_record=source_record, mission_source_sha256=source_sha256)
         policy = supervision_log.read_json(self.root / self.target / "policy.json")
-        review_path = self.ingest_direct_authority_event(source_record=source_record, source_sha256=source_sha256, source_text=source_text, source_item=source_item)
         encoded = base64.b64encode(source_bytes).decode("ascii")
+        source_turn = "turn-192"
+        evidence = [f"source-kind:{supervision_log.DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{self.target}", f"source-turn:{source_turn}", f"source-item:{source_item}", f"source-record:{source_record}", f"source-byte-count:{len(source_bytes)}", f"source-sha256:{source_sha256}", f"verifier:{self.reviewer}", f"classification:{supervision_log.DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"]
+        self.call("record", "--target-thread", self.target, "--kind", "meta-review", "--active-block", "0", "--checkpoint", "direct-authority-source-review", "--status", "accepted", "--severity", "info", "--summary", "clean exact source review", "--category", supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY, "--model", "gpt-5.6-sol", "--reasoning", "max", "--resolution-owner", "supervisor", "--user-action-required", "no", *(item for value in evidence for item in ("--evidence", value)))
+        review_record = supervision_log.events(self.root / self.target / "events.jsonl")[-1]["record_id"]
+        sign_arguments = ["implementation-range-authority-source-review-sign", "--target-thread", self.target, "--source-task", self.target, "--source-turn", source_turn, "--source-item", source_item, "--source-record", source_record, "--source-text-base64", encoded, "--review-evidence-record", review_record, "--expected-policy-sha256", policy["policy_sha256"]]
+        before_sign = (self.root / self.target / "events.jsonl").read_bytes()
+        signed = self.call(*sign_arguments)
+        self.assertEqual((self.root / self.target / "events.jsonl").read_bytes(), before_sign)
+        with mock.patch.object(supervision_log, "trusted_adaptive_reviewer_private_key", side_effect=AssertionError("key accessed")):
+            self.assertTrue(self.call(*sign_arguments)["duplicate"])
+        review_path = signed["output_json"]
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            changed = sign_arguments.copy(); changed[changed.index("--review-evidence-record") + 1] = "EVT-000001"; self.call(*changed)
         arguments = ["implementation-range-authority-source-ingest", "--target-thread", self.target, "--source-task", self.target, "--source-item", source_item, "--source-record", source_record, "--source-text-base64", encoded, "--provenance-review-record", review_path, "--expected-policy-sha256", policy["policy_sha256"]]
         bad_review = supervision_log.read_json(Path(review_path))
         bad_review["source_byte_count"] = 287
@@ -4561,7 +4573,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 source_record=source_record,
                 source_sha256=source_sha256,
                 require_current_receipt=True,
-                request_text=None,
+                request_text=source_text,
             )
         )
         self.assertEqual(receipt["source_event_record_id"], result["record"]["record_id"])
