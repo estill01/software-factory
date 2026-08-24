@@ -236,7 +236,7 @@ for this tracker may inspect Patent Studio patent content.
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
-| 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
+| 4 | Agents and replaceable provider runtime | 2, 3 | `in-progress` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
@@ -867,7 +867,7 @@ Stop before live agent/provider lifecycle.
 
 ## Block 4 — Implement agents and replaceable providers
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -937,7 +937,16 @@ restart, and provider-success/acceptance separation.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: clean pushed Block 3 acceptance successor
+  `61ddd8d986f7d61e13b7ad399f9d96458b1a4b42`; Blocks 0–3 accepted and Block 4
+  is the sole dependency-eligible frontier.
+- Accepted producer handoff: consume only `codex-app-server-client==0.1.0`
+  from utils producer revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`.
+  Bind its accepted source commit, package tree/content root, wheel hash,
+  qualification/currentness roots, API/protocol roots, and unpublished/no-license
+  boundary in a Factory-owned pin. Do not resolve by registry name/version, copy
+  package source, modify utils, consume the Block 9 structural packages, or
+  retire the dashboard path reserved for Block 11.
 
 ### Stop
 
