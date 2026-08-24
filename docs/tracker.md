@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `ed9c8b3c568d23eb2c1945f107c9056698214af4a7971c5f4cd854e525a727a5`; Block 0 candidate commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc` pending independent audit | `SFV2/B0`–`SFV2/B12` | 0 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `2079c81dc8494aca0893795fbb141dda566bab067a8db8c8c458b7b605d77f34`; Block 0 implementation checkpoint `bd33086f35f673386a4ad0ff2bcafc340c937323` pending exact-revision confirmation of its tracker-only audit-state successor | `SFV2/B0`–`SFV2/B12` | 0 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256

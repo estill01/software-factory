@@ -322,23 +322,28 @@ unsupported completion claims.
   `79d758db7e36aa45a34d0af96b676344321e953b`, with local/remote parity at
   freeze.
 - Implementation checkpoint: commit
-  `4cac2f8c132c6aca30f7200416f7d82034bff8fc`, tree
-  `c004a46b343eeaa8457c2d9c7457bc5e73500368`.
+  `bd33086f35f673386a4ad0ff2bcafc340c937323`, tree
+  `b4d3cf7ac41593ebbd2811b07cc481ae5fbe5fe9`.
 - Deliverables:
   `docs/software-factory-v2-baseline.json`,
   `docs/software-factory-v2-baseline-and-migration-map.md`, and
   `runtime/tests/test_v2_baseline_map.py`.
 - Focused proof at current head:
   `uv run --python 3.11 --with pytest python -m pytest
-  runtime/tests/test_v2_baseline_map.py -q` — `5 passed`; the negative cases
-  reject an unmapped active path, duplicate table authority, stale branch
-  binding, and accepted proof relabeled as current implementation.
+  runtime/tests/test_v2_baseline_map.py -q` — `17 passed`; the negative cases
+  reject an unmapped active path, omitted source-derived module or table,
+  duplicate active authority, stale branch or remote binding, missing exact
+  tracker identity, and accepted proof relabeled as current implementation.
 - Artifact checks: focused Ruff and format pass; the JSON manifest parses; the
-  detailed tracker passes the 13-Block full structural verifier after correcting
-  the stale Block 1 status field detected by its first run.
-- Currentness reconciliation: the three Block 0 artifact files remain
-  byte-identical to commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc`;
-  acceptance remains pending a fresh exact-revision audit.
+  detailed tracker passes the 13-Block full structural verifier.
+- Currentness reconciliation: the three Block 0 artifact files are unchanged
+  from implementation checkpoint `bd33086f35f673386a4ad0ff2bcafc340c937323`
+  and have SHA-256 roots `57a6682dd81810197416fd97634dcc94c49d89f58bae902d323e86930ba03fc9`,
+  `5915f74c881e315d0c5b4cc96c08b97e6db983806b925bc2ec6e625dbaeb2a3e`,
+  and `8b0cd3c130930a7c899ff5f0cda934d4887bf37b28c246e562da2d783b58f63a`.
+  Independent review found no remaining material issue in those artifacts and
+  requested only this narrow audit-state correction; acceptance remains pending
+  exact-revision confirmation of the resulting tracker-only successor.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Frame identity: this tracker, Block 0, SHA-256
@@ -356,9 +361,9 @@ unsupported completion claims.
     registry/database is speculative and crosses the Block Stop.
   - Tradeoffs and uncertainty: the frozen map intentionally retains assigned red
     baselines for later Blocks rather than claiming a green runtime.
-  - Frozen-candidate proof: commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc`,
-    tree `c004a46b343eeaa8457c2d9c7457bc5e73500368`, with byte-identical artifacts
-    and the current five-test focused result.
+  - Frozen-candidate proof: commit `bd33086f35f673386a4ad0ff2bcafc340c937323`,
+    tree `b4d3cf7ac41593ebbd2811b07cc481ae5fbe5fe9`, with the three artifact roots
+    recorded above and the current 17-test focused result.
 - Known red baseline remains assigned rather than hidden: runtime collection,
   whole-runtime Ruff/format/mypy, dashboard test stability, dependency audit,
   and legacy upload-residue gates retain their explicit successor Blocks.
