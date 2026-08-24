@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `c53d87d7da297818b79abd57c7f34e5ee2dc43ab79ed738261963648ae9cf29f`; Block 0 implementation commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc` | `SFV2/B0`–`SFV2/B12` | 1 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `ed9c8b3c568d23eb2c1945f107c9056698214af4a7971c5f4cd854e525a727a5`; Block 0 candidate commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc` pending independent audit | `SFV2/B0`–`SFV2/B12` | 0 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -18,7 +18,8 @@ The maintained architecture authority is
 Distinct read-only review thread `01a02da5-caf4-7a02-bf09-dbc7bf774bc1`
 accepted exact candidate `65c7bae2e69b25547b2914372ee7b9ee6ea9c1db`
 with no material findings. This index activates that reviewed program. Block 0
-is completed at its recorded implementation checkpoint and Block 1 is active.
+is in progress at its preserved implementation candidate pending fresh
+exact-revision audit; Block 1 has not started.
 
 ## Required outcome
 

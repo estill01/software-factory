@@ -232,8 +232,8 @@ for this tracker may inspect Patent Studio patent content.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Exact baseline, owner inventory, and cutover map | — | `completed` |
-| 1 | Operational authority and persistence boundaries | 0 | `in-progress` |
+| 0 | Exact baseline, owner inventory, and cutover map | — | `in-progress` |
+| 1 | Operational authority and persistence boundaries | 0 | `not-started` |
 | 2 | One embedded/standalone engine contract | 1 | `not-started` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
@@ -252,7 +252,7 @@ Required order:
 
 ## Block 0 — Freeze exact baseline and migration map
 
-Status: `completed`
+Status: `in-progress`
 
 ### Objective
 
@@ -314,6 +314,9 @@ unsupported completion claims.
 
 ### Completion evidence
 
+- Acceptance posture: `pending-independent-audit`; the preserved implementation
+  checkpoint and artifacts below are candidate evidence, not an accepted Block
+  checkpoint.
 - Frozen source: branch `agent/software-factory-v2-native-refactor`, commit
   `63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4`, tree
   `79d758db7e36aa45a34d0af96b676344321e953b`, with local/remote parity at
@@ -325,14 +328,37 @@ unsupported completion claims.
   `docs/software-factory-v2-baseline.json`,
   `docs/software-factory-v2-baseline-and-migration-map.md`, and
   `runtime/tests/test_v2_baseline_map.py`.
-- Focused proof at current head: `5 passed`; the negative cases reject an
-  unmapped active path, duplicate table authority, stale branch binding, and
-  accepted proof relabeled as current implementation.
-- Artifact checks: focused Ruff and format pass, the detailed tracker passes
-  the 13-Block full structural verifier, and the JSON manifest parses.
-- Currentness reconciliation: commits after the implementation checkpoint
-  changed only the separately owned supervision-skill surface; the frozen
-  Block 0 artifacts and test remained byte-identical and green.
+- Focused proof at current head:
+  `uv run --python 3.11 --with pytest python -m pytest
+  runtime/tests/test_v2_baseline_map.py -q` — `5 passed`; the negative cases
+  reject an unmapped active path, duplicate table authority, stale branch
+  binding, and accepted proof relabeled as current implementation.
+- Artifact checks: focused Ruff and format pass; the JSON manifest parses; the
+  detailed tracker passes the 13-Block full structural verifier after correcting
+  the stale Block 1 status field detected by its first run.
+- Currentness reconciliation: the three Block 0 artifact files remain
+  byte-identical to commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc`;
+  acceptance remains pending a fresh exact-revision audit.
+- Product-capability review:
+  - Trigger: consequential Block posture.
+  - Frame identity: this tracker, Block 0, SHA-256
+    `c2b8110d2cf11edc3d7f52ecc0c6112f0f60ba9d091b6cbeb2e15e9b6bbb3851`.
+  - Capability added or preserved: one executable source-to-target inventory
+    that detects missing paths, duplicate authority, and stale evidence.
+  - Paths compared: prose-only local map; bounded-general manifest plus readable
+    map; runtime registry/database owner.
+  - Selected level and owner: bounded-general evidence seam owned by the Block 0
+    documentation and validator; it proves completeness without creating runtime
+    authority.
+  - Protected-capability result: accepted historical evidence is preserved and
+    cannot be relabeled as current implementation.
+  - Rejected alternatives: prose-only cannot reject omissions; a runtime
+    registry/database is speculative and crosses the Block Stop.
+  - Tradeoffs and uncertainty: the frozen map intentionally retains assigned red
+    baselines for later Blocks rather than claiming a green runtime.
+  - Frozen-candidate proof: commit `4cac2f8c132c6aca30f7200416f7d82034bff8fc`,
+    tree `c004a46b343eeaa8457c2d9c7457bc5e73500368`, with byte-identical artifacts
+    and the current five-test focused result.
 - Known red baseline remains assigned rather than hidden: runtime collection,
   whole-runtime Ruff/format/mypy, dashboard test stability, dependency audit,
   and legacy upload-residue gates retain their explicit successor Blocks.
@@ -345,7 +371,7 @@ Stop before changing operational authority or persistence.
 
 ## Block 1 — Establish operational authority and persistence boundaries
 
-Status: `in-progress`
+Status: `not-started`
 
 ### Objective
 
