@@ -237,7 +237,7 @@ for this tracker may inspect Patent Studio patent content.
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
-| 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `candidate` |
+| 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
@@ -1066,7 +1066,7 @@ Stop before target-profile authoritative effects.
 
 ## Block 5 — Implement target profiles, workspaces, and authoritative effects
 
-Status: `candidate`
+Status: `accepted`
 
 ### Objective
 
@@ -1238,9 +1238,21 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   - Tradeoff and uncertainty: target registrations are explicit composition
     inputs, not a new persistent ontology. Block 10 must prove external profile
     extensibility before the generic contract is broadened.
-- Candidate posture: implementation-complete pending exact independent review.
-  No production target was used; Block 6 integration and Blocks 9/11/12 utils,
-  cutover, and terminal work have not begun; utils is unmodified.
+- Independent review: exact candidate
+  `96d7d8a0db5bb35d858d9566d91f19b9e057deb7`, tree
+  `1ffa9df7112fc49eb902cc462b1debfa82233fb9`, was clean, pushed, and at `0/0`.
+  Distinct exact review returned `ACCEPT` with no P0–P2 findings after proving
+  the canonical index has one active SFV2 program, binds detailed-tracker SHA
+  `bc67a79439e18a44f96ded031835f74508ca38f9473366eace792bd9a24dffa5`,
+  preserves the full B0–B12 range, and routes Block 5. The runtime tree was
+  byte-identical to reviewed `fd8e7ad`; the `44 passed` evidence and contract
+  hashes remained exact.
+- Acceptance posture: `accepted`. Retained open work: Blocks 6–12 and the
+  terminal observable outcome. No production target was used; Block 6
+  integration and Blocks 9/11/12 utils, cutover, and terminal work have not
+  begun; utils is unmodified. Post-Block audit found no duplicated target
+  effect authority, currentness gap, cross-root release state, self-acceptance,
+  or unsupported completion claim.
 
 ### Stop
 
