@@ -291,9 +291,7 @@ class ReportingService:
         if status not in {"active", "paused"}:
             raise ValueError("operator schedule status must be active or paused")
         with self.store.transaction() as db:
-            current = db.execute(
-                "SELECT status FROM schedules_v2 WHERE id=?", (schedule_id,)
-            ).fetchone()
+            current = db.execute("SELECT * FROM schedules_v2 WHERE id=?", (schedule_id,)).fetchone()
             if current is None:
                 raise StoreError("schedule not found")
             if current["status"] in {"completed", "cancelled"}:
@@ -301,6 +299,17 @@ class ReportingService:
             db.execute(
                 "UPDATE schedules_v2 SET status=?,updated_at=? WHERE id=?",
                 (status, utc_now(), schedule_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=current["mission_id"],
+                stream_key="delivery",
+                event_type=f"schedule.{status}",
+                subject_type="schedule",
+                subject_id=schedule_id,
+                source_type="operator_decision",
+                source_id=operator_decision_id,
+                payload={"operator_decision_id": operator_decision_id},
             )
         result = self.store.one("SELECT * FROM schedules_v2 WHERE id=?", (schedule_id,))
         result["operator_decision_id"] = operator_decision_id
@@ -679,25 +688,36 @@ class ReportingService:
         *,
         handler: Callable[[Mapping[str, Any]], Mapping[str, Any]],
     ) -> dict[str, Any]:
-        decision = self.store.one("SELECT * FROM operator_decisions_v2 WHERE id=?", (decision_id,))
-        if decision["status"] == "applied":
-            return decision
-        if decision["status"] != "accepted":
-            raise InvalidTransition("operator decision is not applicable")
         try:
-            result = dict(handler(decision))
-            status = "applied"
+            with self.store.transaction() as db:
+                row = db.execute(
+                    "SELECT * FROM operator_decisions_v2 WHERE id=?", (decision_id,)
+                ).fetchone()
+                if row is None:
+                    raise StoreError("operator decision not found")
+                decision = dict(row)
+                if decision["status"] == "applied":
+                    return decision
+                if decision["status"] != "accepted":
+                    raise InvalidTransition("operator decision is not applicable")
+                result = dict(handler(decision))
+                db.execute(
+                    """UPDATE operator_decisions_v2
+                       SET status='applied',result_json=?,applied_at=? WHERE id=?""",
+                    (_canonical(result), utc_now(), decision_id),
+                )
         except BaseException as exc:
             result = {"error": str(exc)}
-            status = "failed"
-        with self.store.transaction() as db:
-            db.execute(
-                """UPDATE operator_decisions_v2
-                   SET status=?,result_json=?,applied_at=? WHERE id=?""",
-                (status, _canonical(result), utc_now(), decision_id),
-            )
-        if status == "failed":
-            raise RuntimeError(str(result["error"]))
+            with self.store.transaction() as db:
+                db.execute(
+                    """UPDATE operator_decisions_v2
+                       SET status='failed',result_json=?,applied_at=?
+                       WHERE id=? AND status='accepted'""",
+                    (_canonical(result), utc_now(), decision_id),
+                )
+            if isinstance(exc, (InvalidTransition, StoreError)):
+                raise
+            raise RuntimeError(str(exc)) from exc
         return self.store.one("SELECT * FROM operator_decisions_v2 WHERE id=?", (decision_id,))
 
     def terminal_delivery_ready(self, mission_id: str) -> bool:

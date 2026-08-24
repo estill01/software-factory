@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import datetime as dt
 import re
 import sqlite3
 from pathlib import Path
@@ -10,13 +11,15 @@ import pytest
 from software_factory.database import Database, DatabaseStore
 from software_factory.errors import StoreError
 from software_factory.ownership import LIFECYCLE_OWNERS, owner_for_table
+from software_factory.reporting import ReportingService
 from software_factory.schema import MIGRATIONS, SCHEMA_VERSION, migration_sql
 from software_factory.store import Store
 from software_factory.util import digest_bytes
 
 PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "software_factory"
 WRITE_PATTERN = re.compile(
-    r"(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z][a-z0-9_]*)",
+    r"(?:INSERT(?:\s+OR\s+[A-Z]+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+"
+    r"([a-z][a-z0-9_]*)",
     re.IGNORECASE,
 )
 
@@ -115,21 +118,111 @@ def test_nested_transactions_use_savepoints_and_preserve_atomicity(tmp_path: Pat
     assert database.one("SELECT id FROM projects WHERE id='nested'", required=False) is None
 
 
+def test_operator_decision_atomically_couples_owner_effect_event_and_state(
+    tmp_path: Path,
+) -> None:
+    database = Database(tmp_path / "factory.sqlite3")
+    reporting = ReportingService(database)
+    schedule = reporting.create_schedule(
+        schedule_type="interval",
+        specification={"seconds": 60},
+        action={"kind": "tick"},
+        next_run_at="2026-01-01T00:00:00Z",
+    )
+    expires_at = (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat()
+
+    raw, _ = reporting.issue_operator_token(
+        allowed_actions=["pause_schedule"],
+        scope={"target_type": "schedule", "target_ids": [schedule["id"]]},
+        expires_at=expires_at,
+    )
+    failed_decision = reporting.accept_operator_action(
+        raw,
+        action="pause_schedule",
+        target_type="schedule",
+        target_id=schedule["id"],
+    )
+
+    def fail_after_effect(decision: dict[str, object]) -> dict[str, object]:
+        reporting.set_schedule_status(
+            schedule["id"],
+            status="paused",
+            operator_decision_id=str(decision["id"]),
+        )
+        raise RuntimeError("injected failure after owned effect")
+
+    with pytest.raises(RuntimeError, match="injected failure"):
+        reporting.apply_operator_decision(failed_decision["id"], handler=fail_after_effect)
+    assert database.one("SELECT status FROM schedules_v2 WHERE id=?", (schedule["id"],)) == {
+        "status": "active"
+    }
+    assert (
+        database.scalar(
+            "SELECT COUNT(*) FROM events WHERE subject_type='schedule' AND subject_id=?",
+            (schedule["id"],),
+        )
+        == 0
+    )
+    assert database.one(
+        "SELECT status FROM operator_decisions_v2 WHERE id=?", (failed_decision["id"],)
+    ) == {"status": "failed"}
+
+    raw, _ = reporting.issue_operator_token(
+        allowed_actions=["pause_schedule"],
+        scope={"target_type": "schedule", "target_ids": [schedule["id"]]},
+        expires_at=expires_at,
+    )
+    decision = reporting.accept_operator_action(
+        raw,
+        action="pause_schedule",
+        target_type="schedule",
+        target_id=schedule["id"],
+    )
+
+    def apply_effect(record: dict[str, object]) -> dict[str, object]:
+        reporting.set_schedule_status(
+            schedule["id"],
+            status="paused",
+            operator_decision_id=str(record["id"]),
+        )
+        return {"paused": schedule["id"]}
+
+    applied = reporting.apply_operator_decision(decision["id"], handler=apply_effect)
+    assert applied["status"] == "applied"
+    assert database.one("SELECT status FROM schedules_v2 WHERE id=?", (schedule["id"],)) == {
+        "status": "paused"
+    }
+    assert (
+        database.scalar(
+            "SELECT COUNT(*) FROM events WHERE subject_type='schedule' AND subject_id=?",
+            (schedule["id"],),
+        )
+        == 1
+    )
+
+    def must_not_repeat(_record: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("applied decision repeated its effect")
+
+    duplicate = reporting.apply_operator_decision(decision["id"], handler=must_not_repeat)
+    assert duplicate["status"] == "applied"
+
+
 def test_every_operational_table_has_one_primary_owner_and_only_declared_writers() -> None:
     tables = [table for owner in LIFECYCLE_OWNERS for table in owner.authoritative_tables]
     assert len(tables) == len(set(tables))
     assert len({owner.concern for owner in LIFECYCLE_OWNERS}) == len(LIFECYCLE_OWNERS)
 
+    runtime_writes: set[str] = set()
     for source in PACKAGE_ROOT.glob("*.py"):
         text = source.read_text(encoding="utf-8")
         for table in WRITE_PATTERN.findall(text):
-            if table not in tables:
-                continue
+            runtime_writes.add(table)
             owner = owner_for_table(table)
             assert source.stem in owner.writer_modules, (
                 f"{source.name} writes {table}, owned by {owner.primary_module}; "
                 f"allowed writers are {owner.writer_modules}"
             )
+    assert runtime_writes == set(tables)
 
 
 def test_dependency_direction_rejects_persistence_to_service_and_service_to_host() -> None:
@@ -164,7 +257,10 @@ def test_semantic_records_cannot_be_operational_foreign_key_authority(
         "selection_records_v2",
     }
     operational_tables = {
-        table for owner in LIFECYCLE_OWNERS for table in owner.authoritative_tables
+        table
+        for owner in LIFECYCLE_OWNERS
+        if owner.authority_class == "operational"
+        for table in owner.authoritative_tables
     }
     for table in operational_tables:
         foreign_tables = {row["table"] for row in database.all(f"PRAGMA foreign_key_list({table})")}

@@ -452,13 +452,15 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
 
 ### Completion evidence
 
-- Acceptance posture: `candidate`; independent exact-revision review is
-  pending, so Block 1 remains `in-progress`.
-- Frozen implementation candidate: branch
-  `agent/software-factory-v2-native-refactor`, commit
+- Acceptance posture: `candidate`; the first exact-revision review returned
+  `REVISE`, and its preserved candidates remain unaccepted. The bounded P1/P2
+  correction is pending a fresh exact-revision review, so Block 1 remains
+  `in-progress`.
+- Preserved reviewed history: implementation commit
   `79adac40ffb5650ed46fe78f73d091109b7602e4`, tree
-  `0f82f5b0ed23b2e9390505cc755660d54e60df37`, pushed with local/remote
-  parity and a clean worktree.
+  `0f82f5b0ed23b2e9390505cc755660d54e60df37`, and evidence candidate
+  `e9bb020848c1d34ba6ed805487512dbf87404467` are pushed and retained
+  unchanged. They are rejected evidence, not accepted checkpoints.
 - Migration and persistence boundary:
   `software_factory.database.Database` is the one implementation;
   `DatabaseStore` and `Store` are exact compatibility aliases. The active
@@ -467,9 +469,13 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
   reconciles runtime-referenced acceptance, observation, learning, reflection,
   hypothesis, and experiment tables without reusing legacy semantic rows.
 - Operational owner boundary:
-  `runtime/src/software_factory/ownership.py` declares exactly one primary
-  module for each lifecycle table and the bounded coordinators allowed to join
-  its transactions. `CoreService` composes one shared owner graph;
+  `runtime/src/software_factory/ownership.py` exhaustively registers all 89
+  tables written by top-level runtime Python, uses the real
+  `acceptance_probe_results_v2` name, declares exactly one primary module for
+  each table, and names the bounded coordinators allowed to join its
+  transactions. The proof extracts `INSERT`, `INSERT OR ...`, `UPDATE`, and
+  `DELETE` targets and requires exact set equality rather than skipping
+  undeclared writes. `CoreService` composes one shared owner graph;
   `AdvancedServices`, API, daemon, CLI, and skill entrypoints reuse that graph
   instead of creating alternate supervision, learning, operations, reporting,
   migration, release, or recovery owners.
@@ -478,15 +484,23 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
   direction, lifecycle/table ownership, migration lineage, semantic separation,
   and the later Block 2/5/7/11 cutovers. It explicitly rejects a universal
   entity model.
-- Coupled-transition safety: nested database transactions use savepoints, so a
-  failed inner transition rolls back only its own writes while an outer failure
-  rolls back all nested writes. Operator schedule, work-cancellation, and
-  incident-acknowledgement effects now route through `ReportingService`,
-  `WorkItemService`, and `SupervisionService` rather than direct API writes.
-- Focused Block 1 pytest command over core, composition, controller, execution,
-  QA, supervision, acceptance, learning, migration, API, reporting, entrypoint,
-  and new boundary tests completed `82 passed` with one harmless legacy
-  pytest collection warning; no broad runtime matrix was run.
+- Coupled-transition safety: nested database transactions use savepoints on the
+  active connection, and reads inside the transaction reuse that connection.
+  The real operator path now re-reads the decision, invokes the owning service,
+  records its audit event, and marks the decision applied inside one outer
+  transaction. A focused injected failure after the schedule effect proves the
+  effect and event roll back before the decision is marked failed; a successful
+  decision applies once and idempotent re-entry does not repeat the effect.
+- Focused Block 1 pytest evidence is recorded verbatim in
+  `docs/sfv2-b1-focused-evidence.json`, SHA-256
+  `5ebdbad0b5719b9e79ca7eff30fc28e496af050ea2b8a1f31bcb73990ff872f6`.
+  Its exact 13-file command over core, composition, controller, execution, QA,
+  supervision, acceptance, learning, migration, API, reporting, entrypoint,
+  and boundary tests completed `83 passed` with one harmless legacy pytest
+  collection warning. Repository collection completed `159 tests collected`.
+  `runtime/tests/test_v2_entrypoints.py` is explicitly excluded because legacy
+  console-script cutover belongs to Block 2 and crosses the Block 1 Stop; no
+  broad runtime matrix was run.
 - Static baseline closure:
   `ruff check runtime/src runtime/tests` passes; `ruff format --check
   runtime/src runtime/tests` reports all 78 files formatted; mypy reports no
@@ -496,10 +510,11 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
 - Negative proof:
   `runtime/tests/test_operational_boundaries.py` rejects inert or duplicate
   migrations, applied checksum/name drift, unknown/gapped histories, reverse
-  persistence/service or service/host imports, undeclared lifecycle writers,
-  partial nested commits, and operational foreign-key dependence on semantic
-  tables. The advanced integration proof also asserts that the retired
-  alternate supervision/adaptive tables are absent.
+  persistence/service or service/host imports, any unregistered or undeclared
+  runtime writer, partial nested commits, partial real operator effects, and
+  operational foreign-key dependence on semantic tables. The advanced
+  integration proof also asserts that the retired alternate
+  supervision/adaptive tables are absent.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Frame identity: this tracker, Block 1 planning bytes at SHA-256
@@ -521,11 +536,14 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
   - Tradeoffs and uncertainty: compatibility aliases remain callable but are
     the same class identity; later Blocks still own host exposure, semantic
     cutover, delivery qualification, and legacy retirement.
-- Independent review: pending exact revision
-  `79adac40ffb5650ed46fe78f73d091109b7602e4`; process success and focused green
-  results are not acceptance.
-- Retained open work: exact-revision independent review and any resulting
-  P0–P2 correction only. Blocks 2–12 remain outside this candidate.
+- Independent review: the preserved `e9bb020848c1d34ba6ed805487512dbf87404467`
+  review returned two P1 findings (incomplete owner registry and non-atomic
+  operator effects) plus one P2 evidence-record finding. The bounded correction
+  addresses those findings and now requires a fresh exact-revision review;
+  process success and focused green results are not acceptance.
+- Retained open work: commit and push the bounded correction, route that exact
+  revision for independent review, and resolve any resulting P0–P2 finding
+  only. Blocks 2–12 remain outside this candidate.
 - Decision/continuation posture: hold Block 1 `in-progress` until the exact
   candidate is independently accepted; then record acceptance and continue
   automatically to Block 2 without narrowing the full bound range.

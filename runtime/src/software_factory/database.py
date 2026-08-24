@@ -155,8 +155,9 @@ class _DatabaseStore:
         required: bool = True,
         db: sqlite3.Connection | None = None,
     ) -> dict[str, Any] | None:
-        owns = db is None
-        connection = db or self.connect()
+        current = getattr(self._local, "db", None)
+        owns = db is None and current is None
+        connection = db or current or self.connect()
         try:
             row = connection.execute(sql, parameters).fetchone()
             if row is None:
@@ -175,8 +176,9 @@ class _DatabaseStore:
         *,
         db: sqlite3.Connection | None = None,
     ) -> list[dict[str, Any]]:
-        owns = db is None
-        connection = db or self.connect()
+        current = getattr(self._local, "db", None)
+        owns = db is None and current is None
+        connection = db or current or self.connect()
         try:
             return [dict(row) for row in connection.execute(sql, parameters).fetchall()]
         finally:
