@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
-from software_factory.errors import InvalidTransition, StoreError
+from software_factory.errors import InvalidTransition
 from software_factory.governance import GovernanceService
 
 
@@ -84,9 +85,7 @@ def service() -> GovernanceService:
 
 
 def future(hours: int = 1) -> str:
-    return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=hours)).isoformat().replace(
-        "+00:00", "Z"
-    )
+    return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
 
 
 def contract(governance: GovernanceService, revision: str = "revision-1") -> dict[str, Any]:
@@ -142,7 +141,9 @@ def accepted_review(
     )
 
 
-def pass_probes(governance: GovernanceService, contract_id: str, revision: str = "revision-1") -> None:
+def pass_probes(
+    governance: GovernanceService, contract_id: str, revision: str = "revision-1"
+) -> None:
     for key, probe_type in (
         ("focused-tests", "test"),
         ("integration", "integration"),
@@ -228,9 +229,7 @@ def test_acceptance_requires_all_observed_probes_and_independent_review() -> Non
     with pytest.raises(InvalidTransition, match="incomplete"):
         governance.decide_acceptance(acceptance["id"], exact_revision="revision-1")
     pass_probes(governance, acceptance["id"])
-    decision = governance.decide_acceptance(
-        acceptance["id"], exact_revision="revision-1"
-    )
+    decision = governance.decide_acceptance(acceptance["id"], exact_revision="revision-1")
     assert decision["decision"] == "accepted"
     assert decision["evidence_root"]
 
@@ -262,9 +261,7 @@ def test_changed_revision_invalidates_prior_review_and_acceptance() -> None:
     review_grant = grant(governance)
     pass_probes(governance, acceptance["id"])
     accepted_review(governance, acceptance["id"], review_grant["id"])
-    decision = governance.decide_acceptance(
-        acceptance["id"], exact_revision="revision-1"
-    )
+    decision = governance.decide_acceptance(acceptance["id"], exact_revision="revision-1")
     governance.invalidate_target_revision(
         target_type="candidate", target_id="candidate-1", prior_revision="revision-1"
     )

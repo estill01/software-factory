@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any
 
 from software_factory.recovery import FactoryRecoveryCoordinator, ReleaseRefreshCoordinator
 

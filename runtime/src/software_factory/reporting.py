@@ -94,7 +94,7 @@ def write_text_pdf(path: Path, text: str, *, title: str) -> None:
     kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
     objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>".encode())
     objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-    for page_id, content_id, page_lines in zip(page_ids, content_ids, pages, strict=True):
+    for _page_id, content_id, page_lines in zip(page_ids, content_ids, pages, strict=True):
         objects.append(
             (
                 f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
@@ -110,7 +110,9 @@ def write_text_pdf(path: Path, text: str, *, title: str) -> None:
             commands.append("T*")
         commands.append("ET")
         stream = "\n".join(commands).encode("latin-1", "replace")
-        objects.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+        objects.append(
+            b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream"
+        )
     output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
     for object_id, body in enumerate(objects, start=1):
@@ -125,8 +127,7 @@ def write_text_pdf(path: Path, text: str, *, title: str) -> None:
         output.extend(f"{offset:010d} 00000 n \n".encode())
     output.extend(
         (
-            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-            f"startxref\n{xref}\n%%EOF\n"
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"
         ).encode()
     )
     path.write_bytes(output)
@@ -278,6 +279,33 @@ class ReportingService:
             (current, limit),
         )
 
+    def set_schedule_status(
+        self,
+        schedule_id: str,
+        *,
+        status: str,
+        operator_decision_id: str,
+    ) -> dict[str, Any]:
+        """Pause or resume a schedule through its authoritative owner."""
+
+        if status not in {"active", "paused"}:
+            raise ValueError("operator schedule status must be active or paused")
+        with self.store.transaction() as db:
+            current = db.execute(
+                "SELECT status FROM schedules_v2 WHERE id=?", (schedule_id,)
+            ).fetchone()
+            if current is None:
+                raise StoreError("schedule not found")
+            if current["status"] in {"completed", "cancelled"}:
+                raise InvalidTransition("terminal schedule cannot be resumed or paused")
+            db.execute(
+                "UPDATE schedules_v2 SET status=?,updated_at=? WHERE id=?",
+                (status, utc_now(), schedule_id),
+            )
+        result = self.store.one("SELECT * FROM schedules_v2 WHERE id=?", (schedule_id,))
+        result["operator_decision_id"] = operator_decision_id
+        return result
+
     def mark_schedule_run(
         self,
         schedule_id: str,
@@ -294,7 +322,9 @@ class ReportingService:
             status = "failed"
             next_run = None
         elif schedule["schedule_type"] == "interval":
-            next_run_dt = _parse_time(completed) + dt.timedelta(seconds=int(specification["seconds"]))
+            next_run_dt = _parse_time(completed) + dt.timedelta(
+                seconds=int(specification["seconds"])
+            )
             next_run = next_run_dt.isoformat().replace("+00:00", "Z")
             status = "active"
         else:
@@ -477,7 +507,7 @@ class ReportingService:
             else:
                 status = "retry"
                 next_dt = dt.datetime.now(dt.UTC) + dt.timedelta(
-                    seconds=min(3600, 2 ** attempt_number * 15)
+                    seconds=min(3600, 2**attempt_number * 15)
                 )
                 next_attempt = next_dt.isoformat().replace("+00:00", "Z")
         with self.store.transaction() as db:
@@ -565,15 +595,9 @@ class ReportingService:
         payload: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        candidates = self.store.all(
-            "SELECT * FROM operator_action_tokens_v2 WHERE status='active'"
-        )
+        candidates = self.store.all("SELECT * FROM operator_action_tokens_v2 WHERE status='active'")
         token = next(
-            (
-                row
-                for row in candidates
-                if hmac.compare_digest(str(row["token_hash"]), token_hash)
-            ),
+            (row for row in candidates if hmac.compare_digest(str(row["token_hash"]), token_hash)),
             None,
         )
         if token is None:
@@ -655,9 +679,7 @@ class ReportingService:
         *,
         handler: Callable[[Mapping[str, Any]], Mapping[str, Any]],
     ) -> dict[str, Any]:
-        decision = self.store.one(
-            "SELECT * FROM operator_decisions_v2 WHERE id=?", (decision_id,)
-        )
+        decision = self.store.one("SELECT * FROM operator_decisions_v2 WHERE id=?", (decision_id,))
         if decision["status"] == "applied":
             return decision
         if decision["status"] != "accepted":

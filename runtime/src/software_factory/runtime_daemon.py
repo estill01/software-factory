@@ -7,9 +7,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from .advanced import AdvancedServices
 from .entrypoints import context_core, context_store, open_context
-from .reporting import ReportingService
 from .util import utc_now
 
 
@@ -18,8 +16,8 @@ class AdaptiveDaemon:
         self.context = context
         self.store = context_store(context)
         self.core = context_core(context)
-        self.advanced = AdvancedServices(self.store)
-        self.reporting = ReportingService(self.store)
+        self.advanced = self.core.advanced
+        self.reporting = self.core.reporting
         self.stop_requested = False
 
     def request_stop(self, *_: Any) -> None:

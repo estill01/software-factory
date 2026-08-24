@@ -19,11 +19,7 @@ def make_repository(root: Path) -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "domains": {
-                    "example": {
-                        "required": ["test_example.py::test_required_behavior"]
-                    }
-                },
+                "domains": {"example": {"required": ["test_example.py::test_required_behavior"]}},
             }
         ),
         encoding="utf-8",
@@ -50,11 +46,7 @@ def test_merge_readiness_fails_closed_on_missing_behavior_and_transport(
         json.dumps(
             {
                 "schema_version": 1,
-                "domains": {
-                    "example": {
-                        "required": ["test_example.py::test_missing_behavior"]
-                    }
-                },
+                "domains": {"example": {"required": ["test_example.py::test_missing_behavior"]}},
             }
         ),
         encoding="utf-8",

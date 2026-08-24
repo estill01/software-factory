@@ -258,8 +258,7 @@ class LegacyParityService:
         }
         evidence["status"] = (
             "passed"
-            if all(result["exit_code"] == 0 for result in legacy_results)
-            and native.returncode == 0
+            if all(result["exit_code"] == 0 for result in legacy_results) and native.returncode == 0
             else "failed"
         )
         evidence["evidence_root"] = _digest(evidence)

@@ -61,7 +61,7 @@ def _wrapper(skill: str) -> str:
         "evolve-product-program": "Evolve product and implementation programs through the native Software Factory v2 selection and experimentation runtime.",
         "clean-software-factory": "Reconcile repository state through the native no-loss Software Factory v2 cleanup runtime.",
     }
-    return f'''---
+    return f"""---
 name: {skill}
 description: {descriptions[skill]}
 ---
@@ -83,7 +83,7 @@ invent completion. Continue through the native runtime until obligations are
 accepted, terminal verification passes, or a genuinely reserved external effect
 is recorded with its exact blocker. Do not create a parallel file ledger, event
 log, scheduler, acceptance owner, or release owner in this skill directory.
-'''
+"""
 
 
 class SourceCutoverService:
@@ -116,9 +116,7 @@ class SourceCutoverService:
             "runtime": "runtime/src/software_factory",
             "skills": skills,
         }
-        return material | {
-            "plan_root": hashlib.sha256(_canonical(material).encode()).hexdigest()
-        }
+        return material | {"plan_root": hashlib.sha256(_canonical(material).encode()).hexdigest()}
 
     def apply(self) -> dict[str, Any]:
         plan = self.plan()

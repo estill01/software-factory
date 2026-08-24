@@ -13,10 +13,16 @@ from .util import utc_now
 class GovernedReleaseService:
     """Immutable release lifecycle with revision-bound probes and granted review."""
 
-    def __init__(self, store: Store):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        governance: GovernanceService | None = None,
+        operations: OperationsService | None = None,
+    ):
         self.store = store
-        self.governance = GovernanceService(store)
-        self.operations = OperationsService(store)
+        self.governance = governance or GovernanceService(store)
+        self.operations = operations or OperationsService(store)
 
     def stage(
         self,
@@ -56,9 +62,7 @@ class GovernedReleaseService:
                    SET acceptance_contract_id=?,updated_at=? WHERE id=?""",
                 (contract["id"], utc_now(), release["id"]),
             )
-        return self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release["id"],)
-        )
+        return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release["id"],))
 
     def record_probe(
         self,
@@ -71,9 +75,7 @@ class GovernedReleaseService:
         command: Sequence[str] | None = None,
         observer_session_id: str | None = None,
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         return self.governance.record_probe_result(
             release["acceptance_contract_id"],
             probe_key=probe_key,
@@ -95,9 +97,7 @@ class GovernedReleaseService:
         expires_at: str,
         issued_by_session_id: str | None = None,
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         return self.governance.issue_role_grant(
             mission_id=release["mission_id"],
             grantee_session_id=reviewer_session_id,
@@ -130,9 +130,7 @@ class GovernedReleaseService:
         disposition: str,
         findings: Mapping[str, Any],
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         return self.governance.record_independent_review(
             release["acceptance_contract_id"],
             grant_id=grant_id,
@@ -149,9 +147,7 @@ class GovernedReleaseService:
         )
 
     def accept(self, release_id: str) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         decision = self.governance.decide_acceptance(
             release["acceptance_contract_id"],
             exact_revision=release["source_revision"],
@@ -188,9 +184,7 @@ class GovernedReleaseService:
                 ],
             ],
         )
-        return self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
 
     def activate_and_verify(
         self,
@@ -199,9 +193,7 @@ class GovernedReleaseService:
         release_root: str | Path,
         verification_command: Sequence[str],
     ) -> dict[str, Any]:
-        release = self.operations.activate_release(
-            release_id, release_root=release_root
-        )
+        self.operations.activate_release(release_id, release_root=release_root)
         verification = self.operations.verify_release(
             release_id,
             command=verification_command,

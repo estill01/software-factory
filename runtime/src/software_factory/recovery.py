@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,16 @@ from .store import Store
 class FactoryRecoveryCoordinator:
     """Closed-loop Software Factory repair and exact-once target resumption."""
 
-    def __init__(self, store: Store):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        operations: OperationsService | None = None,
+        governance: GovernanceService | None = None,
+    ):
         self.store = store
-        self.operations = OperationsService(store)
-        self.governance = GovernanceService(store)
+        self.operations = operations or OperationsService(store)
+        self.governance = governance or GovernanceService(store)
 
     def recover(
         self,
@@ -70,17 +77,11 @@ class FactoryRecoveryCoordinator:
                 reviewer_session_id=reviewer_session_id,
                 disposition=str(review_result.get("disposition", "rejected")),  # type: ignore[arg-type]
                 findings=dict(review_result.get("findings", {})),
-                evidence_ids=[
-                    str(value) for value in review_result.get("evidence_ids", [])
-                ],
+                evidence_ids=[str(value) for value in review_result.get("evidence_ids", [])],
             )
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (staged["id"],)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (staged["id"],))
         if release["status"] == "accepted":
-            release = self.operations.activate_release(
-                release["id"], release_root=release_root
-            )
+            release = self.operations.activate_release(release["id"], release_root=release_root)
         if release["verification_status"] != "passed":
             verification = self.operations.verify_release(
                 release["id"],
@@ -93,9 +94,7 @@ class FactoryRecoveryCoordinator:
         self.operations.record_repair(
             recovery["id"],
             repair_revision=str(repair_result["source_revision"]),
-            evidence_ids=[
-                str(value) for value in repair_result["repair_evidence_ids"]
-            ],
+            evidence_ids=[str(value) for value in repair_result["repair_evidence_ids"]],
             release_id=release["id"],
         )
         wake_payload = {
@@ -138,9 +137,7 @@ class FactoryRecoveryCoordinator:
         resolved = self.operations.verify_recovery(
             recovery["id"],
             target_resumed=bool(verification_result.get("target_resumed")),
-            evidence_ids=[
-                str(value) for value in verification_result.get("evidence_ids", [])
-            ],
+            evidence_ids=[str(value) for value in verification_result.get("evidence_ids", [])],
         )
         return {
             "recovery": resolved,
@@ -160,10 +157,16 @@ class FactoryRecoveryCoordinator:
 class ReleaseRefreshCoordinator:
     """Refresh compatible active agents at explicit safe boundaries."""
 
-    def __init__(self, store: Store):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        operations: OperationsService | None = None,
+        governance: GovernanceService | None = None,
+    ):
         self.store = store
-        self.operations = OperationsService(store)
-        self.governance = GovernanceService(store)
+        self.operations = operations or OperationsService(store)
+        self.governance = governance or GovernanceService(store)
 
     def refresh(
         self,
@@ -178,9 +181,7 @@ class ReleaseRefreshCoordinator:
             if plan["status"] == "refreshed":
                 results.append(plan)
                 continue
-            agent = next(
-                item for item in agents if str(item["id"]) == plan["agent_session_id"]
-            )
+            agent = next(item for item in agents if str(item["id"]) == plan["agent_session_id"])
             if not bool(agent.get("at_safe_boundary", False)):
                 with self.store.transaction() as db:
                     db.execute(
@@ -239,8 +240,6 @@ class ReleaseRefreshCoordinator:
                     ),
                 )
             results.append(
-                self.store.one(
-                    "SELECT * FROM release_agent_refreshes_v2 WHERE id=?", (plan["id"],)
-                )
+                self.store.one("SELECT * FROM release_agent_refreshes_v2 WHERE id=?", (plan["id"],))
             )
         return results

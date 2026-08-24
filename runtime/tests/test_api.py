@@ -2,85 +2,39 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import sqlite3
 import urllib.error
 import urllib.request
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from tempfile import TemporaryDirectory
+from typing import Any
 
 import pytest
 
 from software_factory.api import APIServer, FactoryAPI
+from software_factory.database import Database
 
 
-class TestStore:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None, check_same_thread=False)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.executescript(
-            """
-            CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT);
-            INSERT INTO schema_migrations VALUES(12,'operability');
-            CREATE TABLE missions(id TEXT PRIMARY KEY,status TEXT,goal TEXT,created_at TEXT,updated_at TEXT);
-            CREATE TABLE work_items(id TEXT PRIMARY KEY,mission_id TEXT,title TEXT,work_type TEXT,planning_status TEXT,execution_status TEXT,qa_status TEXT,acceptance_status TEXT,priority INTEGER,updated_at TEXT);
-            CREATE TABLE agent_sessions(id TEXT PRIMARY KEY,provider TEXT,provider_session_id TEXT,intended_role TEXT,observed_status TEXT,current_assignment_id TEXT,last_heartbeat_at TEXT,updated_at TEXT);
-            CREATE TABLE executions(id TEXT PRIMARY KEY,mission_id TEXT,work_item_id TEXT,agent_session_id TEXT,status TEXT,provider_key TEXT,attempt_number INTEGER,lease_generation INTEGER,started_at TEXT,completed_at TEXT,created_at TEXT);
-            CREATE TABLE supervision_incidents(id TEXT PRIMARY KEY,mission_id TEXT,status TEXT,opened_at TEXT,updated_at TEXT);
-            CREATE TABLE active_signal_bundles(id TEXT PRIMARY KEY,mission_id TEXT,activated_at TEXT);
-            CREATE TABLE reflections_v2(id TEXT PRIMARY KEY,mission_id TEXT,created_at TEXT);
-            CREATE TABLE experiments_v2(id TEXT PRIMARY KEY,mission_id TEXT,created_at TEXT);
-            CREATE TABLE immutable_releases_v2(id TEXT PRIMARY KEY,staged_at TEXT);
-            CREATE TABLE factory_recovery_cases_v2(id TEXT PRIMARY KEY,opened_at TEXT);
-            CREATE TABLE repository_inventories_v2(id TEXT PRIMARY KEY,repository_root TEXT);
-            CREATE TABLE cleanup_items_v2(id TEXT PRIMARY KEY,inventory_id TEXT,created_at TEXT);
-            CREATE TABLE retained_adaptive_cases(id TEXT PRIMARY KEY,mission_id TEXT,created_at TEXT);
-            CREATE TABLE selection_records_v2(id TEXT PRIMARY KEY,mission_id TEXT,created_at TEXT);
-            """
+def _store() -> Database:
+    temporary_directory = TemporaryDirectory()
+    store = Database(Path(temporary_directory.name) / "factory.sqlite3")
+    now = "2026-01-01T00:00:00Z"
+    with store.transaction() as db:
+        db.execute(
+            """INSERT INTO missions(
+                   id,title,objective,status,autonomy_mode,created_at,updated_at
+               ) VALUES(
+                   'mission-1','Ship system','ship system','active',
+                   'full_autonomous',?,?
+               )""",
+            (now, now),
         )
-        migration = (
-            Path(__file__).parents[1]
-            / "src"
-            / "software_factory"
-            / "migrations"
-            / "0012_operability_runtime.sql"
-        )
-        self.connection.executescript(migration.read_text(encoding="utf-8"))
-        self.connection.execute(
-            "INSERT INTO missions VALUES('mission-1','active','ship system','2026-01-01','2026-01-01')"
-        )
-
-    @contextmanager
-    def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
-        self.connection.execute(f"BEGIN {mode}")
-        try:
-            yield self.connection
-        except BaseException:
-            self.connection.rollback()
-            raise
-        else:
-            self.connection.commit()
-
-    def one(
-        self,
-        sql: str,
-        parameters: tuple[Any, ...] = (),
-        *,
-        required: bool = True,
-    ) -> dict[str, Any] | None:
-        row = self.connection.execute(sql, parameters).fetchone()
-        if row is None:
-            if required:
-                raise LookupError(sql)
-            return None
-        return dict(row)
-
-    def all(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.connection.execute(sql, parameters).fetchall()]
+    store._test_temporary_directory = temporary_directory  # type: ignore[attr-defined]
+    return store
 
 
-def request_json(url: str, *, method: str = "GET", data: dict[str, Any] | None = None, token: str | None = None) -> tuple[int, dict[str, Any]]:
+def request_json(
+    url: str, *, method: str = "GET", data: dict[str, Any] | None = None, token: str | None = None
+) -> tuple[int, dict[str, Any]]:
     body = json.dumps(data).encode() if data is not None else None
     headers = {"Content-Type": "application/json"}
     if token:
@@ -94,13 +48,13 @@ def request_json(url: str, *, method: str = "GET", data: dict[str, Any] | None =
 
 
 def test_api_binds_only_to_loopback() -> None:
-    api = FactoryAPI(TestStore())  # type: ignore[arg-type]
+    api = FactoryAPI(_store())
     with pytest.raises(ValueError, match="loopback"):
         APIServer(api, host="0.0.0.0")
 
 
 def test_health_factory_floor_and_html_are_available() -> None:
-    api = FactoryAPI(TestStore())  # type: ignore[arg-type]
+    api = FactoryAPI(_store())
     server = APIServer(api)
     server.start()
     try:
@@ -121,8 +75,8 @@ def test_health_factory_floor_and_html_are_available() -> None:
 
 
 def test_operator_post_requires_bearer_token_and_applies_governed_owner() -> None:
-    store = TestStore()
-    api = FactoryAPI(store)  # type: ignore[arg-type]
+    store = _store()
+    api = FactoryAPI(store)
     schedule = api.reporting.create_schedule(
         schedule_type="interval",
         specification={"seconds": 60},
@@ -130,9 +84,7 @@ def test_operator_post_requires_bearer_token_and_applies_governed_owner() -> Non
         next_run_at="2026-01-01T00:00:00Z",
         mission_id="mission-1",
     )
-    expires = (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat().replace(
-        "+00:00", "Z"
-    )
+    expires = (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
     token, _ = api.reporting.issue_operator_token(
         allowed_actions=["pause_schedule"],
         scope={"target_type": "schedule", "target_ids": [schedule["id"]]},
@@ -163,16 +115,19 @@ def test_operator_post_requires_bearer_token_and_applies_governed_owner() -> Non
         server.close()
 
 
-def test_mission_detail_returns_historical_adaptive_and_selection_records() -> None:
-    store = TestStore()
-    store.connection.execute(
-        "INSERT INTO retained_adaptive_cases VALUES('case-1','mission-1','2026-01-01')"
+def test_mission_detail_returns_canonical_strategy_and_selection_records() -> None:
+    store = _store()
+    api = FactoryAPI(store)
+    selection = api.advanced.evolution.consider_selection(
+        mission_id="mission-1",
+        selection_group="runtime",
+        selection_type="strategy",
+        candidate_key="strategy-a",
+        candidate={"name": "strategy-a"},
+        evidence={"source": "focused-test"},
+        expected_value={"progress": True},
     )
-    store.connection.execute(
-        "INSERT INTO selection_records_v2 VALUES('selection-1','mission-1','2026-01-01')"
-    )
-    api = FactoryAPI(store)  # type: ignore[arg-type]
     detail = api.mission_detail("mission-1")
-    assert detail["mission"]["goal"] == "ship system"
-    assert detail["adaptive_cases"][0]["id"] == "case-1"
-    assert detail["selection_records"][0]["id"] == "selection-1"
+    assert detail["mission"]["objective"] == "ship system"
+    assert detail["strategy_outcomes"] == []
+    assert detail["selection_records"][0]["id"] == selection["id"]

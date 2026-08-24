@@ -56,23 +56,17 @@ def test_cutover_moves_exact_legacy_bytes_and_installs_thin_native_wrappers(
         assert f"sf-skill {name}" in content
         legacy = tmp_path / "legacy" / "v1" / "skills" / name
         assert digest(legacy / "SKILL.md") == expected[f"{name}/SKILL.md"]
-        assert digest(legacy / "scripts" / "owner.py") == expected[
-            f"{name}/scripts/owner.py"
-        ]
+        assert digest(legacy / "scripts" / "owner.py") == expected[f"{name}/scripts/owner.py"]
 
 
 def test_cutover_creates_native_wrapper_for_previously_missing_skill(tmp_path: Path) -> None:
     make_repository(tmp_path, omit="clean-software-factory")
     service = SourceCutoverService(tmp_path)
     marker = service.apply()
-    missing = next(
-        item for item in marker["skills"] if item["name"] == "clean-software-factory"
-    )
+    missing = next(item for item in marker["skills"] if item["name"] == "clean-software-factory")
     assert missing["source_exists"] is False
     assert (tmp_path / "clean-software-factory" / "SKILL.md").is_file()
-    assert not (
-        tmp_path / "legacy" / "v1" / "skills" / "clean-software-factory"
-    ).exists()
+    assert not (tmp_path / "legacy" / "v1" / "skills" / "clean-software-factory").exists()
 
 
 def test_rollback_restores_original_skill_bytes_exactly(tmp_path: Path) -> None:
@@ -104,13 +98,7 @@ def test_verification_rejects_tampered_legacy_source(tmp_path: Path) -> None:
     service = SourceCutoverService(tmp_path)
     service.apply()
     legacy = (
-        tmp_path
-        / "legacy"
-        / "v1"
-        / "skills"
-        / "implement-tracker-blocks"
-        / "scripts"
-        / "owner.py"
+        tmp_path / "legacy" / "v1" / "skills" / "implement-tracker-blocks" / "scripts" / "owner.py"
     )
     legacy.write_text("tampered = True\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="legacy source hash differs"):

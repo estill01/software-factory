@@ -273,6 +273,52 @@ class WorkItemService:
             )
         return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
 
+    def cancel_work(
+        self,
+        work_item_id: str,
+        *,
+        operator_decision_id: str,
+    ) -> dict[str, Any]:
+        """Cancel inactive work through the authoritative work-item owner."""
+
+        with self.store.transaction() as db:
+            work = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
+            if work is None:
+                raise StoreError("work item not found")
+            if work["execution_status"] in {"running", "submitted"}:
+                raise InvalidTransition(
+                    "active or submitted work must be cancelled through execution recovery"
+                )
+            if work["execution_status"] not in {
+                "not_started",
+                "queued",
+                "failed",
+                "abandoned",
+            }:
+                raise InvalidTransition("work item is not cancellable")
+            prior_version = int(work["state_version"])
+            new_version = prior_version + 1
+            db.execute(
+                """UPDATE work_items
+                   SET execution_status='cancelled',state_version=?,updated_at=?
+                   WHERE id=?""",
+                (new_version, utc_now(), work_item_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=work["mission_id"],
+                stream_key="work",
+                event_type="work.cancelled",
+                subject_type="work_item",
+                subject_id=work_item_id,
+                source_type="operator_decision",
+                source_id=operator_decision_id,
+                prior_version=prior_version,
+                new_version=new_version,
+                payload={"operator_decision_id": operator_decision_id},
+            )
+        return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+
     @staticmethod
     def _dependency_satisfied(dep: dict[str, Any]) -> bool:
         condition = json_load(dep["condition_json"], {})

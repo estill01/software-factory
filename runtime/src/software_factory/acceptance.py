@@ -7,10 +7,10 @@ import sqlite3
 import subprocess
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol, overload
 
 from .errors import InvalidTransition, StoreError
 from .util import new_id, utc_now
@@ -21,12 +21,23 @@ class AcceptanceStore(Protocol):
         self, *, mode: str = "IMMEDIATE"
     ) -> AbstractContextManager[sqlite3.Connection]: ...
 
+    @overload
     def one(
         self,
         sql: str,
         parameters: tuple[Any, ...] | Mapping[str, Any] = (),
         *,
-        required: bool = True,
+        required: Literal[True] = True,
+        db: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def one(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] | Mapping[str, Any] = (),
+        *,
+        required: Literal[False],
         db: sqlite3.Connection | None = None,
     ) -> dict[str, Any] | None: ...
 
@@ -114,9 +125,7 @@ class AcceptanceService:
         run_id = new_id("acceptance-run")
         with self.store.transaction() as db:
             if mission_id is not None:
-                mission = db.execute(
-                    "SELECT id FROM missions WHERE id=?", (mission_id,)
-                ).fetchone()
+                mission = db.execute("SELECT id FROM missions WHERE id=?", (mission_id,)).fetchone()
                 if mission is None:
                     raise StoreError("mission not found")
             db.execute(
@@ -336,9 +345,7 @@ class AcceptanceService:
             required=False,
         )
         if result is None or not result.get("evidence_root"):
-            raise InvalidTransition(
-                "source revision lacks a passed executable acceptance run"
-            )
+            raise InvalidTransition("source revision lacks a passed executable acceptance run")
         return result
 
     def case_results(self, run_id: str) -> list[dict[str, Any]]:

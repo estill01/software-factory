@@ -59,9 +59,9 @@ class MergeReadinessService:
             except (OSError, SyntaxError):
                 continue
             for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
-                    "test"
-                ):
+                if isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and node.name.startswith("test"):
                     identifiers.add(f"{relative}::{node.name}")
                 if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
                     for member in node.body:
@@ -168,9 +168,7 @@ class MergeReadinessService:
                 invalid.append(path.name)
                 continue
             versions.setdefault(int(match.group("version")), []).append(path.name)
-        duplicates = {
-            str(version): names for version, names in versions.items() if len(names) > 1
-        }
+        duplicates = {str(version): names for version, names in versions.items() if len(names) > 1}
         if invalid:
             findings.append(
                 ReadinessFinding(
@@ -328,11 +326,14 @@ class MergeReadinessService:
     def write_report(path: str | Path, report: Mapping[str, Any]) -> Path:
         output = Path(path)
         output.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            dict(report),
-            sort_keys=True,
-            indent=2,
-            ensure_ascii=False,
-        ) + "\n"
+        payload = (
+            json.dumps(
+                dict(report),
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
         output.write_text(payload, encoding="utf-8")
         return output

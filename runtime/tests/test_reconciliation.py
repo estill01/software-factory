@@ -3,14 +3,14 @@ from __future__ import annotations
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
 from software_factory.errors import InvalidTransition
-from software_factory.operations import OperationsService
 from software_factory.reconciliation import RepositoryReconciliationService
 
 
@@ -59,9 +59,7 @@ class TestStore:
 
 
 def git(root: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=root, capture_output=True, text=True, check=check
-    )
+    result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=check)
     return result.stdout.strip()
 
 
@@ -118,9 +116,7 @@ def test_accepted_branch_is_validated_published_by_cas_and_lane_retires(
     git(repository, "commit", "-m", "accepted feature")
     git(repository, "switch", "main")
     reconciliation = service()
-    item, bundle = accepted_item(
-        reconciliation, repository, "accepted-feature", tmp_path
-    )
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
     candidate = reconciliation.prepare_integration(
         item["id"],
         preservation_bundle_id=bundle["id"],
@@ -135,9 +131,10 @@ def test_accepted_branch_is_validated_published_by_cas_and_lane_retires(
     assert (repository / "app.py").read_text(encoding="utf-8") == "VALUE = 2\n"
     reconciliation.retire_integration_lane(candidate["id"])
     assert not Path(candidate["integration_worktree"]).exists()
-    assert candidate["integration_branch"] not in git(
-        repository, "branch", "--format=%(refname:short)"
-    ).splitlines()
+    assert (
+        candidate["integration_branch"]
+        not in git(repository, "branch", "--format=%(refname:short)").splitlines()
+    )
 
 
 def test_target_advance_after_validation_prevents_publication(tmp_path: Path) -> None:
@@ -150,9 +147,7 @@ def test_target_advance_after_validation_prevents_publication(tmp_path: Path) ->
     git(repository, "commit", "-m", "feature")
     git(repository, "switch", "main")
     reconciliation = service()
-    item, bundle = accepted_item(
-        reconciliation, repository, "accepted-feature", tmp_path
-    )
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
     candidate = reconciliation.prepare_integration(
         item["id"],
         preservation_bundle_id=bundle["id"],
@@ -178,9 +173,7 @@ def test_post_publish_failure_rolls_target_back(tmp_path: Path) -> None:
     git(repository, "commit", "-m", "feature")
     git(repository, "switch", "main")
     reconciliation = service()
-    item, bundle = accepted_item(
-        reconciliation, repository, "accepted-feature", tmp_path
-    )
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
     candidate = reconciliation.prepare_integration(
         item["id"],
         preservation_bundle_id=bundle["id"],

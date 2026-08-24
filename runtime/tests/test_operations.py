@@ -4,9 +4,10 @@ import json
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
@@ -64,9 +65,7 @@ def service() -> OperationsService:
 
 
 def git(root: Path, *args: str) -> str:
-    process = subprocess.run(
-        ["git", *args], cwd=root, capture_output=True, text=True, check=True
-    )
+    process = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=True)
     return process.stdout.strip()
 
 
@@ -100,9 +99,7 @@ def accepted_release(
         findings={"manifest_matches": True},
         evidence_ids=[f"review-{revision}"],
     )
-    return operations.store.one(
-        "SELECT * FROM immutable_releases_v2 WHERE id=?", (staged["id"],)
-    )  # type: ignore[return-value]
+    return operations.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (staged["id"],))  # type: ignore[return-value]
 
 
 def test_release_is_staged_immutably_reviewed_activated_and_verified(tmp_path: Path) -> None:
@@ -237,9 +234,7 @@ def test_unknown_cleanup_item_defaults_to_retain_and_cannot_retire(tmp_path: Pat
     assert item["classification"] == "unknown"
     assert item["disposition"] == "retain"
     with pytest.raises(InvalidTransition, match="proven safe"):
-        operations.execute_retirement(
-            item["id"], preservation_bundle_id="missing-bundle"
-        )
+        operations.execute_retirement(item["id"], preservation_bundle_id="missing-bundle")
 
 
 def test_redundant_branch_retires_only_after_verified_no_loss_bundle(tmp_path: Path) -> None:
@@ -260,8 +255,6 @@ def test_redundant_branch_retires_only_after_verified_no_loss_bundle(tmp_path: P
     bundle = operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "preserved"
     )
-    effect = operations.execute_retirement(
-        item["id"], preservation_bundle_id=bundle["id"]
-    )
+    effect = operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
     assert effect["status"] == "succeeded"
     assert "old-complete" not in git(repository, "branch", "--format=%(refname:short)").splitlines()

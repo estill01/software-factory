@@ -5,14 +5,17 @@ import sqlite3
 import threading
 from collections.abc import Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 
+from .audit import AuditMixin
 from .errors import StaleState, StoreError
-from .schema import MIGRATIONS, SCHEMA_VERSION, migration_sql
+from .schema import MIGRATIONS, SCHEMA_VERSION, migration_sql, validate_migration_catalog
 from .util import digest_bytes, utc_now
 
+_TRANSACTION_MODES = {"DEFERRED", "IMMEDIATE", "EXCLUSIVE"}
 
-class DatabaseStore:
+
+class _DatabaseStore:
     """SQLite persistence owner with transactional migrations and WAL semantics."""
 
     def __init__(self, path: str | Path):
@@ -36,6 +39,7 @@ class DatabaseStore:
         return db
 
     def initialize(self) -> None:
+        validate_migration_catalog()
         db = self.connect()
         try:
             db.execute(
@@ -46,10 +50,17 @@ class DatabaseStore:
                     applied_at TEXT NOT NULL
                 )"""
             )
-            applied = {
-                int(row["version"]): dict(row)
-                for row in db.execute("SELECT * FROM schema_migrations").fetchall()
-            }
+            applied_rows = [
+                dict(row)
+                for row in db.execute("SELECT * FROM schema_migrations ORDER BY version").fetchall()
+            ]
+            applied_versions = [int(row["version"]) for row in applied_rows]
+            expected_prefix = [
+                migration.version for migration in MIGRATIONS[: len(applied_versions)]
+            ]
+            if applied_versions != expected_prefix:
+                raise StoreError("applied migration history is unknown, duplicated, or gapped")
+            applied = {int(row["version"]): row for row in applied_rows}
             for migration in MIGRATIONS:
                 sql = migration_sql(migration)
                 checksum = digest_bytes(sql.encode("utf-8"))
@@ -82,14 +93,29 @@ class DatabaseStore:
 
     @contextlib.contextmanager
     def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
+        normalized_mode = mode.upper()
+        if normalized_mode not in _TRANSACTION_MODES:
+            raise ValueError(f"unsupported transaction mode: {mode}")
         current = getattr(self._local, "db", None)
         if current is not None:
-            yield current
+            sequence = int(getattr(self._local, "savepoint_sequence", 0)) + 1
+            self._local.savepoint_sequence = sequence
+            savepoint = f"software_factory_nested_{sequence}"
+            current.execute(f"SAVEPOINT {savepoint}")
+            try:
+                yield current
+                current.execute(f"RELEASE SAVEPOINT {savepoint}")
+            except Exception:
+                with contextlib.suppress(sqlite3.Error):
+                    current.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    current.execute(f"RELEASE SAVEPOINT {savepoint}")
+                raise
             return
         db = self.connect()
         self._local.db = db
+        self._local.savepoint_sequence = 0
         try:
-            db.execute(f"BEGIN {mode}")
+            db.execute(f"BEGIN {normalized_mode}")
             yield db
             db.execute("COMMIT")
         except Exception:
@@ -98,7 +124,28 @@ class DatabaseStore:
             raise
         finally:
             self._local.db = None
+            self._local.savepoint_sequence = 0
             db.close()
+
+    @overload
+    def one(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] | Mapping[str, Any] = (),
+        *,
+        required: Literal[True] = True,
+        db: sqlite3.Connection | None = None,
+    ) -> dict[str, Any]: ...
+
+    @overload
+    def one(
+        self,
+        sql: str,
+        parameters: tuple[Any, ...] | Mapping[str, Any] = (),
+        *,
+        required: Literal[False],
+        db: sqlite3.Connection | None = None,
+    ) -> dict[str, Any] | None: ...
 
     def one(
         self,
@@ -218,3 +265,11 @@ class DatabaseStore:
             "event_chains": event_chains,
             "orphaned_active_missions": orphaned,
         }
+
+
+class Database(AuditMixin, _DatabaseStore):
+    """Canonical transactional SQL state and hash-chained audit owner."""
+
+
+# Retained import compatibility without retaining a second persistence class.
+DatabaseStore = Database

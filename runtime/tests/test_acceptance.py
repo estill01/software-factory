@@ -27,8 +27,7 @@ def make_repository(tmp_path: Path) -> tuple[Path, str, str]:
     tests = repository / "runtime" / "tests"
     tests.mkdir(parents=True)
     (tests / "test_behavior.py").write_text(
-        "def test_passes():\n    assert True\n\n"
-        "def test_fails():\n    assert False\n",
+        "def test_passes():\n    assert True\n\ndef test_fails():\n    assert False\n",
         encoding="utf-8",
     )
     git(repository, "init")
@@ -36,8 +35,10 @@ def make_repository(tmp_path: Path) -> tuple[Path, str, str]:
     git(repository, "config", "user.name", "Acceptance Test")
     git(repository, "add", ".")
     git(repository, "commit", "-m", "initial")
-    return repository, git(repository, "rev-parse", "HEAD"), git(
-        repository, "rev-parse", "HEAD^{tree}"
+    return (
+        repository,
+        git(repository, "rev-parse", "HEAD"),
+        git(repository, "rev-parse", "HEAD^{tree}"),
     )
 
 

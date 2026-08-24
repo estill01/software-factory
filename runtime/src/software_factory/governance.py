@@ -92,11 +92,14 @@ class GovernanceService:
         parent_grant_id: str | None = None,
         max_uses: int = 1,
     ) -> dict[str, Any]:
-        if self.store.one(
-            "SELECT id FROM agent_sessions WHERE id=?",
-            (grantee_session_id,),
-            required=False,
-        ) is None:
+        if (
+            self.store.one(
+                "SELECT id FROM agent_sessions WHERE id=?",
+                (grantee_session_id,),
+                required=False,
+            )
+            is None
+        ):
             raise StoreError("grantee agent session does not exist")
         if _parse_time(expires_at) <= dt.datetime.now(dt.UTC):
             raise ValueError("role grant cannot be created expired")
@@ -104,9 +107,7 @@ class GovernanceService:
             raise ValueError("role grant max_uses must be positive")
         child_scope = dict(scope or {})
         if parent_grant_id is not None:
-            parent = self.store.one(
-                "SELECT * FROM role_grants_v2 WHERE id=?", (parent_grant_id,)
-            )
+            parent = self.store.one("SELECT * FROM role_grants_v2 WHERE id=?", (parent_grant_id,))
             if parent["status"] != "active" or _parse_time(parent["expires_at"]) <= dt.datetime.now(
                 dt.UTC
             ):
@@ -267,9 +268,7 @@ class GovernanceService:
                     now,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM acceptance_contracts_v2 WHERE id=?", (contract_id,)
-        )
+        return self.store.one("SELECT * FROM acceptance_contracts_v2 WHERE id=?", (contract_id,))
 
     def record_probe_result(
         self,
@@ -288,7 +287,9 @@ class GovernanceService:
         )
         if contract["status"] != "active" or contract["target_revision"] != exact_revision:
             raise InvalidTransition("acceptance contract is stale for this revision")
-        probes = {str(probe["key"]): probe for probe in _loads(contract["required_probes_json"], [])}
+        probes = {
+            str(probe["key"]): probe for probe in _loads(contract["required_probes_json"], [])
+        }
         if probe_key not in probes:
             raise InvalidTransition("probe is not part of the acceptance contract")
         evidence = _ids(evidence_ids)
@@ -345,9 +346,7 @@ class GovernanceService:
             raise InvalidTransition("review target revision is stale")
         if reviewer_session_id == implementer_session_id:
             raise InvalidTransition("implementer cannot independently review the revision")
-        reviewer = self.store.one(
-            "SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,)
-        )
+        reviewer = self.store.one("SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,))
         if str(reviewer.get("provider_session_id") or "") != provider_session_id:
             raise InvalidTransition("review provider identity does not match the granted session")
         self._validate_grant(
@@ -376,9 +375,7 @@ class GovernanceService:
         )
         review_id = new_id("independent-review")
         with self.store.transaction() as db:
-            current = db.execute(
-                "SELECT * FROM role_grants_v2 WHERE id=?", (grant_id,)
-            ).fetchone()
+            current = db.execute("SELECT * FROM role_grants_v2 WHERE id=?", (grant_id,)).fetchone()
             if current is None or current["status"] != "active":
                 raise InvalidTransition("role grant was consumed concurrently")
             use_count = int(current["use_count"]) + 1
@@ -578,9 +575,7 @@ class GovernanceService:
         lease_owner: str,
         lease_expires_at: str,
     ) -> dict[str, Any]:
-        effect = self.store.one(
-            "SELECT * FROM external_effect_intents_v2 WHERE id=?", (effect_id,)
-        )
+        effect = self.store.one("SELECT * FROM external_effect_intents_v2 WHERE id=?", (effect_id,))
         if effect["status"] not in {"claimed", "ambiguous", "failed"}:
             raise InvalidTransition("effect is not startable")
         with self.store.transaction() as db:
@@ -599,9 +594,7 @@ class GovernanceService:
         provider_reference: str,
         observed_result: Mapping[str, Any],
     ) -> dict[str, Any]:
-        effect = self.store.one(
-            "SELECT * FROM external_effect_intents_v2 WHERE id=?", (effect_id,)
-        )
+        effect = self.store.one("SELECT * FROM external_effect_intents_v2 WHERE id=?", (effect_id,))
         if effect["status"] not in {"started", "ambiguous", "observed"}:
             raise InvalidTransition("effect is not awaiting observation")
         with self.store.transaction() as db:
@@ -626,9 +619,7 @@ class GovernanceService:
         succeeded: bool,
         error: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        effect = self.store.one(
-            "SELECT * FROM external_effect_intents_v2 WHERE id=?", (effect_id,)
-        )
+        effect = self.store.one("SELECT * FROM external_effect_intents_v2 WHERE id=?", (effect_id,))
         if effect["status"] not in {"observed", "started", "ambiguous"}:
             raise InvalidTransition("effect is not completable")
         with self.store.transaction() as db:

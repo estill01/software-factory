@@ -3,9 +3,10 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sqlite3
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any
 
 import pytest
 
@@ -66,8 +67,8 @@ class FailingAdapter:
 
 
 def future(seconds: int = 3600) -> str:
-    return (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=seconds)).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
     )
 
 
@@ -139,15 +140,11 @@ def test_notification_outbox_deduplicates_delivers_and_records_readback(
         dedupe_material={"mission": "mission-1", "checkpoint": 3},
     )
     assert duplicate["id"] == queued["id"]
-    delivered = reporting.dispatch_notification(
-        queued["id"], adapter=FileNotificationAdapter()
-    )
+    delivered = reporting.dispatch_notification(queued["id"], adapter=FileNotificationAdapter())
     assert delivered["status"] == "delivered"
     payload = json.loads(destination.read_text(encoding="utf-8"))
     assert payload["notification_id"] == queued["id"]
-    read = reporting.record_readback(
-        queued["id"], readback={"provider": "file", "opened": True}
-    )
+    read = reporting.record_readback(queued["id"], readback={"provider": "file", "opened": True})
     assert read["status"] == "read"
 
 
@@ -228,7 +225,5 @@ def test_terminal_shutdown_gate_requires_report_delivery_and_empty_outbox(tmp_pa
     )
     assert reporting.terminal_delivery_ready("mission-1") is False
     with reporting.store.transaction() as db:
-        db.execute(
-            "UPDATE reports_v2 SET status='delivered' WHERE id=?", (report["id"],)
-        )
+        db.execute("UPDATE reports_v2 SET status='delivered' WHERE id=?", (report["id"],))
     assert reporting.terminal_delivery_ready("mission-1") is True

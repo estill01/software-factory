@@ -1,71 +1,35 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import sys
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from tempfile import TemporaryDirectory
+from typing import Any
 
 import pytest
 
+from software_factory.database import Database
 from software_factory.errors import InvalidTransition
 from software_factory.learning import LearningService
 from software_factory.migration import MigrationService
 
 
-class TestStore:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.executescript(
-            """
-            CREATE TABLE missions(id TEXT PRIMARY KEY);
-            CREATE TABLE agent_sessions(id TEXT PRIMARY KEY);
-            INSERT INTO missions(id) VALUES('mission-1');
-            """
-        )
-        migrations = Path(__file__).parents[1] / "src" / "software_factory" / "migrations"
-        self.connection.executescript(
-            (migrations / "0009_learning_runtime.sql").read_text(encoding="utf-8")
-        )
-        self.connection.executescript(
-            (migrations / "0013_migration_cutover.sql").read_text(encoding="utf-8")
-        )
-
-    @contextmanager
-    def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
-        self.connection.execute(f"BEGIN {mode}")
-        try:
-            yield self.connection
-        except BaseException:
-            self.connection.rollback()
-            raise
-        else:
-            self.connection.commit()
-
-    def one(
-        self,
-        sql: str,
-        parameters: tuple[Any, ...] = (),
-        *,
-        required: bool = True,
-    ) -> dict[str, Any] | None:
-        row = self.connection.execute(sql, parameters).fetchone()
-        if row is None:
-            if required:
-                raise LookupError(sql)
-            return None
-        return dict(row)
-
-    def all(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.connection.execute(sql, parameters).fetchall()]
-
-
 def services() -> tuple[MigrationService, LearningService]:
-    store = TestStore()
-    return MigrationService(store), LearningService(store)  # type: ignore[arg-type]
+    temporary_directory = TemporaryDirectory()
+    database = Database(Path(temporary_directory.name) / "factory.sqlite3")
+    now = "2026-01-01T00:00:00Z"
+    with database.transaction() as db:
+        db.execute(
+            """INSERT INTO missions(
+                   id,title,objective,status,autonomy_mode,created_at,updated_at
+               ) VALUES('mission-1','mission','migrate','active','full_autonomous',?,?)""",
+            (now, now),
+        )
+    migration = MigrationService(database)
+    learning = LearningService(database)
+    migration._test_temporary_directory = temporary_directory  # type: ignore[attr-defined]
+    learning._test_temporary_directory = temporary_directory  # type: ignore[attr-defined]
+    return migration, learning
 
 
 def make_source(root: Path) -> None:
@@ -253,10 +217,10 @@ def test_actual_cutover_moves_legacy_owner_and_rolls_back_exact_bytes(
     applied = migration.apply_cutover(cutover["id"])
     assert applied["status"] == "verified"
     assert not (repository / "v1-source").exists()
-    assert (repository / "legacy" / "v1" / "v1-source" / "docs" / "tracker.md").read_bytes() == before
-    marker = json.loads(
-        (repository / ".software-factory-runtime.json").read_text(encoding="utf-8")
-    )
+    assert (
+        repository / "legacy" / "v1" / "v1-source" / "docs" / "tracker.md"
+    ).read_bytes() == before
+    marker = json.loads((repository / ".software-factory-runtime.json").read_text(encoding="utf-8"))
     assert marker["active_runtime"] == "runtime"
     assert marker["one_writer"] is True
     rolled_back = migration.rollback_cutover(cutover["id"])
@@ -272,9 +236,7 @@ def test_interrupted_cutover_reconciles_already_moved_path(tmp_path: Path) -> No
     destination.parent.mkdir(parents=True)
     source.replace(destination)
     with migration.store.transaction() as db:
-        db.execute(
-            "UPDATE cutover_effects_v2 SET status='failed' WHERE id=?", (cutover["id"],)
-        )
+        db.execute("UPDATE cutover_effects_v2 SET status='failed' WHERE id=?", (cutover["id"],))
     recovered = migration.recover_interrupted_cutover(cutover["id"])
     assert recovered["status"] == "verified"
     assert destination.is_dir()

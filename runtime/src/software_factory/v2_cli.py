@@ -7,12 +7,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import cli as base_cli
-from .advanced import AdvancedServices
 from .api_main import main as api_main
 from .doctor import RuntimeDoctor
 from .entrypoints import context_core, context_store, open_context
-from .migration import MigrationService
-from .reporting import ReportingService
 
 _ADVANCED_COMMANDS = {
     "advanced-tick",
@@ -76,9 +73,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     context = open_context(args.home)
     store = context_store(context)
     core = context_core(context)
-    advanced = AdvancedServices(store)
-    migration = MigrationService(store)
-    reporting = ReportingService(store)
+    advanced = core.advanced
+    migration = core.migration
+    reporting = core.reporting
 
     if args.command == "advanced-tick":
         result = (
@@ -96,17 +93,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "migration-inventory":
         result = migration.inventory_source(args.source_root)
     elif args.command == "migration-backup":
-        result = migration.create_backup(
-            args.migration_id, output_directory=args.output_directory
-        )
+        result = migration.create_backup(args.migration_id, output_directory=args.output_directory)
     elif args.command == "migration-import":
-        result = migration.import_historical(
-            args.migration_id, target_mission_id=args.mission
-        )
+        result = migration.import_historical(args.migration_id, target_mission_id=args.mission)
     elif args.command == "factory-floor":
         from .api import FactoryAPI
 
-        result = FactoryAPI(store, advanced).factory_floor(args.mission)
+        result = FactoryAPI(store, advanced, reporting=reporting).factory_floor(args.mission)
     else:
         raise RuntimeError(f"unhandled command: {args.command}")
     print(json.dumps(result, sort_keys=True, default=str))

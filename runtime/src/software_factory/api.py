@@ -40,17 +40,21 @@ def _loads(value: Any, default: Any) -> Any:
 
 
 class FactoryAPI:
-    def __init__(self, store: Store, advanced: AdvancedServices | None = None):
+    def __init__(
+        self,
+        store: Store,
+        advanced: AdvancedServices | None = None,
+        *,
+        reporting: ReportingService | None = None,
+    ):
         self.store = store
         self.advanced = advanced or AdvancedServices(store)
-        self.reporting = ReportingService(store)
+        self.reporting = reporting or ReportingService(store)
 
     def health(self) -> dict[str, Any]:
         try:
             integrity = self.store.one("PRAGMA integrity_check")
-            schema = self.store.all(
-                "SELECT version,name FROM schema_migrations ORDER BY version"
-            )
+            schema = self.store.all("SELECT version,name FROM schema_migrations ORDER BY version")
             ok = bool(integrity) and list(integrity.values())[0] == "ok"
         except BaseException as exc:
             return {"ok": False, "error": str(exc), "checked_at": utc_now()}
@@ -65,7 +69,8 @@ class FactoryAPI:
         mission_filter = " WHERE mission_id=?" if mission_id else ""
         parameters = (mission_id,) if mission_id else ()
         missions = self.store.all(
-            "SELECT id,status,goal,created_at,updated_at FROM missions ORDER BY created_at DESC LIMIT 100"
+            """SELECT id,status,title,objective,created_at,updated_at
+               FROM missions ORDER BY created_at DESC LIMIT 100"""
         )
         work = self.store.all(
             """SELECT id,mission_id,title,work_type,planning_status,execution_status,
@@ -76,22 +81,20 @@ class FactoryAPI:
             parameters,
         )
         agents = self.store.all(
-            """SELECT id,provider,provider_session_id,intended_role,observed_status,
-                      current_assignment_id,last_heartbeat_at,updated_at
-               FROM agent_sessions ORDER BY updated_at DESC LIMIT 250"""
+            """SELECT id,mission_id,provider,external_thread_id,external_task_id,role,
+                      observed_status,last_heartbeat_at,started_at,stopped_at
+               FROM agent_sessions ORDER BY started_at DESC LIMIT 250"""
         )
         executions = self.store.all(
             """SELECT id,mission_id,work_item_id,agent_session_id,status,provider_key,
-                      attempt_number,lease_generation,started_at,completed_at
+                      attempt_number,lease_generation,started_at,finished_at
                FROM executions"""
             + mission_filter
             + " ORDER BY created_at DESC LIMIT 250",
             parameters,
         )
         incidents = self.store.all(
-            "SELECT * FROM supervision_incidents"
-            + mission_filter
-            + " ORDER BY opened_at DESC LIMIT 250",
+            "SELECT * FROM incidents" + mission_filter + " ORDER BY created_at DESC LIMIT 250",
             parameters,
         )
         signals = self.store.all(
@@ -101,15 +104,11 @@ class FactoryAPI:
             parameters,
         )
         reflections = self.store.all(
-            "SELECT * FROM reflections_v2"
-            + mission_filter
-            + " ORDER BY created_at DESC LIMIT 100",
+            "SELECT * FROM reflections_v2" + mission_filter + " ORDER BY created_at DESC LIMIT 100",
             parameters,
         )
         experiments = self.store.all(
-            "SELECT * FROM experiments_v2"
-            + mission_filter
-            + " ORDER BY created_at DESC LIMIT 100",
+            "SELECT * FROM experiments_v2" + mission_filter + " ORDER BY created_at DESC LIMIT 100",
             parameters,
         )
         releases = self.store.all(
@@ -138,15 +137,13 @@ class FactoryAPI:
         }
 
     def mission_detail(self, mission_id: str) -> dict[str, Any]:
-        mission = self.store.one(
-            "SELECT * FROM missions WHERE id=?", (mission_id,), required=False
-        )
+        mission = self.store.one("SELECT * FROM missions WHERE id=?", (mission_id,), required=False)
         if mission is None:
             raise StoreError("mission not found")
         floor = self.factory_floor(mission_id)
         floor["mission"] = mission
-        floor["adaptive_cases"] = self.store.all(
-            """SELECT * FROM retained_adaptive_cases
+        floor["strategy_outcomes"] = self.store.all(
+            """SELECT * FROM strategy_outcomes
                WHERE mission_id=? ORDER BY created_at DESC LIMIT 250""",
             (mission_id,),
         )
@@ -180,42 +177,30 @@ class FactoryAPI:
             action_name = str(record["action"])
             target = str(record["target_id"])
             if action_name == "pause_schedule":
-                with self.store.transaction() as db:
-                    db.execute(
-                        "UPDATE schedules_v2 SET status='paused',updated_at=? WHERE id=?",
-                        (utc_now(), target),
-                    )
-                    if db.execute("SELECT changes()").fetchone()[0] != 1:
-                        raise StoreError("schedule not found")
+                self.reporting.set_schedule_status(
+                    target,
+                    status="paused",
+                    operator_decision_id=str(record["id"]),
+                )
                 return {"paused": target}
             if action_name == "resume_schedule":
-                with self.store.transaction() as db:
-                    db.execute(
-                        "UPDATE schedules_v2 SET status='active',updated_at=? WHERE id=?",
-                        (utc_now(), target),
-                    )
-                    if db.execute("SELECT changes()").fetchone()[0] != 1:
-                        raise StoreError("schedule not found")
+                self.reporting.set_schedule_status(
+                    target,
+                    status="active",
+                    operator_decision_id=str(record["id"]),
+                )
                 return {"resumed": target}
             if action_name == "cancel_work":
-                with self.store.transaction() as db:
-                    db.execute(
-                        """UPDATE work_items
-                           SET execution_status='cancelled',updated_at=? WHERE id=?""",
-                        (utc_now(), target),
-                    )
-                    if db.execute("SELECT changes()").fetchone()[0] != 1:
-                        raise StoreError("work item not found")
+                self.advanced.work_items.cancel_work(
+                    target,
+                    operator_decision_id=str(record["id"]),
+                )
                 return {"cancelled": target}
             if action_name == "acknowledge_incident":
-                with self.store.transaction() as db:
-                    db.execute(
-                        """UPDATE supervision_incidents
-                           SET status='accepted_risk',updated_at=? WHERE id=?""",
-                        (utc_now(), target),
-                    )
-                    if db.execute("SELECT changes()").fetchone()[0] != 1:
-                        raise StoreError("incident not found")
+                self.advanced.supervision.acknowledge_incident(
+                    target,
+                    operator_decision_id=str(record["id"]),
+                )
                 return {"acknowledged": target}
             raise InvalidTransition(f"operator action has no governed owner: {action_name}")
 

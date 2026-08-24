@@ -165,9 +165,7 @@ class OperationsService:
         findings: Mapping[str, Any],
         evidence_ids: Sequence[str],
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         if release["status"] != "staged":
             raise InvalidTransition("only a staged release may be reviewed")
         if reviewer_session_id == release["implementer_session_id"]:
@@ -185,8 +183,10 @@ class OperationsService:
             }
         )
         review_id = new_id("release-review")
-        status = "accepted" if disposition == "accepted" else (
-            "rejected" if disposition == "rejected" else "staged"
+        status = (
+            "accepted"
+            if disposition == "accepted"
+            else ("rejected" if disposition == "rejected" else "staged")
         )
         with self.store.transaction() as db:
             db.execute(
@@ -233,9 +233,7 @@ class OperationsService:
         *,
         release_root: str | Path,
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         if release["review_status"] != "accepted" or release["status"] != "accepted":
             raise InvalidTransition("release must pass independent review before activation")
         previous = self.store.one(
@@ -276,9 +274,7 @@ class OperationsService:
         verification_type: Literal["fresh_process", "installed", "health"] = "fresh_process",
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         if release["status"] != "active":
             raise InvalidTransition("only the active release may be installed-verified")
         process = subprocess.run(
@@ -342,9 +338,7 @@ class OperationsService:
         release_root: str | Path,
         evidence_ids: Sequence[str],
     ) -> dict[str, Any]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         if not evidence_ids:
             raise ValueError("release rollback requires evidence")
         previous = None
@@ -391,9 +385,7 @@ class OperationsService:
         release_id: str,
         agents: Sequence[Mapping[str, Any]],
     ) -> list[dict[str, Any]]:
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         if release["status"] != "active" or release["verification_status"] != "passed":
             raise InvalidTransition("agents refresh only after installed release verification")
         refreshes: list[dict[str, Any]] = []
@@ -437,9 +429,12 @@ class OperationsService:
         tracker_currentness_root: str,
         safe_frontier: Sequence[Mapping[str, Any]],
     ) -> dict[str, Any]:
-        if self.store.one(
-            "SELECT id FROM missions WHERE id=?", (target_mission_id,), required=False
-        ) is None:
+        if (
+            self.store.one(
+                "SELECT id FROM missions WHERE id=?", (target_mission_id,), required=False
+            )
+            is None
+        ):
             raise StoreError(f"mission not found: {target_mission_id}")
         defect_fingerprint = _digest(
             {"defect_class": defect_class, "defect_evidence": dict(defect_evidence)}
@@ -486,9 +481,7 @@ class OperationsService:
                     now,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM factory_recovery_cases_v2 WHERE id=?", (recovery_id,)
-        )
+        return self.store.one("SELECT * FROM factory_recovery_cases_v2 WHERE id=?", (recovery_id,))
 
     def record_repair(
         self,
@@ -503,9 +496,7 @@ class OperationsService:
         )
         if recovery["status"] not in {"detected", "repairing", "qa", "releasing", "failed"}:
             raise InvalidTransition("recovery is not awaiting a repaired release")
-        release = self.store.one(
-            "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,)
-        )
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         if release["source_revision"] != repair_revision:
             raise InvalidTransition("recovery repair revision differs from release revision")
         if release["verification_status"] != "passed":
@@ -515,11 +506,15 @@ class OperationsService:
                 """UPDATE factory_recovery_cases_v2
                    SET repair_revision=?,repair_evidence_ids_json=?,release_id=?,
                        status='restoring',updated_at=? WHERE id=?""",
-                (repair_revision, _canonical(_ids(evidence_ids)), release_id, utc_now(), recovery_id),
+                (
+                    repair_revision,
+                    _canonical(_ids(evidence_ids)),
+                    release_id,
+                    utc_now(),
+                    recovery_id,
+                ),
             )
-        return self.store.one(
-            "SELECT * FROM factory_recovery_cases_v2 WHERE id=?", (recovery_id,)
-        )
+        return self.store.one("SELECT * FROM factory_recovery_cases_v2 WHERE id=?", (recovery_id,))
 
     def reserve_exact_once_resume(
         self,
@@ -578,9 +573,7 @@ class OperationsService:
         return self.store.one("SELECT * FROM recovery_resume_tokens_v2 WHERE id=?", (token_id,))
 
     def mark_resume_sent(self, token_id: str) -> dict[str, Any]:
-        token = self.store.one(
-            "SELECT * FROM recovery_resume_tokens_v2 WHERE id=?", (token_id,)
-        )
+        token = self.store.one("SELECT * FROM recovery_resume_tokens_v2 WHERE id=?", (token_id,))
         if token["status"] == "sent":
             return token
         if token["status"] != "reserved":
@@ -625,9 +618,7 @@ class OperationsService:
                    SET status=?,resolved_at=?,updated_at=? WHERE id=?""",
                 (status, now if status == "resolved" else None, now, recovery_id),
             )
-        return self.store.one(
-            "SELECT * FROM factory_recovery_cases_v2 WHERE id=?", (recovery_id,)
-        )
+        return self.store.one("SELECT * FROM factory_recovery_cases_v2 WHERE id=?", (recovery_id,))
 
     def inventory_repository(
         self,
@@ -639,7 +630,15 @@ class OperationsService:
         root = Path(repository_root).resolve()
         head = _run_git(root, "rev-parse", "HEAD", check=False).stdout.strip() or None
         branches = [
-            line for line in _run_git(root, "for-each-ref", "--format=%(refname:short)|%(objectname)|%(upstream:short)", "refs/heads", check=False).stdout.splitlines() if line
+            line
+            for line in _run_git(
+                root,
+                "for-each-ref",
+                "--format=%(refname:short)|%(objectname)|%(upstream:short)",
+                "refs/heads",
+                check=False,
+            ).stdout.splitlines()
+            if line
         ]
         worktrees_raw = _run_git(root, "worktree", "list", "--porcelain", check=False).stdout
         worktrees: list[dict[str, str]] = []
@@ -653,12 +652,20 @@ class OperationsService:
             key, _, value = line.partition(" ")
             current[key] = value
         stashes = [
-            line for line in _run_git(root, "stash", "list", "--format=%gd|%H|%gs", check=False).stdout.splitlines() if line
+            line
+            for line in _run_git(
+                root, "stash", "list", "--format=%gd|%H|%gs", check=False
+            ).stdout.splitlines()
+            if line
         ]
-        status_lines = _run_git(root, "status", "--porcelain=v2", "--untracked-files=all", check=False).stdout.splitlines()
+        status_lines = _run_git(
+            root, "status", "--porcelain=v2", "--untracked-files=all", check=False
+        ).stdout.splitlines()
         detached = [
             line
-            for line in _run_git(root, "fsck", "--unreachable", "--no-reflogs", check=False).stdout.splitlines()
+            for line in _run_git(
+                root, "fsck", "--unreachable", "--no-reflogs", check=False
+            ).stdout.splitlines()
             if "commit" in line
         ]
         payload = {
@@ -695,9 +702,7 @@ class OperationsService:
                     utc_now(),
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM repository_inventories_v2 WHERE id=?", (inventory_id,)
-        )
+        return self.store.one("SELECT * FROM repository_inventories_v2 WHERE id=?", (inventory_id,))
 
     def preserve_repository(
         self,
@@ -744,9 +749,7 @@ class OperationsService:
                 "untracked_archive_sha256": _file_digest(untracked_archive),
                 "untracked_paths": sorted(untracked),
             }
-            (temporary / "manifest.json").write_text(
-                _canonical(manifest) + "\n", encoding="utf-8"
-            )
+            (temporary / "manifest.json").write_text(_canonical(manifest) + "\n", encoding="utf-8")
             with tarfile.open(archive_path, "w:gz") as tar:
                 for path in sorted(temporary.iterdir()):
                     tar.add(path, arcname=path.name)
@@ -755,7 +758,12 @@ class OperationsService:
         bundle_root = _file_digest(archive_path)
         with tarfile.open(archive_path, "r:gz") as tar:
             names = set(tar.getnames())
-        verified = {"repository.bundle", "working-tree.patch", "untracked.tar", "manifest.json"} <= names
+        verified = {
+            "repository.bundle",
+            "working-tree.patch",
+            "untracked.tar",
+            "manifest.json",
+        } <= names
         with self.store.transaction() as db:
             db.execute(
                 """INSERT INTO preservation_bundles_v2(
@@ -780,17 +788,26 @@ class OperationsService:
         inventory_id: str,
         *,
         item_type: Literal[
-            "branch", "worktree", "stash", "dirty_file", "untracked_file", "detached_commit", "task_owner"
+            "branch",
+            "worktree",
+            "stash",
+            "dirty_file",
+            "untracked_file",
+            "detached_commit",
+            "task_owner",
         ],
         item_key: str,
         classification: Literal[
             "active", "accepted", "unfinished", "redundant", "historical", "unknown", "protected"
         ] = "unknown",
-        disposition: Literal["retain", "preserve", "integrate", "retire", "restart", "defer"] | None = None,
+        disposition: Literal["retain", "preserve", "integrate", "retire", "restart", "defer"]
+        | None = None,
         evidence: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         if disposition is None:
-            disposition = "retain" if classification in {"active", "unknown", "protected"} else "preserve"
+            disposition = (
+                "retain" if classification in {"active", "unknown", "protected"} else "preserve"
+            )
         if disposition == "retire" and classification not in {"redundant", "historical"}:
             raise InvalidTransition("only proven redundant or historical items may retire")
         item_id = new_id("cleanup-item")
@@ -822,19 +839,25 @@ class OperationsService:
         preservation_bundle_id: str,
     ) -> dict[str, Any]:
         item = self.store.one("SELECT * FROM cleanup_items_v2 WHERE id=?", (cleanup_item_id,))
-        if item["disposition"] != "retire" or item["classification"] not in {"redundant", "historical"}:
+        if item["disposition"] != "retire" or item["classification"] not in {
+            "redundant",
+            "historical",
+        }:
             raise InvalidTransition("cleanup item is not proven safe to retire")
         bundle = self.store.one(
             "SELECT * FROM preservation_bundles_v2 WHERE id=?", (preservation_bundle_id,)
         )
         if not bundle["verified"] or bundle["inventory_id"] != item["inventory_id"]:
-            raise InvalidTransition("cleanup retirement lacks a verified matching preservation bundle")
+            raise InvalidTransition(
+                "cleanup retirement lacks a verified matching preservation bundle"
+            )
         inventory = self.store.one(
             "SELECT * FROM repository_inventories_v2 WHERE id=?", (item["inventory_id"],)
         )
         active_writers = _loads(inventory["active_writers_json"], [])
         if any(
-            item["item_key"] in {writer.get("branch"), writer.get("worktree"), writer.get("task_owner")}
+            item["item_key"]
+            in {writer.get("branch"), writer.get("worktree"), writer.get("task_owner")}
             for writer in active_writers
         ):
             raise InvalidTransition("cleanup item still has an active writer")
@@ -850,7 +873,13 @@ class OperationsService:
                 """INSERT INTO cleanup_effects_v2(
                        id,cleanup_item_id,effect_type,precondition_json,status,updated_at
                    ) VALUES(?,?,?,?,'running',?)""",
-                (effect_id, cleanup_item_id, f"retire_{item['item_type']}", _canonical(precondition), utc_now()),
+                (
+                    effect_id,
+                    cleanup_item_id,
+                    f"retire_{item['item_type']}",
+                    _canonical(precondition),
+                    utc_now(),
+                ),
             )
             db.execute(
                 "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",

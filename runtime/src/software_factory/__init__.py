@@ -4,6 +4,7 @@ from .adaptive import AdaptiveExecutionService
 from .audit import CommandEnvelope
 from .controller import ControllerService
 from .core import CoreService
+from .database import Database
 from .errors import (
     AuthorityDenied,
     EvidenceInvalid,
@@ -31,6 +32,7 @@ __all__ = [
     "AuthorityDenied",
     "CommandEnvelope",
     "CoreService",
+    "Database",
     "ControllerService",
     "EvidenceInvalid",
     "InvalidTransition",

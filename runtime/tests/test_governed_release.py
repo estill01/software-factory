@@ -3,9 +3,10 @@ from __future__ import annotations
 import datetime as dt
 import sqlite3
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
@@ -72,9 +73,7 @@ class TestStore:
 
 
 def future() -> str:
-    return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat().replace(
-        "+00:00", "Z"
-    )
+    return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
 
 
 def stage(service: GovernedReleaseService, tmp_path: Path) -> tuple[dict[str, Any], Path]:

@@ -1,70 +1,40 @@
 from __future__ import annotations
 
-import sqlite3
 import sys
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from tempfile import TemporaryDirectory
+from typing import Any
 
 import pytest
 
+from software_factory.database import Database
 from software_factory.errors import InvalidTransition
 from software_factory.learning import LearningService
 
 
-class TestStore:
-    def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.executescript(
-            """
-            CREATE TABLE missions(id TEXT PRIMARY KEY);
-            CREATE TABLE agent_sessions(id TEXT PRIMARY KEY);
-            """
-        )
-        migration = (
-            Path(__file__).parents[1]
-            / "src"
-            / "software_factory"
-            / "migrations"
-            / "0009_learning_runtime.sql"
-        )
-        self.connection.executescript(migration.read_text(encoding="utf-8"))
-        self.connection.execute("INSERT INTO missions(id) VALUES('mission-1')")
-        self.connection.execute("INSERT INTO agent_sessions(id) VALUES('evaluator-1')")
-
-    @contextmanager
-    def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
-        self.connection.execute(f"BEGIN {mode}")
-        try:
-            yield self.connection
-        except BaseException:
-            self.connection.rollback()
-            raise
-        else:
-            self.connection.commit()
-
-    def one(
-        self,
-        sql: str,
-        parameters: tuple[Any, ...] = (),
-        *,
-        required: bool = True,
-    ) -> dict[str, Any] | None:
-        row = self.connection.execute(sql, parameters).fetchone()
-        if row is None:
-            if required:
-                raise LookupError(sql)
-            return None
-        return dict(row)
-
-    def all(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.connection.execute(sql, parameters).fetchall()]
-
-
 def service() -> LearningService:
-    return LearningService(TestStore())  # type: ignore[arg-type]
+    temporary_directory = TemporaryDirectory()
+    database = Database(Path(temporary_directory.name) / "factory.sqlite3")
+    now = "2026-01-01T00:00:00Z"
+    with database.transaction() as db:
+        db.execute(
+            """INSERT INTO missions(
+                   id,title,objective,status,autonomy_mode,created_at,updated_at
+               ) VALUES('mission-1','mission','learn','active','full_autonomous',?,?)""",
+            (now, now),
+        )
+        db.execute(
+            """INSERT INTO agent_sessions(
+                   id,mission_id,provider,role,desired_status,observed_status,
+                   metadata_json,started_at
+               ) VALUES(
+                   'evaluator-1','mission-1','test','evaluator','running','active','{}',?
+               )""",
+            (now,),
+        )
+    learning = LearningService(database)
+    learning._test_temporary_directory = temporary_directory  # type: ignore[attr-defined]
+    return learning
 
 
 def evaluated_candidate(learning: LearningService) -> dict[str, Any]:
@@ -154,9 +124,7 @@ def test_promotion_requires_replay_shadow_canary_and_qa() -> None:
 def test_detector_and_route_promote_atomically_then_match_later_event() -> None:
     learning = service()
     candidate = evaluated_candidate(learning)
-    bundle = learning.promote_candidate(
-        candidate["id"], activated_by_session_id="evaluator-1"
-    )
+    bundle = learning.promote_candidate(candidate["id"], activated_by_session_id="evaluator-1")
     assert bundle["status"] == "active"
     assert learning.store.one(
         "SELECT status FROM learned_signal_candidates WHERE id=?", (candidate["id"],)

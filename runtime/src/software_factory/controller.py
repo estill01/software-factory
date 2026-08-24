@@ -204,7 +204,7 @@ class ControllerService:
                 raise StoreError("work item not found")
             work = dict(work_row)
             if self.adaptive is not None:
-                self.adaptive.assert_strategy_allowed(work_id)
+                self.adaptive.assert_strategy_allowed(work_id, db=db)
             if work["planning_status"] != "selected" or work["execution_status"] not in {
                 "not_started",
                 "abandoned",

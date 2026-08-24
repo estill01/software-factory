@@ -3,10 +3,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import os
-import shutil
+import subprocess
 import tarfile
-import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
@@ -170,9 +168,7 @@ class MigrationService:
         *,
         output_directory: str | Path,
     ) -> dict[str, Any]:
-        migration = self.store.one(
-            "SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,)
-        )
+        migration = self.store.one("SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,))
         if migration["status"] not in {"inventoried", "failed"}:
             raise InvalidTransition("migration is not awaiting backup")
         root = Path(migration["source_root"]).resolve()
@@ -215,9 +211,7 @@ class MigrationService:
         *,
         target_mission_id: str | None = None,
     ) -> dict[str, Any]:
-        migration = self.store.one(
-            "SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,)
-        )
+        migration = self.store.one("SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,))
         if migration["status"] not in {"backed_up", "importing", "failed"}:
             raise InvalidTransition("migration requires a verified backup before import")
         root = Path(migration["source_root"])
@@ -268,10 +262,19 @@ class MigrationService:
                                     target_mission_id,
                                     "legacy",
                                     str(record.get("id", item["relative_path"])),
-                                    str(record.get("event_type", record.get("kind", "legacy-event"))),
+                                    str(
+                                        record.get("event_type", record.get("kind", "legacy-event"))
+                                    ),
                                     str(record.get("classification", "neutral"))
                                     if str(record.get("classification", "neutral"))
-                                    in {"neutral", "progress", "failure", "success", "mixed", "opportunity"}
+                                    in {
+                                        "neutral",
+                                        "progress",
+                                        "failure",
+                                        "success",
+                                        "mixed",
+                                        "opportunity",
+                                    }
                                     else "neutral",
                                     _canonical(dict(record)),
                                     str(record.get("created_at", utc_now())),
@@ -334,9 +337,7 @@ class MigrationService:
         *,
         explicit_mapping: Mapping[str, Sequence[str]] | None = None,
     ) -> list[dict[str, Any]]:
-        migration = self.store.one(
-            "SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,)
-        )
+        migration = self.store.one("SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,))
         if migration["status"] not in {"imported", "parity", "failed"}:
             raise InvalidTransition("migration has not completed historical import")
         root = Path(migration["source_root"])
@@ -505,9 +506,7 @@ class MigrationService:
         legacy_archive_root: str = "legacy/v1",
         active_writer_probe: Mapping[str, Any],
     ) -> dict[str, Any]:
-        migration = self.store.one(
-            "SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,)
-        )
+        migration = self.store.one("SELECT * FROM migration_runs_v2 WHERE id=?", (migration_id,))
         if migration["status"] != "parity" or not migration["backup_root"]:
             raise InvalidTransition("cutover requires backup and accepted parity")
         if int(active_writer_probe.get("legacy_writers", -1)) != 0:

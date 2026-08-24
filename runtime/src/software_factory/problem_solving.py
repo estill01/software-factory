@@ -89,9 +89,10 @@ class ProblemSolvingService:
         self.learning = learning or LearningService(store)
 
     def _require_mission(self, mission_id: str) -> None:
-        if self.store.one(
-            "SELECT id FROM missions WHERE id=?", (mission_id,), required=False
-        ) is None:
+        if (
+            self.store.one("SELECT id FROM missions WHERE id=?", (mission_id,), required=False)
+            is None
+        ):
             raise StoreError(f"mission not found: {mission_id}")
 
     def begin_cycle(
@@ -143,9 +144,7 @@ class ProblemSolvingService:
                     now,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,)
-        )
+        return self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
 
     def propose_strategy(
         self,
@@ -164,9 +163,7 @@ class ProblemSolvingService:
         estimated_cost: float = 0.0,
         estimated_risk: float = 0.0,
     ) -> dict[str, Any]:
-        cycle = self.store.one(
-            "SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,)
-        )
+        cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
         if cycle["status"] not in {"open", "experimenting", "executing", "verifying"}:
             raise InvalidTransition("problem-solving cycle is not accepting strategies")
         if not strategy or not rationale or not expected_effect:
@@ -198,8 +195,7 @@ class ProblemSolvingService:
             for attempt in attempts:
                 prior_evidence.update(_loads(attempt["basis_evidence_ids_json"], []))
         prior_terminal = any(
-            candidate["status"] in {"failed", "ineffective", "rejected"}
-            for candidate in prior
+            candidate["status"] in {"failed", "ineffective", "rejected"} for candidate in prior
         )
         if prior_terminal and not (set(evidence) - prior_evidence):
             raise InvalidTransition(
@@ -259,9 +255,7 @@ class ProblemSolvingService:
                     estimated_risk,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM strategy_candidates_v2 WHERE id=?", (candidate_id,)
-        )
+        return self.store.one("SELECT * FROM strategy_candidates_v2 WHERE id=?", (candidate_id,))
 
     def _prerequisites_satisfied(
         self, candidate: Mapping[str, Any], selected_ids: set[str] | None = None
@@ -288,9 +282,7 @@ class ProblemSolvingService:
         authority: Mapping[str, Any],
         max_parallel: int = 4,
     ) -> dict[str, Any]:
-        cycle = self.store.one(
-            "SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,)
-        )
+        cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
         if cycle["status"] not in {"open", "experimenting", "executing"}:
             raise InvalidTransition("problem-solving cycle is not selecting work")
         if max_parallel <= 0:
@@ -368,9 +360,7 @@ class ProblemSolvingService:
                    SET status='executing',updated_at=? WHERE id=?""",
                 (now, cycle_id),
             )
-        return self.store.one(
-            "SELECT * FROM next_action_decisions_v2 WHERE id=?", (decision_id,)
-        )
+        return self.store.one("SELECT * FROM next_action_decisions_v2 WHERE id=?", (decision_id,))
 
     def start_strategy(
         self,
@@ -380,9 +370,7 @@ class ProblemSolvingService:
         execution_id: str | None = None,
         basis_evidence_ids: Sequence[str] | None = None,
     ) -> dict[str, Any]:
-        strategy = self.store.one(
-            "SELECT * FROM strategy_candidates_v2 WHERE id=?", (strategy_id,)
-        )
+        strategy = self.store.one("SELECT * FROM strategy_candidates_v2 WHERE id=?", (strategy_id,))
         if strategy["status"] not in {"selected", "failed", "ineffective"}:
             raise InvalidTransition("strategy is not ready to run")
         basis = _ids(basis_evidence_ids)
@@ -438,9 +426,7 @@ class ProblemSolvingService:
                    SET status='running',updated_at=? WHERE id=?""",
                 (now, strategy_id),
             )
-        return self.store.one(
-            "SELECT * FROM strategy_attempts_v2 WHERE id=?", (attempt_id,)
-        )
+        return self.store.one("SELECT * FROM strategy_attempts_v2 WHERE id=?", (attempt_id,))
 
     def complete_strategy(
         self,
@@ -450,9 +436,7 @@ class ProblemSolvingService:
         result: Mapping[str, Any],
         observed_evidence_ids: Sequence[str],
     ) -> dict[str, Any]:
-        attempt = self.store.one(
-            "SELECT * FROM strategy_attempts_v2 WHERE id=?", (attempt_id,)
-        )
+        attempt = self.store.one("SELECT * FROM strategy_attempts_v2 WHERE id=?", (attempt_id,))
         if attempt["disposition"] != "running":
             raise InvalidTransition("strategy attempt is already terminal")
         evidence = _ids(observed_evidence_ids)
@@ -484,9 +468,7 @@ class ProblemSolvingService:
                        WHERE id=?""",
                     (now, attempt["cycle_id"]),
                 )
-        return self.store.one(
-            "SELECT * FROM strategy_attempts_v2 WHERE id=?", (attempt_id,)
-        )
+        return self.store.one("SELECT * FROM strategy_attempts_v2 WHERE id=?", (attempt_id,))
 
     def design_discriminating_experiment(
         self,
@@ -503,9 +485,7 @@ class ProblemSolvingService:
         strategy_id: str | None = None,
         hypothesis_id: str | None = None,
     ) -> dict[str, Any]:
-        cycle = self.store.one(
-            "SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,)
-        )
+        cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
         if cycle["status"] not in {"open", "experimenting"}:
             raise InvalidTransition("cycle is not accepting experiments")
         if not question or not expected_discrimination:
@@ -620,9 +600,7 @@ class ProblemSolvingService:
         return result
 
     def next_action(self, cycle_id: str) -> dict[str, Any]:
-        cycle = self.store.one(
-            "SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,)
-        )
+        cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
         if cycle["status"] == "resolved":
             return {"action": "none", "reason": "objective_verified"}
         running = self.store.all(
@@ -672,9 +650,7 @@ class ProblemSolvingService:
         evidence_ids: Sequence[str],
         verifier_session_id: str | None = None,
     ) -> dict[str, Any]:
-        cycle = self.store.one(
-            "SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,)
-        )
+        cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
         if cycle["status"] not in {"verifying", "executing", "open"}:
             raise InvalidTransition("cycle is not awaiting outcome verification")
         evidence = _ids(evidence_ids)

@@ -52,9 +52,10 @@ class EvolutionService:
         self.store = store
 
     def _require_mission(self, mission_id: str) -> None:
-        if self.store.one(
-            "SELECT id FROM missions WHERE id=?", (mission_id,), required=False
-        ) is None:
+        if (
+            self.store.one("SELECT id FROM missions WHERE id=?", (mission_id,), required=False)
+            is None
+        ):
             raise StoreError(f"mission not found: {mission_id}")
 
     def checkpoint(
@@ -109,16 +110,20 @@ class EvolutionService:
                     utc_now(),
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM evolution_checkpoints_v2 WHERE id=?", (checkpoint_id,)
-        )
+        return self.store.one("SELECT * FROM evolution_checkpoints_v2 WHERE id=?", (checkpoint_id,))
 
     def propose_program_change(
         self,
         *,
         mission_id: str,
         change_kind: Literal[
-            "amend_current", "successor", "parallel_portfolio", "split", "merge", "retire", "replace"
+            "amend_current",
+            "successor",
+            "parallel_portfolio",
+            "split",
+            "merge",
+            "retire",
+            "replace",
         ],
         rationale: Mapping[str, Any],
         change_spec: Mapping[str, Any],
@@ -182,9 +187,7 @@ class EvolutionService:
                     now,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,)
-        )
+        return self.store.one("SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,))
 
     def review_program_change(
         self,
@@ -211,9 +214,7 @@ class EvolutionService:
                        updated_at=? WHERE id=?""",
                 (disposition, reviewer_session_id, _canonical(evidence), utc_now(), change_id),
             )
-        return self.store.one(
-            "SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,)
-        )
+        return self.store.one("SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,))
 
     def apply_tracker_change(
         self,
@@ -332,9 +333,7 @@ class EvolutionService:
                    WHERE id=?""",
                 (_canonical(result), utc_now(), change_id),
             )
-        return self.store.one(
-            "SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,)
-        )
+        return self.store.one("SELECT * FROM program_change_candidates_v2 WHERE id=?", (change_id,))
 
     def create_portfolio(
         self,
@@ -370,13 +369,9 @@ class EvolutionService:
                     utc_now(),
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
-        )
+        return self.store.one("SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,))
 
-    def activate_portfolio(
-        self, portfolio_id: str, *, currentness_root: str
-    ) -> dict[str, Any]:
+    def activate_portfolio(self, portfolio_id: str, *, currentness_root: str) -> dict[str, Any]:
         portfolio = self.store.one(
             "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
         )
@@ -385,18 +380,18 @@ class EvolutionService:
         if portfolio["baseline_currentness_root"] != currentness_root:
             raise InvalidTransition("portfolio baseline is stale")
         lanes = _loads(portfolio["lanes_json"], [])
-        active = [str(lanes[0]["id"])] if portfolio["mode"] == "sequential" else [
-            str(lane["id"]) for lane in lanes if not lane.get("blocked", False)
-        ]
+        active = (
+            [str(lanes[0]["id"])]
+            if portfolio["mode"] == "sequential"
+            else [str(lane["id"]) for lane in lanes if not lane.get("blocked", False)]
+        )
         with self.store.transaction() as db:
             db.execute(
                 """UPDATE program_portfolios_v2
                    SET status='active',active_lane_ids_json=?,updated_at=? WHERE id=?""",
                 (_canonical(active), utc_now(), portfolio_id),
             )
-        return self.store.one(
-            "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
-        )
+        return self.store.one("SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,))
 
     def complete_portfolio_lane(
         self,
@@ -420,13 +415,15 @@ class EvolutionService:
         lanes = _loads(portfolio["lanes_json"], [])
         if portfolio["mode"] == "sequential" and succeeded:
             remaining = [
-                str(lane["id"])
-                for lane in lanes
-                if str(lane["id"]) not in set(active + completed)
+                str(lane["id"]) for lane in lanes if str(lane["id"]) not in set(active + completed)
             ]
             if remaining:
                 active.append(remaining[0])
-        status = "failed" if not succeeded else ("completed" if not active and len(completed) == len(lanes) else "active")
+        status = (
+            "failed"
+            if not succeeded
+            else ("completed" if not active and len(completed) == len(lanes) else "active")
+        )
         with self.store.transaction() as db:
             db.execute(
                 """UPDATE program_portfolios_v2
@@ -434,9 +431,7 @@ class EvolutionService:
                    WHERE id=?""",
                 (_canonical(active), _canonical(completed), status, utc_now(), portfolio_id),
             )
-        return self.store.one(
-            "SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,)
-        )
+        return self.store.one("SELECT * FROM program_portfolios_v2 WHERE id=?", (portfolio_id,))
 
     def consider_selection(
         self,
@@ -444,7 +439,14 @@ class EvolutionService:
         mission_id: str,
         selection_group: str,
         selection_type: Literal[
-            "feature", "problem", "design", "architecture", "strategy", "program", "experiment", "policy"
+            "feature",
+            "problem",
+            "design",
+            "architecture",
+            "strategy",
+            "program",
+            "experiment",
+            "policy",
         ],
         candidate_key: str,
         candidate: Mapping[str, Any],
@@ -489,9 +491,7 @@ class EvolutionService:
         findings: Mapping[str, Any],
         evidence_ids: Sequence[str],
     ) -> dict[str, Any]:
-        selection = self.store.one(
-            "SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,)
-        )
+        selection = self.store.one("SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,))
         if reviewer_session_id == selection["proposer_session_id"]:
             raise InvalidTransition("selection proposer cannot independently review it")
         evidence = _ids(evidence_ids)
@@ -542,9 +542,7 @@ class EvolutionService:
         selector_session_id: str,
         rationale: Mapping[str, Any],
     ) -> dict[str, Any]:
-        selection = self.store.one(
-            "SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,)
-        )
+        selection = self.store.one("SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,))
         accepted_review = self.store.one(
             """SELECT id FROM selection_reviews_v2
                WHERE selection_id=? AND disposition='accept'
@@ -576,9 +574,7 @@ class EvolutionService:
         causal_confidence: float,
         limitations: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        selection = self.store.one(
-            "SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,)
-        )
+        selection = self.store.one("SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,))
         if selection["status"] != "selected":
             raise InvalidTransition("only a selected candidate can receive an outcome")
         if not 0.0 <= causal_confidence <= 1.0:
@@ -629,7 +625,16 @@ class EvolutionService:
                        id,mission_id,name,policy_json,policy_root,author_session_id,
                        status,created_at,updated_at
                    ) VALUES(?,?,?,?,?,?,'candidate',?,?)""",
-                (candidate_id, mission_id, name, _canonical(dict(policy)), policy_root, author_session_id, now, now),
+                (
+                    candidate_id,
+                    mission_id,
+                    name,
+                    _canonical(dict(policy)),
+                    policy_root,
+                    author_session_id,
+                    now,
+                    now,
+                ),
             )
         return self.store.one(
             "SELECT * FROM selector_policy_candidates_v2 WHERE id=?", (candidate_id,)
@@ -639,9 +644,18 @@ class EvolutionService:
         self,
         candidate_id: str,
         *,
-        evaluation_type: Literal["historical", "forward_shadow", "independent_review", "live_effectiveness"],
+        evaluation_type: Literal[
+            "historical", "forward_shadow", "independent_review", "live_effectiveness"
+        ],
         disposition: Literal[
-            "passed", "failed", "inconclusive", "accepted", "rejected", "revise", "effective", "ineffective"
+            "passed",
+            "failed",
+            "inconclusive",
+            "accepted",
+            "rejected",
+            "revise",
+            "effective",
+            "ineffective",
         ],
         metrics: Mapping[str, Any],
         evidence_ids: Sequence[str],
@@ -651,13 +665,16 @@ class EvolutionService:
         candidate = self.store.one(
             "SELECT * FROM selector_policy_candidates_v2 WHERE id=?", (candidate_id,)
         )
-        if evaluator_session_id is not None and evaluator_session_id == candidate["author_session_id"]:
+        if (
+            evaluator_session_id is not None
+            and evaluator_session_id == candidate["author_session_id"]
+        ):
             raise InvalidTransition("selector-policy author cannot independently evaluate it")
         if not evidence_ids:
             raise ValueError("selector-policy evaluation requires evidence")
         evaluation_id = new_id("selector-policy-evaluation")
         column: str | None = None
-        normalized = disposition
+        normalized: str = disposition
         if evaluation_type == "historical":
             column = "historical_status"
         elif evaluation_type == "forward_shadow":
@@ -727,7 +744,14 @@ class EvolutionService:
                 """INSERT INTO active_selector_policies_v2(
                        id,mission_id,policy_candidate_id,policy_root,version,status,activated_at
                    ) VALUES(?,?,?,?,?,'active',?)""",
-                (policy_id, candidate["mission_id"], candidate_id, candidate["policy_root"], version, now),
+                (
+                    policy_id,
+                    candidate["mission_id"],
+                    candidate_id,
+                    candidate["policy_root"],
+                    version,
+                    now,
+                ),
             )
             db.execute(
                 """UPDATE selector_policy_candidates_v2
@@ -757,6 +781,4 @@ class EvolutionService:
                    SET status='rolled_back',updated_at=? WHERE id=?""",
                 (utc_now(), policy["policy_candidate_id"]),
             )
-        return self.store.one(
-            "SELECT * FROM active_selector_policies_v2 WHERE id=?", (policy_id,)
-        )
+        return self.store.one("SELECT * FROM active_selector_policies_v2 WHERE id=?", (policy_id,))

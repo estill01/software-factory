@@ -3,9 +3,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from .advanced import AdvancedServices
 from .api import APIServer, FactoryAPI
-from .entrypoints import context_store, open_context
+from .entrypoints import context_core, context_store, open_context
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,8 +19,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     context = open_context(args.home)
     store = context_store(context)
+    core = context_core(context)
     server = APIServer(
-        FactoryAPI(store, AdvancedServices(store)), host=args.host, port=args.port
+        FactoryAPI(store, core.advanced, reporting=core.reporting),
+        host=args.host,
+        port=args.port,
     )
     host, port = server.address
     print(f"Software Factory v2 API listening on http://{host}:{port}")

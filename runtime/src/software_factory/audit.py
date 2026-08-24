@@ -396,7 +396,7 @@ class AuditMixin:
                 if record["command_root"] != envelope.root:
                     raise StoreError("idempotency key was reused for a different command")
                 if record["status"] == "succeeded":
-                    return json_load(record["result_json"])  # type: ignore[return-value]
+                    return json_load(record["result_json"])
                 if record["status"] == "failed":
                     raise StoreError(
                         f"idempotent command previously failed: {json_load(record['error_json'])}"

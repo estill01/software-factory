@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
-import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from .errors import InvalidTransition, StoreError
 from .operations import OperationsService
@@ -69,7 +67,9 @@ def _worktrees(root: Path) -> list[dict[str, str]]:
 @contextmanager
 def _repository_lock(root: Path, name: str) -> Iterator[None]:
     common_dir = _git(root, "rev-parse", "--git-common-dir").stdout.strip()
-    common_path = (root / common_dir).resolve() if not Path(common_dir).is_absolute() else Path(common_dir)
+    common_path = (
+        (root / common_dir).resolve() if not Path(common_dir).is_absolute() else Path(common_dir)
+    )
     lock_path = common_path / f"software-factory-{name}.lock"
     descriptor = -1
     try:
@@ -92,16 +92,19 @@ def _repository_lock(root: Path, name: str) -> Iterator[None]:
 class RepositoryReconciliationService:
     """No-loss integration, publication, retirement, and unfinished-work restart."""
 
-    def __init__(self, store: Store):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        operations: OperationsService | None = None,
+    ):
         self.store = store
-        self.operations = OperationsService(store)
+        self.operations = operations or OperationsService(store)
 
     def _item_and_bundle(
         self, cleanup_item_id: str, preservation_bundle_id: str
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-        item = self.store.one(
-            "SELECT * FROM cleanup_items_v2 WHERE id=?", (cleanup_item_id,)
-        )
+        item = self.store.one("SELECT * FROM cleanup_items_v2 WHERE id=?", (cleanup_item_id,))
         bundle = self.store.one(
             "SELECT * FROM preservation_bundles_v2 WHERE id=?",
             (preservation_bundle_id,),
@@ -125,9 +128,7 @@ class RepositoryReconciliationService:
         worktree_root: str | Path,
         validation_command: Sequence[str],
     ) -> dict[str, Any]:
-        item, bundle, inventory = self._item_and_bundle(
-            cleanup_item_id, preservation_bundle_id
-        )
+        item, bundle, inventory = self._item_and_bundle(cleanup_item_id, preservation_bundle_id)
         if item["item_type"] != "branch":
             raise InvalidTransition("only a branch can be integrated")
         if item["classification"] != "accepted" or item["disposition"] != "integrate":
@@ -237,11 +238,7 @@ class RepositoryReconciliationService:
                     """UPDATE integration_candidates_v2
                        SET status='failed',validation_result_json=?,updated_at=? WHERE id=?""",
                     (
-                        _canonical(
-                            locals().get(
-                                "validation_result", {"error": str(exc)}
-                            )
-                        ),
+                        _canonical(locals().get("validation_result", {"error": str(exc)})),
                         utc_now(),
                         candidate_id,
                     ),
@@ -259,13 +256,9 @@ class RepositoryReconciliationService:
                    SET status='accepted',validation_result_json=?,updated_at=? WHERE id=?""",
                 (_canonical(validation_result), utc_now(), candidate_id),
             )
-        return self.store.one(
-            "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
-        )
+        return self.store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,))
 
-    def _target_worktree(
-        self, repository: Path, target_branch: str
-    ) -> Path | None:
+    def _target_worktree(self, repository: Path, target_branch: str) -> Path | None:
         expected = f"refs/heads/{target_branch}"
         for row in _worktrees(repository):
             if row.get("branch") == expected and row.get("worktree"):
@@ -291,17 +284,11 @@ class RepositoryReconciliationService:
         candidate_head = str(candidate["candidate_head"])
         with _repository_lock(repository, f"publish-{target_branch.replace('/', '-')}"):
             if _branch_head(repository, target_branch) != target_before:
-                raise InvalidTransition(
-                    "target branch advanced after integration validation"
-                )
+                raise InvalidTransition("target branch advanced after integration validation")
             target_worktree = self._target_worktree(repository, target_branch)
             if target_worktree is not None:
-                if _git(
-                    target_worktree, "status", "--porcelain=v1", check=False
-                ).stdout.strip():
-                    raise InvalidTransition(
-                        "checked-out target branch has uncommitted work"
-                    )
+                if _git(target_worktree, "status", "--porcelain=v1", check=False).stdout.strip():
+                    raise InvalidTransition("checked-out target branch has uncommitted work")
                 _git(target_worktree, "merge", "--ff-only", candidate_head)
             else:
                 result = _git(
@@ -313,9 +300,7 @@ class RepositoryReconciliationService:
                     check=False,
                 )
                 if result.returncode != 0:
-                    raise InvalidTransition(
-                        "target compare-and-swap publication failed"
-                    )
+                    raise InvalidTransition("target compare-and-swap publication failed")
             if _branch_head(repository, target_branch) != candidate_head:
                 raise RuntimeError("published target branch differs from accepted candidate")
             if post_publish_validation:
@@ -372,18 +357,14 @@ class RepositoryReconciliationService:
                    SET status='completed',updated_at=? WHERE id=?""",
                 (now, candidate["cleanup_item_id"]),
             )
-        return self.store.one(
-            "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
-        )
+        return self.store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,))
 
     def retire_integration_lane(self, candidate_id: str) -> None:
         candidate = self.store.one(
             "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
         )
         if candidate["status"] not in {"published", "rolled_back", "failed"}:
-            raise InvalidTransition(
-                "integration lane cannot retire before publication or rollback"
-            )
+            raise InvalidTransition("integration lane cannot retire before publication or rollback")
         repository = Path(candidate["repository_root"])
         worktree = Path(candidate["integration_worktree"])
         _git(repository, "worktree", "remove", "--force", str(worktree), check=False)
@@ -403,9 +384,7 @@ class RepositoryReconciliationService:
         baseline_branch: str,
         worktree_root: str | Path,
     ) -> dict[str, Any]:
-        item, bundle, inventory = self._item_and_bundle(
-            cleanup_item_id, preservation_bundle_id
-        )
+        item, bundle, inventory = self._item_and_bundle(cleanup_item_id, preservation_bundle_id)
         if item["classification"] != "unfinished" or item["disposition"] != "restart":
             raise InvalidTransition("cleanup item is not classified for restart")
         if item["item_type"] not in {"branch", "stash", "detached_commit"}:
@@ -498,9 +477,7 @@ class RepositoryReconciliationService:
                     input_text=patch,
                 )
                 if applied.returncode != 0:
-                    raise RuntimeError(
-                        f"stash could not be restored: {applied.stderr.strip()}"
-                    )
+                    raise RuntimeError(f"stash could not be restored: {applied.stderr.strip()}")
         except BaseException:
             with self.store.transaction() as db:
                 db.execute(
@@ -521,9 +498,7 @@ class RepositoryReconciliationService:
                 "UPDATE cleanup_items_v2 SET status='completed',updated_at=? WHERE id=?",
                 (utc_now(), cleanup_item_id),
             )
-        return self.store.one(
-            "SELECT * FROM restart_workspaces_v2 WHERE id=?", (restart_id,)
-        )
+        return self.store.one("SELECT * FROM restart_workspaces_v2 WHERE id=?", (restart_id,))
 
     def reconcile(
         self,
@@ -549,7 +524,7 @@ class RepositoryReconciliationService:
                 item_type=str(classification["item_type"]),  # type: ignore[arg-type]
                 item_key=str(classification["item_key"]),
                 classification=str(classification.get("classification", "unknown")),  # type: ignore[arg-type]
-                disposition=classification.get("disposition"),  # type: ignore[arg-type]
+                disposition=classification.get("disposition"),
                 evidence=classification.get("evidence")
                 if isinstance(classification.get("evidence"), Mapping)
                 else {},

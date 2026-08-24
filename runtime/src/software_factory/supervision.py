@@ -604,6 +604,44 @@ class SupervisionService:
             )
         return self.store.one("SELECT * FROM incidents WHERE id=?", (incident_id,))
 
+    def acknowledge_incident(
+        self,
+        incident_id: str,
+        *,
+        operator_decision_id: str,
+    ) -> dict[str, Any]:
+        """Record an operator acknowledgement without creating a second writer."""
+
+        incident = self.store.one("SELECT * FROM incidents WHERE id=?", (incident_id,))
+        if incident["status"] not in {"open", "contained"}:
+            raise InvalidTransition("incident is not awaiting acknowledgement")
+        prior_version = int(incident["state_version"])
+        new_version = prior_version + 1
+        containment = json_load(incident["containment_json"], {})
+        containment["operator_acknowledged"] = True
+        containment["operator_decision_id"] = operator_decision_id
+        with self.store.transaction() as db:
+            db.execute(
+                """UPDATE incidents
+                   SET status='contained',containment_json=?,updated_at=?,state_version=?
+                   WHERE id=?""",
+                (canonical_json(containment), utc_now(), new_version, incident_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=incident["mission_id"],
+                stream_key="supervision",
+                event_type="incident.operator_acknowledged",
+                subject_type="incident",
+                subject_id=incident_id,
+                source_type="operator_decision",
+                source_id=operator_decision_id,
+                prior_version=prior_version,
+                new_version=new_version,
+                payload={"operator_decision_id": operator_decision_id},
+            )
+        return self.store.one("SELECT * FROM incidents WHERE id=?", (incident_id,))
+
     def record_correction(
         self,
         incident_id: str,

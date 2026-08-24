@@ -86,9 +86,10 @@ class LearningService:
         self.store = store
 
     def _require_mission(self, mission_id: str) -> None:
-        if self.store.one(
-            "SELECT id FROM missions WHERE id=?", (mission_id,), required=False
-        ) is None:
+        if (
+            self.store.one("SELECT id FROM missions WHERE id=?", (mission_id,), required=False)
+            is None
+        ):
             raise StoreError(f"mission not found: {mission_id}")
 
     def record_event(
@@ -204,9 +205,7 @@ class LearningService:
                     now,
                 ),
             )
-        return self.store.one(
-            "SELECT * FROM learned_signal_candidates WHERE id=?", (candidate_id,)
-        )
+        return self.store.one("SELECT * FROM learned_signal_candidates WHERE id=?", (candidate_id,))
 
     def discover_recurring_sequences(
         self,
@@ -234,9 +233,7 @@ class LearningService:
         examples: dict[tuple[tuple[str, str], ...], list[str]] = defaultdict(list)
         for index in range(0, len(normalized) - sequence_length + 1):
             segment = normalized[index : index + sequence_length]
-            key = tuple(
-                (str(item["event_type"]), str(item["classification"])) for item in segment
-            )
+            key = tuple((str(item["event_type"]), str(item["classification"])) for item in segment)
             sequences[key] += 1
             examples[key].extend(str(item["id"]) for item in segment)
 
@@ -306,7 +303,7 @@ class LearningService:
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(
-                """INSERT INTO signal_evaluations(
+                """INSERT INTO signal_evaluations_v2(
                        id,candidate_id,phase,disposition,metrics_json,evidence_ids_json,
                        evaluator_session_id,created_at
                    ) VALUES(?,?,?,?,?,?,?,?)""",
@@ -327,7 +324,7 @@ class LearningService:
                     SET {column}=?, status=?, updated_at=? WHERE id=?""",
                 (disposition, candidate_status, now, candidate_id),
             )
-        return self.store.one("SELECT * FROM signal_evaluations WHERE id=?", (evaluation_id,))
+        return self.store.one("SELECT * FROM signal_evaluations_v2 WHERE id=?", (evaluation_id,))
 
     def promote_candidate(
         self,
@@ -405,7 +402,10 @@ class LearningService:
         if isinstance(event_types, list) and normalized["event_type"] not in event_types:
             return None
         classifications = detector.get("classifications")
-        if isinstance(classifications, list) and normalized["classification"] not in classifications:
+        if (
+            isinstance(classifications, list)
+            and normalized["classification"] not in classifications
+        ):
             return None
         conditions = detector.get("where", [])
         if not isinstance(conditions, list) or not all(
@@ -496,9 +496,7 @@ class LearningService:
         evidence_ids: Sequence[str],
         recurrence_detected: bool = False,
     ) -> dict[str, Any]:
-        occurrence = self.store.one(
-            "SELECT * FROM signal_occurrences WHERE id=?", (occurrence_id,)
-        )
+        occurrence = self.store.one("SELECT * FROM signal_occurrences WHERE id=?", (occurrence_id,))
         if not evidence_ids:
             raise ValueError("signal effectiveness review requires evidence")
         review_id = new_id("signal-effectiveness")
@@ -538,9 +536,7 @@ class LearningService:
                        SET status='revising', updated_at=? WHERE id=?""",
                     (now, occurrence["bundle_id"]),
                 )
-        return self.store.one(
-            "SELECT * FROM signal_effectiveness_reviews WHERE id=?", (review_id,)
-        )
+        return self.store.one("SELECT * FROM signal_effectiveness_reviews WHERE id=?", (review_id,))
 
     def create_reflection(
         self,
@@ -643,9 +639,7 @@ class LearningService:
     ) -> dict[str, Any]:
         if not 0.0 <= weight <= 1.0:
             raise ValueError("evidence weight must be between zero and one")
-        hypothesis = self.store.one(
-            "SELECT * FROM hypotheses_v2 WHERE id=?", (hypothesis_id,)
-        )
+        hypothesis = self.store.one("SELECT * FROM hypotheses_v2 WHERE id=?", (hypothesis_id,))
         evidence_row_id = new_id("hypothesis-evidence")
         now = utc_now()
         delta = weight * (0.2 if evidence_type == "support" else -0.2)
@@ -679,9 +673,7 @@ class LearningService:
                 """UPDATE hypotheses_v2 SET status=?,confidence=?,updated_at=? WHERE id=?""",
                 (status, new_confidence, now, hypothesis_id),
             )
-        return self.store.one(
-            "SELECT * FROM hypothesis_evidence_v2 WHERE id=?", (evidence_row_id,)
-        )
+        return self.store.one("SELECT * FROM hypothesis_evidence_v2 WHERE id=?", (evidence_row_id,))
 
     def design_experiment(
         self,
@@ -728,9 +720,7 @@ class LearningService:
         cwd: str | Path,
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
-        experiment = self.store.one(
-            "SELECT * FROM experiments_v2 WHERE id=?", (experiment_id,)
-        )
+        experiment = self.store.one("SELECT * FROM experiments_v2 WHERE id=?", (experiment_id,))
         if experiment["experiment_type"] != "command":
             raise InvalidTransition("experiment is not a command experiment")
         if experiment["status"] != "designed":
@@ -761,7 +751,14 @@ class LearningService:
                        id,experiment_id,exact_input_root,command_json,cwd,
                        disposition,started_at
                    ) VALUES(?,?,?,?,?,'running',?)""",
-                (run_id, experiment_id, exact_input_root, _canonical(list(command)), resolved_cwd, started),
+                (
+                    run_id,
+                    experiment_id,
+                    exact_input_root,
+                    _canonical(list(command)),
+                    resolved_cwd,
+                    started,
+                ),
             )
         try:
             completed = subprocess.run(

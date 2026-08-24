@@ -19,7 +19,7 @@ class RuntimeDoctor:
         foreign_keys = self.store.all("PRAGMA foreign_key_check")
         checks["foreign_key_violations"] = foreign_keys
         migrations = self.store.all(
-            "SELECT version,name,checksum FROM schema_migrations ORDER BY version"
+            "SELECT version,name,sha256 FROM schema_migrations ORDER BY version"
         )
         checks["schema_version"] = migrations[-1]["version"] if migrations else 0
         checks["migration_count"] = len(migrations)
@@ -50,8 +50,8 @@ class RuntimeDoctor:
         )
         checks["unresolved_commands"] = unresolved_commands
         active_incidents = self.store.all(
-            """SELECT id,mission_id,severity,status,causal_level,updated_at
-               FROM supervision_incidents
+            """SELECT id,mission_id,severity,status,layer,updated_at
+               FROM incidents
                WHERE status IN ('open','contained','correcting','verifying')
                ORDER BY severity DESC,updated_at"""
         )

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .audit import AuditMixin
-from .database import DatabaseStore
+from .database import Database
 
+# Historical public name retained as an exact alias to the one persistence owner.
+Store = Database
 
-class Store(AuditMixin, DatabaseStore):
-    """Transactional SQL state and hash-chained audit owner."""
+__all__ = ["Store"]

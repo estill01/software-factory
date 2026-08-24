@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
@@ -171,9 +172,7 @@ def test_prerequisite_blocks_selection_until_prior_strategy_succeeds() -> None:
         rationale={"reason": "dependency order"},
         authority={"kind": "mission"},
     )
-    assert __import__("json").loads(first["selected_strategy_ids_json"]) == [
-        foundation["id"]
-    ]
+    assert __import__("json").loads(first["selected_strategy_ids_json"]) == [foundation["id"]]
     attempt = problem.start_strategy(
         foundation["id"], agent_session_id="worker-a", basis_evidence_ids=["foundation-basis"]
     )
@@ -196,9 +195,7 @@ def test_prerequisite_blocks_selection_until_prior_strategy_succeeds() -> None:
         rationale={"reason": "prerequisite now accepted"},
         authority={"kind": "mission"},
     )
-    assert __import__("json").loads(second["selected_strategy_ids_json"]) == [
-        dependent["id"]
-    ]
+    assert __import__("json").loads(second["selected_strategy_ids_json"]) == [dependent["id"]]
 
 
 def test_materially_identical_failed_strategy_cannot_be_reproposed_without_new_evidence() -> None:

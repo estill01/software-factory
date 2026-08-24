@@ -6,10 +6,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .advanced import AdvancedServices
-from .entrypoints import context_core, context_store, open_context
-from .migration import MigrationService
-from .reporting import ReportingService
+from .entrypoints import context_core, open_context
 
 SKILLS = {
     "author-implementation-trackers",
@@ -36,11 +33,10 @@ def invoke(
 ) -> Mapping[str, Any]:
     if skill not in SKILLS:
         raise ValueError(f"unsupported Software Factory skill: {skill}")
-    store = context_store(context)
     core = context_core(context)
-    advanced = AdvancedServices(store)
-    reporting = ReportingService(store)
-    migration = MigrationService(store)
+    advanced = core.advanced
+    reporting = core.reporting
+    migration = core.migration
 
     if skill == "implement-tracker-blocks":
         return advanced.tick_mission(
@@ -74,7 +70,7 @@ def invoke(
                 mission_id=mission_id,
                 program_id=payload.get("program_id"),
                 checkpoint_id=payload.get("checkpoint_id"),
-                change_kind=str(payload["change_kind"]),  # type: ignore[arg-type]
+                change_kind=str(payload["change_kind"]),
                 rationale=dict(payload.get("rationale", {})),
                 change_spec=dict(payload.get("change_spec", {})),
                 requested_range_root=str(roots["requested_range_root"]),
@@ -85,7 +81,7 @@ def invoke(
         return advanced.evolution.checkpoint(
             mission_id=mission_id,
             program_id=payload.get("program_id"),
-            boundary_type=str(payload.get("boundary_type", "checkpoint")),  # type: ignore[arg-type]
+            boundary_type=str(payload.get("boundary_type", "checkpoint")),
             source_type=str(payload.get("source_type", "mission")),
             source_id=str(payload.get("source_id", mission_id)),
             state=dict(payload.get("state", {})),
@@ -101,7 +97,7 @@ def invoke(
                 raise ValueError("portfolio lanes must be a list of objects")
             return advanced.evolution.create_portfolio(
                 mission_id=mission_id,
-                mode=str(payload.get("mode", "parallel")),  # type: ignore[arg-type]
+                mode=str(payload.get("mode", "parallel")),
                 lanes=[dict(item) for item in lanes],
                 baseline_currentness_root=str(payload["baseline_currentness_root"]),
                 parent_program_id=payload.get("parent_program_id"),
@@ -110,7 +106,7 @@ def invoke(
             return advanced.evolution.consider_selection(
                 mission_id=mission_id,
                 selection_group=str(payload["selection_group"]),
-                selection_type=str(payload["selection_type"]),  # type: ignore[arg-type]
+                selection_type=str(payload["selection_type"]),
                 candidate_key=str(payload["candidate_key"]),
                 candidate=dict(payload.get("candidate", {})),
                 evidence=dict(payload.get("evidence", {})),
