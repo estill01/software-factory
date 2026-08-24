@@ -237,7 +237,7 @@ for this tracker may inspect Patent Studio patent content.
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
-| 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `in-progress` |
+| 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `candidate` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
@@ -1066,7 +1066,7 @@ Stop before target-profile authoritative effects.
 
 ## Block 5 — Implement target profiles, workspaces, and authoritative effects
 
-Status: `in-progress`
+Status: `candidate`
 
 ### Objective
 
@@ -1136,6 +1136,72 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   classes and exact target currentness checks; do not introduce a universal
   target schema, let a profile accept its output, consume Block 9 utils
   packages, or begin Block 6 QA/supervision acceptance integration.
+- Domain-neutral profile contract: `TargetProfileRegistry` owns unique profile
+  composition, fixed `EffectClass` admission, exact before/after snapshots, and
+  revision/currentness fencing. Unknown profiles, free-form effect strings, and
+  effects not owned by the selected profile fail before adapter execution. The
+  registry contains no Git, command, release, content, QA, or acceptance schema.
+- Complete software profile: `SoftwareTargetProfile` binds registered primary
+  Git checkouts and target branch refs, then delegates snapshot, workspace
+  create/freeze, registered command/test/build, integration/publish, release
+  stage/activate, no-loss cleanup, and evidence-required rollback to the existing
+  Factory physical owners. Controller and QA receive the profile workspace
+  interface; the raw Git workspace service remains an internal physical adapter.
+- Authority/currentness: target snapshots bind exact commit, tree, primary
+  checkout status root, repository state version, branch, and root. Commands are
+  fixed registered argv/timeout/exit-code contracts executed only on an exact-
+  base leased workspace. Target branch, workspace/integration/release/
+  preservation roots, argv, environment, and working directory are not caller
+  arguments. Integration compare-and-swap and existing release/cleanup guards
+  remain authoritative.
+- Acceptance separation: the profile can stage and activate a release, but
+  activation succeeds only after the existing distinct release-review owner has
+  accepted it. `accept` is not an effect class and the profile has no acceptance
+  method; Block 6 remains the QA/supervision/acceptance owner.
+- Contract record: `docs/software-factory-v2-target-profile-contract.md`,
+  SHA-256 `003d74d4caf79a4426d6880cfa6ace9d360e8da585f9de1d8e6284b5ab0e1f0c`,
+  records the fixed effect matrix, physical owners, exact-currentness contract,
+  caller argument exclusions, and later-Block boundaries.
+- Focused evidence: `docs/sfv2-b5-focused-evidence.json`, SHA-256
+  `2af117dbdd1e641d89ef45fd447608d6a0ba9d3df236441cb01785a50db40cfc`,
+  records `21 passed` across the new profile, composition, workspace/execution,
+  reconciliation, governed-release, and recovery slices; repository collection
+  at `183 tests`; Ruff and 91-file format success; mypy across 62 source files;
+  compilation; full tracker verification; and Stop-boundary checks. No broad
+  runtime suite was run.
+- Artifact proof: an ephemeral Factory wheel for `2.0.0.dev6`, SHA-256
+  `586d15f94612b8f124b2a20140edd092696b67e8cb78f4da8b9707d99dc4cf0b`,
+  contains the profile registry/contracts and software profile. It is local
+  qualification evidence, not a release artifact.
+- Negative proofs: reject caller-supplied command/path roots and unknown command
+  keys; linked worktrees as target authority; target revision/currentness drift;
+  workspace changes after candidate freeze; effect classes not owned by the
+  profile; releases bound to another target root; and profile self-acceptance.
+  Real disposable repositories prove fixed test/build commands, integration
+  publish, external-review-gated activation, preservation, and rollback.
+- Product-capability review:
+  - Trigger: consequential Block posture.
+  - Capability added or preserved: the domain-neutral core can select a profile
+    and safely apply target effects while Git remains software source/candidate
+    truth and every physical owner retains its existing fences and rollback.
+  - Paths compared: keep direct software calls as the only surface; introduce a
+    universal target schema; create new profile-owned effect implementations;
+    or register a typed profile that delegates to retained physical owners.
+  - Selected level and owner: typed generic registry plus one complete software
+    adapter, with command/path configuration owned at composition and no new
+    database/effect writer.
+  - Protected-capability result: stale targets, arbitrary effects, worktree
+    authority, self-acceptance, and irreversible unreviewed release remain
+    rejected; existing currentness, no-loss, and rollback guards are reused.
+  - Rejected alternatives: direct-only calls keep software ontology exposed;
+    a universal schema overgeneralizes before the Block 10 neutral proof; new
+    physical effect owners duplicate authority.
+  - Tradeoff and uncertainty: target registrations are explicit composition
+    inputs, not a new persistent ontology. Block 10 must prove external profile
+    extensibility before the generic contract is broadened.
+- Candidate posture: implementation-complete pending exact independent review.
+  No production target was used; Block 6 integration and Blocks 9/11/12 utils,
+  cutover, and terminal work have not begun; utils is unmodified.
 
 ### Stop
 

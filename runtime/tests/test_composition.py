@@ -10,6 +10,7 @@ from software_factory import CoreService, Store
 from software_factory.agents import AgentService
 from software_factory.continuation import ContinuationService
 from software_factory.execution import ExecutionService
+from software_factory.profiles import SoftwareTargetProfile
 from software_factory.qa import QAService
 from software_factory.work_items import WorkItemService
 from software_factory.workspaces import WorkspaceService
@@ -21,7 +22,9 @@ def test_core_uses_explicit_composition_not_service_mro() -> None:
         core = CoreService(Store(Path(temp) / "factory.db"))
         assert isinstance(core.agents, AgentService)
         assert isinstance(core.work_items, WorkItemService)
-        assert isinstance(core.workspaces, WorkspaceService)
+        assert isinstance(core.workspace_owner, WorkspaceService)
+        assert isinstance(core.workspaces, SoftwareTargetProfile)
+        assert core.workspaces is core.software_profile
         assert isinstance(core.executions, ExecutionService)
         assert isinstance(core.qa, QAService)
         assert isinstance(core.continuation, ContinuationService)

@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B5",
+  "purpose": "target profile, software target currentness, and authoritative effect proof",
+  "pytest": {
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_target_profiles.py runtime/tests/test_composition.py runtime/tests/test_execution_qa.py runtime/tests/test_reconciliation.py runtime/tests/test_governed_release.py runtime/tests/test_recovery_coordinator.py",
+    "selected_files": [
+      "runtime/tests/test_target_profiles.py",
+      "runtime/tests/test_composition.py",
+      "runtime/tests/test_execution_qa.py",
+      "runtime/tests/test_reconciliation.py",
+      "runtime/tests/test_governed_release.py",
+      "runtime/tests/test_recovery_coordinator.py"
+    ],
+    "result": "21 passed; three recorded legacy TestStore collection warnings"
+  },
+  "collection": "183 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "static_proofs": [
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
+      "result": "pass"
+    },
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff format --check runtime/src runtime/tests",
+      "result": "91 files already formatted"
+    },
+    {
+      "command": "uv run --no-project --with 'mypy>=1.11' mypy runtime/src",
+      "result": "Success: no issues found in 62 source files"
+    },
+    {
+      "command": "python3 -m compileall -q runtime/src",
+      "result": "pass"
+    },
+    {
+      "command": "python3 author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "result": "Blocks 0-12, zero errors, zero warnings"
+    }
+  ],
+  "contract": {
+    "path": "docs/software-factory-v2-target-profile-contract.md",
+    "sha256": "003d74d4caf79a4426d6880cfa6ace9d360e8da585f9de1d8e6284b5ab0e1f0c"
+  },
+  "runtime_wheel_proof": {
+    "version": "2.0.0.dev6",
+    "sha256": "586d15f94612b8f124b2a20140edd092696b67e8cb78f4da8b9707d99dc4cf0b",
+    "posture": "ephemeral local qualification artifact, not a release artifact",
+    "required_members": [
+      "software_factory/profiles/__init__.py",
+      "software_factory/profiles/contracts.py",
+      "software_factory/profiles/software.py"
+    ]
+  },
+  "capabilities": {
+    "snapshot": "primary-checkout target branch commit, tree, status root, repository state version, and exact currentness root",
+    "workspace": "registered create and freeze operations at the exact target base",
+    "command_test_build": "fixed registered argv, timeout, exit codes, leased execution, and exact workspace base",
+    "integration": "registered validation and compare-and-swap publication against the exact target head",
+    "release": "clean unchanged frozen target-candidate staging and activation only after external independent review, exact source-workspace binding, and registered release-root ownership",
+    "cleanup": "configured no-loss preservation, active-writer guards, and clean workspace retirement",
+    "rollback": "evidence-required immutable release rollback"
+  },
+  "negative_proofs": {
+    "arbitrary_command": "unknown command keys and caller-supplied argv are rejected",
+    "path_injection": "caller-supplied workspace, integration, release, and preservation roots are outside effect contracts",
+    "worktree_authority": "a linked Git worktree is rejected as target authority",
+    "stale_apply": "target revision/currentness drift or workspace changes after freeze reject the effect before the physical owner runs",
+    "unowned_effect": "the registry rejects a fixed effect class not owned by the selected profile and a release bound to another target root",
+    "self_acceptance": "accept is not an EffectClass and no profile acceptance method exists"
+  },
+  "scope_boundary": {
+    "universal_domain_schema_added": false,
+    "profile_acceptance_authority_added": false,
+    "production_target_used": false,
+    "utils_repository_modified": false,
+    "block_9_utils_artifacts_consumed": [],
+    "block_6_qa_supervision_acceptance_integration_started": false,
+    "broad_runtime_suite_run": false
+  }
+}

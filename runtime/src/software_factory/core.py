@@ -18,6 +18,7 @@ from .migration import MigrationService
 from .mission import MissionService
 from .operations import OperationsService
 from .problem_solving import ProblemSolvingService
+from .profiles import SoftwareTargetProfile, TargetProfileRegistry
 from .program import ProgramService
 from .providers import ProviderRegistry
 from .qa import QAService
@@ -56,8 +57,23 @@ class CoreService:
         self.programs = ProgramService(store)
         self.work_items = WorkItemService(store)
         self.agents = AgentService(store)
-        self.workspaces = WorkspaceService(store)
+        self.workspace_owner = WorkspaceService(store)
         self.executions = ExecutionService(store, self.artifact_service)
+        self.operations = OperationsService(store)
+        self.reconciliation = RepositoryReconciliationService(
+            store,
+            operations=self.operations,
+        )
+        self.software_profile = SoftwareTargetProfile(
+            store,
+            workspaces=self.workspace_owner,
+            executions=self.executions,
+            operations=self.operations,
+            reconciliation=self.reconciliation,
+        )
+        self.target_profiles = TargetProfileRegistry()
+        self.target_profiles.register(self.software_profile)
+        self.workspaces = self.software_profile
         self.governance = GovernanceService(store)
         self.qa = QAService(store, self.workspaces, self.executions)
         self.continuation = ContinuationService(store, self.work_items)
@@ -86,7 +102,6 @@ class CoreService:
         )
         self.learning = LearningService(store)
         self.evolution = EvolutionService(store)
-        self.operations = OperationsService(store)
         self.acceptance = AcceptanceService(store)
         self.reporting = ReportingService(store)
         self.migration = MigrationService(store)
@@ -107,10 +122,6 @@ class CoreService:
             operations=self.operations,
             governance=self.governance,
         )
-        self.reconciliation = RepositoryReconciliationService(
-            store,
-            operations=self.operations,
-        )
         self.advanced = AdvancedServices(
             store,
             work_items=self.work_items,
@@ -127,7 +138,7 @@ class CoreService:
             self.programs,
             self.work_items,
             self.agents,
-            self.workspaces,
+            self.workspace_owner,
             self.executions,
             self.qa,
             self.continuation,
