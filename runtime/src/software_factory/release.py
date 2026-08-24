@@ -194,7 +194,7 @@ class GovernedReleaseService:
         release_root: str | Path,
         verification_command: Sequence[str],
     ) -> dict[str, Any]:
-        self._operations.activate_release(release_id, release_root=release_root)
+        self.activate(release_id, release_root=release_root)
         verification = self._operations.verify_release(
             release_id,
             command=verification_command,

@@ -64,6 +64,9 @@ from that same root and rejects a rollback whose release or predecessor belongs
 elsewhere. Release activation remains gated by the distinct review owner, and
 rollback requires evidence. Cleanup uses a configured preservation root and
 retains the existing no-loss and active-writer guards.
+Both governed activation entrypoints use the same strict decision predicate;
+the activate-and-verify convenience path cannot call the physical owner around
+that gate.
 
 ## Boundary
 

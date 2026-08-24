@@ -1145,6 +1145,17 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   strings could manufacture release acceptance; and the focused evidence did
   not exercise those attacks. The revision and review record are preserved;
   corrections exist only in the successor candidate.
+- Preserved rejected successor: exact commit
+  `55663ef29e8696ebbf60cc73a0b688c3f3e761d7`, tree
+  `acfd613aa9516dcad59e4191c30d265be95bb1e4`, also remains clean and pushed.
+  Exact re-review confirmed the first four P1s closed but returned `REVISE`
+  because `GovernedReleaseService.activate_and_verify()` still called the
+  physical activation owner around the exact-decision predicate, and the
+  evidence omitted that convenience-path case. Bounded causal review classified
+  this as service-boundary duplication: two public activation routes did not
+  share one predicate. The successor correction centralizes both routes on
+  `activate()`; the recurrence invariant rejects an accepted physical review
+  with no governed decision through either public entrypoint.
 - Domain-neutral profile contract: `TargetProfileRegistry` owns unique profile
   composition, fixed `EffectClass` admission, exact before/after snapshots, and
   revision/currentness fencing. Unknown profiles, free-form effect strings, and
@@ -1175,19 +1186,19 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   the profile has no acceptance method; Block 6 remains the integrated
   QA/supervision/acceptance owner.
 - Contract record: `docs/software-factory-v2-target-profile-contract.md`,
-  SHA-256 `668b35622b7aff4088e81e475d1ceece4a51417fb3785ee684618f8bbe26755f`,
+  SHA-256 `14a1720804271e6caf746acc977b4ad3ca703420e056b2029770d5a81d80a0e2`,
   records the fixed effect matrix, physical owners, exact-currentness contract,
   caller argument exclusions, and later-Block boundaries.
 - Focused evidence: `docs/sfv2-b5-focused-evidence.json`, SHA-256
-  `87c7a4a57c5dadbdc792df0570425923a0276be68fd0bbbfda5c56ae9bf81991`, records
-  `43 passed` across the profile, composition,
+  `7b75455d8deee64453cacb8cb53f1dcf606d99655387aeccc5ab971a2dc1a7ae`, records
+  `44 passed` across the profile, composition,
   physical release, workspace/execution, governance, governed-release,
   reconciliation, recovery, and advanced-composition slices; repository
-  collection at `184 tests`; Ruff and 91-file format success; mypy across 62
+  collection at `185 tests`; Ruff and 91-file format success; mypy across 62
   source files; compilation; native entrypoint compatibility; full tracker
   verification; and Stop-boundary checks. No broad runtime suite was run.
 - Artifact proof: an ephemeral Factory wheel for `2.0.0.dev6`, SHA-256
-  `3c6ecf4a7323ddaf1c65db381c378a20d0926cf9365f6288a9a5bef2cf8ae514`,
+  `75b51e2405c0ff179b17f313684788e8decb783c0e339203a895ee4dd1eef895`,
   contains the profile registry/contracts and software profile. It is local
   qualification evidence, not a release artifact.
 - Negative proofs: reject caller-supplied command/path roots and unknown command

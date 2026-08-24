@@ -115,6 +115,34 @@ def test_release_cannot_be_accepted_before_all_probes_and_granted_review(
         service.accept(release["id"])
 
 
+def test_accepted_physical_review_without_governed_decision_cannot_activate(
+    tmp_path: Path,
+) -> None:
+    service = GovernedReleaseService(TestStore())  # type: ignore[arg-type]
+    release, release_root = stage(service, tmp_path)
+    service._operations.review_release(
+        release["id"],
+        reviewer_session_id="arbitrary-reviewer-string",
+        disposition="accepted",
+        findings={"claimed": "accepted"},
+        evidence_ids=["unbound-review-string"],
+    )
+    accepted_without_decision = service.store.one(
+        "SELECT * FROM immutable_releases_v2 WHERE id=?", (release["id"],)
+    )
+    assert accepted_without_decision["status"] == "accepted"
+    assert accepted_without_decision["acceptance_decision_id"] is None
+    with pytest.raises(InvalidTransition, match="strict acceptance decision"):
+        service.activate(release["id"], release_root=release_root)
+    with pytest.raises(InvalidTransition, match="strict acceptance decision"):
+        service.activate_and_verify(
+            release["id"],
+            release_root=release_root,
+            verification_command=[sys.executable, "health.py"],
+        )
+    assert not (release_root / "active-release.json").exists()
+
+
 def test_full_governed_release_activates_and_verifies_exact_revision(
     tmp_path: Path,
 ) -> None:

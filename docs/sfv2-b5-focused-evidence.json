@@ -17,9 +17,9 @@
       "runtime/tests/test_entrypoints.py",
       "runtime/tests/test_v2_entrypoints.py"
     ],
-    "result": "43 passed; five recorded legacy TestStore collection warnings"
+    "result": "44 passed; five recorded legacy TestStore collection warnings"
   },
-  "collection": "184 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "collection": "185 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
   "static_proofs": [
     {
       "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
@@ -44,11 +44,11 @@
   ],
   "contract": {
     "path": "docs/software-factory-v2-target-profile-contract.md",
-    "sha256": "668b35622b7aff4088e81e475d1ceece4a51417fb3785ee684618f8bbe26755f"
+    "sha256": "14a1720804271e6caf746acc977b4ad3ca703420e056b2029770d5a81d80a0e2"
   },
   "runtime_wheel_proof": {
     "version": "2.0.0.dev6",
-    "sha256": "3c6ecf4a7323ddaf1c65db381c378a20d0926cf9365f6288a9a5bef2cf8ae514",
+    "sha256": "75b51e2405c0ff179b17f313684788e8decb783c0e339203a895ee4dd1eef895",
     "posture": "ephemeral local qualification artifact, not a release artifact",
     "required_members": [
       "software_factory/profiles/__init__.py",
@@ -77,13 +77,23 @@
   "remediation": {
     "rejected_candidate": "ccdd3eb4f4d32c05ee8ed35f16de4c97877e1acc",
     "rejected_tree": "7f1adb26d867b2214fc6164bd0b48b0c959eb258",
-    "review_disposition": "REVISE",
+    "rejected_successor": "55663ef29e8696ebbf60cc73a0b688c3f3e761d7",
+    "rejected_successor_tree": "acfd613aa9516dcad59e4191c30d265be95bb1e4",
+    "review_disposition": "REVISE twice",
+    "bounded_causal_review": {
+      "causal_level": "service boundary",
+      "mechanism": "activate_and_verify duplicated the physical activation call instead of reusing the strict governed activation predicate",
+      "correction": "all public governed activation entrypoints delegate to one exact contract and decision gate",
+      "recurrence_invariant": "an accepted physical review with no governed decision cannot create an active pointer through activate or activate_and_verify"
+    },
     "closed_findings": [
       "P1 dirty bytes were absent from target currentness",
       "P1 registry and caller-owned workspace root were bypassable",
       "P1 release predecessor and rollback state crossed target roots",
       "P1 arbitrary reviewer identity could manufacture release acceptance",
-      "P2 prior evidence omitted the reproduced attacks"
+      "P2 prior evidence omitted the reproduced attacks",
+      "P1 activate_and_verify bypassed the strict decision predicate",
+      "P2 first successor evidence omitted the accepted-without-decision convenience-path case"
     ]
   },
   "scope_boundary": {
