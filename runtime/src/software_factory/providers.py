@@ -65,12 +65,19 @@ class ProviderRegistry:
             raise ValueError("provider key is required")
         if normalized in self._providers:
             raise ValueError(f"provider is already registered: {normalized}")
+        self._assert_process_owner_available(provider)
         self._providers[normalized] = provider
 
     def replace(self, key: str, provider: ProviderAdapter) -> None:
         normalized = key.strip()
         if not normalized:
             raise ValueError("provider key is required")
+        self._assert_process_owner_available(provider, replacing=normalized)
+        previous = self._providers.get(normalized)
+        if previous is not None and previous is not provider:
+            close = getattr(previous, "close", None)
+            if callable(close):
+                close()
         self._providers[normalized] = provider
 
     def get(self, key: str) -> ProviderAdapter:
@@ -81,6 +88,39 @@ class ProviderRegistry:
 
     def keys(self) -> tuple[str, ...]:
         return tuple(sorted(self._providers))
+
+    def _assert_process_owner_available(
+        self, provider: ProviderAdapter, *, replacing: str | None = None
+    ) -> None:
+        owner_key = getattr(provider, "process_owner_key", None)
+        if owner_key is None:
+            return
+        if not isinstance(owner_key, str) or not owner_key.strip():
+            raise ValueError("provider process_owner_key must be a nonempty string")
+        for key, registered in self._providers.items():
+            if key == replacing or registered is provider:
+                continue
+            if getattr(registered, "process_owner_key", None) == owner_key:
+                raise ValueError(f"provider process owner is already registered: {owner_key}")
+
+    def close(self) -> None:
+        closed: set[int] = set()
+        failures: list[str] = []
+        providers = tuple(self._providers.values())
+        self._providers.clear()
+        for provider in providers:
+            if id(provider) in closed:
+                continue
+            closed.add(id(provider))
+            close = getattr(provider, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close()
+            except Exception as exc:
+                failures.append(type(exc).__name__)
+        if failures:
+            raise RuntimeError(f"provider cleanup failed: {','.join(failures)}")
 
 
 class DeterministicProvider:
@@ -94,12 +134,18 @@ class DeterministicProvider:
     def __init__(
         self,
         handler: Callable[[ProviderRequest], ProviderObservation] | None = None,
+        *,
+        max_prompt_bytes: int = 256 * 1024,
     ) -> None:
+        if max_prompt_bytes <= 0:
+            raise ValueError("max_prompt_bytes must be positive")
         self.handler = handler or (lambda request: ProviderObservation(status="running"))
+        self.max_prompt_bytes = max_prompt_bytes
         self.requests: list[ProviderRequest] = []
         self._observations: dict[str, ProviderObservation] = {}
 
     def dispatch(self, request: ProviderRequest) -> ProviderObservation:
+        _require_bounded_prompt(request, self.max_prompt_bytes)
         self.requests.append(request)
         observation = self.handler(request)
         self._observations[request.execution_id] = observation
@@ -156,13 +202,18 @@ class ProcessProvider:
         command_builder: Callable[[ProviderRequest], Sequence[str]],
         *,
         output_limit_bytes: int = 8 * 1024 * 1024,
+        max_prompt_bytes: int = 256 * 1024,
     ) -> None:
         self.state_root = Path(state_root).expanduser().resolve()
         self.state_root.mkdir(parents=True, exist_ok=True)
         self.command_builder = command_builder
         if output_limit_bytes <= 0:
             raise ValueError("output_limit_bytes must be positive")
+        if max_prompt_bytes <= 0:
+            raise ValueError("max_prompt_bytes must be positive")
         self.output_limit_bytes = output_limit_bytes
+        self.max_prompt_bytes = max_prompt_bytes
+        self.process_owner_key = f"process-provider:{self.state_root}"
 
     def _directory(self, execution_id: str) -> Path:
         directory = self.state_root / execution_id
@@ -170,6 +221,7 @@ class ProcessProvider:
         return directory
 
     def dispatch(self, request: ProviderRequest) -> ProviderObservation:
+        _require_bounded_prompt(request, self.max_prompt_bytes)
         directory = self._directory(request.execution_id)
         command = [str(value) for value in self.command_builder(request)]
         if not command or not command[0]:
@@ -306,3 +358,43 @@ class CodexCLIProvider(ProcessProvider):
             )
 
         super().__init__(state_root, command)
+
+
+class ExternalAgentProvider:
+    """Injected external-agent lifecycle with no process or mission authority."""
+
+    def __init__(
+        self,
+        *,
+        dispatch: Callable[[ProviderRequest], ProviderObservation],
+        poll: Callable[[Mapping[str, Any]], ProviderObservation],
+        cancel: Callable[[Mapping[str, Any]], ProviderObservation],
+        max_prompt_bytes: int = 256 * 1024,
+    ) -> None:
+        if max_prompt_bytes <= 0:
+            raise ValueError("max_prompt_bytes must be positive")
+        self._dispatch = dispatch
+        self._poll = poll
+        self._cancel = cancel
+        self.max_prompt_bytes = max_prompt_bytes
+
+    def dispatch(self, request: ProviderRequest) -> ProviderObservation:
+        _require_bounded_prompt(request, self.max_prompt_bytes)
+        return _require_observation(self._dispatch(request))
+
+    def poll(self, handle: Mapping[str, Any]) -> ProviderObservation:
+        return _require_observation(self._poll(dict(handle)))
+
+    def cancel(self, handle: Mapping[str, Any]) -> ProviderObservation:
+        return _require_observation(self._cancel(dict(handle)))
+
+
+def _require_bounded_prompt(request: ProviderRequest, maximum: int) -> None:
+    if len(request.prompt.encode("utf-8")) > maximum:
+        raise ValueError("provider prompt exceeds the configured byte limit")
+
+
+def _require_observation(value: object) -> ProviderObservation:
+    if not isinstance(value, ProviderObservation):
+        raise TypeError("provider callback must return ProviderObservation")
+    return value

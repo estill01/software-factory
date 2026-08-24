@@ -236,7 +236,7 @@ for this tracker may inspect Patent Studio patent content.
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
-| 4 | Agents and replaceable provider runtime | 2, 3 | `in-progress` |
+| 4 | Agents and replaceable provider runtime | 2, 3 | `candidate` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
@@ -867,7 +867,7 @@ Stop before live agent/provider lifecycle.
 
 ## Block 4 — Implement agents and replaceable providers
 
-Status: `in-progress`
+Status: `candidate`
 
 ### Objective
 
@@ -940,6 +940,8 @@ restart, and provider-success/acceptance separation.
 - Start baseline: clean pushed Block 3 acceptance successor
   `61ddd8d986f7d61e13b7ad399f9d96458b1a4b42`; Blocks 0–3 accepted and Block 4
   is the sole dependency-eligible frontier.
+- Start checkpoint: clean pushed tracker transition
+  `924bae3e8a9850708c1e55763b082fb85dd31386`; no Block 5 effect began.
 - Accepted producer handoff: consume only `codex-app-server-client==0.1.0`
   from utils producer revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`.
   Bind its accepted source commit, package tree/content root, wheel hash,
@@ -947,6 +949,79 @@ restart, and provider-success/acceptance separation.
   boundary in a Factory-owned pin. Do not resolve by registry name/version, copy
   package source, modify utils, consume the Block 9 structural packages, or
   retire the dashboard path reserved for Block 11.
+- Exact Factory-owned pin: the packaged pin binds producer revision
+  `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, accepted source commit/tree
+  `08c416da4202b7036110e33e43d34ea590054e2e` /
+  `794650275e9a583c9f47276a271f65cc1020c4e8`, package tree
+  `17772f61da62b41d6d3551deebc474792aafe922`, qualification matrix/root,
+  version `0.1.0`, wheel SHA-256 `1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9`,
+  wheel content root, and exact Codex/protocol roots. Wheel verification rejects
+  an incorrect filename, symlink, byte hash, content root, member count, or
+  uncompressed byte count before import; import then verifies version and
+  pinned protocol identity. Bare registry and copied-source resolution remain
+  prohibited, and the unpublished/no-license boundary remains explicit.
+- Provider lifecycle: deterministic, local-process/Codex CLI, exact app-server,
+  and injected external-agent providers implement one `ProviderRequest` /
+  `ProviderObservation` contract. The registry rejects duplicate process-owner
+  keys, closes replacement owners, and lets `CoreService` close provider-owned
+  resources. Provider prompt/output/event/callback/operation bounds remain
+  explicit; Factory scheduling and attempt limits from Block 3 remain the retry
+  authority.
+- Exact app-server adapter: one owned async loop contains typed stdio clients,
+  process/session lifecycle, durable execution-to-thread/turn mapping,
+  restart/reattachment, polling, and exact cancellation. Canonical state stores
+  only JSON identities and exact producer roots—not client/session/callback
+  objects or callback tokens. Command/file approval callbacks are declined;
+  external input interrupts and fails closed. A completed turn returns
+  `provider_success_only` evidence and leaves work acceptance pending.
+- Compatibility and diagnostic: `docs/software-factory-v2-provider-compatibility.md`,
+  SHA-256 `e61b98f01750f83bbd472da66a4ebcbe7063817930425d0cb4de986347a69ee5`,
+  records ownership, restart, cancellation, bounds, and qualification for all
+  four provider lanes. The bounded real-host diagnostic verified exact Codex
+  `0.147.0`, executable SHA-256
+  `134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477`,
+  retained schema/surface roots, initialized one owned generation, executed one
+  typed `thread/list(limit=1)`, observed one result, and closed it. It started no
+  generative turn and read or wrote no target repository.
+- Focused evidence: `docs/sfv2-b4-focused-evidence.json`, SHA-256
+  `2df289b7156f2e125cc37e4aaa4c74c99913686fca1f95835b4b513b8347d0e1`,
+  records `44 passed`, repository collection at `177 tests`, Ruff and 87-file
+  format success, mypy success across 59 source files, compilation, exact
+  producer identity, diagnostic results, and Stop-boundary checks. No broad
+  runtime suite was run.
+- Artifact proof: an ephemeral Factory wheel for `2.0.0.dev6`, SHA-256
+  `f64ac701cdadaeeee0152bb7864dfbda0f389c3ec1f0e4375321c524eadc10d9`,
+  contains the app-server adapter, provenance verifier, and packaged exact pin.
+  It is qualification evidence, not a release artifact.
+- Negative proofs: duplicate process owners fail; replacement closes its former
+  owner; a tampered producer wheel or stale durable producer root fails closed;
+  a replaced provider reattaches to the same exact thread/turn; unrouted
+  approval is declined; cancellation interrupts the exact turn; callback token
+  material is absent from the durable handle; and provider success cannot set
+  work acceptance.
+- Product-capability review:
+  - Trigger: consequential Block posture.
+  - Capability added or preserved: real replaceable worker execution can start,
+    survive adapter restart, be cancelled, and return attributable evidence
+    without becoming mission or acceptance authority.
+  - Paths compared: keep the dashboard-local generic client; resolve a public
+    package name/version; copy utils source; consume the exact qualified wheel
+    behind a Factory adapter.
+  - Selected level and owner: exact shared mechanics from utils plus
+    Factory-owned pins, provider mappings, bounds, callbacks, and consequence
+    routing.
+  - Protected-capability result: reservations, scheduling/attempt budgets,
+    callbacks, QA, acceptance, and target effects remain Factory-owned.
+  - Rejected alternatives: duplicate clients drift, registry resolution can
+    select an unrelated public wheel, and source copying destroys the producer
+    boundary.
+  - Tradeoff and uncertainty: exact Codex `0.147.0` compatibility is
+    intentionally fail-closed; later protocol adoption requires a newly
+    qualified producer artifact and an updated Factory pin.
+- Candidate posture: implementation-complete pending exact independent review.
+  Block 9 structural/runtime packages are not consumed, the dashboard duplicate
+  is not retired, utils is unmodified, and Block 5 target-profile effects have
+  not begun.
 
 ### Stop
 

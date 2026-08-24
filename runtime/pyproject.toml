@@ -33,7 +33,7 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-software_factory = ["web/*", "migrations/*.sql"]
+software_factory = ["web/*", "migrations/*.sql", "provider_pins/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

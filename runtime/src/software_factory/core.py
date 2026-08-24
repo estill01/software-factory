@@ -139,6 +139,11 @@ class CoreService:
     def artifacts(self) -> ArtifactService:
         return self.artifact_service
 
+    def close(self) -> None:
+        """Close provider-owned resources exactly once through the registry owner."""
+
+        self.providers.close()
+
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)

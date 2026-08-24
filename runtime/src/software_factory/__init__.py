@@ -1,6 +1,7 @@
 """Software Factory v2 native runtime."""
 
 from .adaptive import AdaptiveExecutionService
+from .app_server_provider import CodexAppServerProvider
 from .audit import CommandEnvelope
 from .controller import ControllerService
 from .core import CoreService
@@ -29,6 +30,7 @@ from .errors import (
 from .providers import (
     CodexCLIProvider,
     DeterministicProvider,
+    ExternalAgentProvider,
     ProcessProvider,
     ProviderObservation,
     ProviderRegistry,
@@ -41,6 +43,7 @@ __all__ = [
     "AdaptiveExecutionService",
     "AuthorityDenied",
     "CommandEnvelope",
+    "CodexAppServerProvider",
     "CoreService",
     "Database",
     "ENGINE_CONTRACT_VERSION",
@@ -65,6 +68,7 @@ __all__ = [
     "ProviderRequest",
     "ProviderObservation",
     "DeterministicProvider",
+    "ExternalAgentProvider",
     "ProcessProvider",
     "CodexCLIProvider",
     "StoreError",
