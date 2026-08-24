@@ -1265,7 +1265,7 @@ when `send_allowed` is true:
 ```bash
 python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
   --recipient-thread <RECIPIENT> \
-  --purpose <changed-state-review|semantic-escalation|incident-review|fix-execution|target-action|watcher-action|gmail-reply-processing|roundup-action|role-refresh> \
+  --purpose <changed-state-review|semantic-escalation|incident-review|fix-execution|status-broadcast|target-action|watcher-action|gmail-reply-processing|roundup-action|role-refresh> \
   --source-record <SOURCE_RECORD_ID> \
   --action "<EXACT_REQUIRED_ACTION>"
 ```
@@ -1277,6 +1277,13 @@ bound thread. It does not create a message ledger, authorize the action, or
 replace semantic review. A caller may not label routine status as an action to
 evade the rule. Email remains governed exclusively by `notice-gate`,
 `lifecycle-gate`, `decision-gate`, and the maintained roundup/reply contracts.
+
+`status-broadcast` is the explicit-user-authorized cross-task status lane. Gate
+against the recipient target's policy with its exact target, direct-user class,
+matching source/authority record, source task, and bounded scope. Its envelope,
+root, and notification dedup key bind recipient, source task/item, scope,
+payload hash, and policy; an exact sent receipt suppresses only its unchanged
+retry. Routine, delegated, ambiguous, or unrelated traffic fails closed.
 
 Record-first ordering is mandatory for every critical correction route and
 every critical report that a correction was handled. Pass `--severity critical`,

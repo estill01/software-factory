@@ -225,6 +225,9 @@ Repeat independently for additional targets.
   source record, and required action, and require `send_allowed=true`. Never use
   an unrelated chat or side conversation as a status sink. User-facing email
   goes only through the maintained notification gates.
+- An explicit direct-user request may route one bounded `status-broadcast` to
+  the recipient policy's exact target. Bind source task/item and scope, record
+  the returned deduplication key, and never broadcast routine progress.
 - Record before routing a critical correction or reporting one handled. Mark
   that route `--severity critical` and cite the exact current open incident head,
   incident ID, and failure-mode ID. The head must already bind the complete

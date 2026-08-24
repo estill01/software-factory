@@ -559,6 +559,7 @@ THREAD_ROUTE_PURPOSE_ROLES = {
     ),
     "roundup-action": ("roundup_writer",),
     "semantic-escalation": ("reviewer",),
+    "status-broadcast": ("target",),
     "target-action": ("target",),
     "watcher-action": ("watcher",),
 }
@@ -1212,7 +1213,7 @@ def mission_scoped_events(
 
 def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
     """Exact predecessor accepted only so `bind` can add role refresh."""
-    contract = cross_thread_routing_contract()
+    contract = legacy_cross_thread_routing_contract_without_status_broadcast()
     contract["purpose_roles"] = {
         purpose: roles[0]
         for purpose, roles in THREAD_ROUTE_PURPOSE_ROLES.items()
@@ -1224,12 +1225,18 @@ def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
 def legacy_cross_thread_routing_contract_without_liveness() -> dict[str, Any]:
     """Exact predecessor accepted only so `bind` can add the sentinel role."""
 
-    contract = cross_thread_routing_contract()
+    contract = legacy_cross_thread_routing_contract_without_status_broadcast()
     contract["purpose_roles"]["role-refresh"] = [
         role
         for role in contract["purpose_roles"]["role-refresh"]
         if role != "liveness"
     ]
+    return contract
+
+
+def legacy_cross_thread_routing_contract_without_status_broadcast() -> dict[str, Any]:
+    contract = cross_thread_routing_contract()
+    contract["purpose_roles"].pop("status-broadcast")
     return contract
 
 
@@ -2055,6 +2062,7 @@ def validate_policy(
         canonical(cross_thread_routing_contract()),
         canonical(legacy_single_role_cross_thread_routing_contract()),
         canonical(legacy_cross_thread_routing_contract_without_liveness()),
+        canonical(legacy_cross_thread_routing_contract_without_status_broadcast()),
     }:
         raise SupervisionLogError("Cross-thread routing contract differs")
     weekly = policy.get("reports", {}).get("weekly")
@@ -4929,6 +4937,36 @@ def thread_route_gate_result(
             "Cross-thread purpose does not match the configured recipient role"
         )
 
+    broadcast = None
+    duplicate = False
+    if args.purpose == "status-broadcast":
+        source_task = safe_id(getattr(args, "source_task", None) or "", label="status-broadcast source task")
+        scope = clean(
+            getattr(args, "broadcast_scope", None) or "", label="status-broadcast scope", maximum=120
+        )
+        if not scope:
+            raise SupervisionLogError("Status broadcast requires one bounded scope")
+        if getattr(args, "authority_source_class", None) != "direct-user" or getattr(
+            args, "authority_source_record", None
+        ) != source_record:
+            raise SupervisionLogError("Status broadcast requires exact direct-user provenance")
+        broadcast = {
+            "recipient_target_thread_id": policy["target_thread_id"],
+            "source_task_id": source_task,
+            "source_item_id": source_record,
+            "scope": scope,
+            "payload_sha256": digest(action),
+            "policy_sha256": policy["policy_sha256"],
+        }
+        broadcast_root = digest(broadcast)
+        broadcast_key = f"status-broadcast:{broadcast_root}"
+        duplicate = any(
+            item.get("kind") == "notification" and item.get("category") == "status-broadcast"
+            and item.get("status") == "sent"
+            and item.get("dedup_key") == broadcast_key
+            for item in events(directory / "events.jsonl")
+        )
+
     containment = None
     if getattr(args, "containment", False):
         if args.purpose != "target-action" or recipient_role != "target":
@@ -4973,6 +5011,11 @@ def thread_route_gate_result(
         result["containment_sha256"] = digest(containment)
     if incident_head is not None:
         result["critical_incident_head"] = incident_head
+    if broadcast is not None:
+        result.update(send_allowed=not duplicate, duplicate=duplicate)
+        result["status_broadcast"] = broadcast
+        result["status_broadcast_root"] = broadcast_root
+        result["status_broadcast_dedup_key"] = broadcast_key
     return result
 
 
@@ -36007,6 +36050,8 @@ def parser() -> argparse.ArgumentParser:
         "--purpose", choices=sorted(THREAD_ROUTE_PURPOSE_ROLES), required=True
     )
     thread_route_gate.add_argument("--source-record", required=True)
+    thread_route_gate.add_argument("--source-task")
+    thread_route_gate.add_argument("--broadcast-scope")
     thread_route_gate.add_argument("--action", required=True)
     thread_route_gate.add_argument("--containment", action="store_true")
     thread_route_gate.add_argument("--mission-root")

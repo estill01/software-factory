@@ -12561,7 +12561,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         ):
             supervision_log.validate_policy(policy)
 
-    def test_policy_validation_rejects_thread_routing_contract_drift(self) -> None:
+    def test_status_broadcast_policy_validation_rejects_arbitrary_routing_drift(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         policy["cross_thread_routing"]["routine_status_behavior"] = "broadcast"
         policy["policy_sha256"] = supervision_log.digest(
@@ -12614,13 +12614,16 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
         recipient: str,
         purpose: str,
         action: str = "Review the exact changed-state packet.",
+        all_events: list[dict[str, object]] | None = None,
+        **route_fields: object,
     ) -> dict[str, object]:
         args = argparse.Namespace(
             target_thread="target-1234",
             recipient_thread=recipient,
             purpose=purpose,
-            source_record="EVT-000001",
+            source_record=route_fields.pop("source_record", "EVT-000001"),
             action=action,
+            **route_fields,
         )
         output = io.StringIO()
         with (
@@ -12629,10 +12632,19 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
                 "load_policy",
                 return_value=(Path("/tmp/supervision-test"), policy),
             ),
+            mock.patch.object(supervision_log, "events", return_value=all_events or []),
             redirect_stdout(output),
         ):
             supervision_log.cmd_thread_route_gate(args)
         return json.loads(output.getvalue())
+
+    def status_broadcast(self, **changes: object) -> dict[str, object]:
+        values = dict(policy=self.policy(), recipient="target-1234", purpose="status-broadcast",
+            action="Utils completed with the accepted revision.", source_record="msg_direct_user_1234",
+            source_task="source-task-1234", authority_source_class="direct-user",
+            authority_source_record="msg_direct_user_1234", broadcast_scope="utils-completion")
+        values.update(changes)
+        return self.route(**values)  # type: ignore[arg-type]
 
     def critical_incident_head(
         self,
@@ -12734,6 +12746,47 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
         self.assertEqual(result["recipient_role"], "target")
         self.assertEqual(result["action_sha256"], supervision_log.digest(action))
         self.assertNotIn(action, json.dumps(result))
+
+    def test_status_broadcast_accepts_exact_target_direct_source_and_scope(self) -> None:
+        result = self.status_broadcast()
+        self.assertTrue(result["send_allowed"])
+        self.assertEqual((result["recipient_role"], result["status_broadcast"]["source_task_id"]), ("target", "source-task-1234"))
+        self.assertRegex(result["status_broadcast_dedup_key"], r"^status-broadcast:[0-9a-f]{64}$")
+
+    def test_status_broadcast_rejects_missing_mismatched_or_unrelated_provenance(self) -> None:
+        cases = ({"source_task": None}, {"authority_source_class": "tracker"},
+            {"authority_source_record": "msg_other_1234"}, {"broadcast_scope": ""},
+            {"recipient": "base-1234"}, {"recipient": "side-thread-1234"})
+        for changes in cases:
+            with self.subTest(changes=changes), self.assertRaises(supervision_log.SupervisionLogError):
+                self.status_broadcast(**changes)
+
+    def test_status_broadcast_deduplicates_only_the_exact_sent_envelope(self) -> None:
+        first = self.status_broadcast()
+        receipt = {"kind": "notification", "category": "status-broadcast", "status": "sent",
+            "dedup_key": first["status_broadcast_dedup_key"]}
+        duplicate = self.status_broadcast(all_events=[receipt])
+        self.assertEqual((duplicate["send_allowed"], duplicate["duplicate"]), (False, True))
+        changed_policy = self.policy()
+        changed_policy["updated_at"] = "2026-08-24T07:00:00+00:00"
+        changed_policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(changed_policy)
+        )
+        other_target = copy.deepcopy(changed_policy)
+        other_target["target_thread_id"] = "target-5678"
+        other_target["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(other_target)
+        )
+        for changes in (
+            {"action": "Utils completed at a later accepted revision."},
+            {"source_record": "msg_new_user_1234", "authority_source_record": "msg_new_user_1234"},
+            {"broadcast_scope": "utils-release"},
+            {"source_task": "source-task-5678"},
+            {"policy": changed_policy},
+            {"policy": other_target, "recipient": "target-5678"},
+        ):
+            with self.subTest(changes=changes):
+                self.assertTrue(self.status_broadcast(all_events=[receipt], **changes)["send_allowed"])
 
     def test_role_refresh_is_limited_to_configured_runtime_roles(self) -> None:
         policy = self.policy()
@@ -17623,7 +17676,7 @@ class TargetLivenessGateTests(unittest.TestCase):
             )
         )
 
-    def test_bind_migrates_exact_pre_liveness_group_without_replacement(self) -> None:
+    def test_status_broadcast_bind_migrates_exact_pre_liveness_group_without_replacement(self) -> None:
         legacy = copy.deepcopy(self.policy)
         legacy["models"].pop("liveness")
         legacy["schedule"].pop("liveness_minutes")
