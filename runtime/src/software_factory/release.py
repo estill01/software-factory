@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .errors import InvalidTransition
 from .governance import GovernanceService
 from .operations import OperationsService
 from .store import Store
@@ -22,7 +23,7 @@ class GovernedReleaseService:
     ):
         self.store = store
         self.governance = governance or GovernanceService(store)
-        self.operations = operations or OperationsService(store)
+        self._operations = operations or OperationsService(store)
 
     def stage(
         self,
@@ -37,7 +38,7 @@ class GovernedReleaseService:
         mission_id: str | None = None,
         minimum_independent_reviews: int = 1,
     ) -> dict[str, Any]:
-        release = self.operations.stage_release(
+        release = self._operations.stage_release(
             source_root=source_root,
             release_root=release_root,
             source_revision=source_revision,
@@ -167,7 +168,7 @@ class GovernedReleaseService:
                    SET acceptance_decision_id=?,updated_at=? WHERE id=?""",
                 (decision["id"], utc_now(), release_id),
             )
-        self.operations.review_release(
+        self._operations.review_release(
             release_id,
             reviewer_session_id=primary_review["reviewer_session_id"],
             disposition="accepted",
@@ -193,8 +194,8 @@ class GovernedReleaseService:
         release_root: str | Path,
         verification_command: Sequence[str],
     ) -> dict[str, Any]:
-        self.operations.activate_release(release_id, release_root=release_root)
-        verification = self.operations.verify_release(
+        self._operations.activate_release(release_id, release_root=release_root)
+        verification = self._operations.verify_release(
             release_id,
             command=verification_command,
             release_root=release_root,
@@ -206,3 +207,19 @@ class GovernedReleaseService:
             ),
             "verification": verification,
         }
+
+    def activate(self, release_id: str, *, release_root: str | Path) -> dict[str, Any]:
+        release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
+        if not release.get("acceptance_contract_id") or not release.get("acceptance_decision_id"):
+            raise InvalidTransition("release lacks a strict acceptance decision")
+        decision = self.store.one(
+            "SELECT * FROM acceptance_decisions_v2 WHERE id=?",
+            (release["acceptance_decision_id"],),
+        )
+        if (
+            decision["contract_id"] != release["acceptance_contract_id"]
+            or decision["exact_revision"] != release["source_revision"]
+            or decision["decision"] != "accepted"
+        ):
+            raise InvalidTransition("release strict acceptance decision is stale")
+        return self._operations.activate_release(release_id, release_root=release_root)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from software_factory import (
     Store,
     TargetProfileRegistry,
 )
+from software_factory.operations import OperationsService
 
 
 def git(root: Path, *args: str) -> str:
@@ -49,7 +51,7 @@ def target_runtime(tmp_path: Path) -> tuple[CoreService, str, Path]:
         current_revision=revision,
         workspace_policy={"workspace_root": str(tmp_path / "workspaces")},
     )
-    core.software_profile.register_target(
+    core.register_software_target(
         repository_id,
         commands=[
             RegisteredSoftwareCommand(
@@ -104,6 +106,10 @@ def execute(
     )
 
 
+def future() -> str:
+    return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat()
+
+
 def create_candidate_workspace(
     core: CoreService, repository_id: str, *, mission_id: str
 ) -> tuple[str, str]:
@@ -131,8 +137,15 @@ def test_registry_rejects_unowned_effects_self_acceptance_and_worktree_authority
     snapshot = core.target_profiles.snapshot("software", repository_id)
     assert core.target_profiles.keys() == ("software",)
     assert snapshot.revision == git(repository, "rev-parse", "refs/heads/main")
-    assert not hasattr(core.software_profile, "accept")
-    assert not hasattr(core.software_profile, "execute_effect")
+    assert not hasattr(core, "software_profile")
+    assert not hasattr(core, "workspace_owner")
+    assert not hasattr(core, "executions")
+    assert not hasattr(core, "operations")
+    assert not hasattr(core, "reconciliation")
+    assert not hasattr(core, "workspaces")
+    assert not hasattr(core.target_profiles, "get")
+    assert not hasattr(core, "create_workspace")
+    assert not hasattr(core, "run_command")
     with pytest.raises(AttributeError):
         core.__getattr__("execute_effect")
 
@@ -155,16 +168,20 @@ def test_registry_rejects_unowned_effects_self_acceptance_and_worktree_authority
         current_revision=git(linked, "rev-parse", "HEAD"),
     )
     with pytest.raises(InvalidTransition, match="linked worktree"):
-        core.software_profile.register_target(linked_id, commands=[])
+        core.register_software_target(linked_id, commands=[])
 
     class CommandOnly:
         key = "command-only"
         effect_classes = frozenset({EffectClass.COMMAND})
 
+        def _bind_registry_authority(self, authority):
+            self.authority = authority
+
         def snapshot(self, target_id: str):
             return snapshot
 
-        def _execute_effect(self, *args, **kwargs):
+        def _execute_effect(self, authority, *args, **kwargs):
+            assert authority is self.authority
             raise AssertionError("unowned effect reached profile")
 
     partial = TargetProfileRegistry()
@@ -176,6 +193,19 @@ def test_registry_rejects_unowned_effects_self_acceptance_and_worktree_authority
             repository_id,
             expected_revision=snapshot.revision,
             expected_currentness_root=snapshot.currentness_root,
+        )
+
+    with pytest.raises(AuthorityDenied, match="registry authority"):
+        core._software_profile._execute_effect(  # type: ignore[attr-defined]
+            object(),
+            EffectClass.WORKSPACE,
+            repository_id,
+            expected_revision=snapshot.revision,
+            arguments={
+                "operation": "create",
+                "mission_id": "unreachable",
+                "workspace_type": "candidate_lane",
+            },
         )
 
 
@@ -200,16 +230,59 @@ def test_workspace_and_registered_command_effects_are_exact_currentness_fenced(
             },
         )
 
+    dirty = repository / "src" / "base.py"
+    dirty.write_text("BASE = 'A'\n", encoding="utf-8")
+    dirty_a = core.target_profiles.snapshot("software", repository_id)
+    dirty.write_text("BASE = 'B'\n", encoding="utf-8")
+    dirty_b = core.target_profiles.snapshot("software", repository_id)
+    assert dirty_a.revision == dirty_b.revision
+    assert (
+        dirty_a.attributes["working_tree_status_root"]
+        == dirty_b.attributes["working_tree_status_root"]
+    )
+    assert (
+        dirty_a.attributes["working_tree_content_root"]
+        != dirty_b.attributes["working_tree_content_root"]
+    )
+    assert dirty_a.currentness_root != dirty_b.currentness_root
+    with pytest.raises(InvalidTransition, match="currentness changed"):
+        core.target_profiles.execute(
+            "software",
+            EffectClass.WORKSPACE,
+            repository_id,
+            expected_revision=dirty_a.revision,
+            expected_currentness_root=dirty_a.currentness_root,
+            arguments={
+                "operation": "create",
+                "mission_id": mission,
+                "workspace_type": "candidate_lane",
+            },
+        )
+    dirty.write_text("BASE = True\n", encoding="utf-8")
+
+    untracked = repository / "untracked.txt"
+    untracked.write_text("A\n", encoding="utf-8")
+    untracked_a = core.target_profiles.snapshot("software", repository_id)
+    untracked.write_text("B\n", encoding="utf-8")
+    untracked_b = core.target_profiles.snapshot("software", repository_id)
+    assert untracked_a.currentness_root != untracked_b.currentness_root
+    untracked.unlink()
+
+    git(repository, "switch", "-c", "other-checked-out-branch")
+    with pytest.raises(InvalidTransition, match="target branch is not checked out"):
+        core.target_profiles.snapshot("software", repository_id)
+    git(repository, "switch", "main")
+
     workspace_id, base_revision = create_candidate_workspace(
         core, repository_id, mission_id=mission
     )
-    execution_id = core.executions.queue_execution(
+    execution_id = core.queue_execution(
         mission_id=mission,
         execution_type="profile_command",
         idempotency_key="profile-command",
         workspace_id=workspace_id,
     )
-    generation = core.executions.acquire_leases(
+    generation = core.acquire_leases(
         execution_id,
         [{"kind": "workspace", "key": workspace_id, "mode": "exclusive"}],
     )
@@ -229,13 +302,13 @@ def test_workspace_and_registered_command_effects_are_exact_currentness_fenced(
         (EffectClass.TEST, "focused-test"),
         (EffectClass.BUILD, "build"),
     ):
-        validation_execution = core.executions.queue_execution(
+        validation_execution = core.queue_execution(
             mission_id=mission,
             execution_type=f"profile_{effect_class.value}",
             idempotency_key=f"profile-{effect_class.value}",
             workspace_id=workspace_id,
         )
-        validation_generation = core.executions.acquire_leases(
+        validation_generation = core.acquire_leases(
             validation_execution,
             [{"kind": "workspace", "key": workspace_id, "mode": "exclusive"}],
         )
@@ -288,11 +361,12 @@ def test_integration_uses_registered_validation_and_branch_currentness(tmp_path:
     git(repository, "add", "src/candidate.py")
     git(repository, "commit", "-m", "candidate")
     git(repository, "switch", "main")
-    inventory = core.operations.inventory_repository(repository_root=repository)
-    bundle = core.operations.preserve_repository(
+    operations = OperationsService(core.store)
+    inventory = operations.inventory_repository(repository_root=repository)
+    bundle = operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "integration-preservation"
     )
-    item = core.operations.plan_cleanup_item(
+    item = operations.plan_cleanup_item(
         inventory["id"],
         item_type="branch",
         item_key="candidate",
@@ -328,13 +402,13 @@ def test_release_cleanup_and_rollback_remain_external_acceptance_gated(tmp_path:
     core, repository_id, _ = target_runtime(tmp_path)
     mission = core.create_mission(title="Release mission", objective="Stage and roll back")
     workspace_id, _ = create_candidate_workspace(core, repository_id, mission_id=mission)
-    execution_id = core.executions.queue_execution(
+    execution_id = core.queue_execution(
         mission_id=mission,
         execution_type="release_candidate",
         idempotency_key="release-candidate",
         workspace_id=workspace_id,
     )
-    generation = core.executions.acquire_leases(
+    generation = core.acquire_leases(
         execution_id,
         [{"kind": "workspace", "key": workspace_id, "mode": "exclusive"}],
     )
@@ -355,7 +429,10 @@ def test_release_cleanup_and_rollback_remain_external_acceptance_gated(tmp_path:
         {"operation": "freeze", "workspace_id": workspace_id},
     )
     assert frozen.result["revision"] != frozen.before.revision
-    workspace_path = core.workspace_owner.workspace_path(workspace_id)
+    workspace_path = Path(
+        core.store.one("SELECT path FROM workspaces WHERE id=?", (workspace_id,))["path"]
+    )
+    implementer = core.create_agent_session(mission_id=mission, provider="test", role="implementer")
     dirty_after_freeze = workspace_path / "dirty-after-freeze"
     dirty_after_freeze.write_text("not staged\n", encoding="utf-8")
     with pytest.raises(InvalidTransition, match="changed after candidate freeze"):
@@ -363,14 +440,24 @@ def test_release_cleanup_and_rollback_remain_external_acceptance_gated(tmp_path:
             core,
             repository_id,
             EffectClass.RELEASE,
-            {"operation": "stage", "workspace_id": workspace_id, "mission_id": mission},
+            {
+                "operation": "stage",
+                "workspace_id": workspace_id,
+                "mission_id": mission,
+                "implementer_session_id": implementer,
+            },
         )
     dirty_after_freeze.unlink()
     staged = execute(
         core,
         repository_id,
         EffectClass.RELEASE,
-        {"operation": "stage", "workspace_id": workspace_id, "mission_id": mission},
+        {
+            "operation": "stage",
+            "workspace_id": workspace_id,
+            "mission_id": mission,
+            "implementer_session_id": implementer,
+        },
     )
     other_repository = tmp_path / "other-target"
     other_revision = initialize_repository(other_repository)
@@ -380,7 +467,7 @@ def test_release_cleanup_and_rollback_remain_external_acceptance_gated(tmp_path:
         current_revision=other_revision,
         workspace_policy={"workspace_root": str(tmp_path / "other-workspaces")},
     )
-    core.software_profile.register_target(
+    core.register_software_target(
         other_id,
         commands=[],
         integration_root=tmp_path / "other-integration",
@@ -394,7 +481,7 @@ def test_release_cleanup_and_rollback_remain_external_acceptance_gated(tmp_path:
             EffectClass.RELEASE,
             {"operation": "activate", "release_id": staged.result["id"]},
         )
-    with pytest.raises(InvalidTransition, match="independent review"):
+    with pytest.raises(InvalidTransition, match="strict acceptance decision"):
         execute(
             core,
             repository_id,
@@ -402,13 +489,44 @@ def test_release_cleanup_and_rollback_remain_external_acceptance_gated(tmp_path:
             {"operation": "activate", "release_id": staged.result["id"]},
         )
 
-    core.operations.review_release(
-        staged.result["id"],
-        reviewer_session_id="independent-reviewer",
-        disposition="accepted",
-        findings={"currentness": "exact"},
-        evidence_ids=["review-evidence"],
+    reviewer = core.create_agent_session(
+        mission_id=mission,
+        provider="test",
+        role="independent_reviewer",
+        external_task_id="provider-reviewer",
     )
+    observer = core.create_agent_session(mission_id=mission, provider="test", role="evaluator")
+    authority = core.create_agent_session(mission_id=mission, provider="test", role="supervisor")
+    for key in ("candidate-behavior", "protected-capabilities"):
+        core.release.record_probe(
+            staged.result["id"],
+            probe_key=key,
+            disposition="passed",
+            observed_result={"observed": True},
+            evidence_ids=[f"{key}-evidence"],
+            observer_session_id=observer,
+        )
+    grant = core.release.issue_reviewer_grant(
+        staged.result["id"],
+        reviewer_session_id=reviewer,
+        currentness_root="currentness-root",
+        policy_root="release-policy-root",
+        expires_at=future(),
+        issued_by_session_id=authority,
+    )
+    core.release.record_independent_review(
+        staged.result["id"],
+        grant_id=grant["id"],
+        reviewer_session_id=reviewer,
+        currentness_root="currentness-root",
+        review_contract={"check": ["manifest", "behavior", "isolation"]},
+        provider_session_id="provider-reviewer",
+        transcript_artifact_id="review-transcript",
+        evidence_ids=["review-transcript", "manifest-review"],
+        disposition="accepted",
+        findings={"blocking": []},
+    )
+    core.release.accept(staged.result["id"])
     activated = execute(
         core,
         repository_id,

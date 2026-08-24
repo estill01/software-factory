@@ -150,6 +150,45 @@ def test_failed_fresh_process_verification_restores_previous_release(tmp_path: P
     ) == {"status": "rolled_back"}
 
 
+def test_release_activation_and_rollback_are_scoped_to_one_release_root(
+    tmp_path: Path,
+) -> None:
+    operations = service()
+    source_a = tmp_path / "source-a"
+    source_b = tmp_path / "source-b"
+    source_a.mkdir()
+    source_b.mkdir()
+    (source_a / "app.py").write_text("TARGET = 'A'\n", encoding="utf-8")
+    (source_b / "app.py").write_text("TARGET = 'B'\n", encoding="utf-8")
+    root_a = tmp_path / "releases-a"
+    root_b = tmp_path / "releases-b"
+    release_a = accepted_release(operations, source_a, root_a, "revision-a")
+    release_b = accepted_release(operations, source_b, root_b, "revision-b")
+
+    operations.activate_release(release_a["id"], release_root=root_a)
+    operations.activate_release(release_b["id"], release_root=root_b)
+    current_a = operations.store.one(
+        "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_a["id"],)
+    )
+    current_b = operations.store.one(
+        "SELECT * FROM immutable_releases_v2 WHERE id=?", (release_b["id"],)
+    )
+    assert current_a["status"] == "active"
+    assert current_b["status"] == "active"
+    assert current_b["previous_release_id"] is None
+
+    operations.rollback_release(release_b["id"], release_root=root_b, evidence_ids=["rollback-b"])
+    pointer_b = json.loads((root_b / "active-release.json").read_text(encoding="utf-8"))
+    assert pointer_b["release_id"] is None
+    assert operations.store.one(
+        "SELECT status FROM immutable_releases_v2 WHERE id=?", (release_a["id"],)
+    ) == {"status": "active"}
+    with pytest.raises(InvalidTransition, match="different target root"):
+        operations.rollback_release(
+            release_a["id"], release_root=root_b, evidence_ids=["wrong-root"]
+        )
+
+
 def test_factory_recovery_preserves_target_and_resumes_exactly_once(tmp_path: Path) -> None:
     operations = service()
     source = tmp_path / "source"

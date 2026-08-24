@@ -1136,6 +1136,15 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   classes and exact target currentness checks; do not introduce a universal
   target schema, let a profile accept its output, consume Block 9 utils
   packages, or begin Block 6 QA/supervision acceptance integration.
+- Preserved rejected candidate: exact commit
+  `ccdd3eb4f4d32c05ee8ed35f16de4c97877e1acc`, tree
+  `7f1adb26d867b2214fc6164bd0b48b0c959eb258`, remains clean and pushed. Distinct
+  exact-revision review returned `REVISE`: dirty bytes were absent from
+  currentness; raw profile/workspace paths bypassed the registry; release
+  predecessor and rollback state crossed target roots; arbitrary reviewer
+  strings could manufacture release acceptance; and the focused evidence did
+  not exercise those attacks. The revision and review record are preserved;
+  corrections exist only in the successor candidate.
 - Domain-neutral profile contract: `TargetProfileRegistry` owns unique profile
   composition, fixed `EffectClass` admission, exact before/after snapshots, and
   revision/currentness fencing. Unknown profiles, free-form effect strings, and
@@ -1148,37 +1157,48 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
   Factory physical owners. Controller and QA receive the profile workspace
   interface; the raw Git workspace service remains an internal physical adapter.
 - Authority/currentness: target snapshots bind exact commit, tree, primary
-  checkout status root, repository state version, branch, and root. Commands are
-  fixed registered argv/timeout/exit-code contracts executed only on an exact-
-  base leased workspace. Target branch, workspace/integration/release/
-  preservation roots, argv, environment, and working directory are not caller
-  arguments. Integration compare-and-swap and existing release/cleanup guards
-  remain authoritative.
+  checkout status root, checked-out branch, tracked diff bytes, untracked
+  path/content roots, repository state version, configured branch, and root.
+  The registry supplies a per-composition authority object and direct adapter
+  invocation without it fails. Core withholds raw physical-owner objects and
+  raw workspace, command, and release facade methods. Commands are fixed
+  registered argv/timeout/exit-code contracts executed only on an exact-base
+  leased workspace. Target branch, workspace/integration/release/preservation
+  roots, argv, environment, and working directory are not caller arguments.
+  Integration compare-and-swap and existing release/cleanup guards remain
+  authoritative.
 - Acceptance separation: the profile can stage and activate a release, but
-  activation succeeds only after the existing distinct release-review owner has
-  accepted it. `accept` is not an effect class and the profile has no acceptance
-  method; Block 6 remains the QA/supervision/acceptance owner.
+  staging creates the existing governed acceptance contract and activation
+  succeeds only after its exact granted independent review and accepted
+  decision. The physical release owner scopes active predecessor selection and
+  rollback to the registered release root. `accept` is not an effect class and
+  the profile has no acceptance method; Block 6 remains the integrated
+  QA/supervision/acceptance owner.
 - Contract record: `docs/software-factory-v2-target-profile-contract.md`,
-  SHA-256 `003d74d4caf79a4426d6880cfa6ace9d360e8da585f9de1d8e6284b5ab0e1f0c`,
+  SHA-256 `668b35622b7aff4088e81e475d1ceece4a51417fb3785ee684618f8bbe26755f`,
   records the fixed effect matrix, physical owners, exact-currentness contract,
   caller argument exclusions, and later-Block boundaries.
 - Focused evidence: `docs/sfv2-b5-focused-evidence.json`, SHA-256
-  `2af117dbdd1e641d89ef45fd447608d6a0ba9d3df236441cb01785a50db40cfc`,
-  records `21 passed` across the new profile, composition, workspace/execution,
-  reconciliation, governed-release, and recovery slices; repository collection
-  at `183 tests`; Ruff and 91-file format success; mypy across 62 source files;
-  compilation; full tracker verification; and Stop-boundary checks. No broad
-  runtime suite was run.
+  `87c7a4a57c5dadbdc792df0570425923a0276be68fd0bbbfda5c56ae9bf81991`, records
+  `43 passed` across the profile, composition,
+  physical release, workspace/execution, governance, governed-release,
+  reconciliation, recovery, and advanced-composition slices; repository
+  collection at `184 tests`; Ruff and 91-file format success; mypy across 62
+  source files; compilation; native entrypoint compatibility; full tracker
+  verification; and Stop-boundary checks. No broad runtime suite was run.
 - Artifact proof: an ephemeral Factory wheel for `2.0.0.dev6`, SHA-256
-  `586d15f94612b8f124b2a20140edd092696b67e8cb78f4da8b9707d99dc4cf0b`,
+  `3c6ecf4a7323ddaf1c65db381c378a20d0926cf9365f6288a9a5bef2cf8ae514`,
   contains the profile registry/contracts and software profile. It is local
   qualification evidence, not a release artifact.
 - Negative proofs: reject caller-supplied command/path roots and unknown command
-  keys; linked worktrees as target authority; target revision/currentness drift;
+  keys; linked worktrees as target authority; target revision, checked-out
+  branch, same-status dirty-byte, untracked-content, or repository-state drift;
+  direct profile calls without registry authority; raw Core effect access;
   workspace changes after candidate freeze; effect classes not owned by the
-  profile; releases bound to another target root; and profile self-acceptance.
-  Real disposable repositories prove fixed test/build commands, integration
-  publish, external-review-gated activation, preservation, and rollback.
+  profile; cross-root active/superseded/predecessor/rollback state; arbitrary
+  reviewer identity; and profile self-acceptance. Real disposable repositories
+  prove fixed test/build commands, integration publish, exact governed-review-
+  gated activation, two independent release roots, preservation, and rollback.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Capability added or preserved: the domain-neutral core can select a profile

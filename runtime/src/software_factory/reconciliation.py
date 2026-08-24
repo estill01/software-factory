@@ -99,7 +99,7 @@ class RepositoryReconciliationService:
         operations: OperationsService | None = None,
     ):
         self.store = store
-        self.operations = operations or OperationsService(store)
+        self._operations = operations or OperationsService(store)
 
     def _item_and_bundle(
         self, cleanup_item_id: str, preservation_bundle_id: str
@@ -509,17 +509,17 @@ class RepositoryReconciliationService:
         classifications: Sequence[Mapping[str, Any]],
         preservation_directory: str | Path,
     ) -> dict[str, Any]:
-        inventory = self.operations.inventory_repository(
+        inventory = self._operations.inventory_repository(
             repository_root=repository_root,
             mission_id=mission_id,
             active_writers=active_writers,
         )
-        bundle = self.operations.preserve_repository(
+        bundle = self._operations.preserve_repository(
             inventory["id"], output_directory=preservation_directory
         )
         items: list[dict[str, Any]] = []
         for classification in classifications:
-            item = self.operations.plan_cleanup_item(
+            item = self._operations.plan_cleanup_item(
                 inventory["id"],
                 item_type=str(classification["item_type"]),  # type: ignore[arg-type]
                 item_key=str(classification["item_key"]),

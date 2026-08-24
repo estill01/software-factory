@@ -42,6 +42,19 @@ class CoreService:
     existing call surface while each service now has explicit dependencies.
     """
 
+    _FACADE_DENIED = frozenset(
+        {
+            "create_workspace",
+            "freeze_workspace",
+            "retire_workspace",
+            "run_command",
+            "stage_release",
+            "review_release",
+            "activate_release",
+            "rollback_release",
+        }
+    )
+
     def __init__(
         self,
         store: Store,
@@ -57,25 +70,31 @@ class CoreService:
         self.programs = ProgramService(store)
         self.work_items = WorkItemService(store)
         self.agents = AgentService(store)
-        self.workspace_owner = WorkspaceService(store)
-        self.executions = ExecutionService(store, self.artifact_service)
-        self.operations = OperationsService(store)
-        self.reconciliation = RepositoryReconciliationService(
+        self._workspace_owner = WorkspaceService(store)
+        self._executions = ExecutionService(store, self.artifact_service)
+        self._operations = OperationsService(store)
+        self._reconciliation = RepositoryReconciliationService(
             store,
-            operations=self.operations,
+            operations=self._operations,
         )
-        self.software_profile = SoftwareTargetProfile(
+        self.governance = GovernanceService(store)
+        self.release = GovernedReleaseService(
             store,
-            workspaces=self.workspace_owner,
-            executions=self.executions,
-            operations=self.operations,
-            reconciliation=self.reconciliation,
+            governance=self.governance,
+            operations=self._operations,
+        )
+        self._software_profile = SoftwareTargetProfile(
+            store,
+            workspaces=self._workspace_owner,
+            executions=self._executions,
+            operations=self._operations,
+            reconciliation=self._reconciliation,
+            releases=self.release,
         )
         self.target_profiles = TargetProfileRegistry()
-        self.target_profiles.register(self.software_profile)
-        self.workspaces = self.software_profile
-        self.governance = GovernanceService(store)
-        self.qa = QAService(store, self.workspaces, self.executions)
+        self.target_profiles.register(self._software_profile)
+        self._profile_workspaces = self._software_profile
+        self.qa = QAService(store, self._profile_workspaces, self._executions)
         self.continuation = ContinuationService(store, self.work_items)
         self.supervision = SupervisionService(
             store, work_items=self.work_items, continuation=self.continuation
@@ -91,8 +110,8 @@ class CoreService:
             store,
             work_items=self.work_items,
             agents=self.agents,
-            workspaces=self.workspaces,
-            executions=self.executions,
+            workspaces=self._profile_workspaces,
+            executions=self._executions,
             continuation=self.continuation,
             supervision=self.supervision,
             adaptive=self.adaptive,
@@ -107,19 +126,14 @@ class CoreService:
         self.migration = MigrationService(store)
         self.reflection = ReflectionService(store, work_items=self.work_items)
         self.problem_solving = ProblemSolvingService(store, learning=self.learning)
-        self.release = GovernedReleaseService(
-            store,
-            governance=self.governance,
-            operations=self.operations,
-        )
         self.recovery = FactoryRecoveryCoordinator(
             store,
-            operations=self.operations,
+            operations=self._operations,
             governance=self.governance,
         )
         self.release_refresh = ReleaseRefreshCoordinator(
             store,
-            operations=self.operations,
+            operations=self._operations,
             governance=self.governance,
         )
         self.advanced = AdvancedServices(
@@ -130,7 +144,7 @@ class CoreService:
             adaptive=self.adaptive,
             learning=self.learning,
             evolution=self.evolution,
-            operations=self.operations,
+            operations=self._operations,
         )
         self._services = (
             self.missions,
@@ -138,8 +152,7 @@ class CoreService:
             self.programs,
             self.work_items,
             self.agents,
-            self.workspace_owner,
-            self.executions,
+            self._executions,
             self.qa,
             self.continuation,
             self.supervision,
@@ -151,13 +164,18 @@ class CoreService:
     def artifacts(self) -> ArtifactService:
         return self.artifact_service
 
+    def register_software_target(self, repository_id: str, **configuration: Any) -> None:
+        """Configure the software adapter without exposing its effect executor."""
+
+        self._software_profile.register_target(repository_id, **configuration)
+
     def close(self) -> None:
         """Close provider-owned resources exactly once through the registry owner."""
 
         self.providers.close()
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
+        if name.startswith("_") or name in self._FACADE_DENIED:
             raise AttributeError(name)
         matches = [service for service in self._services if hasattr(service, name)]
         if len(matches) == 1:

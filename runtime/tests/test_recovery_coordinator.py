@@ -115,22 +115,22 @@ def test_release_refresh_waits_for_safe_boundary_and_is_idempotent(tmp_path: Pat
     source = tmp_path / "source"
     source.mkdir()
     (source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
-    staged = recovery.operations.stage_release(
+    staged = recovery._operations.stage_release(
         source_root=source,
         release_root=tmp_path / "releases",
         source_revision="revision-1",
         source_tree_root="tree-1",
         implementer_session_id="implementer",
     )
-    recovery.operations.review_release(
+    recovery._operations.review_release(
         staged["id"],
         reviewer_session_id="reviewer",
         disposition="accepted",
         findings={"blocking": []},
         evidence_ids=["review"],
     )
-    recovery.operations.activate_release(staged["id"], release_root=tmp_path / "releases")
-    recovery.operations.verify_release(
+    recovery._operations.activate_release(staged["id"], release_root=tmp_path / "releases")
+    recovery._operations.verify_release(
         staged["id"],
         command=[sys.executable, "health.py"],
         release_root=tmp_path / "releases",

@@ -347,7 +347,13 @@ class GovernanceService:
         if reviewer_session_id == implementer_session_id:
             raise InvalidTransition("implementer cannot independently review the revision")
         reviewer = self.store.one("SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,))
-        if str(reviewer.get("provider_session_id") or "") != provider_session_id:
+        recorded_provider_identity = str(
+            reviewer.get("provider_session_id")
+            or reviewer.get("external_task_id")
+            or reviewer.get("external_thread_id")
+            or ""
+        )
+        if recorded_provider_identity != provider_session_id:
             raise InvalidTransition("review provider identity does not match the granted session")
         self._validate_grant(
             grant_id,

@@ -125,14 +125,14 @@ def invoke(
     repository_root = Path(str(payload.get("repository_root", "."))).resolve()
     action = str(payload.get("action", "inventory"))
     if action == "inventory":
-        return advanced.operations.inventory_repository(
+        return advanced._operations.inventory_repository(
             repository_root=repository_root,
             mission_id=mission_id,
             active_writers=[dict(item) for item in payload.get("active_writers", [])],
         )
     if action == "preserve":
         inventory_id = str(payload["inventory_id"])
-        return advanced.operations.preserve_repository(
+        return advanced._operations.preserve_repository(
             inventory_id,
             output_directory=payload.get("output_directory", ".software-factory/preservation"),
         )

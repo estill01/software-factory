@@ -1,20 +1,25 @@
 {
   "schema_version": 1,
   "block": "SFV2/B5",
-  "purpose": "target profile, software target currentness, and authoritative effect proof",
+  "purpose": "target profile, content-bound currentness, strict release review, and root-isolated authoritative effect proof",
   "pytest": {
-    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_target_profiles.py runtime/tests/test_composition.py runtime/tests/test_execution_qa.py runtime/tests/test_reconciliation.py runtime/tests/test_governed_release.py runtime/tests/test_recovery_coordinator.py",
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_target_profiles.py runtime/tests/test_composition.py runtime/tests/test_operations.py runtime/tests/test_execution_qa.py runtime/tests/test_governance.py runtime/tests/test_governed_release.py runtime/tests/test_reconciliation.py runtime/tests/test_recovery_coordinator.py runtime/tests/test_advanced_integration.py runtime/tests/test_entrypoints.py runtime/tests/test_v2_entrypoints.py",
     "selected_files": [
       "runtime/tests/test_target_profiles.py",
       "runtime/tests/test_composition.py",
+      "runtime/tests/test_operations.py",
       "runtime/tests/test_execution_qa.py",
+      "runtime/tests/test_governance.py",
       "runtime/tests/test_reconciliation.py",
       "runtime/tests/test_governed_release.py",
-      "runtime/tests/test_recovery_coordinator.py"
+      "runtime/tests/test_recovery_coordinator.py",
+      "runtime/tests/test_advanced_integration.py",
+      "runtime/tests/test_entrypoints.py",
+      "runtime/tests/test_v2_entrypoints.py"
     ],
-    "result": "21 passed; three recorded legacy TestStore collection warnings"
+    "result": "43 passed; five recorded legacy TestStore collection warnings"
   },
-  "collection": "183 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "collection": "184 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
   "static_proofs": [
     {
       "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
@@ -39,11 +44,11 @@
   ],
   "contract": {
     "path": "docs/software-factory-v2-target-profile-contract.md",
-    "sha256": "003d74d4caf79a4426d6880cfa6ace9d360e8da585f9de1d8e6284b5ab0e1f0c"
+    "sha256": "668b35622b7aff4088e81e475d1ceece4a51417fb3785ee684618f8bbe26755f"
   },
   "runtime_wheel_proof": {
     "version": "2.0.0.dev6",
-    "sha256": "586d15f94612b8f124b2a20140edd092696b67e8cb78f4da8b9707d99dc4cf0b",
+    "sha256": "3c6ecf4a7323ddaf1c65db381c378a20d0926cf9365f6288a9a5bef2cf8ae514",
     "posture": "ephemeral local qualification artifact, not a release artifact",
     "required_members": [
       "software_factory/profiles/__init__.py",
@@ -52,21 +57,34 @@
     ]
   },
   "capabilities": {
-    "snapshot": "primary-checkout target branch commit, tree, status root, repository state version, and exact currentness root",
+    "snapshot": "primary-checkout target branch commit, tree, checked-out branch, status root, tracked diff bytes, untracked path/content roots, repository state version, and exact currentness root",
     "workspace": "registered create and freeze operations at the exact target base",
     "command_test_build": "fixed registered argv, timeout, exit codes, leased execution, and exact workspace base",
     "integration": "registered validation and compare-and-swap publication against the exact target head",
-    "release": "clean unchanged frozen target-candidate staging and activation only after external independent review, exact source-workspace binding, and registered release-root ownership",
+    "release": "clean unchanged frozen target-candidate staging through strict governed acceptance, activation only after an exact granted independent review and accepted decision, exact source-workspace binding, and registered release-root ownership",
     "cleanup": "configured no-loss preservation, active-writer guards, and clean workspace retirement",
     "rollback": "evidence-required immutable release rollback"
   },
   "negative_proofs": {
     "arbitrary_command": "unknown command keys and caller-supplied argv are rejected",
-    "path_injection": "caller-supplied workspace, integration, release, and preservation roots are outside effect contracts",
+    "path_injection": "caller-supplied workspace, integration, release, and preservation roots are outside effect contracts; Core exposes neither raw physical owners nor raw effect facade methods",
     "worktree_authority": "a linked Git worktree is rejected as target authority",
-    "stale_apply": "target revision/currentness drift or workspace changes after freeze reject the effect before the physical owner runs",
-    "unowned_effect": "the registry rejects a fixed effect class not owned by the selected profile and a release bound to another target root",
-    "self_acceptance": "accept is not an EffectClass and no profile acceptance method exists"
+    "stale_apply": "target revision/currentness drift, same-status dirty-byte drift, checked-out branch drift, or workspace changes after freeze reject the effect before the physical owner runs",
+    "unowned_effect": "the registry rejects a fixed effect class not owned by the selected profile, direct adapter invocation without its bound authority, and a release bound to another target root",
+    "cross_target_release": "two simultaneously active target roots retain independent predecessor chains; activation and rollback reject foreign roots and predecessors",
+    "self_acceptance": "accept is not an EffectClass, no profile acceptance method exists, and activation requires the exact decision emitted by governed acceptance"
+  },
+  "remediation": {
+    "rejected_candidate": "ccdd3eb4f4d32c05ee8ed35f16de4c97877e1acc",
+    "rejected_tree": "7f1adb26d867b2214fc6164bd0b48b0c959eb258",
+    "review_disposition": "REVISE",
+    "closed_findings": [
+      "P1 dirty bytes were absent from target currentness",
+      "P1 registry and caller-owned workspace root were bypassable",
+      "P1 release predecessor and rollback state crossed target roots",
+      "P1 arbitrary reviewer identity could manufacture release acceptance",
+      "P2 prior evidence omitted the reproduced attacks"
+    ]
   },
   "scope_boundary": {
     "universal_domain_schema_added": false,

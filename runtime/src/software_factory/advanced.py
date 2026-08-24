@@ -52,7 +52,7 @@ class AdvancedServices:
             raise ValueError("supervision is already bound to a different adaptive owner")
         self.learning = learning or LearningService(store)
         self.evolution = evolution or EvolutionService(store)
-        self.operations = operations or OperationsService(store)
+        self._operations = operations or OperationsService(store)
 
     def reconcile_mission(self, mission_id: str) -> dict[str, Any]:
         """Observe canonical outcomes, run due checks, and record one checkpoint."""

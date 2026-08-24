@@ -46,8 +46,11 @@ class TargetProfile(Protocol):
 
     def snapshot(self, target_id: str) -> TargetSnapshot: ...
 
+    def _bind_registry_authority(self, authority: object) -> None: ...
+
     def _execute_effect(
         self,
+        authority: object,
         effect_class: EffectClass,
         target_id: str,
         *,
@@ -61,6 +64,7 @@ class TargetProfileRegistry:
 
     def __init__(self) -> None:
         self._profiles: dict[str, TargetProfile] = {}
+        self._authorities: dict[str, object] = {}
 
     def register(self, profile: TargetProfile) -> None:
         key = profile.key.strip()
@@ -72,9 +76,12 @@ class TargetProfileRegistry:
             raise ValueError("target profile must own at least one fixed effect class")
         if any(not isinstance(effect, EffectClass) for effect in profile.effect_classes):
             raise ValueError("target profile effect classes must be fixed EffectClass values")
+        authority = object()
+        profile._bind_registry_authority(authority)
         self._profiles[key] = profile
+        self._authorities[key] = authority
 
-    def get(self, profile_key: str) -> TargetProfile:
+    def _get(self, profile_key: str) -> TargetProfile:
         try:
             return self._profiles[profile_key]
         except KeyError as exc:
@@ -84,7 +91,7 @@ class TargetProfileRegistry:
         return tuple(sorted(self._profiles))
 
     def snapshot(self, profile_key: str, target_id: str) -> TargetSnapshot:
-        return self.get(profile_key).snapshot(target_id)
+        return self._get(profile_key).snapshot(target_id)
 
     def execute(
         self,
@@ -98,7 +105,7 @@ class TargetProfileRegistry:
     ) -> ProfileEffectResult:
         if not isinstance(effect_class, EffectClass):
             raise AuthorityDenied("target effect must use a registered fixed effect class")
-        profile = self.get(profile_key)
+        profile = self._get(profile_key)
         if effect_class not in profile.effect_classes:
             raise AuthorityDenied(
                 f"target profile {profile_key} does not own effect {effect_class.value}"
@@ -109,6 +116,7 @@ class TargetProfileRegistry:
         if before.currentness_root != expected_currentness_root:
             raise InvalidTransition("target currentness changed before authoritative effect")
         result = profile._execute_effect(
+            self._authorities[profile_key],
             effect_class,
             target_id,
             expected_revision=expected_revision,

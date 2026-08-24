@@ -91,11 +91,11 @@ def test_advanced_services_and_core_share_one_authoritative_graph(
     assert isinstance(advanced.supervision, SupervisionService)
     assert isinstance(advanced.learning, LearningService)
     assert isinstance(advanced.evolution, EvolutionService)
-    assert isinstance(advanced.operations, OperationsService)
+    assert isinstance(advanced._operations, OperationsService)
     assert advanced.supervision.store is database
     assert advanced.learning.store is database
     assert advanced.evolution.store is database
-    assert advanced.operations.store is database
+    assert advanced._operations.store is database
     assert ReportingService(database).store is database
     assert MigrationService(database).store is database
 
@@ -107,7 +107,7 @@ def test_advanced_services_and_core_share_one_authoritative_graph(
     assert core.advanced.adaptive is core.adaptive
     assert core.advanced.learning is core.learning
     assert core.advanced.evolution is core.evolution
-    assert core.advanced.operations is core.operations
+    assert core.advanced._operations is core._operations
 
 
 def test_supervision_learning_and_evolution_share_canonical_observed_state(

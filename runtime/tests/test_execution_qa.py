@@ -83,7 +83,7 @@ def make_lane(
     role: str = "implementer",
     scope: list[str] | None = None,
 ) -> tuple[str, str, str]:
-    workspace = core.create_workspace(
+    workspace = core._workspace_owner.create_workspace(
         repository_id=repository_id,
         mission_id=mission,
         work_item_id=work,
@@ -146,7 +146,7 @@ def run_feature_implementation(
         "git add src/feature.py; "
         f"git commit -m 'feature{suffix}'"
     )
-    result = core.run_command(
+    result = core._executions.run_command(
         execution,
         ["bash", "-lc", script],
         generation=generation,

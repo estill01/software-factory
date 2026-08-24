@@ -61,6 +61,16 @@ class OperationsService:
     def __init__(self, store: Store):
         self.store = store
 
+    @staticmethod
+    def _release_belongs_to_root(release: Mapping[str, Any], release_root: Path) -> bool:
+        return Path(str(release["release_path"])).resolve().parent == release_root
+
+    def _require_release_root(self, release: Mapping[str, Any], release_root: str | Path) -> Path:
+        root = Path(release_root).resolve()
+        if not self._release_belongs_to_root(release, root):
+            raise InvalidTransition("release belongs to a different target root")
+        return root
+
     def _manifest(self, source_root: Path) -> tuple[list[dict[str, Any]], str]:
         entries: list[dict[str, Any]] = []
         for path in sorted(source_root.rglob("*")):
@@ -96,14 +106,14 @@ class OperationsService:
         if not source.is_dir():
             raise ValueError("release source root does not exist")
         manifest, manifest_root = self._manifest(source)
-        existing = self.store.one(
+        existing_rows = self.store.all(
             """SELECT * FROM immutable_releases_v2
                WHERE source_revision=? AND manifest_root=?""",
             (source_revision, manifest_root),
-            required=False,
         )
-        if existing is not None:
-            return existing
+        for existing in existing_rows:
+            if self._release_belongs_to_root(existing, releases):
+                return existing
         release_id = new_id("release")
         releases.mkdir(parents=True, exist_ok=True)
         destination = releases / release_id
@@ -234,12 +244,20 @@ class OperationsService:
         release_root: str | Path,
     ) -> dict[str, Any]:
         release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
+        root = self._require_release_root(release, release_root)
         if release["review_status"] != "accepted" or release["status"] != "accepted":
             raise InvalidTransition("release must pass independent review before activation")
-        previous = self.store.one(
+        active_releases = self.store.all(
             """SELECT * FROM immutable_releases_v2 WHERE status='active'
-               ORDER BY activated_at DESC LIMIT 1""",
-            required=False,
+               ORDER BY activated_at DESC""",
+        )
+        previous = next(
+            (
+                candidate
+                for candidate in active_releases
+                if self._release_belongs_to_root(candidate, root)
+            ),
+            None,
         )
         payload = {
             "release_id": release_id,
@@ -248,7 +266,7 @@ class OperationsService:
             "source_revision": release["source_revision"],
             "previous_release_id": previous["id"] if previous else None,
         }
-        self._write_active_pointer(Path(release_root).resolve(), payload)
+        self._write_active_pointer(root, payload)
         now = utc_now()
         with self.store.transaction() as db:
             if previous is not None:
@@ -275,6 +293,7 @@ class OperationsService:
         timeout_seconds: int = 300,
     ) -> dict[str, Any]:
         release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
+        root = self._require_release_root(release, release_root)
         if release["status"] != "active":
             raise InvalidTransition("only the active release may be installed-verified")
         process = subprocess.run(
@@ -324,7 +343,7 @@ class OperationsService:
         if disposition == "failed":
             self.rollback_release(
                 release_id,
-                release_root=release_root,
+                release_root=root,
                 evidence_ids=[evidence_root],
             )
         return self.store.one(
@@ -339,6 +358,7 @@ class OperationsService:
         evidence_ids: Sequence[str],
     ) -> dict[str, Any]:
         release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
+        root = self._require_release_root(release, release_root)
         if not evidence_ids:
             raise ValueError("release rollback requires evidence")
         previous = None
@@ -347,6 +367,8 @@ class OperationsService:
                 "SELECT * FROM immutable_releases_v2 WHERE id=?",
                 (release["previous_release_id"],),
             )
+            if not self._release_belongs_to_root(previous, root):
+                raise InvalidTransition("previous release belongs to a different target root")
         payload = (
             {
                 "release_id": previous["id"],
@@ -358,7 +380,7 @@ class OperationsService:
             if previous is not None
             else {"release_id": None, "rolled_back_from": release_id}
         )
-        self._write_active_pointer(Path(release_root).resolve(), payload)
+        self._write_active_pointer(root, payload)
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(

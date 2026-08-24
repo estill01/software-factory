@@ -24,8 +24,10 @@ acceptance operation.
 `SoftwareTargetProfile` is the first complete profile. Its target authority is
 the registered repository's exact primary Git checkout and configured target
 branch ref. A linked worktree cannot be registered as target authority.
-Snapshots bind the target commit, tree, primary-checkout status root,
-repository state version, branch, and repository root.
+Snapshots bind the target commit, tree, checked-out branch, primary-checkout
+status root, tracked diff-content root, untracked path/content roots, repository
+state version, configured branch, and repository root. A same-path dirty edit
+therefore changes currentness even when porcelain status text does not.
 
 | Fixed effect | Registered operation | Physical Factory owner |
 | --- | --- | --- |
@@ -43,16 +45,25 @@ class, a timeout, and allowed exit codes. Callers supply only a command key,
 execution ID, and lease generation; they cannot supply a shell string, argv,
 environment, working directory, release root, integration root, preservation
 root, target branch, or workspace root. Those values remain composition-owned.
+The registry binds a per-composition authority object into each profile;
+invoking the adapter executor directly without that authority fails before a
+physical owner runs. Core does not expose the raw workspace, execution,
+operations, reconciliation, or profile objects, and its compatibility facade
+denies raw workspace, command, and release effect methods.
 
 Integration validates against the registered target branch and rejects a
 candidate prepared for another head. Release staging accepts only a frozen
 workspace belonging to the target whose observed clean HEAD still equals its
-frozen revision. Activation and rollback additionally require the release source
-revision to match a workspace from that target and the immutable release path to
-belong to its registered release root, preventing cross-target reuse of
-authority. Release activation remains gated by the existing distinct review
-owner, and rollback requires evidence. Cleanup uses a configured preservation
-root and retains the existing no-loss and active-writer guards.
+frozen revision. Release staging creates the existing strict governed-release
+acceptance contract, and activation requires its exact accepted decision; an
+arbitrary reviewer name or evidence string cannot manufacture it. Activation
+and rollback additionally require the release source revision to match a
+workspace from that target and the immutable release path to belong to its
+registered release root. The physical owner selects a prior active release only
+from that same root and rejects a rollback whose release or predecessor belongs
+elsewhere. Release activation remains gated by the distinct review owner, and
+rollback requires evidence. Cleanup uses a configured preservation root and
+retains the existing no-loss and active-writer guards.
 
 ## Boundary
 

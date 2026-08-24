@@ -82,13 +82,13 @@ def accepted_item(
     branch: str,
     tmp_path: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    inventory = service.operations.inventory_repository(
+    inventory = service._operations.inventory_repository(
         repository_root=repository, mission_id="mission-1"
     )
-    bundle = service.operations.preserve_repository(
+    bundle = service._operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "preserved"
     )
-    item = service.operations.plan_cleanup_item(
+    item = service._operations.plan_cleanup_item(
         inventory["id"],
         item_type="branch",
         item_key=branch,
@@ -205,13 +205,13 @@ def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) 
     git(repository, "add", "--", "baseline.txt")
     git(repository, "commit", "-m", "new baseline")
     reconciliation = service()
-    inventory = reconciliation.operations.inventory_repository(
+    inventory = reconciliation._operations.inventory_repository(
         repository_root=repository, mission_id="mission-1"
     )
-    bundle = reconciliation.operations.preserve_repository(
+    bundle = reconciliation._operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "preserved"
     )
-    item = reconciliation.operations.plan_cleanup_item(
+    item = reconciliation._operations.plan_cleanup_item(
         inventory["id"],
         item_type="branch",
         item_key="unfinished",

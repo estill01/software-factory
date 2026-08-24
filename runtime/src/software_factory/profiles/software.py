@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -58,13 +59,16 @@ class SoftwareTargetProfile:
         executions: Any,
         operations: Any,
         reconciliation: Any,
+        releases: Any,
     ) -> None:
         self.store = store
         self._workspaces = workspaces
         self._executions = executions
         self._operations = operations
         self._reconciliation = reconciliation
+        self._releases = releases
         self._targets: dict[str, _SoftwareTargetConfig] = {}
+        self._registry_authority: object | None = None
 
     def workspace_path(self, workspace_id: str) -> Path:
         return self._workspaces.workspace_path(workspace_id)
@@ -81,10 +85,52 @@ class SoftwareTargetProfile:
     def git_is_clean(self, path: str | Path) -> bool:
         return self._workspaces.git_is_clean(path)
 
-    def create_workspace(self, **arguments: Any) -> str:
-        """Compatibility interface for core scheduling through the profile owner."""
+    def create_workspace(
+        self,
+        *,
+        repository_id: str,
+        mission_id: str,
+        work_item_id: str | None,
+        workspace_type: str,
+        base_revision: str | None = None,
+        writable_scope: list[str] | None = None,
+        exclusions: list[str] | None = None,
+        created_by_execution_id: str | None = None,
+    ) -> str:
+        """Restricted compatibility surface for controller and QA composition.
 
-        return self._workspaces.create_workspace(**arguments)
+        Path roots and branch names remain repository policy. A non-target base
+        is accepted only when it is an existing frozen candidate for this work.
+        """
+
+        repository, root, branch = self._validated_repository(repository_id)
+        target_revision = self._git(root, "rev-parse", f"refs/heads/{branch}^{{commit}}")
+        base = base_revision or target_revision
+        if base != target_revision:
+            if work_item_id is None:
+                raise InvalidTransition("non-target workspace base requires bound work")
+            candidate = self.store.one(
+                """SELECT id FROM workspaces
+                   WHERE repository_id=? AND work_item_id=? AND current_revision=?
+                     AND status IN ('frozen','retained')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (repository_id, work_item_id, base),
+                required=False,
+            )
+            if candidate is None:
+                raise InvalidTransition("workspace base is not a frozen target candidate")
+        if repository["current_revision"] not in {None, target_revision}:
+            raise InvalidTransition("repository current revision differs from target branch")
+        return self._workspaces.create_workspace(
+            repository_id=repository_id,
+            mission_id=mission_id,
+            work_item_id=work_item_id,
+            workspace_type=workspace_type,
+            base_revision=base,
+            writable_scope=writable_scope,
+            exclusions=exclusions,
+            created_by_execution_id=created_by_execution_id,
+        )
 
     def freeze_workspace(self, workspace_id: str, *, require_clean: bool = True) -> dict[str, Any]:
         return self._workspaces.freeze_workspace(workspace_id, require_clean=require_clean)
@@ -130,6 +176,11 @@ class SoftwareTargetProfile:
         self._git(root, "rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}")
         return repository, root, branch
 
+    def _bind_registry_authority(self, authority: object) -> None:
+        if self._registry_authority is not None:
+            raise InvalidTransition("software profile is already bound to a registry")
+        self._registry_authority = authority
+
     def register_target(
         self,
         repository_id: str,
@@ -170,17 +221,68 @@ class SoftwareTargetProfile:
             raise InvalidTransition("software target registration changed")
         revision = self._git(root, "rev-parse", f"refs/heads/{branch}^{{commit}}")
         tree = self._git(root, "rev-parse", f"{revision}^{{tree}}")
+        checked_out_branch = self._git(root, "symbolic-ref", "--quiet", "--short", "HEAD")
+        if checked_out_branch != branch:
+            raise InvalidTransition("software target branch is not checked out at its primary root")
         status = subprocess.run(
-            ["git", "status", "--porcelain=v1", "-z"],
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
             cwd=root,
             capture_output=True,
             check=True,
-        ).stdout.decode("utf-8", errors="surrogateescape")
+        ).stdout
+        diff = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--binary",
+                "--no-color",
+                "--no-ext-diff",
+                "--full-index",
+                revision,
+                "--",
+            ],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        ).stdout
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        ).stdout.split(b"\0")
+        untracked_entries: list[dict[str, Any]] = []
+        for encoded in sorted(value for value in untracked if value):
+            relative = encoded.decode("utf-8", errors="surrogateescape")
+            path = root / relative
+            if path.is_symlink():
+                payload = path.readlink().as_posix().encode("utf-8", errors="surrogateescape")
+                kind = "symlink"
+            elif path.is_file():
+                payload = path.read_bytes()
+                kind = "file"
+            else:
+                payload = b""
+                kind = "other"
+            untracked_entries.append(
+                {
+                    "path": relative,
+                    "kind": kind,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
         attributes = {
             "repository_root": str(root),
             "target_branch": branch,
+            "checked_out_branch": checked_out_branch,
             "tree": tree,
-            "working_tree_status_root": digest_json(status),
+            "working_tree_status_root": hashlib.sha256(status).hexdigest(),
+            "working_tree_content_root": digest_json(
+                {
+                    "diff_sha256": hashlib.sha256(diff).hexdigest(),
+                    "untracked": untracked_entries,
+                }
+            ),
             "repository_state_version": int(repository["state_version"]),
         }
         currentness_root = digest_json(
@@ -385,8 +487,12 @@ class SoftwareTargetProfile:
         if operation == "stage":
             self._arguments(
                 arguments,
-                required={"operation", "workspace_id"},
-                optional={"mission_id", "implementer_session_id"},
+                required={
+                    "operation",
+                    "workspace_id",
+                    "mission_id",
+                    "implementer_session_id",
+                },
             )
             workspace = self._workspace_for_target(config, str(arguments["workspace_id"]))
             if workspace["status"] != "frozen" or not workspace["current_revision"]:
@@ -398,24 +504,25 @@ class SoftwareTargetProfile:
                 "current_revision"
             ] or not self._workspaces.git_is_clean(workspace["path"]):
                 raise InvalidTransition("release source workspace changed after candidate freeze")
-            release = self._operations.stage_release(
+            release = self._releases.stage(
                 source_root=workspace["path"],
                 release_root=config.release_root,
                 source_revision=actual_revision,
                 source_tree_root=self._workspaces.git_tree(workspace["path"], actual_revision),
-                mission_id=str(arguments["mission_id"]) if arguments.get("mission_id") else None,
-                implementer_session_id=(
-                    str(arguments["implementer_session_id"])
-                    if arguments.get("implementer_session_id")
-                    else None
+                mission_id=str(arguments["mission_id"]),
+                implementer_session_id=str(arguments["implementer_session_id"]),
+                required_probes=(
+                    {"key": "candidate-behavior", "type": "test"},
+                    {"key": "protected-capabilities", "type": "protected_capability"},
                 ),
+                protected_capabilities=("target-currentness", "release-isolation"),
             )
             self._assert_release_target(config, str(release["id"]))
             return release
         if operation == "activate":
             self._arguments(arguments, required={"operation", "release_id"})
             self._assert_release_target(config, str(arguments["release_id"]))
-            return self._operations.activate_release(
+            return self._releases.activate(
                 str(arguments["release_id"]), release_root=config.release_root
             )
         raise AuthorityDenied("release operation is not registered")
@@ -500,12 +607,15 @@ class SoftwareTargetProfile:
 
     def _execute_effect(
         self,
+        authority: object,
         effect_class: EffectClass,
         target_id: str,
         *,
         expected_revision: str,
         arguments: Mapping[str, Any],
     ) -> Mapping[str, Any]:
+        if authority is not self._registry_authority:
+            raise AuthorityDenied("software target effects require registry authority")
         config = self._config(target_id)
         if effect_class is EffectClass.WORKSPACE:
             return self._workspace_effect(config, expected_revision, arguments)

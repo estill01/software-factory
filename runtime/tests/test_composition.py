@@ -22,14 +22,17 @@ def test_core_uses_explicit_composition_not_service_mro() -> None:
         core = CoreService(Store(Path(temp) / "factory.db"))
         assert isinstance(core.agents, AgentService)
         assert isinstance(core.work_items, WorkItemService)
-        assert isinstance(core.workspace_owner, WorkspaceService)
-        assert isinstance(core.workspaces, SoftwareTargetProfile)
-        assert core.workspaces is core.software_profile
-        assert isinstance(core.executions, ExecutionService)
+        assert isinstance(core._workspace_owner, WorkspaceService)
+        assert isinstance(core._software_profile, SoftwareTargetProfile)
+        assert isinstance(core._executions, ExecutionService)
+        assert not hasattr(core, "workspace_owner")
+        assert not hasattr(core, "software_profile")
+        assert not hasattr(core, "executions")
+        assert not hasattr(core, "workspaces")
         assert isinstance(core.qa, QAService)
         assert isinstance(core.continuation, ContinuationService)
-        assert core.qa.workspaces is core.workspaces
-        assert core.qa.executions is core.executions
+        assert core.qa.workspaces is core._software_profile
+        assert core.qa.executions is core._executions
         assert core.continuation.work_items is core.work_items
 
 

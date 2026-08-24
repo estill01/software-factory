@@ -21,7 +21,7 @@ class FactoryRecoveryCoordinator:
         governance: GovernanceService | None = None,
     ):
         self.store = store
-        self.operations = operations or OperationsService(store)
+        self._operations = operations or OperationsService(store)
         self.governance = governance or GovernanceService(store)
 
     def recover(
@@ -42,7 +42,7 @@ class FactoryRecoveryCoordinator:
         implementer_session_id: str = "factory-repair-implementer",
         reviewer_session_id: str = "factory-repair-reviewer",
     ) -> dict[str, Any]:
-        recovery = self.operations.open_recovery(
+        recovery = self._operations.open_recovery(
             target_mission_id=target_mission_id,
             defect_class=defect_class,
             defect_evidence=defect_evidence,
@@ -62,7 +62,7 @@ class FactoryRecoveryCoordinator:
         missing = sorted(required - set(repair_result))
         if missing:
             raise ValueError(f"Factory repair result is incomplete: {missing}")
-        staged = self.operations.stage_release(
+        staged = self._operations.stage_release(
             source_root=repair_result["source_root"],
             release_root=release_root,
             source_revision=str(repair_result["source_revision"]),
@@ -72,7 +72,7 @@ class FactoryRecoveryCoordinator:
         )
         if staged["status"] == "staged":
             review_result = dict(review(staged))
-            self.operations.review_release(
+            self._operations.review_release(
                 staged["id"],
                 reviewer_session_id=reviewer_session_id,
                 disposition=str(review_result.get("disposition", "rejected")),  # type: ignore[arg-type]
@@ -81,9 +81,9 @@ class FactoryRecoveryCoordinator:
             )
         release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (staged["id"],))
         if release["status"] == "accepted":
-            release = self.operations.activate_release(release["id"], release_root=release_root)
+            release = self._operations.activate_release(release["id"], release_root=release_root)
         if release["verification_status"] != "passed":
-            verification = self.operations.verify_release(
+            verification = self._operations.verify_release(
                 release["id"],
                 command=[str(value) for value in repair_result["health_command"]],
                 release_root=release_root,
@@ -91,7 +91,7 @@ class FactoryRecoveryCoordinator:
             )
             if verification["disposition"] != "passed":
                 raise RuntimeError("Factory repair release failed installed verification")
-        self.operations.record_repair(
+        self._operations.record_repair(
             recovery["id"],
             repair_revision=str(repair_result["source_revision"]),
             evidence_ids=[str(value) for value in repair_result["repair_evidence_ids"]],
@@ -104,7 +104,7 @@ class FactoryRecoveryCoordinator:
             "requested_range_root": requested_range_root,
             "tracker_currentness_root": tracker_currentness_root,
         }
-        token = self.operations.reserve_exact_once_resume(
+        token = self._operations.reserve_exact_once_resume(
             recovery["id"],
             requested_range_root=requested_range_root,
             tracker_currentness_root=tracker_currentness_root,
@@ -132,9 +132,9 @@ class FactoryRecoveryCoordinator:
                 observed_result=wake_result,
             )
             self.governance.complete_effect(wake_effect["id"], succeeded=True)
-        self.operations.mark_resume_sent(token["id"])
+        self._operations.mark_resume_sent(token["id"])
         verification_result = dict(verify_target(wake_payload))
-        resolved = self.operations.verify_recovery(
+        resolved = self._operations.verify_recovery(
             recovery["id"],
             target_resumed=bool(verification_result.get("target_resumed")),
             evidence_ids=[str(value) for value in verification_result.get("evidence_ids", [])],
@@ -165,7 +165,7 @@ class ReleaseRefreshCoordinator:
         governance: GovernanceService | None = None,
     ):
         self.store = store
-        self.operations = operations or OperationsService(store)
+        self._operations = operations or OperationsService(store)
         self.governance = governance or GovernanceService(store)
 
     def refresh(
@@ -175,7 +175,7 @@ class ReleaseRefreshCoordinator:
         agents: Sequence[Mapping[str, Any]],
         refresh_agent: Callable[[Mapping[str, Any]], Mapping[str, Any]],
     ) -> list[dict[str, Any]]:
-        plans = self.operations.plan_agent_refresh(release_id, agents)
+        plans = self._operations.plan_agent_refresh(release_id, agents)
         results: list[dict[str, Any]] = []
         for plan in plans:
             if plan["status"] == "refreshed":
