@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `7619cb8f23af9cebacbe6ee04239d047bfe8b10a053a73f51f134241c0e10f8c`; Blocks 0–5 accepted; Block 6 dependency-eligible; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 6 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `a1cd93b5159775c907e2b9380e4e4a7b952bb7858e700cd928be9bc08da9de7a`; Blocks 0–5 accepted; Block 6 in progress; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 6 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -32,7 +32,9 @@ recorded in pushed successor `1dd84e7510684bf617b35079c2734035e5bae2ca`.
 Block 5 is accepted at exact pushed candidate
 `96d7d8a0db5bb35d858d9566d91f19b9e057deb7` after its full rejection history
 was preserved, all runtime authority findings were closed, and independent
-review returned no P0–P2 findings. Block 6 is the dependency-safe frontier.
+review returned no P0–P2 findings; acceptance is recorded in pushed successor
+`d10ca8e292ed0850a1236fad22e1736615e96509`. Block 6 is in progress as the
+dependency-safe frontier.
 
 ## Required outcome
 

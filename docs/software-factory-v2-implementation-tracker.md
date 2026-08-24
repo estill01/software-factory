@@ -238,7 +238,7 @@ for this tracker may inspect Patent Studio patent content.
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
-| 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
+| 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `in-progress` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `not-started` |
@@ -1262,7 +1262,7 @@ Stop before integrated QA/supervision acceptance.
 
 ## Block 6 — Integrate QA, supervision, acceptance, and outcome closure
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1326,7 +1326,15 @@ capabilities rather than trust the producer's summary.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: clean pushed Block 5 acceptance successor
+  `d10ca8e292ed0850a1236fad22e1736615e96509`; Blocks 0–5 are accepted and
+  Block 6 is the sole dependency-eligible frontier.
+- Start posture: integrate existing QA, governance, supervision, incident,
+  continuation, release, and evidence owners into one revision-bound staged
+  acceptance and actual-outcome closure path. Preserve mechanical versus
+  semantic reviewer separation; do not create a per-action critic, begin
+  libRSI cutover, consume Block 9 utils artifacts, or run the broad runtime
+  suite.
 
 ### Stop
 
