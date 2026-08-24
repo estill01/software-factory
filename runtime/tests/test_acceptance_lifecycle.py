@@ -8,7 +8,8 @@ import pytest
 
 from software_factory.core import CoreService
 from software_factory.database import Database
-from software_factory.errors import EvidenceInvalid, InvalidTransition
+from software_factory.errors import AuthorityDenied, EvidenceInvalid, InvalidTransition
+from software_factory.util import json_load
 
 REVISION = "revision-0123456789abcdef"
 CURRENTNESS = "currentness-0123456789abcdef"
@@ -133,7 +134,7 @@ def _prepare_decide(
         expires_at=_future(),
         scope={"effects": ["review"], "stage": stage},
     )
-    core.acceptance_lifecycle.record_independent_review(
+    core.acceptance_lifecycle.record_stage_independent_review(
         prepared["id"],
         grant_id=grant["id"],
         reviewer_session_id=reviewer,
@@ -160,9 +161,17 @@ def _accept_aligned(
     reviewer: str,
     evidence: str,
 ) -> dict[str, Any]:
-    core.acceptance_lifecycle.reconcile_outcome(
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
         prepared["id"],
         reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{prepared['id']}",
+        expires_at=_future(),
+    )
+    core.acceptance_lifecycle.reconcile_outcome(
+        prepared["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
         exact_revision=REVISION,
         currentness_root=CURRENTNESS,
         observed_outcome=EXPECTED,
@@ -228,6 +237,16 @@ def test_stages_require_governed_semantic_review_and_reject_same_author_or_stale
         evidence_ids=[evidence],
         observer_session_id=reviewer,
     )
+    with pytest.raises(AuthorityDenied, match="staged lifecycle coordinator"):
+        core.promote_acceptance(
+            work,
+            stage="candidate",
+            exact_revision=REVISION,
+            evidence_ids=[evidence],
+            authority=object(),
+        )
+    with pytest.raises(InvalidTransition, match="AcceptanceLifecycleService"):
+        core.accept_candidate(work, expected_work_version=1)
     with pytest.raises(InvalidTransition, match="independent"):
         core.acceptance_lifecycle.decide_stage(prepared["id"], exact_revision=REVISION)
 
@@ -244,7 +263,7 @@ def test_stages_require_governed_semantic_review_and_reject_same_author_or_stale
         scope={"effects": ["review"]},
     )
     with pytest.raises(InvalidTransition, match="implementer cannot independently review"):
-        core.acceptance_lifecycle.record_independent_review(
+        core.acceptance_lifecycle.record_stage_independent_review(
             prepared["id"],
             grant_id=self_grant["id"],
             reviewer_session_id=implementer,
@@ -258,7 +277,7 @@ def test_stages_require_governed_semantic_review_and_reject_same_author_or_stale
             findings={},
         )
     with pytest.raises(InvalidTransition, match="currentness"):
-        core.acceptance_lifecycle.record_independent_review(
+        core.acceptance_lifecycle.record_stage_independent_review(
             prepared["id"],
             grant_id=self_grant["id"],
             reviewer_session_id=reviewer,
@@ -336,9 +355,29 @@ def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
         stage="candidate",
         prior_stage_id=None,
     )
-    disagreement = core.acceptance_lifecycle.reconcile_outcome(
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
         prepared["id"],
         reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{prepared['id']}",
+        expires_at=_future(),
+        max_uses=2,
+    )
+    with pytest.raises(InvalidTransition, match="provider identity"):
+        core.acceptance_lifecycle.reconcile_outcome(
+            prepared["id"],
+            grant_id=outcome_grant["id"],
+            reviewer_session_id=reviewer,
+            provider_session_id="different-provider-task",
+            exact_revision=REVISION,
+            currentness_root=CURRENTNESS,
+            observed_outcome=EXPECTED,
+            evidence_ids=[evidence],
+        )
+    disagreement = core.acceptance_lifecycle.reconcile_outcome(
+        prepared["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
         exact_revision=REVISION,
         currentness_root=CURRENTNESS,
         observed_outcome={
@@ -375,7 +414,9 @@ def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
     )
     core.acceptance_lifecycle.reconcile_outcome(
         prepared["id"],
+        grant_id=outcome_grant["id"],
         reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
         exact_revision=REVISION,
         currentness_root=CURRENTNESS,
         observed_outcome=EXPECTED,
@@ -387,6 +428,14 @@ def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
             acceptor_session_id=reviewer,
             exact_revision=REVISION,
             currentness_root=CURRENTNESS,
+        )
+    with pytest.raises(EvidenceInvalid, match="current outcome evidence"):
+        core.supervision.record_effectiveness(
+            disagreement["incident_id"],
+            outcome="effective",
+            reviewer_session_id=reviewer,
+            evidence_ids=[],
+            observations={},
         )
 
     obligation_evidence = _evidence(
@@ -474,9 +523,17 @@ def test_protected_capability_disagreement_regresses_that_capability_and_routes_
         subject_type="capability",
         subject_id=capability,
     )
-    reconciliation = core.acceptance_lifecycle.reconcile_outcome(
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
         prepared["id"],
         reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{prepared['id']}",
+        expires_at=_future(),
+    )
+    reconciliation = core.acceptance_lifecycle.reconcile_outcome(
+        prepared["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
         exact_revision=REVISION,
         currentness_root=CURRENTNESS,
         observed_outcome={
@@ -540,9 +597,17 @@ def test_terminal_reducer_requires_stage_outcome_and_empty_remaining_range(
         prior_stage_id=installed["id"],
         remaining_scope=["SFV2/B12"],
     )
-    core.acceptance_lifecycle.reconcile_outcome(
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
         terminal["id"],
         reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{terminal['id']}",
+        expires_at=_future(),
+    )
+    core.acceptance_lifecycle.reconcile_outcome(
+        terminal["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
         exact_revision=REVISION,
         currentness_root=CURRENTNESS,
         observed_outcome=EXPECTED,
@@ -563,6 +628,59 @@ def test_terminal_reducer_requires_stage_outcome_and_empty_remaining_range(
             terminal_evidence_id=terminal_evidence,
             verifier_session_id=reviewer,
         )
+
+
+def test_active_canonical_program_cannot_be_hidden_by_empty_declared_remaining_scope(
+    runtime: tuple[Database, CoreService, str, str, str, str],
+) -> None:
+    store, core, mission, work, implementer, reviewer = runtime
+    installed = _accepted_chain(store, core, mission, work, implementer, reviewer)
+    program = core.programs.create_program(
+        mission_id=mission,
+        name="Still active",
+        requested_range={"remaining": ["B7", "B8"]},
+        terminal_criteria={"probe": "operator-visible"},
+    )
+    terminal, process_evidence = _prepare_decide(
+        store,
+        core,
+        mission=mission,
+        work=work,
+        implementer=implementer,
+        reviewer=reviewer,
+        stage="terminal",
+        prior_stage_id=installed["id"],
+        remaining_scope=[],
+    )
+    assert json_load(terminal["remaining_scope_json"], []) == [f"program:{program}:active"]
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
+        terminal["id"],
+        reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{terminal['id']}",
+        expires_at=_future(),
+    )
+    core.acceptance_lifecycle.reconcile_outcome(
+        terminal["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
+        exact_revision=REVISION,
+        currentness_root=CURRENTNESS,
+        observed_outcome=EXPECTED,
+        evidence_ids=[process_evidence],
+    )
+    with pytest.raises(InvalidTransition, match="active programs"):
+        core.acceptance_lifecycle.accept_stage(
+            terminal["id"],
+            acceptor_session_id=reviewer,
+            exact_revision=REVISION,
+            currentness_root=CURRENTNESS,
+        )
+    assert core.continuation.next_action(mission) == {
+        "posture": "problem_solving",
+        "action": "reconcile_program_range",
+        "program_ids": [program],
+    }
 
 
 def test_exact_terminal_chain_completes_only_after_independent_actual_outcome(

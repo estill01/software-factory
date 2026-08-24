@@ -409,6 +409,77 @@ def test_program_revision_is_review_bound_and_preserves_range(
     assert revision_row["review_root"]
 
 
+def test_program_completion_requires_reviewed_range_closure_and_current_evidence(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
+    store, core, _, mission = runtime
+    program = core.create_program(
+        mission_id=mission,
+        name="Complete program",
+        requested_range={"kind": "full_program", "blocks": ["B0", "B1"]},
+        terminal_criteria={"probe": "e2e"},
+    )
+    reviewer = add_session(store, mission, role="independent_reviewer")
+    with pytest.raises(InvalidTransition, match="full requested range"):
+        core.complete_program(
+            program,
+            expected_version=1,
+            reviewer_session_id=reviewer,
+            evidence_ids=["missing"],
+        )
+
+    preview = core.preview_program_revision(
+        program,
+        mapping={},
+        graph={},
+        accepted_history={"accepted": [], "range_complete": True},
+        resume_frontier={},
+        source_ref="range-complete",
+    )
+    review = add_execution(
+        store,
+        mission,
+        execution_type="program_review",
+        session_id=reviewer,
+        result={
+            "program_id": program,
+            "revision_root": preview["revision_root"],
+            "disposition": "accept",
+        },
+    )
+    revision = core.revise_program(
+        program,
+        expected_version=1,
+        mapping={},
+        graph={},
+        accepted_history={"accepted": [], "range_complete": True},
+        resume_frontier={},
+        source_ref="range-complete",
+        author_execution_id=None,
+        review_execution_id=review,
+        accepted=True,
+    )
+    revision_root = store.one(
+        "SELECT revision_root FROM program_revisions WHERE id=?", (revision,)
+    )["revision_root"]
+    evidence = store.record_evidence(
+        mission_id=mission,
+        evidence_type="program_outcome",
+        subject_type="program",
+        subject_id=program,
+        revision=revision_root,
+        producer_session_id=reviewer,
+        payload={"range_complete": True},
+    )
+    completed = core.complete_program(
+        program,
+        expected_version=2,
+        reviewer_session_id=reviewer,
+        evidence_ids=[evidence],
+    )
+    assert completed["status"] == "completed"
+
+
 def test_program_revision_cannot_omit_previously_accepted_history(
     runtime: tuple[Store, CoreService, str, str],
 ) -> None:

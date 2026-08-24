@@ -200,6 +200,47 @@ class GovernanceService:
             raise InvalidTransition("role grant exhausted its use budget")
         return grant
 
+    def consume_role_grant(
+        self,
+        grant_id: str,
+        *,
+        grantee_session_id: str,
+        role: str,
+        target_type: str,
+        target_id: str,
+        target_revision: str | None,
+        currentness_root: str,
+    ) -> dict[str, Any]:
+        """Consume one exact use of a role capability inside the caller transaction."""
+
+        self._validate_grant(
+            grant_id,
+            grantee_session_id=grantee_session_id,
+            role=role,
+            target_type=target_type,
+            target_id=target_id,
+            target_revision=target_revision,
+            currentness_root=currentness_root,
+        )
+        with self.store.transaction() as db:
+            current = db.execute("SELECT * FROM role_grants_v2 WHERE id=?", (grant_id,)).fetchone()
+            if current is None or current["status"] != "active":
+                raise InvalidTransition("role grant was consumed concurrently")
+            use_count = int(current["use_count"]) + 1
+            if use_count > int(current["max_uses"]):
+                raise InvalidTransition("role grant use budget was consumed concurrently")
+            db.execute(
+                """UPDATE role_grants_v2 SET use_count=?,status=?,updated_at=?
+                   WHERE id=?""",
+                (
+                    use_count,
+                    "consumed" if use_count >= int(current["max_uses"]) else "active",
+                    utc_now(),
+                    grant_id,
+                ),
+            )
+        return self.store.one("SELECT * FROM role_grants_v2 WHERE id=?", (grant_id,))
+
     def create_acceptance_contract(
         self,
         *,

@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from software_factory import CoreService, LeaseConflict, RoleConflict, StaleLease, Store
+from software_factory import (
+    CoreService,
+    InvalidTransition,
+    LeaseConflict,
+    RoleConflict,
+    StaleLease,
+    Store,
+)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -192,10 +199,12 @@ def test_real_workspace_observed_execution_revision_bound_qa_and_acceptance(fact
         disposition="accept",
     )
     assert review["disposition"] == "accept"
-    accepted = core.accept_candidate(work, expected_work_version=3)
-    assert accepted["qa_status"] == "passed"
-    assert accepted["acceptance_status"] == "candidate_accepted"
-    assert accepted["integrated_revision"] is None
+    completed_qa = core.complete_candidate_qa(work, expected_work_version=3)
+    assert completed_qa["qa_status"] == "passed"
+    assert completed_qa["acceptance_status"] == "pending"
+    assert completed_qa["integrated_revision"] is None
+    with pytest.raises(InvalidTransition, match="AcceptanceLifecycleService"):
+        core.accept_candidate(work, expected_work_version=4)
     assert store.verify_event_chain(mission)["valid"] is True
 
 

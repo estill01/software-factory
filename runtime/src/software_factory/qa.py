@@ -390,7 +390,9 @@ class QAService:
                         )
         return {"execution_id": execution_id, "evidence_id": evidence_id, **result}
 
-    def accept_candidate(self, work_item_id: str, *, expected_work_version: int) -> dict[str, Any]:
+    def complete_candidate_qa(
+        self, work_item_id: str, *, expected_work_version: int
+    ) -> dict[str, Any]:
         with self.store.transaction() as db:
             work = self.store.check_version(
                 db,
@@ -434,7 +436,7 @@ class QAService:
                 raise RoleConflict("candidate review is not independent")
             new_version = expected_work_version + 1
             db.execute(
-                """UPDATE work_items SET qa_status='passed',acceptance_status='candidate_accepted',
+                """UPDATE work_items SET qa_status='passed',acceptance_status='pending',
                    state_version=?,updated_at=? WHERE id=?""",
                 (new_version, utc_now(), work_item_id),
             )
@@ -442,7 +444,7 @@ class QAService:
                 db,
                 mission_id=work["mission_id"],
                 stream_key="qa",
-                event_type="candidate.accepted",
+                event_type="candidate.qa_completed",
                 subject_type="work_item",
                 subject_id=work_item_id,
                 prior_version=expected_work_version,
@@ -454,3 +456,10 @@ class QAService:
                 },
             )
         return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+
+    def accept_candidate(self, work_item_id: str, *, expected_work_version: int) -> dict[str, Any]:
+        del work_item_id, expected_work_version
+        raise InvalidTransition(
+            "candidate acceptance requires AcceptanceLifecycleService; "
+            "complete_candidate_qa records QA without self-promotion"
+        )

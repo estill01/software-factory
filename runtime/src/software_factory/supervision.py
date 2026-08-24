@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Mapping
 from typing import Any
 
-from .errors import InvalidTransition, RoleConflict
+from .errors import EvidenceInvalid, InvalidTransition, RoleConflict
 from .util import canonical_json, digest_json, json_load, new_id, parse_time, utc_now
 
 _TARGET_TABLES = {
@@ -705,6 +705,10 @@ class SupervisionService:
         if reviewer["mission_id"] != incident["mission_id"]:
             raise RoleConflict("effectiveness reviewer belongs to a different mission")
         evidence_ids = evidence_ids or []
+        if not evidence_ids:
+            raise EvidenceInvalid("effectiveness review requires current outcome evidence")
+        if not observations:
+            raise EvidenceInvalid("effectiveness review requires observed post-correction state")
         now = utc_now()
         status = "resolved" if outcome in {"effective", "partially_effective"} else "open"
         payload = {
@@ -713,12 +717,11 @@ class SupervisionService:
             "observations": dict(observations or {}),
         }
         with self.store.transaction() as db:
-            if evidence_ids:
-                self.store.require_evidence(
-                    db,
-                    evidence_ids,
-                    mission_id=incident["mission_id"],
-                )
+            self.store.require_evidence(
+                db,
+                evidence_ids,
+                mission_id=incident["mission_id"],
+            )
             db.execute(
                 """UPDATE incidents SET status=?,effectiveness=?,updated_at=?,
                    state_version=state_version+1 WHERE id=?""",

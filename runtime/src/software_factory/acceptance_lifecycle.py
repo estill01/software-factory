@@ -68,6 +68,10 @@ class AcceptanceLifecycleService:
         self.work_items = work_items
         self.capabilities = capabilities
         self.supervision = supervision
+        self._work_acceptance_authority = object()
+        self.work_items._bind_acceptance_lifecycle_authority(  # noqa: SLF001
+            self._work_acceptance_authority
+        )
 
     @staticmethod
     def _stage_index(stage: str) -> int:
@@ -103,7 +107,20 @@ class AcceptanceLifecycleService:
         probes = [dict(probe) for probe in required_probes]
         if any(str(probe.get("type")) in _SEMANTIC_PROBE_TYPES for probe in probes):
             raise ValueError("semantic review cannot be represented as a mechanical probe")
-        remaining = sorted({str(item) for item in remaining_scope if str(item)})
+        remaining_values = {str(item) for item in remaining_scope if str(item)}
+        active_program_ids: list[str] = []
+        if stage == "terminal":
+            active_program_ids = [
+                str(row["id"])
+                for row in self.store.all(
+                    "SELECT id FROM programs WHERE mission_id=? AND status='active' ORDER BY id",
+                    (mission_id,),
+                )
+            ]
+            remaining_values.update(
+                f"program:{program_id}:active" for program_id in active_program_ids
+            )
+        remaining = sorted(remaining_values)
         scope_key = f"work:{work_item_id}" if work_item_id else f"mission:{mission_id}"
         material_root = digest_json(
             {
@@ -139,6 +156,19 @@ class AcceptanceLifecycleService:
             ).fetchone()
             if mission is None or implementer is None or implementer["mission_id"] != mission_id:
                 raise InvalidTransition("acceptance implementer must belong to the mission")
+            if stage == "terminal":
+                current_active_program_ids = [
+                    str(row["id"])
+                    for row in db.execute(
+                        """SELECT id FROM programs
+                           WHERE mission_id=? AND status='active' ORDER BY id""",
+                        (mission_id,),
+                    ).fetchall()
+                ]
+                if current_active_program_ids != active_program_ids:
+                    raise InvalidTransition(
+                        "canonical program range changed during terminal stage preparation"
+                    )
             if work_item_id:
                 work = db.execute(
                     "SELECT mission_id FROM work_items WHERE id=?", (work_item_id,)
@@ -277,7 +307,7 @@ class AcceptanceLifecycleService:
                 observer_session_id=observer_session_id,
             )
 
-    def record_independent_review(
+    def record_stage_independent_review(
         self,
         stage_id: str,
         *,
@@ -337,6 +367,36 @@ class AcceptanceLifecycleService:
             )
         return decision
 
+    def issue_outcome_reviewer_grant(
+        self,
+        stage_id: str,
+        *,
+        reviewer_session_id: str,
+        policy_root: str,
+        expires_at: str,
+        issued_by_session_id: str | None = None,
+        max_uses: int = 1,
+    ) -> dict[str, Any]:
+        stage = self.store.one("SELECT * FROM acceptance_stage_records_v2 WHERE id=?", (stage_id,))
+        return self.governance.issue_role_grant(
+            mission_id=stage["mission_id"],
+            grantee_session_id=reviewer_session_id,
+            role="outcome_reviewer",
+            target_type="acceptance_outcome",
+            target_id=stage_id,
+            target_revision=stage["target_revision"],
+            policy_root=policy_root,
+            currentness_root=stage["currentness_root"],
+            scope={
+                "effects": ["observe_actual_outcome"],
+                "stage": stage["stage"],
+                "outcome_contract_root": stage["outcome_contract_root"],
+            },
+            issued_by_session_id=issued_by_session_id,
+            expires_at=expires_at,
+            max_uses=max_uses,
+        )
+
     def _validate_narrow_owner(
         self,
         *,
@@ -364,7 +424,9 @@ class AcceptanceLifecycleService:
         self,
         stage_id: str,
         *,
+        grant_id: str,
         reviewer_session_id: str,
+        provider_session_id: str,
         exact_revision: str,
         currentness_root: str,
         observed_outcome: Mapping[str, Any],
@@ -388,7 +450,9 @@ class AcceptanceLifecycleService:
         if decision != {"decision": "accepted", "exact_revision": exact_revision}:
             raise InvalidTransition("actual outcome requires a current accepted decision")
         reviewer = self.store.one(
-            "SELECT mission_id,role FROM agent_sessions WHERE id=?", (reviewer_session_id,)
+            """SELECT mission_id,role,external_task_id,external_thread_id
+               FROM agent_sessions WHERE id=?""",
+            (reviewer_session_id,),
         )
         if (
             reviewer["mission_id"] != stage["mission_id"]
@@ -397,6 +461,13 @@ class AcceptanceLifecycleService:
             raise RoleConflict("outcome reconciliation requires an independent reviewer")
         if reviewer_session_id == stage["implementer_session_id"]:
             raise RoleConflict("implementer cannot reconcile its own actual outcome")
+        recorded_provider_identity = str(
+            reviewer.get("external_task_id") or reviewer.get("external_thread_id") or ""
+        )
+        if recorded_provider_identity != provider_session_id:
+            raise InvalidTransition(
+                "outcome reviewer provider identity does not match the granted session"
+            )
 
         expected = json_load(stage["expected_outcome_json"], {})
         observed = dict(observed_outcome)
@@ -452,6 +523,15 @@ class AcceptanceLifecycleService:
                 mission_id=stage["mission_id"],
                 revision=exact_revision,
             )
+            self.governance.consume_role_grant(
+                grant_id,
+                grantee_session_id=reviewer_session_id,
+                role="outcome_reviewer",
+                target_type="acceptance_outcome",
+                target_id=stage_id,
+                target_revision=exact_revision,
+                currentness_root=currentness_root,
+            )
             db.execute(
                 """INSERT INTO outcome_reconciliations_v2(
                        id,stage_record_id,reviewer_session_id,exact_revision,
@@ -495,6 +575,7 @@ class AcceptanceLifecycleService:
                         work_id,
                         reason="actual outcome disagrees with the accepted process record",
                         evidence_ids=evidence,
+                        authority=self._work_acceptance_authority,
                     )
                 if capability_id is not None:
                     self.capabilities.reopen_capability(
@@ -633,10 +714,18 @@ class AcceptanceLifecycleService:
                 )
                 or 0
             )
-            if remaining or gaps or obligations or unfinished_selected_work:
+            active_programs = int(
+                self.store.scalar(
+                    """SELECT COUNT(*) FROM programs
+                       WHERE mission_id=? AND status='active'""",
+                    (stage["mission_id"],),
+                )
+                or 0
+            )
+            if remaining or gaps or obligations or unfinished_selected_work or active_programs:
                 raise InvalidTransition(
                     "terminal acceptance cannot leave requested range, capability gaps, "
-                    "obligations, or unfinished selected work"
+                    "obligations, unfinished selected work, or active programs"
                 )
 
         with self.store.transaction() as db:
@@ -646,6 +735,7 @@ class AcceptanceLifecycleService:
                     stage=stage["stage"],
                     exact_revision=exact_revision,
                     evidence_ids=json_load(latest["evidence_ids_json"], []),
+                    authority=self._work_acceptance_authority,
                 )
             db.execute(
                 """UPDATE acceptance_stage_records_v2

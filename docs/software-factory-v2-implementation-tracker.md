@@ -1338,8 +1338,11 @@ capabilities rather than trust the producer's summary.
 - Implemented one `AcceptanceLifecycleService` projection over the existing
   authorities. `GovernanceService` remains the only contract/review/decision
   owner; `WorkItemService`, `CapabilityService`, `SupervisionService`, and
-  `ContinuationService` receive bounded public transitions rather than a
-  second writer. Migration `0022_acceptance_lifecycle.sql` records exact
+  `ContinuationService` retain their canonical transitions rather than gaining
+  a second writer. Work acceptance is now capability-token fenced to the staged
+  coordinator, while legacy `QAService.accept_candidate` fails closed and
+  `complete_candidate_qa` records QA success without acceptance promotion.
+  Migration `0022_acceptance_lifecycle.sql` records exact
   candidate/integrated/installed/terminal stages and actual-outcome
   reconciliations; schema version is 22 and the exhaustive ownership registry
   covers both new tables.
@@ -1349,39 +1352,62 @@ capabilities rather than trust the producer's summary.
   currentness change stales the entire downstream stage chain and governance
   records. Identical observations deduplicate by content root; accepted proof
   is not replayed across stages. Contract SHA-256:
-  `471b2e3725e968f5e04ca726b418893e269b7c4cacdb9214750a20cda3233bcb`.
+  `07169e9d151deeb0776568ff307673964e49ae6be088961c277056cd8df47ad9`.
 - QA and supervision: mechanical probes require current exact-revision
   evidence but cannot represent or satisfy semantic review. Exact role grant,
   provider identity, distinct reviewer, and governance decision remain
-  required. A green process record with a disagreeing actual outcome regresses
-  only the named work/capability owner, opens one correction obligation and
-  deduplicated incident, and remains blocked until later aligned observation,
-  obligation resolution, and independent effectiveness review.
+  required. Actual-outcome reconciliation separately consumes an exact bounded
+  `outcome_reviewer` grant and verifies the recorded external provider identity.
+  A green process record with a disagreeing actual outcome regresses only the
+  named work/capability owner, opens one correction obligation and deduplicated
+  incident, and remains blocked until later aligned observation, obligation
+  resolution, and an independent effectiveness review with non-empty current
+  evidence and post-correction observations.
 - Terminal reducer: provider-reported terminal execution now yields
-  `reconcile_terminal_acceptance`. Mission completion additionally requires an
-  accepted terminal stage, aligned actual outcome, empty requested range, no
-  required capability gap, no open obligation, no selected uncancelled work
-  below installed acceptance, and terminal evidence at the accepted exact
-  revision from the declared independent verifier.
-- Focused proof: `56 passed` across acceptance lifecycle, governance,
-  supervision, operational boundaries, composition, advanced integration, and
-  core; one pre-existing `TestStore` collection warning. Negative fixtures
-  cover mechanical/semantic substitution, same-author/stale review, changed
-  currentness, process-pass/outcome-wrong, protected-capability regression,
-  unresolved remediation, provider completion as QA, remaining-range terminal
-  return, and the accepted exact terminal chain. Ruff/format are clean across
-  all runtime source/tests, mypy is clean across 63 source files, compile is
-  clean, and full runtime collection is 191 tests with legacy warnings only.
-  Full tracker verification is 0/0. No broad runtime suite was run.
-- Isolated package build succeeded. Wheel SHA-256:
-  `b560e8a2df77768be674c7fa87c32232447560132ff558fc4d87118e67609b36`;
-  sdist SHA-256:
-  `7d50b8043b569c6a4cd89e86142629dba87dbe4dc45bb334ca70249f8d9defaa`.
+  `reconcile_terminal_acceptance`. Terminal preparation and promotion derive
+  remaining range from active canonical programs instead of trusting the
+  caller's duplicate scope. `ProgramService.complete_program` requires an
+  accepted current revision with `range_complete: true`, an empty resume
+  frontier, installed selected work, exact program evidence, and independent
+  review. Mission completion additionally requires an accepted terminal stage,
+  aligned actual outcome, no active program, no required capability gap, no
+  open obligation, no selected uncancelled work below installed acceptance, and
+  terminal evidence at the accepted exact revision from the declared
+  independent verifier.
+- Preserved rejected history: candidate
+  `fb3561fe39efa0b8fed10bcb4b470b2d61244085`, tree
+  `29147c9c013867c7ab5f5937ca9caeca05938b2d`, was clean and pushed. Distinct
+  exact review returned `REVISE`: P1 public work/legacy QA acceptance bypass,
+  P1 caller-authored terminal range hiding an active canonical program, P1
+  evidence-free effectiveness, and P2 unsupported negative-proof claims. That
+  candidate remains immutable, preserved, and unaccepted. The narrow
+  correction adds the authority fence, canonical program closure, mandatory
+  effectiveness evidence/observations, exact outcome-reviewer grants, and the
+  missing negative fixtures without rewriting history.
+- Focused correction proof: `63 passed` across acceptance lifecycle,
+  governance, supervision, operational boundaries, composition, advanced
+  integration, core, and legacy execution QA; one pre-existing `TestStore`
+  collection warning. Negative fixtures now cover direct work/legacy QA bypass,
+  mechanical/semantic substitution, same-author/stale review, changed
+  currentness, exact outcome-reviewer grant/provider identity,
+  process-pass/outcome-wrong, protected-capability regression, evidence-free
+  effectiveness, unresolved remediation, provider completion as QA,
+  caller-hidden active programs, reviewed program closure, remaining-range
+  terminal return, and the accepted exact terminal chain. Ruff format/check are
+  clean across 93 files, mypy is clean across 63 source files, compile is
+  clean, and full runtime collection is 193 tests with the documented legacy
+  collection warnings only; full tracker verification is 0 errors/0 warnings.
+  No broad runtime suite was run. The isolated build
+  produced wheel SHA-256
+  `dff4efa0cd8adacd7d3adf40107e6585b8b65ec743515a91a5c88d07aa365a8b`
+  and sdist SHA-256
+  `e486ce67d4bec11597fd13c506509b6c14599684a135068f8d61981052878d28`.
   Focused evidence JSON SHA-256:
-  `3b336e5115e797f0b20d10d0449132af65fca28089a3eb4d38ddf96888bb7605`.
-- Candidate posture: implementation and focused proof are complete; Block 6
-  remains `in-progress` pending one clean exact candidate checkpoint and
-  distinct independent review. No production target was used. libRSI cutover,
+  `0150852ca737fce0860e5be3db6497898c4012c69b79b3f2a477831f5e71f434`.
+- Candidate posture: the exact-review correction and narrow validation are
+  complete; Block 6 remains `in-progress` pending one clean exact correction
+  checkpoint and distinct independent re-review.
+  No production target was used. libRSI cutover,
   utils artifact consumption, delivery, service boundary, cutover, and
   terminal program qualification remain outside this candidate.
 

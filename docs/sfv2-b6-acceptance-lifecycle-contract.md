@@ -14,15 +14,18 @@ the operator-visible outcome.
 | Mechanical QA observations | acceptance probes and existing QA execution lanes | evidence input only; cannot count as semantic review |
 | Semantic review and decision | `GovernanceService` | exact-revision role grant, independent provider identity, review record, and acceptance decision remain authoritative |
 | Acceptance-stage projection | `AcceptanceLifecycleService` | records candidate, integrated, installed, and terminal state after consuming the governance decision |
-| Work acceptance | `WorkItemService` | receives a bounded candidate/integrated/installed promotion or outcome-regression call; no second work writer |
+| Work acceptance | `WorkItemService` | accepts candidate/integrated/installed promotion or outcome-regression only with the private capability token bound once by `AcceptanceLifecycleService`; no public or legacy QA bypass exists |
 | Capability regression and obligation | `CapabilityService` | receives the exact capability disagreement and creates the correction obligation |
 | Incident and effectiveness | `SupervisionService` | records containment/correction/effectiveness without becoming acceptance authority |
 | Terminal mission transition | `ContinuationService` | reduces remaining range, required capabilities, obligations, terminal evidence, accepted terminal stage, and aligned outcome |
 
 The stage coordinator writes only `acceptance_stage_records_v2` and
 `outcome_reconciliations_v2`. Cross-lifecycle changes are routed through the
-existing public owners inside one nested transaction. There is no second QA,
-governance, work, capability, incident, or mission writer.
+existing owners inside one nested transaction. Work acceptance transitions are
+capability-token fenced, and the legacy QA acceptance method fails closed;
+`QAService.complete_candidate_qa` records QA success without changing acceptance
+state. There is no second QA, governance, work, capability, incident, or mission
+writer.
 
 ## Stage invariants
 
@@ -63,10 +66,12 @@ same-author review, or mismatched provider identity fails closed.
 ## Actual-outcome reconciliation
 
 After governance accepts the process evidence, an independent outcome reviewer
-records the observed outcome at the same revision/currentness root. The reducer
-compares every declared expected path without applying a universal score. An
-identical observation/evidence packet deduplicates by content root, avoiding
-replay of unchanged accepted proof.
+records the observed outcome at the same revision/currentness root. That write
+consumes an exact, bounded `outcome_reviewer` role grant and verifies the
+reviewer's recorded external provider identity. The reducer compares every
+declared expected path without applying a universal score. An identical
+observation/evidence packet deduplicates by content root, avoiding replay of
+unchanged accepted proof.
 
 When expected and observed state disagree, the reducer requires exactly one
 narrow operational owner:
@@ -79,7 +84,8 @@ It records the mismatch, reopens/regresses that owner where applicable, creates
 one correction obligation, opens one deduplicated incident, and marks the stage
 `reopened`. A later aligned observation does not erase history or self-close the
 correction: its obligation must be satisfied and its incident must receive an
-independent effectiveness disposition before promotion.
+independent effectiveness disposition backed by non-empty current evidence and
+post-correction observations before promotion.
 
 ## Terminal reducer
 
@@ -93,6 +99,8 @@ Terminal-stage promotion and mission completion both require:
 - one accepted governance decision plus aligned independent outcome;
 - no unresolved outcome disagreement;
 - an empty remaining requested range;
+- no active canonical program whose accepted revision still represents the
+  requested range;
 - no required capability gap;
 - no open obligation;
 - no selected, uncancelled work below installed acceptance;
@@ -102,6 +110,13 @@ Terminal-stage promotion and mission completion both require:
 
 This reducer preserves the complete requested range and blocks terminal return
 when any remaining Block or outcome obligation exists.
+
+`ProgramService.complete_program` is the only canonical range-closure
+transition. It requires the active program's current revision to be accepted,
+that revision to record `range_complete: true`, an empty resume frontier, no
+selected work below installed acceptance, exact program evidence at the
+revision root, and an independent reviewer. Only after that transition can a
+terminal stage be prepared or accepted and the mission reducer complete.
 
 ## Economy and exclusions
 

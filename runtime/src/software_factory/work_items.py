@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from .errors import InvalidTransition, StoreError
+from .errors import AuthorityDenied, InvalidTransition, StoreError
 from .scheduling import SchedulingPolicy, budget_exhausted_work_item_ids
 from .util import (
     canonical_json,
@@ -38,6 +38,18 @@ def _scope_conflicts(left: list[str], right: list[str]) -> bool:
 class WorkItemService:
     def __init__(self, store: Any):
         self.store = store
+        self._acceptance_lifecycle_authority: object | None = None
+
+    def _bind_acceptance_lifecycle_authority(self, authority: object) -> None:
+        if self._acceptance_lifecycle_authority is not None:
+            raise InvalidTransition("work acceptance lifecycle authority is already bound")
+        self._acceptance_lifecycle_authority = authority
+
+    def _require_acceptance_lifecycle_authority(self, authority: object) -> None:
+        if authority is not self._acceptance_lifecycle_authority:
+            raise AuthorityDenied(
+                "work acceptance transitions require the staged lifecycle coordinator"
+            )
 
     def create_work_item(
         self,
@@ -327,9 +339,11 @@ class WorkItemService:
         stage: str,
         exact_revision: str,
         evidence_ids: list[str],
+        authority: object,
     ) -> dict[str, Any]:
         """Project a staged acceptance decision through the canonical work owner."""
 
+        self._require_acceptance_lifecycle_authority(authority)
         transitions = {
             "candidate": ({"pending", "regressed"}, "candidate_accepted"),
             "integrated": ({"candidate_accepted"}, "integrated_accepted"),
@@ -399,9 +413,11 @@ class WorkItemService:
         *,
         reason: str,
         evidence_ids: list[str],
+        authority: object,
     ) -> dict[str, Any]:
         """Reopen only the affected work owner when actual outcome disagrees."""
 
+        self._require_acceptance_lifecycle_authority(authority)
         with self.store.transaction() as db:
             work = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
             if work is None:

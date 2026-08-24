@@ -176,6 +176,17 @@ class ContinuationService:
                 "budget_exhausted_work_item_ids": exhausted_ids,
             }
 
+        active_programs = self.store.all(
+            "SELECT id FROM programs WHERE mission_id=? AND status='active' ORDER BY id",
+            (mission_id,),
+        )
+        if active_programs:
+            return {
+                "posture": "problem_solving",
+                "action": "reconcile_program_range",
+                "program_ids": [row["id"] for row in active_programs],
+            }
+
         terminal = self.store.one(
             """SELECT id,status,agent_session_id,result_json FROM executions
                WHERE mission_id=? AND execution_type='terminal_verification'
@@ -245,6 +256,11 @@ class ContinuationService:
                      AND acceptance_status<>'installed_accepted'""",
                 (mission_id,),
             ).fetchone()["n"]
+            active_programs = db.execute(
+                """SELECT COUNT(*) AS n FROM programs
+                   WHERE mission_id=? AND status='active'""",
+                (mission_id,),
+            ).fetchone()["n"]
             terminal = db.execute(
                 """SELECT * FROM executions WHERE mission_id=?
                    AND execution_type='terminal_verification'
@@ -273,10 +289,10 @@ class ContinuationService:
                 subject_id=mission_id,
                 evidence_types={"terminal_probe", "installed_probe"},
             )[0]
-            if gaps or open_obligations or unfinished_selected_work:
+            if gaps or open_obligations or unfinished_selected_work or active_programs:
                 raise InvalidTransition(
                     "mission cannot complete with capability gaps, open obligations, "
-                    "or unfinished selected work"
+                    "unfinished selected work, or active programs"
                 )
             terminal_stage = db.execute(
                 """SELECT s.*,r.id AS outcome_reconciliation_id,

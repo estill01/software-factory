@@ -48,15 +48,23 @@ stages. Mechanical probes remain evidence inputs; they cannot satisfy the govern
 independent semantic review. A stage is promotable only after the governance owner has
 accepted its probes and review and a different independent session has reconstructed
 the operator-visible and protected-capability outcome at the same currentness root.
+Outcome reconstruction consumes an exact bounded reviewer grant and verifies the
+reviewer's recorded provider identity. Work acceptance is capability-token fenced to
+the lifecycle coordinator; legacy QA can record a passed probe but cannot promote a
+candidate.
 
 If the process record is green but the observed outcome disagrees, the runtime records
 the mismatch, reopens only the named work/capability/mission owner, and routes an
 incident plus a correction obligation. Repeated identical observations deduplicate by
 content root. Terminal reduction additionally requires an empty requested range, no
-required capability gaps, no open obligations, and current terminal evidence at the
-accepted revision. A provider-reported completion is therefore not QA or terminal
-acceptance by itself. Selected, uncancelled work below installed acceptance is also
-remaining work and blocks terminal reduction even if no execution is active.
+active canonical program, no required capability gaps, no open obligations, and
+current terminal evidence at the accepted revision. A program closes only after its
+accepted current revision records full-range completion with an empty resume frontier,
+installed selected work, exact program evidence, and independent review. A
+provider-reported completion is therefore not QA or terminal acceptance by itself.
+Selected, uncancelled work below installed acceptance is also remaining work and blocks
+terminal reduction even if no execution is active. Incident effectiveness likewise
+requires non-empty evidence and observed post-correction state.
 
 ## Current implementation state
 

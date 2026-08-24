@@ -310,11 +310,20 @@ def test_ineffective_correction_reopens_causal_hypothesis_at_higher_level() -> N
         work_item_id=work,
         expected_effect={"compile": "passes"},
     )
+    effectiveness_evidence = store.record_evidence(
+        mission_id=mission,
+        evidence_type="effectiveness_probe",
+        subject_type="incident",
+        subject_id=incident,
+        producer_session_id=reviewer,
+        payload={"compile": "still fails"},
+    )
 
     reviewed = core.record_effectiveness(
         incident,
         outcome="ineffective",
         reviewer_session_id=reviewer,
+        evidence_ids=[effectiveness_evidence],
         observations={"compile": "still fails"},
     )
     assert reviewed["status"] == "open"

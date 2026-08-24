@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from .errors import EvidenceInvalid, InvalidTransition, RoleConflict, StoreError
@@ -100,6 +101,106 @@ class ProgramService:
                 },
             )
         return program_id
+
+    @staticmethod
+    def _frontier_has_remaining(value: Any) -> bool:
+        if value in (None, False, "", 0):
+            return False
+        if isinstance(value, Mapping):
+            return any(ProgramService._frontier_has_remaining(item) for item in value.values())
+        if isinstance(value, (list, tuple, set)):
+            return any(ProgramService._frontier_has_remaining(item) for item in value)
+        return True
+
+    def complete_program(
+        self,
+        program_id: str,
+        *,
+        expected_version: int,
+        reviewer_session_id: str,
+        evidence_ids: list[str],
+    ) -> dict[str, Any]:
+        """Close a reviewed program range before terminal mission acceptance."""
+
+        if not evidence_ids:
+            raise EvidenceInvalid("program completion requires current outcome evidence")
+        with self.store.transaction() as db:
+            program = self.store.check_version(
+                db,
+                table="programs",
+                row_id=program_id,
+                expected_version=expected_version,
+            )
+            if program["status"] != "active":
+                raise InvalidTransition("only an active program can complete")
+            revision = db.execute(
+                "SELECT * FROM program_revisions WHERE id=?",
+                (program["current_revision_id"],),
+            ).fetchone()
+            if revision is None or revision["status"] != "accepted":
+                raise InvalidTransition("program completion requires its accepted current revision")
+            accepted_history = json_load(revision["accepted_history_json"], {})
+            if accepted_history.get("range_complete") is not True:
+                raise InvalidTransition(
+                    "accepted program revision has not reconciled the full requested range"
+                )
+            frontier = json_load(revision["resume_frontier_json"], {})
+            if self._frontier_has_remaining(frontier):
+                raise InvalidTransition("program resume frontier still contains remaining work")
+            unfinished = db.execute(
+                """SELECT id FROM work_items
+                   WHERE program_id=? AND planning_status='selected'
+                     AND execution_status<>'cancelled'
+                     AND acceptance_status<>'installed_accepted' LIMIT 1""",
+                (program_id,),
+            ).fetchone()
+            if unfinished is not None:
+                raise InvalidTransition(
+                    "program still has selected work below installed acceptance"
+                )
+            reviewer = db.execute(
+                "SELECT mission_id,role FROM agent_sessions WHERE id=?",
+                (reviewer_session_id,),
+            ).fetchone()
+            if (
+                reviewer is None
+                or reviewer["mission_id"] != program["mission_id"]
+                or reviewer["role"]
+                not in {"independent_reviewer", "evaluator", "terminal_reviewer"}
+            ):
+                raise RoleConflict("program completion requires an independent reviewer")
+            self.store.require_evidence(
+                db,
+                evidence_ids,
+                mission_id=program["mission_id"],
+                subject_type="program",
+                subject_id=program_id,
+                revision=revision["revision_root"],
+            )
+            new_version = expected_version + 1
+            db.execute(
+                """UPDATE programs SET status='completed',state_version=?,updated_at=?
+                   WHERE id=?""",
+                (new_version, utc_now(), program_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=program["mission_id"],
+                stream_key="program",
+                event_type="program.completed",
+                subject_type="program",
+                subject_id=program_id,
+                source_type="session",
+                source_id=reviewer_session_id,
+                prior_version=expected_version,
+                new_version=new_version,
+                payload={
+                    "program_revision_id": revision["id"],
+                    "revision_root": revision["revision_root"],
+                    "evidence_ids": evidence_ids,
+                },
+            )
+        return self.store.one("SELECT * FROM programs WHERE id=?", (program_id,))
 
     def preview_program_revision(
         self,
