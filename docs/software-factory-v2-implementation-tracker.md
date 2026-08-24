@@ -237,7 +237,7 @@ for this tracker may inspect Patent Studio patent content.
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
-| 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
+| 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `in-progress` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
@@ -1066,7 +1066,7 @@ Stop before target-profile authoritative effects.
 
 ## Block 5 — Implement target profiles, workspaces, and authoritative effects
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1127,7 +1127,15 @@ Review isolation, currentness, authority, rollback, and cross-profile leakage.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: clean pushed Block 4 acceptance successor
+  `1dd84e7510684bf617b35079c2734035e5bae2ca`; Blocks 0–4 are accepted and
+  Block 5 is the sole dependency-eligible frontier.
+- Start posture: implement a typed profile registry and the first complete
+  Factory-owned software profile over the existing workspace, execution,
+  integration, release, cleanup, and rollback owners. Register fixed effect
+  classes and exact target currentness checks; do not introduce a universal
+  target schema, let a profile accept its output, consume Block 9 utils
+  packages, or begin Block 6 QA/supervision acceptance integration.
 
 ### Stop
 
