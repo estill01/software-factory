@@ -29,6 +29,14 @@
     "selection_reason": "A machine-checkable frozen manifest plus a readable migration map satisfies the reusable source-to-target capability. Prose alone cannot reject omissions; a runtime registry or database would be speculative and is not authorized."
   },
   "path_inventory": {
+    "effective_owner_contract": {
+      "schema_version": "software-factory-v2-effective-path-owner/v1",
+      "base_rule_cardinality": "exactly-one",
+      "override_selector": "exact-module-path",
+      "override_cardinality": "zero-or-one",
+      "precedence": "module-treatment-overrides-base-rule",
+      "result_cardinality": "exactly-one-effective-owner-and-disposition"
+    },
     "rules": [
       {
         "id": "repository-metadata",
@@ -450,14 +458,58 @@
     {
       "repository": "/Users/ethanstillman/code/utils",
       "distribution": "utils",
-      "observed_branch": "main",
-      "observed_commit": "08c416da4202b7036110e33e43d34ea590054e2e",
-      "observed_tree": "794650275e9a583c9f47276a271f65cc1020c4e8",
-      "worktree": "clean",
-      "tracker_sha256": "92b9bfff5aa2ee36d4a7e429c078780179fc0dd32101fcb2c06131d959f4cc87",
-      "completed_blocks": "0-8",
-      "next_block": 9,
-      "consumption_rule": "Do not consume an unaccepted producer revision. Block 4 requires an immutable accepted Block 9 Codex app client revision; Blocks 9 and 12 require the later accepted structural/runtime-manifest handoffs."
+      "initial_observation": {
+        "branch": "main",
+        "commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+        "tree": "794650275e9a583c9f47276a271f65cc1020c4e8",
+        "worktree": "clean",
+        "tracker_sha256": "92b9bfff5aa2ee36d4a7e429c078780179fc0dd32101fcb2c06131d959f4cc87",
+        "completed_blocks": "0-8",
+        "next_block": 9
+      },
+      "accepted_handoff": {
+        "branch": "main",
+        "completion_commit": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+        "completion_tree": "f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1",
+        "remote_ref": "origin/main",
+        "remote_commit_at_verification": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+        "remote_divergence_at_verification": {"ahead": 0, "behind": 0},
+        "tracker_git_blob": "910ef685dfb95f9a6803dee31000072eb40af257",
+        "tracker_sha256": "149202d90a6b389ca0204f9ecbe26c5799c4c86f8a18ab26e407cbe802bdfe7a",
+        "completed_blocks": "0-16",
+        "qualification_matrix_git_blob": "53414e20421716b207b2296b312ededbbb6d8782",
+        "qualification_matrix_sha256": "0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849",
+        "technical_candidate_commit": "2150966402474bb633c01d04eca0a1bc8309d941",
+        "technical_qualification_root_sha256": "9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068",
+        "release_posture": "no-license-selected/unpublished",
+        "artifacts": [
+          {
+            "distribution": "codex-app-server-client",
+            "version": "0.1.0",
+            "accepted_source_commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+            "package_tree": "17772f61da62b41d6d3551deebc474792aafe922",
+            "artifact_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+            "content_root_sha256": "6ecc26e75197d06682fe9d8d0612edb1e56ead6d04c3a41cde1132e2618efd8f"
+          },
+          {
+            "distribution": "embedded-service-contract",
+            "version": "0.1.0",
+            "accepted_source_commit": "401f87a64349c636a66be2da656498e7d9cb58e3",
+            "package_tree": "203c809f3d1ab2588df5ed83c08affde99f8010c",
+            "artifact_sha256": "2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d",
+            "content_root_sha256": "c53432ff83c6b80483a95384af3c9058a3cd82c56ac774126f123a93dbff7113"
+          },
+          {
+            "distribution": "runtime-manifest",
+            "version": "0.1.0",
+            "accepted_source_commit": "6f7a7ea3c105c7461e6cb4c83944dd094883f187",
+            "package_tree": "42cb7171d3de021a99f75ac741ea0a0cf97c84ae",
+            "artifact_sha256": "f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac",
+            "content_root_sha256": "db8f7f7d0b0105361f9b1380ff1d1cc432e720be02def65880a9ef484ad112a2"
+          }
+        ]
+      },
+      "consumption_rule": "Consume only from the trusted exact producer revision and exact artifact hash in the owning Factory Block. Never resolve the client by bare registry name/version. The handoff grants no public installability, reuse, redistribution, publication, or release authority; Factory retains every downstream adapter, pin, fixture, test, cutover, and acceptance decision."
     },
     {
       "repository": "/Users/ethanstillman/code/libRSI",
@@ -589,13 +641,28 @@
       "id": "pre-v2-runtime-and-skill-trackers",
       "classification": "accepted-input",
       "currentness": "historical-evidence-not-current-implementation",
-      "reuse_rule": "Reuse until the mapped owner changes; rerun affected proof after each owner cutover."
+      "reuse_rule": "Reuse until the mapped owner changes; rerun affected proof after each owner cutover.",
+      "sources": [
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md", "git_blob": "a7b28ab5f861972c1af8f510d0637fc99800b00a", "sha256": "d746e5af9b32ac67b0bc0e2fa20c67dc92130a2176fa4dea335f18f53b716b77"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md", "git_blob": "98fb3bf34e042e7bcd0ec11db94da75a7e4e980b", "sha256": "d629cd091f5d24915e423d0511636f3ab33f9739d7d239724451f12490384282"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-cleanup-and-reconciliation-skill-implementation-tracker.md", "git_blob": "e600f59c7cbb912022477f19734500f035f0a6bb", "sha256": "78e69c9df7c98ba60e4c5363f0a353edf8711abc7744a14872352e26a8bcedf9"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md", "git_blob": "7b0f6d5f826a80f5013b5e2df1c22cf903cbdb97", "sha256": "8b92bf1885cc7940a79e40f8186ffc89b279bfb50c144d4cfd1f99d100ffe0c1"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-operations-dashboard-implementation-tracker.md", "git_blob": "9f14bd0259e919e152e1ca51a897cf615f263132", "sha256": "e801e268b8796341f5f7a64372389a35a10dba3e85644bdb0a1ad504ece9dd31"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-recursive-product-program-evolution-implementation-tracker.md", "git_blob": "325fea5dc85be968f6a2ebc8b2aff52ca5fc2f45", "sha256": "a32838c1e5afced5942d678cc4e03462c45e548ba4c529d6a46dc2738bf62fdf"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-repository-consolidation-implementation-tracker.md", "git_blob": "2ec83bfc2145cabe351f8ba9dc606df8eb0ed75b", "sha256": "d4ec64edda18cd09fcb57fa62710c8586bae8827980608a37c38a8dca05ddcea"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-selection-quality-rsi-implementation-tracker.md", "git_blob": "5c980a9ca1e565afeecfdeff1cdf78720c8838bc", "sha256": "e4a33fcb636980a6e99a99fd31ffb6d58f72cf7636234bb919971dd39776fd75"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-systemic-supervision-recovery-implementation-tracker.md", "git_blob": "78afc6a0d8e785f453bb4b9d3e37ac8e966ae185", "sha256": "c539a9a9ee7437869bcc3e4f11301b9985408d4b8b5684dfc6586fe324781786"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md", "git_blob": "999122a15dec33ea44a799b34f8b46ab7e43b030", "sha256": "55f8632fa79d45c85a7ec1506ffca646e5fc4b1dd95a227570c8aa22eca1a40e"}
+      ]
     },
     {
       "id": "source-plan-commit-b34cdd9",
       "classification": "accepted-input",
       "currentness": "historical-evidence-not-current-implementation",
-      "reuse_rule": "The plan is architecture evidence; only the frozen source commit describes current implementation."
+      "reuse_rule": "The plan is architecture evidence; only the frozen source commit describes current implementation.",
+      "sources": [
+        {"commit": "b34cdd9fab6830bf2ee5b9ac457e48914082e660", "path": "docs/software-factory-v2-implementation-plan.md", "git_blob": "99bf2fc6f1597c0191f73d299da405083ec55077", "sha256": "ce69b96397dabdd86c80499cd4aa2d1bb59562cbe54151fef946aeb997205860"}
+      ]
     }
   ]
 }

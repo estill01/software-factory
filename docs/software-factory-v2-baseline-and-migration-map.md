@@ -45,9 +45,14 @@ production surfaces:
 | scripts | 14 | qualification and release | adapt |
 | workflows | 13 | qualification and release | adapt |
 
-Every tracked path at the frozen commit has exactly one top-level rule in the
-manifest. Documentation is evidence-only; the 12 pending markers and four
-upload chunks are integration residue assigned to Block 11 retirement.
+Every tracked path at the frozen commit has exactly one base rule in the
+manifest. An exact-path module treatment may override that rule once; the
+manifest's effective-owner contract makes the module treatment authoritative
+for that path and otherwise retains the base rule. The result is exactly one
+effective owner and disposition per path, without treating a planned
+module-level cutover as a second active owner. Documentation is evidence-only;
+the 12 pending markers and four upload chunks are integration residue assigned
+to Block 11 retirement.
 
 ## Authority and module treatment
 
@@ -99,17 +104,31 @@ active writers. Each route has an explicit deletion condition in the manifest.
 
 ### utils
 
-The observed utils checkout was clean on `main` at exact commit
-`08c416da4202b7036110e33e43d34ea590054e2e`; its tracker had Blocks 0–8
-completed and Block 9 in progress. It is evidence of the planned capability,
-not an accepted consumption revision. Software Factory will:
+The initial Block 0 observation remains recorded at exact commit
+`08c416da4202b7036110e33e43d34ea590054e2e` with utils Blocks 0–8 complete.
+The producer has since completed and pushed its inward-only program through
+Block 16 at exact commit
+`a5659745a7cbcbb002b5f06051f6ed9826f721a7`, tree
+`f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1`, with `origin/main` at the same
+revision. The accepted qualification matrix SHA-256 is
+`0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849`
+and the technical qualification root is
+`9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068`.
 
-- consume the Codex app-server client only after utils Block 9 supplies an
-  immutable accepted source revision (Software Factory Block 4);
-- consume the accepted embedded/service structural contract and runtime
-  manifest only when their owning utils Blocks are accepted (Software Factory
-  Blocks 9 and 12);
-- never copy from or pin an unaccepted producer revision.
+The accepted internal `0.1.0` artifacts are:
+
+| Distribution | Exact artifact SHA-256 | Owning Factory lane |
+|---|---|---|
+| `codex-app-server-client` | `1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9` | Block 4 client adapter and cutover |
+| `embedded-service-contract` | `2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d` | Block 9 structural conformance |
+| `runtime-manifest` | `f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac` | Blocks 9 and 12 compatibility/qualification |
+
+This is an accepted producer handoff, not downstream Factory acceptance.
+Factory consumes each artifact only when its existing Block becomes eligible
+and retains every adapter, pin, fixture, test, cutover, and acceptance
+decision. The artifacts are unpublished and have no selected license; bare
+registry name/version resolution, public installability, reuse,
+redistribution, publication, and release-authority claims remain prohibited.
 
 ### libRSI
 
