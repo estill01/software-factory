@@ -679,7 +679,23 @@ class ExecutionService:
             )
         return self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
 
-    def recover_expired_leases(self, *, mission_id: str | None = None) -> list[str]:
+    def expired_execution_ids(self, *, mission_id: str | None = None) -> list[str]:
+        now = dt.datetime.now(dt.UTC)
+        query = """SELECT DISTINCT e.id FROM leases l
+                   JOIN executions e ON e.id=l.owner_execution_id
+                   WHERE l.status='active' AND julianday(l.expires_at)<=julianday(?)"""
+        params: list[Any] = [now.isoformat(timespec="microseconds")]
+        if mission_id:
+            query += " AND e.mission_id=?"
+            params.append(mission_id)
+        return [str(row["id"]) for row in self.store.all(query, tuple(params))]
+
+    def recover_expired_leases(
+        self,
+        *,
+        mission_id: str | None = None,
+        provider_cancelled_execution_ids: Sequence[str] | None = None,
+    ) -> list[str]:
         now = dt.datetime.now(dt.UTC)
         query = """SELECT DISTINCT e.* FROM leases l
                    JOIN executions e ON e.id=l.owner_execution_id
@@ -688,10 +704,18 @@ class ExecutionService:
         if mission_id:
             query += " AND e.mission_id=?"
             params.append(mission_id)
+        provider_cancelled = set(provider_cancelled_execution_ids or ())
         recovered: list[str] = []
         with self.store.transaction() as db:
             executions = db.execute(query, tuple(params)).fetchall()
             for execution in executions:
+                provider_handle = json_load(execution["provider_handle_json"], {})
+                if (
+                    execution["provider_key"]
+                    and provider_handle
+                    and execution["id"] not in provider_cancelled
+                ):
+                    continue
                 db.execute(
                     "UPDATE leases SET status='expired',released_at=? WHERE owner_execution_id=? AND status='active'",
                     (utc_now(), execution["id"]),

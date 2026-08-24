@@ -40,7 +40,6 @@ def request(
         lease_generation=1,
         role="implementer",
         prompt=prompt,
-        callback_token="not-forwarded",
     )
 
 
@@ -91,6 +90,7 @@ def test_external_agent_provider_is_bounded_and_keeps_callbacks_in_factory() -> 
         root = Path(directory)
         provider.dispatch(request(root, prompt="bounded"))
         assert len(seen) == 1
+        assert not hasattr(seen[0], "callback_token")
         with pytest.raises(ValueError, match="prompt exceeds"):
             provider.dispatch(request(root, prompt="too many bytes"))
         assert provider.poll({"execution_id": "exe"}).status == "succeeded"
@@ -329,7 +329,7 @@ def test_exact_shared_client_provider_dispatch_restart_reattach_and_submit(
     assert handle["producer_revision"] == "a5659745a7cbcbb002b5f06051f6ed9826f721a7"
     assert handle["thread_id"] == "thread-factory"
     assert handle["turn_id"] == "turn-factory"
-    assert "not-forwarded" not in json.dumps(handle)
+    assert "callback_token" not in json.dumps(handle)
     stale_handle = dict(handle)
     stale_handle["wheel_sha256"] = "0" * 64
     with pytest.raises(ProviderError, match="stale producer material"):

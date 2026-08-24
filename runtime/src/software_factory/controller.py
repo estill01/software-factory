@@ -50,6 +50,7 @@ class ControllerService:
         continuation: Any,
         supervision: Any | None,
         adaptive: Any | None,
+        governance: Any,
         providers: ProviderRegistry,
         default_provider: str | None = None,
     ) -> None:
@@ -61,6 +62,7 @@ class ControllerService:
         self.continuation = continuation
         self.supervision = supervision
         self.adaptive = adaptive
+        self.governance = governance
         self.providers = providers
         self.default_provider = default_provider
 
@@ -213,6 +215,14 @@ class ControllerService:
             ).fetchone()
             if mission is None or mission["status"] != "active":
                 raise InvalidTransition("work mission is not active")
+            cancelling = db.execute(
+                """SELECT id FROM external_effect_intents_v2
+                   WHERE effect_type='provider_cancel' AND target_type='mission'
+                     AND target_id=? AND status<>'cancelled' LIMIT 1""",
+                (work["mission_id"],),
+            ).fetchone()
+            if cancelling is not None:
+                raise InvalidTransition("mission provider cancellation is fenced")
             policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
             if active_execution_count(self.store, work["mission_id"], db=db) >= policy.max_parallel:
                 raise InvalidTransition("mission parallel execution limit is reached")
@@ -549,7 +559,7 @@ class ControllerService:
         if not provider_key:
             raise InvalidTransition("work has no provider and no default provider is configured")
         provider = self.providers.get(provider_key)
-        self.executions.recover_expired_leases()
+        self.recover_expired_provider_executions()
         policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
         if active_execution_count(self.store, work["mission_id"]) >= policy.max_parallel:
             raise InvalidTransition("mission parallel execution limit is reached")
@@ -595,7 +605,6 @@ class ControllerService:
             lease_generation=reservation["generation"],
             role=work["required_role"],
             prompt=reservation["prompt"],
-            callback_token=callback_token,
             context={
                 "workspace_path": str(execution_path),
                 "instructions_root": reservation["instructions_root"],
@@ -709,6 +718,7 @@ class ControllerService:
         reason: Mapping[str, Any],
         cancelled: bool = False,
         work_status: str = "abandoned",
+        allow_expired_lease: bool = False,
     ) -> None:
         with self.store.transaction() as db:
             execution = db.execute(
@@ -716,7 +726,20 @@ class ControllerService:
             ).fetchone()
             if execution is None:
                 raise StoreError("execution not found")
-            self.executions._assert_generation(db, execution, generation)
+            if execution["status"] in {"succeeded", "failed", "cancelled", "invalidated"}:
+                return
+            if allow_expired_lease:
+                if int(execution["lease_generation"] or 0) != generation:
+                    raise StaleLease("execution lease generation is stale")
+                active_lease = db.execute(
+                    """SELECT id FROM leases WHERE owner_execution_id=?
+                       AND status='active' AND generation=? LIMIT 1""",
+                    (execution_id, generation),
+                ).fetchone()
+                if active_lease is None:
+                    raise StaleLease("execution has no active owned lease")
+            else:
+                self.executions._assert_generation(db, execution, generation)
             status = "cancelled" if cancelled else "abandoned"
             now = utc_now()
             db.execute(
@@ -790,7 +813,7 @@ class ControllerService:
                     db,
                     mission_id=execution["mission_id"],
                     stream_key="controller",
-                    event_type="provider.cancel_failed_after_recovery",
+                    event_type="provider.cancel_failed_before_recovery",
                     subject_type="execution",
                     subject_id=execution_id,
                     payload={"type": type(exc).__name__, "message": str(exc)},
@@ -806,12 +829,129 @@ class ControllerService:
                 db,
                 mission_id=execution["mission_id"],
                 stream_key="controller",
-                event_type="provider.cancelled_after_recovery",
+                event_type="provider.cancelled_before_recovery",
                 subject_type="execution",
                 subject_id=execution_id,
                 payload={"provider_status": observation.status},
             )
         return {"execution_id": execution_id, "status": observation.status}
+
+    def recover_expired_provider_executions(
+        self, *, mission_id: str | None = None
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Cancel provider work before releasing its expired Factory authority."""
+
+        expired = self.executions.expired_execution_ids(mission_id=mission_id)
+        authorized: list[str] = []
+        cancellations: list[dict[str, Any]] = []
+        for execution_id in expired:
+            execution = self.store.one(
+                "SELECT provider_key,provider_handle_json FROM executions WHERE id=?",
+                (execution_id,),
+            )
+            handle = json_load(execution["provider_handle_json"], {})
+            if execution["provider_key"] and handle:
+                cancellation = self._cancel_recovered_provider(execution_id)
+                if cancellation is None:
+                    continue
+                cancellations.append(cancellation)
+                if cancellation["status"] != "cancelled":
+                    continue
+            authorized.append(execution_id)
+        recovered = self.executions.recover_expired_leases(
+            mission_id=mission_id,
+            provider_cancelled_execution_ids=authorized,
+        )
+        return recovered, cancellations
+
+    def _active_provider_executions(self, mission_id: str) -> list[dict[str, Any]]:
+        return self.store.all(
+            """SELECT * FROM executions WHERE mission_id=? AND status IN (
+                   'queued','dispatching','leased','running','verifying'
+               ) ORDER BY created_at,id""",
+            (mission_id,),
+        )
+
+    def cancel_mission_provider_executions(self, mission_id: str, *, reason: str) -> str:
+        """Fence new dispatch, cancel exact provider handles, then release authority."""
+
+        if not reason.strip():
+            raise ValueError("mission cancellation requires a reason")
+        self.store.one("SELECT id FROM missions WHERE id=?", (mission_id,))
+        effect = self.governance.claim_effect(
+            effect_type="provider_cancel",
+            target_type="mission",
+            target_id=mission_id,
+            idempotency_key=f"mission-provider-cancel:{mission_id}",
+            request={"mission_id": mission_id},
+            probe_spec={"terminal_provider_status": "cancelled"},
+            mission_id=mission_id,
+        )
+        if effect["status"] == "succeeded":
+            return str(effect["id"])
+        if effect["status"] in {"claimed", "failed"}:
+            effect = self.governance.start_effect(
+                effect["id"],
+                lease_owner="factory-engine",
+                lease_expires_at=self._callback_expiry(60),
+            )
+        try:
+            cancelled: list[dict[str, Any]] = []
+            for execution in self._active_provider_executions(mission_id):
+                handle = json_load(execution["provider_handle_json"], {})
+                if not execution["provider_key"] or not handle:
+                    raise ProviderError(
+                        "active execution cannot be cancelled before its provider handle is durable"
+                    )
+                observation = self.providers.get(str(execution["provider_key"])).cancel(handle)
+                if observation.status != "cancelled":
+                    raise ProviderError("provider cancellation did not reach a terminal state")
+                self._abandon_dispatch(
+                    str(execution["id"]),
+                    int(execution["lease_generation"]),
+                    reason={"kind": "mission_cancelled_by_authority", "reason": reason},
+                    cancelled=True,
+                    work_status="cancelled",
+                    allow_expired_lease=True,
+                )
+                cancelled.append(
+                    {
+                        "execution_id": str(execution["id"]),
+                        "provider_status": observation.status,
+                    }
+                )
+            self.governance.observe_effect(
+                effect["id"],
+                provider_reference="factory-provider-registry",
+                observed_result={"cancelled_executions": cancelled},
+            )
+        except Exception as exc:
+            self.governance.complete_effect(
+                effect["id"],
+                succeeded=False,
+                error={"type": type(exc).__name__},
+            )
+            raise
+        return str(effect["id"])
+
+    def fail_mission_cancellation(self, effect_id: str, error: Exception) -> None:
+        effect = self.store.one(
+            "SELECT status FROM external_effect_intents_v2 WHERE id=?", (effect_id,)
+        )
+        if effect["status"] in {"observed", "started", "ambiguous"}:
+            self.governance.complete_effect(
+                effect_id,
+                succeeded=False,
+                error={"type": type(error).__name__},
+            )
+
+    def complete_mission_cancellation(self, effect_id: str) -> None:
+        effect = self.store.one(
+            "SELECT status FROM external_effect_intents_v2 WHERE id=?", (effect_id,)
+        )
+        if effect["status"] == "succeeded":
+            return
+        self.governance.complete_effect(effect_id, succeeded=True)
 
     def accept_provider_callback(
         self,
@@ -936,12 +1076,9 @@ class ControllerService:
         max_dispatch: int | None = None,
         auto_spawn: bool = True,
     ) -> dict[str, Any]:
-        recovered = self.executions.recover_expired_leases(mission_id=mission_id)
-        recovered_provider_cancellations = [
-            value
-            for execution_id in recovered
-            if (value := self._cancel_recovered_provider(execution_id)) is not None
-        ]
+        recovered, recovered_provider_cancellations = self.recover_expired_provider_executions(
+            mission_id=mission_id
+        )
         provider_updates = self.poll_provider_executions(mission_id)
         adaptive_updates = (
             self.adaptive.observe_new_execution_outcomes(mission_id)

@@ -175,7 +175,15 @@ class FactoryEngine:
         return self.status(mission_id)
 
     def cancel(self, mission_id: str, *, reason: str) -> CancelResult:
-        mission = self.core.missions.cancel_mission(mission_id, reason=reason)
+        effect_id = self.core.controller.cancel_mission_provider_executions(
+            mission_id, reason=reason
+        )
+        try:
+            mission = self.core.missions.cancel_mission(mission_id, reason=reason)
+        except Exception as exc:
+            self.core.controller.fail_mission_cancellation(effect_id, exc)
+            raise
+        self.core.controller.complete_mission_cancellation(effect_id)
         return CancelResult(
             mission_id=mission_id,
             status=str(mission["status"]),

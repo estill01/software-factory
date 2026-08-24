@@ -25,7 +25,6 @@ class ProviderRequest:
     lease_generation: int
     role: str
     prompt: str
-    callback_token: str
     limits: Mapping[str, Any] = field(default_factory=dict)
     context: Mapping[str, Any] = field(default_factory=dict)
 

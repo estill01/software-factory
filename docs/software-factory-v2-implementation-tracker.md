@@ -975,7 +975,7 @@ restart, and provider-success/acceptance separation.
   external input interrupts and fails closed. A completed turn returns
   `provider_success_only` evidence and leaves work acceptance pending.
 - Compatibility and diagnostic: `docs/software-factory-v2-provider-compatibility.md`,
-  SHA-256 `e61b98f01750f83bbd472da66a4ebcbe7063817930425d0cb4de986347a69ee5`,
+  SHA-256 `04973348503edfbc30dee536f5b88510e5414cd67e058206bf0a44c50f188cf1`,
   records ownership, restart, cancellation, bounds, and qualification for all
   four provider lanes. The bounded real-host diagnostic verified exact Codex
   `0.147.0`, executable SHA-256
@@ -984,21 +984,23 @@ restart, and provider-success/acceptance separation.
   typed `thread/list(limit=1)`, observed one result, and closed it. It started no
   generative turn and read or wrote no target repository.
 - Focused evidence: `docs/sfv2-b4-focused-evidence.json`, SHA-256
-  `2df289b7156f2e125cc37e4aaa4c74c99913686fca1f95835b4b513b8347d0e1`,
-  records `44 passed`, repository collection at `177 tests`, Ruff and 87-file
+  `8398ad3674aed382995813d440be44fd3d53d93cd80932404ae032ab458726d3`,
+  records `45 passed`, repository collection at `178 tests`, Ruff and 87-file
   format success, mypy success across 59 source files, compilation, exact
   producer identity, diagnostic results, and Stop-boundary checks. No broad
   runtime suite was run.
 - Artifact proof: an ephemeral Factory wheel for `2.0.0.dev6`, SHA-256
-  `f64ac701cdadaeeee0152bb7864dfbda0f389c3ec1f0e4375321c524eadc10d9`,
+  `9b444aa8f127338930fe0979545eae2aa046c3dbc183d52bcb1fef4f815b0b12`,
   contains the app-server adapter, provenance verifier, and packaged exact pin.
   It is qualification evidence, not a release artifact.
 - Negative proofs: duplicate process owners fail; replacement closes its former
   owner; a tampered producer wheel or stale durable producer root fails closed;
   a replaced provider reattaches to the same exact thread/turn; unrouted
-  approval is declined; cancellation interrupts the exact turn; callback token
-  material is absent from the durable handle; and provider success cannot set
-  work acceptance.
+  approval is declined; engine cancellation durably fences new dispatch before
+  cancelling every exact provider handle; failed recovery cancellation retains
+  the expired active lease and blocks overlap; callback authentication material
+  is absent from both `ProviderRequest` and the durable handle; and provider
+  success cannot set work acceptance.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Capability added or preserved: real replaceable worker execution can start,
@@ -1018,7 +1020,16 @@ restart, and provider-success/acceptance separation.
   - Tradeoff and uncertainty: exact Codex `0.147.0` compatibility is
     intentionally fail-closed; later protocol adoption requires a newly
     qualified producer artifact and an updated Factory pin.
-- Candidate posture: implementation-complete pending exact independent review.
+- Preserved rejected candidate: exact pushed commit
+  `ca101691d8bd8c5300bf40e46c045ad8fa7d4487`, tree
+  `307826a17a56eae0de478d1a32c779a4b61fce05`, returned `REVISE` with three P1
+  findings and no P0/P2: engine cancellation could not reach active providers,
+  lease-expiry recovery released authority before provider cancellation, and
+  external dispatch received the Factory callback secret. The corrected
+  implementation routes engine cancellation through a durable effect fence,
+  cancels providers before releasing authority, retains the fence/lease after a
+  cancellation failure, and removes callback material from `ProviderRequest`.
+- Corrected candidate posture: implementation-complete pending exact independent review.
   Block 9 structural/runtime packages are not consumed, the dashboard duplicate
   is not retired, utils is unmodified, and Block 5 target-profile effects have
   not begun.

@@ -14,6 +14,7 @@ from software_factory import (
     CoreService,
     DeterministicProvider,
     InvalidTransition,
+    LeaseConflict,
     ProcessProvider,
     ProviderObservation,
     ProviderRegistry,
@@ -23,6 +24,16 @@ from software_factory import (
 )
 from software_factory.schema import MIGRATIONS, migration_sql
 from software_factory.util import digest_bytes, utc_now
+
+CALLBACK_TOKEN = "factory-test-callback-token"
+
+
+@pytest.fixture(autouse=True)
+def _stable_callback_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "software_factory.controller.secrets.token_urlsafe",
+        lambda _bytes: CALLBACK_TOKEN,
+    )
 
 
 def git(repo: Path, *args: str) -> str:
@@ -290,7 +301,7 @@ def test_resource_policy_bounds_tick_and_survives_runtime_restart() -> None:
         request = provider.requests[0]
         restarted.accept_provider_callback(
             request.execution_id,
-            token=request.callback_token,
+            token=CALLBACK_TOKEN,
             generation=request.lease_generation,
             succeeded=True,
             result={"candidate": first},
@@ -316,7 +327,7 @@ def test_attempt_budget_stops_repeat_dispatch_and_leaves_obligation_open() -> No
                 "UPDATE leases SET expires_at=? WHERE owner_execution_id=?",
                 (expired, dispatch["execution_id"]),
             )
-        assert core.executions.recover_expired_leases(mission_id=mission) == [
+        assert core.controller.recover_expired_provider_executions(mission_id=mission)[0] == [
             dispatch["execution_id"]
         ]
 
@@ -362,7 +373,7 @@ def test_exhausted_conflicting_work_does_not_hide_useful_safe_frontier() -> None
                 "UPDATE leases SET expires_at=? WHERE owner_execution_id=?",
                 (expired, first["execution_id"]),
             )
-        core.executions.recover_expired_leases(mission_id=mission)
+        core.controller.recover_expired_provider_executions(mission_id=mission)
 
         assert [row["id"] for row in core.ready_work(mission)] == [useful]
         posture = core.next_action(mission)
@@ -381,7 +392,6 @@ def test_provider_callback_is_generation_fenced_single_use_and_atomic() -> None:
         store, core, _, mission, repository_id, _ = make_runtime(Path(directory), provider)
         _, work = add_selected_work(core, mission, repository_id, title="callback", scope=["src"])
         dispatch = core.tick_mission(mission)["dispatches"][0]
-        request = provider.requests[0]
 
         with pytest.raises(InvalidTransition, match="token"):
             core.accept_provider_callback(
@@ -401,7 +411,7 @@ def test_provider_callback_is_generation_fenced_single_use_and_atomic() -> None:
         with pytest.raises(StaleLease, match="generation"):
             core.accept_provider_callback(
                 dispatch["execution_id"],
-                token=request.callback_token,
+                token=CALLBACK_TOKEN,
                 generation=dispatch["generation"] + 1,
                 succeeded=True,
                 result={"commit": "candidate"},
@@ -416,7 +426,7 @@ def test_provider_callback_is_generation_fenced_single_use_and_atomic() -> None:
 
         completed = core.accept_provider_callback(
             dispatch["execution_id"],
-            token=request.callback_token,
+            token=CALLBACK_TOKEN,
             generation=dispatch["generation"],
             succeeded=True,
             result={"commit": "candidate"},
@@ -451,7 +461,7 @@ def test_provider_callback_is_generation_fenced_single_use_and_atomic() -> None:
         with pytest.raises(InvalidTransition, match="not pending"):
             core.accept_provider_callback(
                 completed["id"],
-                token=request.callback_token,
+                token=CALLBACK_TOKEN,
                 generation=dispatch["generation"],
                 succeeded=True,
                 result={"duplicate": True},
@@ -535,7 +545,6 @@ def test_expired_dispatch_revokes_callback_and_rejects_late_result() -> None:
         store, core, _, mission, repository_id, _ = make_runtime(Path(directory), provider)
         _, work = add_selected_work(core, mission, repository_id, title="expiry", scope=["src"])
         dispatch = core.dispatch_work(work, lease_ttl_seconds=60)
-        request = provider.requests[0]
         expired = (dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)).isoformat()
         with store.transaction() as db:
             db.execute(
@@ -559,7 +568,7 @@ def test_expired_dispatch_revokes_callback_and_rejects_late_result() -> None:
         with pytest.raises(InvalidTransition, match="not pending"):
             core.accept_provider_callback(
                 dispatch["execution_id"],
-                token=request.callback_token,
+                token=CALLBACK_TOKEN,
                 generation=dispatch["generation"],
                 succeeded=True,
                 result={"late": True},
@@ -570,6 +579,52 @@ def test_expired_dispatch_revokes_callback_and_rejects_late_result() -> None:
             required=False,
         )
         assert replacement is not None
+
+
+def test_failed_provider_cancellation_retains_expired_authority_and_blocks_overlap() -> None:
+    class RefusesCancellation(DeterministicProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.cancel_attempts = 0
+
+        def cancel(self, handle):
+            self.cancel_attempts += 1
+            raise RuntimeError("provider still running")
+
+    provider = RefusesCancellation()
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, _, mission, repository_id, _ = make_runtime(Path(directory), provider)
+        _, first = add_selected_work(
+            core, mission, repository_id, title="first", scope=["src/first"]
+        )
+        _, second = add_selected_work(
+            core, mission, repository_id, title="second", scope=["src/second"]
+        )
+        dispatch = core.dispatch_work(first, lease_ttl_seconds=60)
+        expired = (dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)).isoformat()
+        with store.transaction() as db:
+            db.execute(
+                "UPDATE leases SET expires_at=? WHERE owner_execution_id=?",
+                (expired, dispatch["execution_id"]),
+            )
+
+        with pytest.raises(LeaseConflict, match="expired leases require"):
+            core.dispatch_work(second)
+
+        assert provider.cancel_attempts == 1
+        assert (
+            store.one("SELECT status FROM executions WHERE id=?", (dispatch["execution_id"],))[
+                "status"
+            ]
+            == "running"
+        )
+        assert (
+            store.one(
+                "SELECT status FROM leases WHERE owner_execution_id=?", (dispatch["execution_id"],)
+            )["status"]
+            == "active"
+        )
+        assert len(provider.requests) == 1
 
 
 def test_existing_schema_upgrades_transactionally_from_v6_to_v7() -> None:
@@ -623,7 +678,6 @@ def test_process_provider_is_restart_observable_and_returns_bounded_output() -> 
             lease_generation=1,
             role="implementer",
             prompt="",
-            callback_token="token",
         )
         initial = provider.dispatch(request)
         assert initial.status == "running"

@@ -10,7 +10,7 @@ close a mission.
 | `DeterministicProvider` | injected host/test owner | Factory execution ID | deterministic observation | prompt-byte bound; no external callback channel | offline fixture and replay |
 | `ProcessProvider` / `CodexCLIProvider` | one registry owner per resolved state root | execution ID plus Factory-owned status/output paths and PID observation | process-group termination | prompt/output bounds; command builder is Factory-owned | local-process fallback |
 | `CodexAppServerProvider` | one registry owner per explicit composition key | execution, assignment, work, workspace, lease, exact thread/turn, and exact producer roots | exact typed thread/turn interrupt | prompt/event/callback/operation bounds; command and file approvals are declined; external input interrupts fail closed | exact internal wheel and protocol pin below |
-| `ExternalAgentProvider` | injected external owner | host-supplied handle under the Factory execution | injected bounded cancel operation | prompt-byte bound; callback token remains Factory-local | consumer-supplied adapter |
+| `ExternalAgentProvider` | injected external owner | host-supplied handle under the Factory execution | injected bounded cancel operation | prompt-byte bound; callback authentication remains Factory-local and never enters `ProviderRequest` | consumer-supplied adapter |
 
 The app-server lane consumes only the accepted internal
 `codex-app-server-client==0.1.0` wheel. The Factory pin binds utils producer
@@ -36,3 +36,26 @@ exact wheel, executable, version, retained schema, and selected surface;
 initializes one owned app-server generation; performs one typed bounded
 `thread/list(limit=1)`; and closes the process. It starts no model turn and
 does not inspect or mutate a target repository.
+
+## Cancellation and recovery ordering
+
+Mission cancellation first claims and starts a durable Factory-owned
+`provider_cancel` effect. That effect fences every subsequent dispatch for the
+mission before any provider work is interrupted. The controller then cancels
+each exact durable provider handle and requires a terminal `cancelled`
+observation before it revokes the execution lease, releases the assignment,
+revokes the callback endpoint, and marks the work cancelled. Only after all
+provider authority has been released does the engine cancel the mission and
+complete the effect.
+
+Expired provider leases follow the same safety order. Recovery attempts exact
+provider cancellation while the expired lease and assignment are still active.
+Only an observed terminal cancellation authorizes recovery to release that
+authority. A cancellation exception or non-terminal observation leaves the
+execution, lease, and assignment in place, so replacement dispatch cannot
+overlap work that may still be running.
+
+Callback authentication is an internal controller capability. It is persisted
+only in the Factory callback record, is compared at the callback boundary, and
+is revoked when provider authority ends. It is absent from `ProviderRequest`,
+provider durable handles, provider result payloads, and external adapter input.

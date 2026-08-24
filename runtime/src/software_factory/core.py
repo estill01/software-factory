@@ -58,6 +58,7 @@ class CoreService:
         self.agents = AgentService(store)
         self.workspaces = WorkspaceService(store)
         self.executions = ExecutionService(store, self.artifact_service)
+        self.governance = GovernanceService(store)
         self.qa = QAService(store, self.workspaces, self.executions)
         self.continuation = ContinuationService(store, self.work_items)
         self.supervision = SupervisionService(
@@ -79,13 +80,13 @@ class CoreService:
             continuation=self.continuation,
             supervision=self.supervision,
             adaptive=self.adaptive,
+            governance=self.governance,
             providers=self.providers,
             default_provider=default_provider,
         )
         self.learning = LearningService(store)
         self.evolution = EvolutionService(store)
         self.operations = OperationsService(store)
-        self.governance = GovernanceService(store)
         self.acceptance = AcceptanceService(store)
         self.reporting = ReportingService(store)
         self.migration = MigrationService(store)

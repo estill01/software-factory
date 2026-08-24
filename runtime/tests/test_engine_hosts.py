@@ -210,6 +210,38 @@ def test_cancellation_atomically_fences_dispatch_race_and_restart(tmp_path: Path
         restarted_core.dispatch_work(work)
     assert restarted_provider.requests == []
 
+    active_store, active_core, active_engine, active_provider, active_work = dispatch_fixture(
+        tmp_path / "active-cancel.sqlite3"
+    )
+    active_mission = active_store.one(
+        "SELECT mission_id FROM work_items WHERE id=?", (active_work,)
+    )["mission_id"]
+    active_dispatch = active_core.dispatch_work(active_work)
+    cancelled = active_engine.cancel(active_mission, reason="cancel active provider")
+    assert cancelled.status == "cancelled_by_authority"
+    assert (
+        active_store.one(
+            "SELECT status FROM executions WHERE id=?", (active_dispatch["execution_id"],)
+        )["status"]
+        == "cancelled"
+    )
+    assert (
+        active_store.one(
+            "SELECT status FROM provider_callbacks WHERE execution_id=?",
+            (active_dispatch["execution_id"],),
+        )["status"]
+        == "revoked"
+    )
+    assert (
+        active_store.one(
+            """SELECT status FROM external_effect_intents_v2
+           WHERE effect_type='provider_cancel' AND target_id=?""",
+            (active_mission,),
+        )["status"]
+        == "succeeded"
+    )
+    assert not hasattr(active_provider.requests[0], "callback_token")
+
     race_store, race_core, race_engine, race_provider, race_work = dispatch_fixture(
         tmp_path / "race.sqlite3"
     )

@@ -11,9 +11,9 @@
       "runtime/tests/test_engine_hosts.py",
       "runtime/tests/test_execution_qa.py"
     ],
-    "result": "44 passed"
+    "result": "45 passed"
   },
-  "collection": "177 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "collection": "178 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
   "static_proofs": [
     {
       "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
@@ -63,7 +63,7 @@
   },
   "runtime_wheel_proof": {
     "version": "2.0.0.dev6",
-    "sha256": "f64ac701cdadaeeee0152bb7864dfbda0f389c3ec1f0e4375321c524eadc10d9",
+    "sha256": "9b444aa8f127338930fe0979545eae2aa046c3dbc183d52bcb1fef4f815b0b12",
     "posture": "ephemeral local qualification artifact, not a release artifact",
     "required_members": [
       "software_factory/app_server_provider.py",
@@ -75,10 +75,24 @@
     "one_process_owner": "duplicate composition owner keys are rejected and replacement closes the previous owner before installation",
     "restart_reattachment": "a new adapter instance reattaches from exact durable execution, thread, turn, workspace, and producer identity without persisting client objects or callback tokens",
     "approval_boundary": "unrouted command and file approvals are declined; external input interrupts and fails closed",
-    "cancellation": "the exact durable thread and turn are interrupted before the owned client is closed",
+    "cancellation": "engine cancellation durably fences dispatch, cancels each exact provider handle, releases its leases only after terminal cancellation, and then cancels the mission",
+    "recovery_order": "lease-expired provider authority remains active until cancellation succeeds; cancellation failure blocks overlapping replacement dispatch",
+    "callback_secret": "callback authentication material remains controller-local and is absent from every ProviderRequest and durable provider handle",
     "acceptance_separation": "completed app-server turn records provider_success_only while work acceptance remains pending",
     "pin_currentness": "tampered wheels and stale durable producer roots fail before provider I/O"
   },
+  "review_history": [
+    {
+      "candidate": "ca101691d8bd8c5300bf40e46c045ad8fa7d4487",
+      "tree": "307826a17a56eae0de478d1a32c779a4b61fce05",
+      "disposition": "REVISE",
+      "findings": [
+        "engine cancellation did not reach active provider work",
+        "lease-expiry recovery released authority before provider cancellation",
+        "ProviderRequest exposed the controller callback secret to external dispatch"
+      ]
+    }
+  ],
   "scope_boundary": {
     "utils_repository_modified": false,
     "copied_utils_source": false,
