@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from .errors import EvidenceInvalid, InvalidTransition, RoleConflict
+from .scheduling import (
+    SchedulingPolicy,
+    active_execution_count,
+    implementation_attempt_counts,
+)
 from .util import canonical_json, utc_now
 
 
@@ -85,22 +90,41 @@ class ContinuationService:
         active = self.store.all(
             """SELECT id,status,work_item_id FROM executions
                WHERE mission_id=? AND status IN (
-                 'dispatching','leased','running','verifying'
+                 'queued','dispatching','leased','running','verifying'
                ) ORDER BY created_at""",
             (mission_id,),
         )
         ready = self.work_items.ready_work(mission_id)
-        if ready:
+        policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
+        attempts = implementation_attempt_counts(self.store, [str(row["id"]) for row in ready])
+        dispatchable = [
+            row for row in ready if attempts.get(str(row["id"]), 0) < policy.max_attempts_per_work
+        ]
+        exhausted_ids = [
+            str(row["id"])
+            for row in ready
+            if attempts.get(str(row["id"]), 0) >= policy.max_attempts_per_work
+        ]
+        active_count = active_execution_count(self.store, mission_id)
+        capacity = max(0, policy.max_parallel - active_count)
+        if dispatchable and capacity:
+            frontier = dispatchable[: min(capacity, policy.max_dispatch_per_tick)]
             return {
                 "posture": "executing",
                 "action": "dispatch_ready_work",
-                "work_item_ids": [row["id"] for row in ready],
+                "work_item_ids": [row["id"] for row in frontier],
+                "capacity_remaining": capacity,
+                "scheduling_policy": policy.as_dict(),
+                "budget_exhausted_work_item_ids": exhausted_ids,
             }
         if active:
             return {
                 "posture": "executing",
                 "action": "wait_for_active_work",
                 "execution_ids": [row["id"] for row in active],
+                "capacity_remaining": capacity,
+                "scheduling_policy": policy.as_dict(),
+                "budget_exhausted_work_item_ids": exhausted_ids,
             }
 
         required_gaps = self.store.all(
@@ -126,11 +150,20 @@ class ContinuationService:
                     "action": "diagnose_reflect_or_replan",
                     "obligation_ids": [row["id"] for row in nonreserved],
                     "capability_ids": [row["id"] for row in required_gaps],
+                    "budget_exhausted_work_item_ids": exhausted_ids,
                 }
             return {
                 "posture": "waiting_reserved_input",
                 "action": "preserve_reserved_boundary",
                 "obligation_ids": [row["id"] for row in reserved],
+            }
+        if exhausted_ids:
+            return {
+                "posture": "problem_solving",
+                "action": "diagnose_reflect_or_replan",
+                "obligation_ids": [],
+                "capability_ids": [],
+                "budget_exhausted_work_item_ids": exhausted_ids,
             }
 
         terminal = self.store.one(

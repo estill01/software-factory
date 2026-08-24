@@ -261,6 +261,32 @@ def test_attempt_failure_does_not_close_obligation(
     assert obligation in action["obligation_ids"]
 
 
+@pytest.mark.parametrize(
+    "resource_limits",
+    [
+        {"max_parallel": 0},
+        {"max_dispatch_per_tick": True},
+        {"max_attempts_per_work": "3"},
+    ],
+)
+def test_mission_rejects_invalid_scheduling_resource_limits(
+    runtime: tuple[Store, CoreService, str, str],
+    resource_limits: dict[str, Any],
+) -> None:
+    store, core, project, _ = runtime
+    before = store.scalar("SELECT COUNT(*) FROM missions")
+
+    with pytest.raises(ValueError, match="positive integer"):
+        core.create_mission(
+            project_id=project,
+            title="invalid limits",
+            objective="must fail before persistence",
+            resource_limits=resource_limits,
+        )
+
+    assert store.scalar("SELECT COUNT(*) FROM missions") == before
+
+
 def test_scheduler_returns_maximal_nonconflicting_set(
     runtime: tuple[Store, CoreService, str, str],
 ) -> None:
@@ -381,6 +407,87 @@ def test_program_revision_is_review_bound_and_preserves_range(
     assert program_row["requested_range_json"] == '{"kind":"full_program"}'
     revision_row = store.one("SELECT * FROM program_revisions WHERE id=?", (revision,))
     assert revision_row["review_root"]
+
+
+def test_program_revision_cannot_omit_previously_accepted_history(
+    runtime: tuple[Store, CoreService, str, str],
+) -> None:
+    store, core, _, mission = runtime
+    program = core.create_program(
+        mission_id=mission,
+        name="History-preserving program",
+        requested_range={"kind": "full_program", "blocks": [0, 1, 2]},
+        terminal_criteria={"probe": "e2e"},
+    )
+    accepted_work = core.create_work_item(
+        mission_id=mission,
+        program_id=program,
+        work_type="implementation",
+        title="accepted",
+        description="accepted",
+    )
+    mapping = {accepted_work: accepted_work}
+    preview = core.preview_program_revision(
+        program,
+        mapping=mapping,
+        graph={"work": [accepted_work]},
+        accepted_history={"accepted": [accepted_work]},
+        resume_frontier={"next": "block-1"},
+        source_ref="accepted-history",
+    )
+    reviewer = add_session(store, mission, role="independent_reviewer")
+    review = add_execution(
+        store,
+        mission,
+        execution_type="program_review",
+        session_id=reviewer,
+        result={
+            "program_id": program,
+            "revision_root": preview["revision_root"],
+            "disposition": "accept",
+        },
+    )
+    core.revise_program(
+        program,
+        expected_version=1,
+        mapping=mapping,
+        graph={"work": [accepted_work]},
+        accepted_history={"accepted": [accepted_work]},
+        resume_frontier={"next": "block-1"},
+        source_ref="accepted-history",
+        author_execution_id=None,
+        review_execution_id=review,
+        accepted=True,
+    )
+
+    with pytest.raises(InvalidTransition, match="cannot omit accepted work history"):
+        core.propose_program_revision(
+            program,
+            expected_version=2,
+            mapping={},
+            graph={"work": []},
+            accepted_history={"accepted": []},
+            resume_frontier={"next": "block-2"},
+            source_ref="narrowed-history",
+            author_execution_id=None,
+        )
+
+    preserved = core.propose_program_revision(
+        program,
+        expected_version=2,
+        mapping=mapping,
+        graph={"work": [accepted_work]},
+        accepted_history={"accepted": [accepted_work]},
+        resume_frontier={"next": "block-2"},
+        source_ref="preserved-history",
+        author_execution_id=None,
+    )
+    assert store.one("SELECT status FROM program_revisions WHERE id=?", (preserved,))["status"] == (
+        "proposed"
+    )
+    assert store.one("SELECT requested_range_json FROM programs WHERE id=?", (program,))[
+        "requested_range_json"
+    ] == canonical_json({"kind": "full_program", "blocks": [0, 1, 2]})
 
 
 def test_program_revision_rejects_stale_review(

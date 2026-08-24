@@ -775,10 +775,65 @@ Test race/crash/stale/partial/failure scenarios and review range preservation.
 - Start baseline: clean pushed Block 2 acceptance successor
   `53c926aaf03c5cc88ce2420273661e13df39de82`; Blocks 0–2 accepted and Block 3
   is the sole dependency-eligible frontier.
-- Planned bounded correction: enforce durable mission scheduling policy in both
-  frontier planning and atomic reservation; preserve accepted program history;
-  make continuation capacity-aware; add deterministic race/restart/budget
-  fixtures without starting a live provider.
+- Implemented bounded scheduling policy: `SchedulingPolicy` derives positive
+  `max_parallel`, `max_dispatch_per_tick`, and `max_attempts_per_work` limits
+  from canonical `missions.resource_limits_json`, with bounded defaults of
+  4/4/3. Mission creation validates the known policy fields before persistence;
+  unrelated resource-limit fields remain owned by their later consumers.
+- Atomic and durable enforcement: continuation returns only the dependency-safe,
+  scope-compatible frontier that fits current capacity and per-work attempt
+  budget. The controller applies the tick limit and rechecks both parallel
+  capacity and attempt count inside its `BEGIN IMMEDIATE` reservation before
+  creating an execution, so concurrent direct dispatchers cannot oversubscribe.
+  Restart reconstructs the same policy and active capacity from durable state.
+- Continuation and range preservation: a capacity-full mission waits for active
+  work rather than advertising dispatch. Exhausted work is routed to diagnosis
+  or replanning without closing its obligation or repeating the same attempt.
+  Program proposals validate accepted-history shape and cannot omit any accepted
+  work recorded by their current parent revision; the program's requested range
+  remains canonical and unchanged.
+- Existing graph/runtime audit: the canonical work graph retains acyclic
+  dependency enforcement, acceptance-gated readiness, maximal nonconflicting
+  writable-scope selection, durable assignments, hierarchical leases,
+  generation fencing, heartbeats, expiry recovery, and stale-result rejection.
+  Block 3 adds no alternate scheduler, state store, or provider authority.
+- Focused evidence: `docs/sfv2-b3-focused-evidence.json`, SHA-256
+  `f29ad3531da2d9eb9810727b4cb6891a8bc858c3ac022ac6e671742a9d309fac`,
+  records the four-file command and `38 passed`, repository collection at `171
+  tests`, Ruff and 84-file format success, and mypy success across 57 source
+  files. No broad runtime suite was run.
+- Artifact proof: an ephemeral wheel for version `2.0.0.dev6`, SHA-256
+  `cb068434649deb9f2ccc01468482c0fee04fa2bd45096773e6cb46d9048c11ab`,
+  contains the scheduling, controller, continuation, and program modules. It is
+  local qualification evidence, not a release artifact.
+- Negative proofs: under `max_parallel=1`, two disjoint concurrent dispatchers
+  create exactly one active execution and one deterministic-provider request;
+  a restarted runtime waits at zero capacity and dispatches the next safe item
+  only after capacity releases; an expired final attempt remains an open
+  obligation and rejects another direct dispatch; a revision that drops prior
+  accepted history fails before persistence.
+- Product-capability review:
+  - Trigger: consequential Block posture.
+  - Capability added or preserved: the engine advances the maximum bounded safe
+    frontier, survives restart, and never treats capacity, retry exhaustion, or
+    a Block Stop as mission completion.
+  - Paths compared: tick-only advisory limits; a separate scheduler service;
+    durable policy with atomic reservation enforcement.
+  - Selected level and owner: durable policy interpreted by the canonical
+    continuation and controller services, with the database transaction as the
+    final concurrency fence.
+  - Protected-capability result: requested range and accepted history cannot
+    narrow, failed attempts leave obligations open, and stale lease/result
+    fencing remains authoritative.
+  - Rejected alternatives: advisory-only limits race, a scheduler service
+    duplicates state ownership, and provider-owned retry truth crosses the Block
+    3 Stop.
+  - Tradeoff and uncertainty: defaults intentionally bound local concurrency;
+    Block 4 supplies replaceable live providers while preserving these Factory
+    reservations and budgets.
+- Candidate posture: `candidate`; exact pushed-revision independent review is
+  required before Block 3 acceptance. No utils artifact is consumed and no live
+  agent/provider lifecycle is started in this Block.
 
 ### Stop
 

@@ -190,7 +190,12 @@ class ProgramService:
             source_ref=source_ref,
         )
         material = preview["material"]
-        accepted_ids = set(accepted_history.get("accepted", []))
+        accepted_values = accepted_history.get("accepted", [])
+        if not isinstance(accepted_values, list) or any(
+            not isinstance(value, str) or not value for value in accepted_values
+        ):
+            raise InvalidTransition("accepted history must contain nonempty work identifiers")
+        accepted_ids = set(accepted_values)
         if not accepted_ids.issubset(set(mapping)):
             raise InvalidTransition("accepted work must have explicit old-to-new mapping")
         with self.store.transaction() as db:
@@ -202,6 +207,20 @@ class ProgramService:
             )
             if program["current_revision_id"] != material["parent_revision_id"]:
                 raise InvalidTransition("program current revision changed during proposal")
+            prior_revision = db.execute(
+                "SELECT accepted_history_json FROM program_revisions WHERE id=?",
+                (material["parent_revision_id"],),
+            ).fetchone()
+            if prior_revision is None:
+                raise InvalidTransition("program parent revision is missing")
+            prior_history = json_load(prior_revision["accepted_history_json"], {})
+            prior_values = prior_history.get("accepted", [])
+            if not isinstance(prior_values, list) or any(
+                not isinstance(value, str) or not value for value in prior_values
+            ):
+                raise InvalidTransition("stored accepted history is invalid")
+            if not set(prior_values).issubset(accepted_ids):
+                raise InvalidTransition("program revision cannot omit accepted work history")
             db.execute(
                 """INSERT INTO program_revisions(
                     id,program_id,sequence,parent_id,source_ref,mapping_json,graph_json,

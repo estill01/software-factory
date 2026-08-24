@@ -35,6 +35,8 @@ def git(repo: Path, *args: str) -> str:
 def make_runtime(
     root: Path,
     provider: DeterministicProvider,
+    *,
+    resource_limits: dict[str, int] | None = None,
 ) -> tuple[Store, CoreService, str, str, str, str]:
     repository = root / "repo"
     repository.mkdir()
@@ -55,6 +57,7 @@ def make_runtime(
         project_id=project,
         title="Build capability",
         objective="Produce an independently verified capability",
+        resource_limits=resource_limits,
     )
     repository_id = core.register_repository(
         repository,
@@ -195,6 +198,139 @@ def test_concurrent_dispatchers_create_one_execution_and_one_live_workspace() ->
             )
             == 1
         )
+
+
+def test_parallel_limit_is_atomic_across_disjoint_concurrent_dispatchers() -> None:
+    provider = DeterministicProvider()
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, _, mission, repository_id, _ = make_runtime(
+            Path(directory), provider, resource_limits={"max_parallel": 1}
+        )
+        _, first = add_selected_work(
+            core, mission, repository_id, title="first", scope=["src/first"]
+        )
+        _, second = add_selected_work(
+            core, mission, repository_id, title="second", scope=["src/second"]
+        )
+        barrier = threading.Barrier(2)
+        results: list[dict[str, object]] = []
+        errors: list[Exception] = []
+
+        def run(work_id: str) -> None:
+            try:
+                barrier.wait(timeout=5)
+                results.append(core.dispatch_work(work_id))
+            except Exception as exc:  # the losing reservation must fail closed
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=run, args=(first,)),
+            threading.Thread(target=run, args=(second,)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        assert len(results) == 1
+        assert len(errors) == 1
+        assert isinstance(errors[0], InvalidTransition)
+        assert "parallel execution limit" in str(errors[0])
+        assert len(provider.requests) == 1
+        assert (
+            store.scalar(
+                """SELECT COUNT(*) FROM executions WHERE mission_id=?
+                   AND status IN ('queued','dispatching','leased','running','verifying')""",
+                (mission,),
+            )
+            == 1
+        )
+
+
+def test_resource_policy_bounds_tick_and_survives_runtime_restart() -> None:
+    provider = DeterministicProvider()
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, _, mission, repository_id, _ = make_runtime(
+            Path(directory),
+            provider,
+            resource_limits={
+                "max_parallel": 1,
+                "max_dispatch_per_tick": 2,
+                "max_attempts_per_work": 2,
+            },
+        )
+        _, first = add_selected_work(
+            core, mission, repository_id, title="first", scope=["src/first"], priority=2
+        )
+        _, second = add_selected_work(
+            core, mission, repository_id, title="second", scope=["src/second"], priority=1
+        )
+
+        tick = core.tick_mission(mission, max_dispatch=20)
+
+        assert [item["work_item_id"] for item in tick["dispatches"]] == [first]
+        assert tick["scheduling_policy"] == {
+            "max_parallel": 1,
+            "max_dispatch_per_tick": 2,
+            "max_attempts_per_work": 2,
+        }
+        assert tick["requested_dispatch_limit"] == 2
+        assert tick["posture"]["action"] == "wait_for_active_work"
+        assert tick["posture"]["capacity_remaining"] == 0
+
+        restarted = CoreService(
+            store,
+            providers=core.providers,
+            default_provider="deterministic",
+        )
+        after_restart = restarted.next_action(mission)
+        assert after_restart["action"] == "wait_for_active_work"
+        assert after_restart["scheduling_policy"]["max_parallel"] == 1
+
+        request = provider.requests[0]
+        restarted.accept_provider_callback(
+            request.execution_id,
+            token=request.callback_token,
+            generation=request.lease_generation,
+            succeeded=True,
+            result={"candidate": first},
+        )
+        resumed = restarted.tick_mission(mission)
+        assert [item["work_item_id"] for item in resumed["dispatches"]] == [second]
+        assert len(provider.requests) == 2
+
+
+def test_attempt_budget_stops_repeat_dispatch_and_leaves_obligation_open() -> None:
+    provider = DeterministicProvider()
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, _, mission, repository_id, _ = make_runtime(
+            Path(directory), provider, resource_limits={"max_attempts_per_work": 1}
+        )
+        obligation, work = add_selected_work(
+            core, mission, repository_id, title="bounded", scope=["src"]
+        )
+        dispatch = core.dispatch_work(work, lease_ttl_seconds=60)
+        expired = (dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)).isoformat()
+        with store.transaction() as db:
+            db.execute(
+                "UPDATE leases SET expires_at=? WHERE owner_execution_id=?",
+                (expired, dispatch["execution_id"]),
+            )
+        assert core.executions.recover_expired_leases(mission_id=mission) == [
+            dispatch["execution_id"]
+        ]
+
+        posture = core.next_action(mission)
+
+        assert posture["action"] == "diagnose_reflect_or_replan"
+        assert posture["budget_exhausted_work_item_ids"] == [work]
+        assert obligation in posture["obligation_ids"]
+        assert store.one("SELECT status FROM obligations WHERE id=?", (obligation,))["status"] == (
+            "in_progress"
+        )
+        with pytest.raises(InvalidTransition, match="attempt budget is exhausted"):
+            core.dispatch_work(work)
+        assert len(provider.requests) == 1
 
 
 def test_provider_callback_is_generation_fenced_single_use_and_atomic() -> None:

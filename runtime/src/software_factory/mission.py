@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import InvalidTransition, StoreError
+from .scheduling import SchedulingPolicy
 from .store import Store
 from .util import (
     canonical_json,
@@ -101,6 +102,7 @@ class MissionService:
         autonomy_mode: str = "full_autonomous",
         resource_limits: dict[str, Any] | None = None,
     ) -> str:
+        SchedulingPolicy.from_resource_limits(resource_limits)
         mission_id = new_id("mis")
         now = utc_now()
         with self.store.transaction() as db:

@@ -17,9 +17,13 @@ from .errors import (
 )
 from .execution import _leases_conflict, _resource_key
 from .providers import ProviderObservation, ProviderRegistry, ProviderRequest
+from .scheduling import (
+    SchedulingPolicy,
+    active_execution_count,
+    implementation_attempt_counts,
+)
 from .util import canonical_json, digest_json, json_load, new_id, parse_time, utc_now
 
-_ACTIVE_EXECUTIONS = {"queued", "dispatching", "leased", "running", "verifying"}
 _MUTATING_WORK_TYPES = {
     "implementation",
     "inline_correction",
@@ -204,10 +208,19 @@ class ControllerService:
                 raise StoreError("work item not found")
             work = dict(work_row)
             mission = db.execute(
-                "SELECT status FROM missions WHERE id=?", (work["mission_id"],)
+                "SELECT status,resource_limits_json FROM missions WHERE id=?",
+                (work["mission_id"],),
             ).fetchone()
             if mission is None or mission["status"] != "active":
                 raise InvalidTransition("work mission is not active")
+            policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
+            if active_execution_count(self.store, work["mission_id"], db=db) >= policy.max_parallel:
+                raise InvalidTransition("mission parallel execution limit is reached")
+            prior_attempts = implementation_attempt_counts(self.store, [work_id], db=db).get(
+                work_id, 0
+            )
+            if prior_attempts >= policy.max_attempts_per_work:
+                raise InvalidTransition("work implementation attempt budget is exhausted")
             if self.adaptive is not None:
                 self.adaptive.assert_strategy_allowed(work_id, db=db)
             if work["planning_status"] != "selected" or work["execution_status"] not in {
@@ -308,14 +321,7 @@ class ControllerService:
                     "input": input_payload,
                 }
             )
-            attempt_number = (
-                int(
-                    db.execute(
-                        "SELECT COUNT(*) FROM executions WHERE work_item_id=?", (work_id,)
-                    ).fetchone()[0]
-                )
-                + 1
-            )
+            attempt_number = prior_attempts + 1
             db.execute(
                 """INSERT INTO executions(
                     id,mission_id,obligation_id,work_item_id,agent_session_id,
@@ -534,7 +540,9 @@ class ControllerService:
         lease_ttl_seconds: int = 900,
     ) -> dict[str, Any]:
         work = self.store.one("SELECT * FROM work_items WHERE id=?", (work_id,))
-        mission = self.store.one("SELECT status FROM missions WHERE id=?", (work["mission_id"],))
+        mission = self.store.one(
+            "SELECT status,resource_limits_json FROM missions WHERE id=?", (work["mission_id"],)
+        )
         if mission["status"] != "active":
             raise InvalidTransition("work mission is not active")
         provider_key = str(work.get("provider_key") or self.default_provider or "")
@@ -542,6 +550,12 @@ class ControllerService:
             raise InvalidTransition("work has no provider and no default provider is configured")
         provider = self.providers.get(provider_key)
         self.executions.recover_expired_leases()
+        policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
+        if active_execution_count(self.store, work["mission_id"]) >= policy.max_parallel:
+            raise InvalidTransition("mission parallel execution limit is reached")
+        prior_attempts = implementation_attempt_counts(self.store, [work_id]).get(work_id, 0)
+        if prior_attempts >= policy.max_attempts_per_work:
+            raise InvalidTransition("work implementation attempt budget is exhausted")
         repository_id = self._resolve_repository(work)
         work = self.store.one("SELECT * FROM work_items WHERE id=?", (work_id,))
         workspace_id = self._ensure_workspace(work, repository_id)
@@ -937,6 +951,11 @@ class ControllerService:
         supervision_updates = (
             self.supervision.run_due_checks(mission_id) if self.supervision is not None else []
         )
+        mission = self.store.one(
+            "SELECT resource_limits_json FROM missions WHERE id=?", (mission_id,)
+        )
+        policy = SchedulingPolicy.from_resource_limits(mission["resource_limits_json"])
+        requested_limit = policy.tick_limit(max_dispatch)
         posture = self.continuation.next_action(mission_id)
         generated_problem_solving: list[str] = []
         if posture["action"] == "diagnose_reflect_or_replan" and self.adaptive is not None:
@@ -945,14 +964,14 @@ class ControllerService:
         dispatches: list[dict[str, Any]] = []
         blocked: list[dict[str, Any]] = []
         if posture["action"] == "dispatch_ready_work":
-            ready = self.work_items.ready_work(mission_id, limit=max_dispatch)
-            for work in ready:
+            ready_ids = posture["work_item_ids"][:requested_limit]
+            for work_id in ready_ids:
                 try:
-                    dispatches.append(self.dispatch_work(work["id"], auto_spawn=auto_spawn))
+                    dispatches.append(self.dispatch_work(work_id, auto_spawn=auto_spawn))
                 except (InvalidTransition, KeyError, LeaseConflict, ProviderError) as exc:
                     blocked.append(
                         {
-                            "work_item_id": work["id"],
+                            "work_item_id": work_id,
                             "error_type": type(exc).__name__,
                             "message": str(exc),
                         }
@@ -980,6 +999,8 @@ class ControllerService:
             "adaptive_updates": adaptive_updates,
             "supervision_updates": supervision_updates,
             "generated_problem_solving_work": generated_problem_solving,
+            "scheduling_policy": policy.as_dict(),
+            "requested_dispatch_limit": requested_limit,
             "initial_posture": posture,
             "dispatches": dispatches,
             "dispatch_blockers": blocked,
