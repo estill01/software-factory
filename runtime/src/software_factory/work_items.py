@@ -320,6 +320,113 @@ class WorkItemService:
             )
         return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
 
+    def promote_acceptance(
+        self,
+        work_item_id: str,
+        *,
+        stage: str,
+        exact_revision: str,
+        evidence_ids: list[str],
+    ) -> dict[str, Any]:
+        """Project a staged acceptance decision through the canonical work owner."""
+
+        transitions = {
+            "candidate": ({"pending", "regressed"}, "candidate_accepted"),
+            "integrated": ({"candidate_accepted"}, "integrated_accepted"),
+            "installed": ({"integrated_accepted"}, "installed_accepted"),
+        }
+        if stage not in transitions:
+            raise ValueError(f"unsupported work acceptance stage: {stage}")
+        allowed, target = transitions[stage]
+        with self.store.transaction() as db:
+            work = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
+            if work is None:
+                raise StoreError("work item not found")
+            if work["acceptance_status"] == target:
+                return dict(work)
+            if work["acceptance_status"] not in allowed:
+                raise InvalidTransition(
+                    f"work acceptance {work['acceptance_status']} cannot promote to {stage}"
+                )
+            if stage == "candidate" and work["candidate_revision"] != exact_revision:
+                raise InvalidTransition(
+                    "candidate acceptance revision is not the submitted revision"
+                )
+            if stage in {"integrated", "installed"}:
+                integrated = work["integrated_revision"]
+                if integrated is not None and integrated != exact_revision:
+                    raise InvalidTransition("integrated acceptance revision changed")
+            self.store.require_evidence(
+                db,
+                evidence_ids,
+                mission_id=work["mission_id"],
+                revision=exact_revision,
+            )
+            prior_version = int(work["state_version"])
+            new_version = prior_version + 1
+            integrated_revision = (
+                exact_revision
+                if stage in {"integrated", "installed"}
+                else work["integrated_revision"]
+            )
+            db.execute(
+                """UPDATE work_items SET acceptance_status=?,qa_status='passed',
+                   integrated_revision=?,state_version=?,updated_at=? WHERE id=?""",
+                (
+                    target,
+                    integrated_revision,
+                    new_version,
+                    utc_now(),
+                    work_item_id,
+                ),
+            )
+            self.store.append_event(
+                db,
+                mission_id=work["mission_id"],
+                stream_key="work",
+                event_type=f"work.{stage}_accepted",
+                subject_type="work_item",
+                subject_id=work_item_id,
+                prior_version=prior_version,
+                new_version=new_version,
+                payload={"exact_revision": exact_revision, "evidence_ids": evidence_ids},
+            )
+        return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+
+    def reopen_acceptance(
+        self,
+        work_item_id: str,
+        *,
+        reason: str,
+        evidence_ids: list[str],
+    ) -> dict[str, Any]:
+        """Reopen only the affected work owner when actual outcome disagrees."""
+
+        with self.store.transaction() as db:
+            work = db.execute("SELECT * FROM work_items WHERE id=?", (work_item_id,)).fetchone()
+            if work is None:
+                raise StoreError("work item not found")
+            self.store.require_evidence(db, evidence_ids, mission_id=work["mission_id"])
+            prior_version = int(work["state_version"])
+            new_version = prior_version + 1
+            db.execute(
+                """UPDATE work_items SET acceptance_status='regressed',qa_status='stale',
+                   state_version=?,updated_at=? WHERE id=?""",
+                (new_version, utc_now(), work_item_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=work["mission_id"],
+                stream_key="work",
+                event_type="work.acceptance_reopened",
+                subject_type="work_item",
+                subject_id=work_item_id,
+                prior_version=prior_version,
+                new_version=new_version,
+                payload={"reason": reason, "evidence_ids": evidence_ids},
+            )
+        return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+
     @staticmethod
     def _dependency_satisfied(dep: dict[str, Any]) -> bool:
         condition = json_load(dep["condition_json"], {})

@@ -589,7 +589,7 @@ def test_expired_lease_recovery_is_mission_scoped(
     assert core.next_action(other)["action"] == "recover_expired_work"
 
 
-def test_terminal_completion_requires_current_evidence_and_verifier(
+def test_terminal_provider_proof_requires_staged_actual_outcome_acceptance(
     runtime: tuple[Store, CoreService, str, str],
 ) -> None:
     store, core, _, mission = runtime
@@ -650,14 +650,14 @@ def test_terminal_completion_requires_current_evidence_and_verifier(
         producer_session_id=reviewer,
         payload={"passed": True},
     )
-    assert core.next_action(mission)["action"] == "complete_mission"
-    result = core.complete_mission(
-        mission,
-        expected_version=1,
-        terminal_evidence_id=terminal_evidence,
-        verifier_session_id=reviewer,
-    )
-    assert result["status"] == "completed"
+    assert core.next_action(mission)["action"] == "reconcile_terminal_acceptance"
+    with pytest.raises(InvalidTransition, match="accepted terminal-stage"):
+        core.complete_mission(
+            mission,
+            expected_version=1,
+            terminal_evidence_id=terminal_evidence,
+            verifier_session_id=reviewer,
+        )
 
 
 def test_false_terminal_completion_is_rejected(

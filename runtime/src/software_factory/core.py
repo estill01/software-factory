@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .acceptance import AcceptanceService
+from .acceptance_lifecycle import AcceptanceLifecycleService
 from .adaptive import AdaptiveExecutionService
 from .advanced import AdvancedServices
 from .agents import AgentService
@@ -106,6 +107,13 @@ class CoreService:
             supervision=self.supervision,
         )
         self.supervision.bind_adaptive(self.adaptive)
+        self.acceptance_lifecycle = AcceptanceLifecycleService(
+            store,
+            governance=self.governance,
+            work_items=self.work_items,
+            capabilities=self.capabilities,
+            supervision=self.supervision,
+        )
         self.controller = ControllerService(
             store,
             work_items=self.work_items,
@@ -154,6 +162,7 @@ class CoreService:
             self.agents,
             self._executions,
             self.qa,
+            self.acceptance_lifecycle,
             self.continuation,
             self.supervision,
             self.adaptive,

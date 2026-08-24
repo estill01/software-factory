@@ -8,7 +8,7 @@ from .scheduling import (
     active_execution_count,
     budget_exhausted_work_item_ids,
 )
-from .util import canonical_json, utc_now
+from .util import canonical_json, json_load, utc_now
 
 
 class ContinuationService:
@@ -134,14 +134,32 @@ class ContinuationService:
         )
         reserved = [row for row in open_obligations if row["status"] == "blocked_reserved"]
         nonreserved = [row for row in open_obligations if row["status"] != "blocked_reserved"]
+        unfinished_selected_work = self.store.all(
+            """SELECT id FROM work_items
+               WHERE mission_id=? AND planning_status='selected'
+                 AND execution_status<>'cancelled'
+                 AND acceptance_status<>'installed_accepted'
+               ORDER BY priority DESC,created_at,id""",
+            (mission_id,),
+        )
 
-        if required_gaps or nonreserved:
+        if required_gaps or nonreserved or unfinished_selected_work:
             if nonreserved:
                 return {
                     "posture": "problem_solving",
                     "action": "diagnose_reflect_or_replan",
                     "obligation_ids": [row["id"] for row in nonreserved],
                     "capability_ids": [row["id"] for row in required_gaps],
+                    "work_item_ids": [row["id"] for row in unfinished_selected_work],
+                    "budget_exhausted_work_item_ids": exhausted_ids,
+                }
+            if unfinished_selected_work:
+                return {
+                    "posture": "problem_solving",
+                    "action": "diagnose_reflect_or_replan",
+                    "obligation_ids": [],
+                    "capability_ids": [row["id"] for row in required_gaps],
+                    "work_item_ids": [row["id"] for row in unfinished_selected_work],
                     "budget_exhausted_work_item_ids": exhausted_ids,
                 }
             return {
@@ -170,10 +188,29 @@ class ContinuationService:
                 "posture": "terminal_verification",
                 "action": "run_terminal_verification",
             }
+        terminal_stage = self.store.one(
+            """SELECT s.id,s.target_revision,s.remaining_scope_json,
+                      r.id AS outcome_reconciliation_id
+               FROM acceptance_stage_records_v2 s
+               JOIN outcome_reconciliations_v2 r ON r.stage_record_id=s.id
+               WHERE s.mission_id=? AND s.stage='terminal' AND s.status='accepted'
+                 AND r.disposition='aligned'
+               ORDER BY s.updated_at DESC,r.created_at DESC LIMIT 1""",
+            (mission_id,),
+            required=False,
+        )
+        if terminal_stage is None or json_load(terminal_stage["remaining_scope_json"], []):
+            return {
+                "posture": "terminal_verification",
+                "action": "reconcile_terminal_acceptance",
+                "terminal_execution_id": terminal["id"],
+            }
         return {
             "posture": "terminal_verification",
             "action": "complete_mission",
             "terminal_execution_id": terminal["id"],
+            "terminal_stage_id": terminal_stage["id"],
+            "outcome_reconciliation_id": terminal_stage["outcome_reconciliation_id"],
         }
 
     def complete_mission(
@@ -201,6 +238,13 @@ class ContinuationService:
                    )""",
                 (mission_id,),
             ).fetchone()["n"]
+            unfinished_selected_work = db.execute(
+                """SELECT COUNT(*) AS n FROM work_items
+                   WHERE mission_id=? AND planning_status='selected'
+                     AND execution_status<>'cancelled'
+                     AND acceptance_status<>'installed_accepted'""",
+                (mission_id,),
+            ).fetchone()["n"]
             terminal = db.execute(
                 """SELECT * FROM executions WHERE mission_id=?
                    AND execution_type='terminal_verification'
@@ -221,18 +265,37 @@ class ContinuationService:
                 raise EvidenceInvalid(
                     "terminal verification was not produced by the declared verifier"
                 )
-            self.store.require_evidence(
+            evidence = self.store.require_evidence(
                 db,
                 [terminal_evidence_id],
                 mission_id=mission_id,
                 subject_type="mission",
                 subject_id=mission_id,
                 evidence_types={"terminal_probe", "installed_probe"},
-            )
-            if gaps or open_obligations:
+            )[0]
+            if gaps or open_obligations or unfinished_selected_work:
                 raise InvalidTransition(
-                    "mission cannot complete with capability gaps or open obligations"
+                    "mission cannot complete with capability gaps, open obligations, "
+                    "or unfinished selected work"
                 )
+            terminal_stage = db.execute(
+                """SELECT s.*,r.id AS outcome_reconciliation_id,
+                          r.exact_revision AS outcome_revision
+                   FROM acceptance_stage_records_v2 s
+                   JOIN outcome_reconciliations_v2 r ON r.stage_record_id=s.id
+                   WHERE s.mission_id=? AND s.stage='terminal' AND s.status='accepted'
+                     AND r.disposition='aligned'
+                   ORDER BY s.updated_at DESC,r.created_at DESC LIMIT 1""",
+                (mission_id,),
+            ).fetchone()
+            if terminal_stage is None:
+                raise InvalidTransition(
+                    "mission completion requires accepted terminal-stage outcome reconciliation"
+                )
+            if json_load(terminal_stage["remaining_scope_json"], []):
+                raise InvalidTransition("mission cannot complete with remaining requested range")
+            if evidence["revision"] != terminal_stage["target_revision"]:
+                raise EvidenceInvalid("terminal evidence revision differs from accepted outcome")
             new_version = expected_version + 1
             now = utc_now()
             db.execute(
@@ -254,6 +317,8 @@ class ContinuationService:
                 payload={
                     "terminal_evidence_id": terminal_evidence_id,
                     "terminal_execution_id": terminal["id"],
+                    "terminal_stage_id": terminal_stage["id"],
+                    "outcome_reconciliation_id": terminal_stage["outcome_reconciliation_id"],
                 },
             )
         return self.store.one("SELECT * FROM missions WHERE id=?", (mission_id,))

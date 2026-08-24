@@ -9,6 +9,7 @@ from .util import canonical_json, digest_json, json_load, new_id, parse_time, ut
 
 _TARGET_TABLES = {
     "mission": ("missions", "id"),
+    "capability": ("capabilities", "id"),
     "program": ("programs", "id"),
     "work_item": ("work_items", "id"),
     "execution": ("executions", "id"),

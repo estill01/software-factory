@@ -106,6 +106,11 @@ LIFECYCLE_OWNERS = (
         ),
     ),
     LifecycleOwner(
+        "acceptance_lifecycle",
+        "acceptance_lifecycle",
+        ("acceptance_stage_records_v2", "outcome_reconciliations_v2"),
+    ),
+    LifecycleOwner(
         "supervision",
         "supervision",
         ("supervision_assignments", "supervision_checks", "incidents"),

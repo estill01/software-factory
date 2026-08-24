@@ -50,6 +50,7 @@ database transaction.
 | Artifacts | `ArtifactService` | artifact records | none |
 | Acceptance evidence | `AcceptanceService` | exact-revision acceptance runs and case results | none |
 | Acceptance governance | `GovernanceService` | acceptance contracts, probes, independent reviews, decisions, effect intents, report links, and role grants | none |
+| Acceptance lifecycle and outcomes | `AcceptanceLifecycleService` | candidate/integrated/installed/terminal stage projections and actual-outcome reconciliations | work, capability, supervision, and continuation owners receive bounded routed transitions through their public services |
 | Supervision | `SupervisionService` | assignments, checks, incidents | none |
 | Delivery/operator effects | `ReportingService` | schedules, notifications, attempts, operator tokens and decisions | none |
 | Reports | `ReportingService` | reports | governance delivery disposition |
@@ -87,7 +88,7 @@ an applied decision is idempotent.
 ## Migration lineage
 
 The active lineage is exactly `0001_core.sql` through
-`0021_engine_host_contract.sql`, with one file per contiguous version. Every SQL
+`0022_acceptance_lifecycle.sql`, with one file per contiguous version. Every SQL
 migration file must be present in `MIGRATIONS`, and every catalog entry must
 have one matching file. Applied name or checksum drift, version gaps, unknown
 applied versions, duplicate files, or inert SQL files fail initialization.

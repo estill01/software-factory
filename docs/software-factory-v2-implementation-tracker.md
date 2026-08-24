@@ -1335,6 +1335,55 @@ capabilities rather than trust the producer's summary.
   semantic reviewer separation; do not create a per-action critic, begin
   libRSI cutover, consume Block 9 utils artifacts, or run the broad runtime
   suite.
+- Implemented one `AcceptanceLifecycleService` projection over the existing
+  authorities. `GovernanceService` remains the only contract/review/decision
+  owner; `WorkItemService`, `CapabilityService`, `SupervisionService`, and
+  `ContinuationService` receive bounded public transitions rather than a
+  second writer. Migration `0022_acceptance_lifecycle.sql` records exact
+  candidate/integrated/installed/terminal stages and actual-outcome
+  reconciliations; schema version is 22 and the exhaustive ownership registry
+  covers both new tables.
+- Currentness and economy: every stage binds exact revision, exact currentness
+  root, implementer, governed contract/decision, expected operator/protected
+  outcome, remaining range, and exact accepted predecessor. A revision or
+  currentness change stales the entire downstream stage chain and governance
+  records. Identical observations deduplicate by content root; accepted proof
+  is not replayed across stages. Contract SHA-256:
+  `471b2e3725e968f5e04ca726b418893e269b7c4cacdb9214750a20cda3233bcb`.
+- QA and supervision: mechanical probes require current exact-revision
+  evidence but cannot represent or satisfy semantic review. Exact role grant,
+  provider identity, distinct reviewer, and governance decision remain
+  required. A green process record with a disagreeing actual outcome regresses
+  only the named work/capability owner, opens one correction obligation and
+  deduplicated incident, and remains blocked until later aligned observation,
+  obligation resolution, and independent effectiveness review.
+- Terminal reducer: provider-reported terminal execution now yields
+  `reconcile_terminal_acceptance`. Mission completion additionally requires an
+  accepted terminal stage, aligned actual outcome, empty requested range, no
+  required capability gap, no open obligation, no selected uncancelled work
+  below installed acceptance, and terminal evidence at the accepted exact
+  revision from the declared independent verifier.
+- Focused proof: `56 passed` across acceptance lifecycle, governance,
+  supervision, operational boundaries, composition, advanced integration, and
+  core; one pre-existing `TestStore` collection warning. Negative fixtures
+  cover mechanical/semantic substitution, same-author/stale review, changed
+  currentness, process-pass/outcome-wrong, protected-capability regression,
+  unresolved remediation, provider completion as QA, remaining-range terminal
+  return, and the accepted exact terminal chain. Ruff/format are clean across
+  all runtime source/tests, mypy is clean across 63 source files, compile is
+  clean, and full runtime collection is 191 tests with legacy warnings only.
+  Full tracker verification is 0/0. No broad runtime suite was run.
+- Isolated package build succeeded. Wheel SHA-256:
+  `b560e8a2df77768be674c7fa87c32232447560132ff558fc4d87118e67609b36`;
+  sdist SHA-256:
+  `7d50b8043b569c6a4cd89e86142629dba87dbe4dc45bb334ca70249f8d9defaa`.
+  Focused evidence JSON SHA-256:
+  `3b336e5115e797f0b20d10d0449132af65fca28089a3eb4d38ddf96888bb7605`.
+- Candidate posture: implementation and focused proof are complete; Block 6
+  remains `in-progress` pending one clean exact candidate checkpoint and
+  distinct independent review. No production target was used. libRSI cutover,
+  utils artifact consumption, delivery, service boundary, cutover, and
+  terminal program qualification remain outside this candidate.
 
 ### Stop
 

@@ -141,6 +141,55 @@ class CapabilityService:
             )
         return self.store.one("SELECT * FROM capabilities WHERE id=?", (capability_id,))
 
+    def reopen_capability(
+        self,
+        capability_id: str,
+        *,
+        evidence_id: str,
+        exact_revision: str,
+        reason: str,
+        actor_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Regress only the capability whose accepted actual outcome was disproved."""
+
+        with self.store.transaction() as db:
+            capability = db.execute(
+                "SELECT * FROM capabilities WHERE id=?", (capability_id,)
+            ).fetchone()
+            if capability is None:
+                raise InvalidTransition("capability does not exist")
+            if capability["status"] == "regressed":
+                return dict(capability)
+            self.store.require_evidence(
+                db,
+                [evidence_id],
+                mission_id=capability["mission_id"],
+                subject_type="capability",
+                subject_id=capability_id,
+                revision=exact_revision,
+            )
+            prior_version = int(capability["state_version"])
+            new_version = prior_version + 1
+            db.execute(
+                """UPDATE capabilities SET status='regressed',current_evidence_id=?,
+                   state_version=?,updated_at=? WHERE id=?""",
+                (evidence_id, new_version, utc_now(), capability_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=capability["mission_id"],
+                stream_key="capability",
+                event_type="capability.outcome_regressed",
+                subject_type="capability",
+                subject_id=capability_id,
+                source_type="actor",
+                source_id=actor_id,
+                prior_version=prior_version,
+                new_version=new_version,
+                payload={"reason": reason, "evidence_id": evidence_id},
+            )
+        return self.store.one("SELECT * FROM capabilities WHERE id=?", (capability_id,))
+
     def add_obligation(
         self,
         *,

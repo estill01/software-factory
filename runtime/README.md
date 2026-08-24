@@ -41,6 +41,23 @@ that the mission runtime is genuinely general.
   persistence adapter and explicitly bound to operational records; they are not a
   second operational ledger.
 
+## Staged acceptance and outcome closure
+
+Candidate, integrated, installed, and terminal acceptance are separate exact-revision
+stages. Mechanical probes remain evidence inputs; they cannot satisfy the governed
+independent semantic review. A stage is promotable only after the governance owner has
+accepted its probes and review and a different independent session has reconstructed
+the operator-visible and protected-capability outcome at the same currentness root.
+
+If the process record is green but the observed outcome disagrees, the runtime records
+the mismatch, reopens only the named work/capability/mission owner, and routes an
+incident plus a correction obligation. Repeated identical observations deduplicate by
+content root. Terminal reduction additionally requires an empty requested range, no
+required capability gaps, no open obligations, and current terminal evidence at the
+accepted revision. A provider-reported completion is therefore not QA or terminal
+acceptance by itself. Selected, uncancelled work below installed acceptance is also
+remaining work and blocks terminal reduction even if no execution is active.
+
 ## Current implementation state
 
 The branch contains substantial native implementation covering mission, capability,

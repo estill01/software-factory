@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from software_factory import CoreService, Store
+from software_factory.acceptance_lifecycle import AcceptanceLifecycleService
 from software_factory.agents import AgentService
 from software_factory.continuation import ContinuationService
 from software_factory.execution import ExecutionService
@@ -31,6 +32,7 @@ def test_core_uses_explicit_composition_not_service_mro() -> None:
         assert not hasattr(core, "workspaces")
         assert isinstance(core.qa, QAService)
         assert isinstance(core.continuation, ContinuationService)
+        assert isinstance(core.acceptance_lifecycle, AcceptanceLifecycleService)
         assert core.qa.workspaces is core._software_profile
         assert core.qa.executions is core._executions
         assert core.continuation.work_items is core.work_items

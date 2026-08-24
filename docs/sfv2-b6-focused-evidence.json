@@ -1,0 +1,70 @@
+{
+  "block": "SFV2/B6",
+  "baseline_revision": "2989e8a",
+  "scope": {
+    "included": [
+      "revision/currentness-bound candidate, integrated, installed, and terminal acceptance stages",
+      "mechanical probe versus governed independent semantic review separation",
+      "operator-visible and protected-capability actual-outcome reconciliation",
+      "narrow owner reopening, incident routing, correction obligation, and effectiveness gate",
+      "terminal reducer requiring empty range, installed selected work, capabilities, obligations, exact evidence, and aligned outcome",
+      "schema version 22 and explicit operational ownership"
+    ],
+    "excluded": [
+      "libRSI semantic cutover",
+      "utils artifact consumption",
+      "per-action critic or universal quality score",
+      "broad runtime pytest execution before SFV2/B12"
+    ]
+  },
+  "focused_runtime": {
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with pytest pytest -q runtime/tests/test_acceptance_lifecycle.py runtime/tests/test_governance.py runtime/tests/test_supervision.py runtime/tests/test_operational_boundaries.py runtime/tests/test_composition.py runtime/tests/test_advanced_integration.py runtime/tests/test_core.py",
+    "result": "56 passed, 1 pre-existing TestStore collection warning",
+    "negative_cases": [
+      "mechanical probes cannot satisfy semantic review",
+      "same-author and stale-currentness reviews fail closed",
+      "changed currentness invalidates the stage chain",
+      "green process plus wrong actual outcome reopens only the named work owner",
+      "protected-capability disagreement regresses that capability and routes its incident",
+      "aligned evidence cannot erase an unresolved incident or obligation",
+      "provider terminal execution alone cannot complete a mission",
+      "terminal stage with remaining requested range cannot promote",
+      "full exact stage chain plus aligned actual outcome permits terminal completion"
+    ]
+  },
+  "static_and_collection": [
+    {
+      "command": "uv run --no-project --with ruff ruff format --check runtime/src/software_factory runtime/tests",
+      "result": "93 files already formatted"
+    },
+    {
+      "command": "uv run --no-project --with ruff ruff check runtime/src/software_factory runtime/tests",
+      "result": "clean"
+    },
+    {
+      "command": "PYTHONPATH=runtime/src uv run --no-project --with mypy mypy runtime/src/software_factory",
+      "result": "63 source files clean"
+    },
+    {
+      "command": "PYTHONPATH=runtime/src uv run --no-project --with pytest pytest --collect-only -q runtime/tests",
+      "result": "191 tests collected with legacy collection warnings only"
+    },
+    {
+      "command": "python3 -m compileall -q runtime/src/software_factory runtime/tests/test_acceptance_lifecycle.py",
+      "result": "clean"
+    },
+    {
+      "command": "python3 author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "result": "0 errors, 0 warnings"
+    }
+  ],
+  "build": {
+    "command": "uv run --no-project --with build python -m build --outdir <isolated-temp> runtime",
+    "wheel_sha256": "b560e8a2df77768be674c7fa87c32232447560132ff558fc4d87118e67609b36",
+    "sdist_sha256": "7d50b8043b569c6a4cd89e86142629dba87dbe4dc45bb334ca70249f8d9defaa"
+  },
+  "contract_sha256": "471b2e3725e968f5e04ca726b418893e269b7c4cacdb9214750a20cda3233bcb",
+  "lifecycle_source_sha256": "b2f63dfc002b42bca83a03657f43c898c61801f275bb619cd4b844802485de16",
+  "migration_sha256": "6af4638a9417ad6b0f25794f69597652ce5d52229fa2c0114e7ed2ef74b64016",
+  "broad_suite_posture": "deferred to the tracker-mandated SFV2/B12 terminal qualification"
+}
