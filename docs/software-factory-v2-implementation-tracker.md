@@ -233,7 +233,7 @@ for this tracker may inspect Patent Studio patent content.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
-| 1 | Operational authority and persistence boundaries | 0 | `in-progress` |
+| 1 | Operational authority and persistence boundaries | 0 | `accepted` |
 | 2 | One embedded/standalone engine contract | 1 | `not-started` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
@@ -393,7 +393,7 @@ Stop before changing operational authority or persistence.
 
 ## Block 1 — Establish operational authority and persistence boundaries
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -452,15 +452,19 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
 
 ### Completion evidence
 
-- Acceptance posture: `candidate`; the first exact-revision review returned
-  `REVISE`, and its preserved candidates remain unaccepted. The bounded P1/P2
-  correction is pending a fresh exact-revision review, so Block 1 remains
-  `in-progress`.
+- Acceptance posture: `accepted`. The first exact-revision review returned
+  `REVISE`; its preserved candidates remain unaccepted. The bounded P1/P2
+  correction was independently accepted at its exact pushed revision.
 - Preserved reviewed history: implementation commit
   `79adac40ffb5650ed46fe78f73d091109b7602e4`, tree
   `0f82f5b0ed23b2e9390505cc755660d54e60df37`, and evidence candidate
   `e9bb020848c1d34ba6ed805487512dbf87404467` are pushed and retained
   unchanged. They are rejected evidence, not accepted checkpoints.
+- Accepted correction checkpoint: branch
+  `agent/software-factory-v2-native-refactor`, commit
+  `2172dc4b112ad836bff0a292f63adb74cf61d3c0`, tree
+  `99e78ef5c1050739a0e7776f6da700a930288671`, pushed with a clean worktree
+  and zero local/remote divergence.
 - Migration and persistence boundary:
   `software_factory.database.Database` is the one implementation;
   `DatabaseStore` and `Store` are exact compatibility aliases. The active
@@ -538,15 +542,15 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
     cutover, delivery qualification, and legacy retirement.
 - Independent review: the preserved `e9bb020848c1d34ba6ed805487512dbf87404467`
   review returned two P1 findings (incomplete owner registry and non-atomic
-  operator effects) plus one P2 evidence-record finding. The bounded correction
-  addresses those findings and now requires a fresh exact-revision review;
-  process success and focused green results are not acceptance.
-- Retained open work: commit and push the bounded correction, route that exact
-  revision for independent review, and resolve any resulting P0–P2 finding
-  only. Blocks 2–12 remain outside this candidate.
-- Decision/continuation posture: hold Block 1 `in-progress` until the exact
-  candidate is independently accepted; then record acceptance and continue
-  automatically to Block 2 without narrowing the full bound range.
+  operator effects) plus one P2 evidence-record finding. The existing
+  independent reviewer `/root/sfv2_b0_exact_review` then reviewed exact
+  correction `2172dc4b112ad836bff0a292f63adb74cf61d3c0`, independently
+  reconciled `89 written = 89 owned`, reproduced `83 passed`, Ruff, formatting,
+  and mypy, and returned `ACCEPT` with no P0, P1, or P2 findings.
+- Retained open work: none in Block 1. Blocks 2–12 remain unaccepted and inside
+  the current full requested range.
+- Decision/continuation posture: advance automatically to dependency-eligible
+  Block 2 without narrowing the full bound range.
 
 ### Stop
 
