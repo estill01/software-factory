@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import threading
 import urllib.request
 from pathlib import Path
 
@@ -9,9 +10,12 @@ import pytest
 
 from software_factory.api import APIServer, FactoryAPI
 from software_factory.bootstrap import open_runtime
-from software_factory.engine import MAX_EVENT_PAGE, MissionSubmission
-from software_factory.errors import StoreError
+from software_factory.core import CoreService
+from software_factory.database import Database
+from software_factory.engine import MAX_EVENT_PAGE, FactoryEngine, MissionSubmission
+from software_factory.errors import InvalidTransition, StoreError
 from software_factory.hosts import EmbeddedFactoryHost, StandaloneFactoryService
+from software_factory.providers import DeterministicProvider, ProviderRegistry
 
 
 def submission(*, objective: str = "Produce one verified capability") -> MissionSubmission:
@@ -21,6 +25,39 @@ def submission(*, objective: str = "Produce one verified capability") -> Mission
         objective=objective,
         resource_limits={"max_parallel": 2},
     )
+
+
+def dispatch_fixture(
+    path: Path,
+) -> tuple[Database, CoreService, FactoryEngine, DeterministicProvider, str]:
+    store = Database(path)
+    provider = DeterministicProvider()
+    providers = ProviderRegistry()
+    providers.register("deterministic", provider)
+    core = CoreService(store, providers=providers, default_provider="deterministic")
+    engine = FactoryEngine(store, core)
+    mission = engine.start(
+        MissionSubmission(
+            idempotency_key=f"dispatch-{path.stem}",
+            title="Dispatch race",
+            objective="Prove cancellation fencing",
+        )
+    ).mission_id
+    obligation = core.add_obligation(
+        mission_id=mission,
+        obligation_type="analysis",
+        description="Run one bounded analysis",
+    )
+    work = core.create_work_item(
+        mission_id=mission,
+        obligation_id=obligation,
+        work_type="analysis",
+        title="Analyze",
+        description="Analyze without a workspace",
+        provider_key="deterministic",
+    )
+    core.select_work(work, expected_version=1, selected_by="test", basis={"bounded": True})
+    return store, core, engine, provider, work
 
 
 def test_embedded_and_service_hosts_share_identity_state_events_and_outcome(
@@ -147,3 +184,70 @@ def test_loopback_service_api_exposes_the_same_engine_contract(tmp_path: Path) -
         assert wire_status == service.invoke("status", {"mission_id": started["mission_id"]})
     finally:
         server.close()
+
+
+def test_cancellation_atomically_fences_dispatch_race_and_restart(tmp_path: Path) -> None:
+    store, core, engine, provider, work = dispatch_fixture(tmp_path / "cancel.sqlite3")
+    mission_id = store.one("SELECT mission_id FROM work_items WHERE id=?", (work,))["mission_id"]
+    engine.cancel(mission_id, reason="cancel before dispatch")
+    with pytest.raises(InvalidTransition, match="mission is not active"):
+        core.dispatch_work(work)
+    assert provider.requests == []
+    assert (
+        store.scalar("SELECT COUNT(*) FROM agent_sessions WHERE mission_id=?", (mission_id,)) == 0
+    )
+
+    restarted_store = Database(tmp_path / "cancel.sqlite3")
+    restarted_provider = DeterministicProvider()
+    restarted_registry = ProviderRegistry()
+    restarted_registry.register("deterministic", restarted_provider)
+    restarted_core = CoreService(
+        restarted_store,
+        providers=restarted_registry,
+        default_provider="deterministic",
+    )
+    with pytest.raises(InvalidTransition, match="mission is not active"):
+        restarted_core.dispatch_work(work)
+    assert restarted_provider.requests == []
+
+    race_store, race_core, race_engine, race_provider, race_work = dispatch_fixture(
+        tmp_path / "race.sqlite3"
+    )
+    race_mission = race_store.one("SELECT mission_id FROM work_items WHERE id=?", (race_work,))[
+        "mission_id"
+    ]
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def cancel() -> None:
+        barrier.wait(timeout=5)
+        try:
+            race_engine.cancel(race_mission, reason="racing cancellation")
+        except InvalidTransition:
+            outcomes.append("cancel_rejected")
+        else:
+            outcomes.append("cancelled")
+
+    def dispatch() -> None:
+        barrier.wait(timeout=5)
+        try:
+            race_core.dispatch_work(race_work)
+        except InvalidTransition:
+            outcomes.append("dispatch_rejected")
+        else:
+            outcomes.append("dispatched")
+
+    threads = [threading.Thread(target=cancel), threading.Thread(target=dispatch)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert not any(thread.is_alive() for thread in threads)
+    assert set(outcomes) in (
+        {"cancelled", "dispatch_rejected"},
+        {"dispatched", "cancel_rejected"},
+    )
+    final_status = race_store.one("SELECT status FROM missions WHERE id=?", (race_mission,))[
+        "status"
+    ]
+    assert not (final_status == "cancelled_by_authority" and race_provider.requests)

@@ -27,12 +27,12 @@ def test_core_exposes_advanced_services_without_multiple_inheritance(tmp_path: P
     assert core.migration.store is database
 
 
-def test_installed_entrypoints_target_native_v2_owners() -> None:
+def test_block2_entrypoints_preserve_effect_boundaries_and_add_service_host() -> None:
     pyproject = tomllib.loads(
         (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     )
     scripts = pyproject["project"]["scripts"]
-    assert scripts["software-factory"] == "software_factory.v2_cli:main"
-    assert scripts["software-factoryd"] == "software_factory.runtime_daemon:main"
+    assert scripts["software-factory"] == "software_factory.cli:main"
+    assert scripts["software-factoryd"] == "software_factory.daemon:main"
     assert scripts["software-factory-api"] == "software_factory.api_main:main"
-    assert scripts["sf-skill"] == "software_factory.native_skills:main"
+    assert scripts["sf-skill"] == "software_factory.skill_bridge:main"

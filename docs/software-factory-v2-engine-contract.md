@@ -39,7 +39,10 @@ host-specific acceptance state, cursor, or outcome. The loopback-only
 
 ## Boundaries
 
-The console entrypoints route to the maintained native v2 owners. This Block
-does not consume `embedded-service-contract`, `runtime-manifest`, or any utils
-package. It does not implement autonomous scheduling, provider effects, public
-multi-tenancy, billing, hosted deployment, or public authentication.
+Block 2 adds the bounded `software-factory-api` service entrypoint but preserves
+the existing `software-factory`, `software-factoryd`, and `sf-skill` targets.
+Cutting those targets over to adaptive tick/dispatch owners would activate
+scheduling and provider effects and therefore belongs to later Blocks. This
+Block does not consume `embedded-service-contract`, `runtime-manifest`, or any
+utils package. It does not implement autonomous scheduling, provider effects,
+public multi-tenancy, billing, hosted deployment, or public authentication.

@@ -643,21 +643,23 @@ Review state ownership, idempotency, restart, cancellation, and error parity.
   candidate starts no provider effect.
 - Contract and ownership documentation:
   `docs/software-factory-v2-engine-contract.md`, SHA-256
-  `60837b01475af2c20b6796e3e4350caefdf9fb9d86641ebd7176d735dfcc4364`,
+  `df9ba45729d2576ad65daa3999da20b4b7cecdf2926b1d215fc12b1134c24692`,
   records the operation schemas, host/process shape, loopback route, and Stop.
   The executable ownership registry reconciles `90 written = 90 owned` after
   adding the one Block 2 table.
 - Focused evidence: `docs/sfv2-b2-focused-evidence.json`, SHA-256
-  `21c36100aee4860e24e653756ff205e099ac064bfedccb825bb88ed853e3e86f`,
-  records the exact seven-file command and `26 passed`, repository collection
-  at `163 tests`, Ruff and 83-file format success, and mypy success across 56
+  `6a5254b753933b10c4cd5c44259f5e958431372ebb261299a48cad39205228e7`,
+  records the exact seven-file command and `27 passed`, repository collection
+  at `164 tests`, Ruff and 83-file format success, and mypy success across 56
   source files. No broad runtime suite was run.
 - Installed-entrypoint proof: an ephemeral wheel for version `2.0.0.dev6`,
-  SHA-256 `a89b563db3c6adc56c9574b49298dbb631ca885a1e3255fab6cc27263fce8f88`,
+  SHA-256 `f73018904fb836b3b23e04d15fbfad3f939d6d0306e4b3dc6d03e2b766e9cb6b`,
   installed into an isolated environment; `software-factory`,
   `software-factoryd`, `software-factory-api`, and `sf-skill` were present and
-  all four installed `--help` probes passed. The wheel is qualification
-  evidence, not a release artifact.
+  all four installed `--help` probes passed. Only the bounded service API is a
+  new target; the CLI, daemon, and skill targets remain on their pre-Block-2
+  owners so adaptive ticking and provider dispatch are not activated across
+  this Stop. The wheel is qualification evidence, not a release artifact.
 - Producer boundary: Block 2 does not consume `embedded-service-contract`,
   `runtime-manifest`, or any other utils artifact. Those accepted producer
   outputs remain reserved for their tracker-assigned Blocks 4, 9, 11, and 12.
@@ -679,7 +681,15 @@ Review state ownership, idempotency, restart, cancellation, and error parity.
   - Tradeoff and uncertainty: `continue_mission` reattaches but does not yet
     schedule; Block 3 owns atomic frontier execution, and Block 9 later adopts
     the accepted structural package and hardens the service boundary.
-- Independent review: pending the exact committed and pushed candidate;
+- Independent review: exact candidate
+  `891ae0723c8b5d522f92f95ab8f1aae63a00851a` returned `REVISE` with two P1
+  findings and no P0/P2: cancellation did not fence a later dispatch, and the
+  three legacy entrypoint cutovers activated scheduling/provider paths beyond
+  the Block 2 Stop. The bounded correction checks active mission state both
+  before dispatch preparation and atomically inside reservation; a negative
+  cancel/dispatch race plus restart probe proves a cancelled mission never
+  reaches the provider. The three entrypoint cutovers are reverted while the
+  bounded service entrypoint remains. Fresh exact-revision review is pending;
   process success and focused green results are not acceptance.
 - Acceptance posture: `candidate`; Block 2 remains `in-progress` until exact
   independent review accepts the pushed revision.

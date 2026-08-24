@@ -203,6 +203,11 @@ class ControllerService:
             if work_row is None:
                 raise StoreError("work item not found")
             work = dict(work_row)
+            mission = db.execute(
+                "SELECT status FROM missions WHERE id=?", (work["mission_id"],)
+            ).fetchone()
+            if mission is None or mission["status"] != "active":
+                raise InvalidTransition("work mission is not active")
             if self.adaptive is not None:
                 self.adaptive.assert_strategy_allowed(work_id, db=db)
             if work["planning_status"] != "selected" or work["execution_status"] not in {
@@ -529,6 +534,9 @@ class ControllerService:
         lease_ttl_seconds: int = 900,
     ) -> dict[str, Any]:
         work = self.store.one("SELECT * FROM work_items WHERE id=?", (work_id,))
+        mission = self.store.one("SELECT status FROM missions WHERE id=?", (work["mission_id"],))
+        if mission["status"] != "active":
+            raise InvalidTransition("work mission is not active")
         provider_key = str(work.get("provider_key") or self.default_provider or "")
         if not provider_key:
             raise InvalidTransition("work has no provider and no default provider is configured")

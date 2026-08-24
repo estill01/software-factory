@@ -13,9 +13,9 @@
       "runtime/tests/test_operational_boundaries.py",
       "runtime/tests/test_advanced_integration.py"
     ],
-    "result": "26 passed"
+    "result": "27 passed"
   },
-  "collection": "163 tests collected with one recorded legacy TestStore collection warning",
+  "collection": "164 tests collected with one recorded legacy TestStore collection warning",
   "static_proofs": [
     {
       "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
@@ -38,7 +38,7 @@
   },
   "installed_entrypoint_proof": {
     "version": "2.0.0.dev6",
-    "wheel_sha256": "a89b563db3c6adc56c9574b49298dbb631ca885a1e3255fab6cc27263fce8f88",
+    "wheel_sha256": "f73018904fb836b3b23e04d15fbfad3f939d6d0306e4b3dc6d03e2b766e9cb6b",
     "posture": "ephemeral local qualification artifact, not a release artifact",
     "entrypoints": [
       "sf-skill",
@@ -46,6 +46,12 @@
       "software-factory-api",
       "software-factoryd"
     ],
+    "targets": {
+      "sf-skill": "software_factory.skill_bridge:main",
+      "software-factory": "software_factory.cli:main",
+      "software-factory-api": "software_factory.api_main:main",
+      "software-factoryd": "software_factory.daemon:main"
+    },
     "result": "all four installed --help probes passed"
   },
   "scope_boundary": {
