@@ -236,7 +236,7 @@ for this tracker may inspect Patent Studio patent content.
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
-| 4 | Agents and replaceable provider runtime | 2, 3 | `candidate` |
+| 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
@@ -867,7 +867,7 @@ Stop before live agent/provider lifecycle.
 
 ## Block 4 — Implement agents and replaceable providers
 
-Status: `candidate`
+Status: `accepted`
 
 ### Objective
 
@@ -1037,10 +1037,26 @@ restart, and provider-success/acceptance separation.
   released. The next correction retains the durable effect fence, cancellation-
   before-release ordering, failure retention, and callback-secret removal while
   adding bounded SIGTERM wait, SIGKILL escalation, and verified group exit.
-- Corrected candidate posture: implementation-complete pending exact independent review.
-  Block 9 structural/runtime packages are not consumed, the dashboard duplicate
-  is not retired, utils is unmodified, and Block 5 target-profile effects have
-  not begun.
+- Accepted correction checkpoint: branch
+  `agent/software-factory-v2-native-refactor`, commit
+  `635531016150d77a5de8592592f16420bb538505`, tree
+  `9ea8be43835126efdf16966fa68712afd23de427`, pushed with a clean worktree
+  and zero local/remote divergence.
+- Independent review: the existing reviewer `/root/sfv2_b0_exact_review`
+  reviewed exact correction `635531016150d77a5de8592592f16420bb538505`,
+  reproduced the SIGTERM-ignoring attack against both `ProcessProvider` and
+  inherited `CodexCLIProvider` from original and fresh owners, forced the
+  non-terminal exit-proof failure path, reran `46 passed`, collected `179`
+  tests, verified the exact internal client and evidence/artifact roots, and
+  returned `ACCEPT` with no P0, P1, or P2 findings. The fresh-owner proof
+  observed SIGKILL escalation, process-group absence, and no delayed effect;
+  the forced failure retained the running execution, active lease, failed
+  durable effect fence, and rejected replacement dispatch.
+- Acceptance posture: `accepted`. Retained open work: none in Block 4; Blocks
+  5–12 remain unaccepted inside the current full range. Block 9 structural/runtime
+  packages are not consumed, the dashboard duplicate is not retired, utils is
+  unmodified, and no Block 5 target-profile effect has begun. Continue
+  automatically to dependency-eligible Block 5.
 
 ### Stop
 
