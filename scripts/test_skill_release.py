@@ -342,7 +342,7 @@ class SkillReleaseTests(unittest.TestCase):
             expected_activation_record_hmac_sha256=activation_hmac,
         )
 
-    def materialize_archive_override(self, commit: str) -> Path:
+    def materialize_archive_override(self, commit: str, selected=skill_release.SKILLS) -> Path:
         override = self.dev_overrides_root / commit
         result = subprocess.run(
             [
@@ -353,7 +353,7 @@ class SkillReleaseTests(unittest.TestCase):
                 "--format=tar",
                 commit,
                 "--",
-                *skill_release.SKILLS,
+                *selected,
             ],
             check=True,
             capture_output=True,
@@ -361,7 +361,7 @@ class SkillReleaseTests(unittest.TestCase):
         with tarfile.open(fileobj=io.BytesIO(result.stdout), mode="r:") as archive:
             for member in archive.getmembers():
                 parts = member.name.rstrip("/").split("/")
-                if not parts or parts[0] not in skill_release.SKILLS:
+                if not parts or parts[0] not in selected:
                     raise AssertionError("unexpected test archive entry")
                 destination = override.joinpath(*parts)
                 if member.isdir():
@@ -1591,6 +1591,35 @@ class SkillReleaseTests(unittest.TestCase):
         self.assertEqual(
             ledger_before, (self.release_root / skill_release.RECOVERY_NAME).read_bytes()
         )
+
+    def test_recover_installed_links_mixed_transaction_and_parser_guards(self) -> None:
+        active = self.git("rev-parse", "HEAD"); release_id = str(self.stage(active)["release_id"])
+        skill_release.bootstrap_release(self.activate_args(release_id))
+        for name in skill_release.SKILLS: (self.repo / name / "OVERRIDE").write_text("full\n")
+        full = self.commit("full override")
+        self.git("checkout", "--detach", active)
+        selected = skill_release.SKILLS[-1]
+        (self.repo / selected / "OVERRIDE").write_text("partial\n"); partial = self.commit("partial override")
+        (self.repo / "candidate-marker.txt").write_text("candidate\n"); candidate = self.commit("candidate")
+        roots = {full: self.materialize_archive_override(full).resolve(), partial: self.materialize_archive_override(partial, (selected,)).resolve()}; sources = {name: partial if name == selected else full for name in skill_release.SKILLS}
+        for name in skill_release.SKILLS: skill_release.replace_link(self.install_root / name, str(roots[sources[name]] / name))
+        activation = skill_release.history(self.release_root.resolve())[-1]; args = argparse.Namespace(repo=str(self.repo), release_root=str(self.release_root), install_root=str(self.install_root),
+            override_source_commit=None, override_skill_source=[f"{name}={sources[name]}" for name in skill_release.SKILLS],
+            expected_candidate_source_commit=candidate, expected_candidate_parent_commit=partial,
+            expected_current_release=release_id, expected_activation_record_hmac_sha256=activation["record_hmac_sha256"])
+        with self.assertRaisesRegex(skill_release.ReleaseError, "interruption"): skill_release.recover_installed_links(args, fail_after_links=1)
+        for name in skill_release.SKILLS: self.assertEqual(os.readlink(self.install_root / name), str(roots[sources[name]] / name))
+        crash = lambda position: (_ for _ in ()).throw(SimulatedProcessLoss(position)) if position == "after-link-1" else None
+        with self.assertRaises(SimulatedProcessLoss): skill_release.recover_installed_links(args, crash_hook=crash)
+        completed = skill_release.recover_installed_links(args)
+        self.assertEqual(completed["recovery"], "completed-after-retry")
+        self.assertTrue(skill_release.recover_installed_links(args)["duplicate"]); self.assertEqual(completed["receipt"]["override_source_commit"], sources)
+        for field, value, error in (("expected_current_release", "stale-release", "Current release differs"), ("expected_candidate_parent_commit", active, "exact override parent"), ("expected_candidate_parent_commit", None, "requires its exact candidate parent")):
+            stale = argparse.Namespace(**vars(args)); setattr(stale, field, value)
+            with self.assertRaisesRegex(skill_release.ReleaseError, error): skill_release.recover_installed_links(stale)
+        for invalid in (args.override_skill_source[:-1], args.override_skill_source + [args.override_skill_source[0]], ["foreign=" + full]):
+            rejected = argparse.Namespace(**vars(args)); rejected.override_skill_source = invalid
+            with self.assertRaises(skill_release.ReleaseError): skill_release.recover_installed_links(rejected)
 
     def test_recover_installed_links_reconciles_every_durable_crash_boundary(self) -> None:
         args, evidence = self.prepare_recovery()

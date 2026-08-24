@@ -772,6 +772,14 @@ def archive_projection_summary(
     }
 
 
+def override_sources(value: Any) -> dict[str, str]:
+    if isinstance(value, str):
+        source = exact_git_commit(value)
+        return {name: source for name in SKILLS}
+    if not isinstance(value, dict) or set(value) != set(SKILLS):
+        raise ReleaseError("Per-skill override binding must name every released skill")
+    return {name: exact_git_commit(str(value[name])) for name in SKILLS}
+
 def validate_installed_link_recovery_records(
     release_root: Path, records: Sequence[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -828,11 +836,11 @@ def validate_installed_link_recovery_records(
         bounded_id(str(value["activation_record_id"]), label="recovery activation record")
         for field in (
             "current_source_commit",
-            "override_source_commit",
             "candidate_source_commit",
             "candidate_parent_commit",
         ):
             exact_git_commit(str(value[field]))
+        override_sources(value["override_source_commit"])
         for label, field in (
             ("recovery activation HMAC", "activation_record_hmac_sha256"),
             ("recovery installed verification", "installed_verification_root_sha256"),
@@ -1009,11 +1017,11 @@ def validate_recovery_pending_record(
     bounded_id(str(value["activation_record_id"]), label="recovery activation record")
     for field in (
         "current_source_commit",
-        "override_source_commit",
         "candidate_source_commit",
         "candidate_parent_commit",
     ):
         exact_git_commit(str(value[field]))
+    override_sources(value["override_source_commit"])
     for label, field in (
         ("recovery activation HMAC", "activation_record_hmac_sha256"),
         ("recovery prior ledger", "prior_recovery_ledger_sha256"),
@@ -1393,15 +1401,17 @@ def git_archive_projection(repo: Path, commit: str) -> dict[str, dict[str, Any]]
 def sealed_override_projection(
     override_root: Path,
     expected: Mapping[str, Mapping[str, Any]],
+    required: Sequence[str] = SKILLS,
 ) -> dict[str, dict[str, Any]]:
     if override_root.is_symlink() or not override_root.is_dir():
         raise ReleaseError("Development override root must be one real directory")
     if override_root.stat().st_mode & 0o222:
         raise ReleaseError("Development override root is writable")
-    if {item.name for item in override_root.iterdir()} != set(SKILLS):
-        raise ReleaseError("Development override does not contain exactly three skills")
+    members = {item.name for item in override_root.iterdir()}
+    if not set(required).issubset(members) or not members.issubset(set(SKILLS)):
+        raise ReleaseError("Development override does not contain the required skills")
     actual: dict[str, dict[str, Any]] = {}
-    for name in SKILLS:
+    for name in sorted(members):
         root = override_root / name
         if root.is_symlink() or not root.is_dir() or root.stat().st_mode & 0o222:
             raise ReleaseError("Development override skill root is invalid or writable")
@@ -2525,8 +2535,9 @@ def recovery_state(
     release_root: Path,
     install_root: Path,
     override_parent: Path,
-    override_source_commit: str,
+    override_source_commit: str | Mapping[str, str],
     candidate_source_commit: str,
+    expected_candidate_parent: str,
     expected_current_release: str,
     expected_activation_hmac: str,
 ) -> dict[str, Any]:
@@ -2536,7 +2547,7 @@ def recovery_state(
     if run_git(repo, "rev-parse", "HEAD") != candidate_source_commit:
         raise ReleaseError("Recovery candidate is not the exact repository HEAD")
     candidate_parent = run_git(repo, "rev-parse", f"{candidate_source_commit}^")
-    if candidate_parent != override_source_commit:
+    if candidate_parent != expected_candidate_parent:
         raise ReleaseError("Recovery candidate does not have the exact override parent")
 
     active = current_release_id(release_root)
@@ -2544,29 +2555,30 @@ def recovery_state(
         raise ReleaseError("Current release differs from the recovery expectation")
     manifest = read_manifest(release_root, expected_current_release)
     active_source = exact_git_commit(str(manifest["source_commit"]))
-    run_git(repo, "merge-base", "--is-ancestor", active_source, override_source_commit)
+    sources = override_sources(override_source_commit)
+    for source in {candidate_source_commit, *sources.values()}:
+        run_git(repo, "merge-base", "--is-ancestor", active_source, source)
     records = history(release_root)
     if not records or records[-1]["release_id"] != expected_current_release:
         raise ReleaseError("Activation head differs from the current release")
     if records[-1]["record_hmac_sha256"] != expected_activation_hmac:
         raise ReleaseError("Activation head HMAC differs from the recovery expectation")
 
-    override_root = override_parent / override_source_commit
-    if (
-        override_root.is_symlink()
-        or not override_root.is_dir()
-        or override_root.resolve(strict=True).parent != override_parent
-        or override_root.resolve(strict=True).name != override_source_commit
-    ):
-        raise ReleaseError("Development override is outside its canonical commit root")
-    archive = git_archive_projection(repo, override_source_commit)
-    sealed_override_projection(override_root, archive)
+    roots, projection = {}, {}
+    for name, source in sources.items():
+        root = override_parent / source
+        if root.is_symlink() or not root.is_dir() or root.resolve(strict=True).parent != override_parent or root.resolve(strict=True).name != source:
+            raise ReleaseError("Development override is outside its canonical commit root")
+        projection[name] = sealed_override_projection(
+            root, git_archive_projection(repo, source), (name,)
+        )[name]
+        roots[name] = root
 
     targets: dict[str, str | None] = {}
     for name in SKILLS:
         link = install_root / name
         targets[name] = os.readlink(link) if link.is_symlink() else None
-    override_targets = {name: str(override_root / name) for name in SKILLS}
+    override_targets = {name: str(roots[name] / name) for name in SKILLS}
     stable_targets = {name: desired_link(release_root, name) for name in SKILLS}
     if targets == override_targets:
         link_mode = "override"
@@ -2585,8 +2597,7 @@ def recovery_state(
         "activation_record": records[-1],
         "activation_history_count": len(records),
         "override_source_commit": override_source_commit,
-        "override_root": str(override_root),
-        "override_archive_projection": archive_projection_summary(archive),
+        "override_archive_projection": archive_projection_summary(projection),
         "candidate_source_commit": candidate_source_commit,
         "candidate_parent_commit": candidate_parent,
         "link_mode": link_mode,
@@ -2625,8 +2636,23 @@ def recover_installed_links(
 ) -> dict[str, Any]:
     release_root, install_root, override_parent = canonical_recovery_roots(args)
     repo = ensure_directory(Path(args.repo), label="recovery repository", create=False)
-    override_source_commit = exact_git_commit(args.override_source_commit)
+    supplied = getattr(args, "override_skill_source", [])
+    if bool(args.override_source_commit) == bool(supplied):
+        raise ReleaseError("Recovery requires one scalar or per-skill override binding")
+    override_source_commit: str | dict[str, str] = args.override_source_commit
+    if supplied:
+        override_source_commit = {}
+        for item in supplied:
+            name, separator, source = item.partition("=")
+            if separator != "=" or name not in SKILLS or name in override_source_commit:
+                raise ReleaseError("Per-skill override binding is invalid or duplicated")
+            override_source_commit[name] = source
+    sources = override_sources(override_source_commit)
     candidate_source_commit = exact_git_commit(args.expected_candidate_source_commit)
+    expected_parent = getattr(args, "expected_candidate_parent_commit", None)
+    if not isinstance(override_source_commit, str) and not expected_parent:
+        raise ReleaseError("Mixed recovery requires its exact candidate parent")
+    expected_parent = exact_git_commit(override_source_commit if isinstance(override_source_commit, str) else expected_parent)
     expected_current_release = bounded_id(
         args.expected_current_release, label="expected current release"
     )
@@ -2641,6 +2667,7 @@ def recover_installed_links(
         override_parent=override_parent,
         override_source_commit=override_source_commit,
         candidate_source_commit=candidate_source_commit,
+        expected_candidate_parent=expected_parent,
         expected_current_release=expected_current_release,
         expected_activation_hmac=expected_activation_hmac,
     )
@@ -2661,6 +2688,7 @@ def recover_installed_links(
             override_parent=override_parent,
             override_source_commit=override_source_commit,
             candidate_source_commit=candidate_source_commit,
+            expected_candidate_parent=expected_parent,
             expected_current_release=expected_current_release,
             expected_activation_hmac=expected_activation_hmac,
         )
@@ -2731,6 +2759,7 @@ def recover_installed_links(
                 override_parent=override_parent,
                 override_source_commit=override_source_commit,
                 candidate_source_commit=candidate_source_commit,
+                expected_candidate_parent=expected_parent,
                 expected_current_release=expected_current_release,
                 expected_activation_hmac=expected_activation_hmac,
             )
@@ -2738,9 +2767,6 @@ def recover_installed_links(
                 pending, locked
             ):
                 raise ReleaseError("Partial-link recovery did not restore the exact override")
-
-        archive = git_archive_projection(repo, override_source_commit)
-        override_root = Path(str(locked["override_root"]))
 
         def verify_stable() -> dict[str, Any]:
             child = child_reload_verify(
@@ -2839,6 +2865,7 @@ def recover_installed_links(
                     override_parent=override_parent,
                     override_source_commit=override_source_commit,
                     candidate_source_commit=candidate_source_commit,
+                    expected_candidate_parent=expected_parent,
                     expected_current_release=expected_current_release,
                     expected_activation_hmac=expected_activation_hmac,
                 )
@@ -2871,6 +2898,7 @@ def recover_installed_links(
                         override_parent=override_parent,
                         override_source_commit=override_source_commit,
                         candidate_source_commit=candidate_source_commit,
+                        expected_candidate_parent=expected_parent,
                         expected_current_release=expected_current_release,
                         expected_activation_hmac=expected_activation_hmac,
                     )
@@ -2884,7 +2912,6 @@ def recover_installed_links(
             restore_links(
                 install_root, [pending["original_links"][name] for name in SKILLS]
             )
-            sealed_override_projection(override_root, archive)
             restored = recovery_state(
                 repo=repo,
                 release_root=release_root,
@@ -2892,6 +2919,7 @@ def recover_installed_links(
                 override_parent=override_parent,
                 override_source_commit=override_source_commit,
                 candidate_source_commit=candidate_source_commit,
+                expected_candidate_parent=expected_parent,
                 expected_current_release=expected_current_release,
                 expected_activation_hmac=expected_activation_hmac,
             )
@@ -3577,8 +3605,10 @@ def parser() -> argparse.ArgumentParser:
         help="restore the stable discovery links from one verified development override",
     )
     recover.add_argument("--repo", required=True)
-    recover.add_argument("--override-source-commit", required=True)
+    recover.add_argument("--override-source-commit")
+    recover.add_argument("--override-skill-source", action="append", default=[])
     recover.add_argument("--expected-candidate-source-commit", required=True)
+    recover.add_argument("--expected-candidate-parent-commit")
     recover.add_argument("--expected-current-release", required=True)
     recover.add_argument(
         "--expected-activation-record-hmac-sha256", required=True
