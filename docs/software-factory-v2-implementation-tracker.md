@@ -239,7 +239,7 @@ for this tracker may inspect Patent Studio patent content.
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `accepted` |
-| 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
+| 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `in-progress` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `not-started` |
 | 10 | Neutral content profile and external-extension proof | 5–9 | `not-started` |
@@ -1466,7 +1466,7 @@ Stop before libRSI semantic cutover.
 
 ## Block 7 — Integrate libRSI and remove duplicate semantic owners
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1531,7 +1531,30 @@ semantic/operational identity separation, and outcome use.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: clean pushed Block 6 acceptance successor
+  `c204dec95dbb4d9a831b344eb981722ae6135355`; Blocks 0–6 are accepted and
+  Block 7 is the sole dependency-eligible frontier.
+- Accepted producer handoff: pushed libRSI acceptance-evidence revision
+  `dbcb60edfbcab53ff7e5cc25403bfbc33b458329`, accepted implementation/source
+  commit `1d81f6180b40435e10145756a2d99e6f334d31bc`, repository tree
+  `d9ff421192e3582a6b8e908bf8a02cf2d7678acc`, package tree
+  `2653cb551e69bf2f45c95216982f70b50258c92e`, distribution/import/version
+  `libRSI`/`librsi`/`0.2.0`, accepted wheel SHA-256
+  `6b06612150d2f3a11b23de14870738ea9cd6b704574c8cea2c8e811392454659`,
+  and accepted sdist SHA-256
+  `e3ca4a817b80043ea59ba153e4d3ba105c86ad74183cb28816d66dd6d0f813c0`.
+  Canonical record, outcome-projection, and event-projection schema versions are
+  `1`; the Factory adapter contract begins at `software-factory.librsi/v1`.
+  The producer branch is pushed at `0/0`; its unrelated untracked `uv.lock`
+  remains excluded. Factory will consume only the immutable Git object/artifact
+  identity, will not import from or modify that dirty checkout, and makes no
+  public installability, license, redistribution, or release claim.
+- Start posture: add one-way `software-factory → libRSI` integration, immutable
+  canonical-record cache/bindings, exact operational-to-semantic mappings,
+  shadow parity, and authoritative failed/unexpected-execution semantic slices.
+  Factory retains missions, obligations, work, execution, effects, governance,
+  QA, acceptance, delivery, and operational persistence. Do not consume utils,
+  begin delivery/release cutover, or run the broad runtime suite.
 
 ### Stop
 
