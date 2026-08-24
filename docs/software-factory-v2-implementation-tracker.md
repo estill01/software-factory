@@ -235,7 +235,7 @@ for this tracker may inspect Patent Studio patent content.
 | 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
-| 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
+| 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `in-progress` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
@@ -713,7 +713,7 @@ Stop before autonomous scheduling or provider effects.
 
 ## Block 3 — Implement work graph, scheduling, continuation, and concurrency
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -772,7 +772,13 @@ Test race/crash/stale/partial/failure scenarios and review range preservation.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: clean pushed Block 2 acceptance successor
+  `53c926aaf03c5cc88ce2420273661e13df39de82`; Blocks 0–2 accepted and Block 3
+  is the sole dependency-eligible frontier.
+- Planned bounded correction: enforce durable mission scheduling policy in both
+  frontier planning and atomic reservation; preserve accepted program history;
+  make continuation capacity-aware; add deterministic race/restart/budget
+  fixtures without starting a live provider.
 
 ### Stop
 
