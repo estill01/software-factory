@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import sqlite3
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
@@ -12,64 +10,45 @@ import pytest
 from software_factory.errors import InvalidTransition
 from software_factory.learning import LearningService
 from software_factory.problem_solving import ProblemSolvingService
+from software_factory.store import Store
+from software_factory.util import utc_now
 
 
-class TestStore:
+class ProblemStore(Store):
     def __init__(self) -> None:
-        self.connection = sqlite3.connect(":memory:", isolation_level=None)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.executescript(
-            """
-            CREATE TABLE missions(id TEXT PRIMARY KEY);
-            CREATE TABLE agent_sessions(id TEXT PRIMARY KEY);
-            CREATE TABLE executions(id TEXT PRIMARY KEY);
-            INSERT INTO missions(id) VALUES('mission-1');
-            INSERT INTO agent_sessions(id) VALUES
-              ('proposer'),('selector'),('worker-a'),('worker-b'),('verifier');
-            """
-        )
-        migrations = Path(__file__).parents[1] / "src" / "software_factory" / "migrations"
-        for name in (
-            "0009_learning_runtime.sql",
-            "0015_problem_solving.sql",
-            "0016_problem_solving_hardening.sql",
-        ):
-            self.connection.executescript((migrations / name).read_text(encoding="utf-8"))
-
-    @contextmanager
-    def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
-        self.connection.execute(f"BEGIN {mode}")
-        try:
-            yield self.connection
-        except BaseException:
-            self.connection.rollback()
-            raise
-        else:
-            self.connection.commit()
-
-    def one(
-        self,
-        sql: str,
-        parameters: tuple[Any, ...] = (),
-        *,
-        required: bool = True,
-    ) -> dict[str, Any] | None:
-        row = self.connection.execute(sql, parameters).fetchone()
-        if row is None:
-            if required:
-                raise LookupError(sql)
-            return None
-        return dict(row)
-
-    def all(self, sql: str, parameters: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.connection.execute(sql, parameters).fetchall()]
+        self._temporary_directory = TemporaryDirectory()
+        super().__init__(Path(self._temporary_directory.name) / "factory.sqlite3")
+        now = utc_now()
+        with self.transaction() as db:
+            db.execute(
+                """INSERT INTO projects(id,name,created_at,updated_at)
+                   VALUES('project-1','problem-solving',?,?)""",
+                (now, now),
+            )
+            db.execute(
+                """INSERT INTO missions(
+                    id,project_id,title,objective,status,autonomy_mode,created_at,updated_at
+                ) VALUES(
+                    'mission-1','project-1','problem','restore progress','active',
+                    'reviewed_autonomous',?,?
+                )""",
+                (now, now),
+            )
+            db.executemany(
+                """INSERT INTO agent_sessions(
+                    id,mission_id,provider,role,desired_status,observed_status,started_at
+                ) VALUES(?,'mission-1','test',?,'idle','idle',?)""",
+                [
+                    (session_id, session_id, now)
+                    for session_id in ("proposer", "selector", "worker-a", "worker-b", "verifier")
+                ],
+            )
 
 
 def service() -> ProblemSolvingService:
-    store = TestStore()
-    learning = LearningService(store)  # type: ignore[arg-type]
-    return ProblemSolvingService(store, learning)  # type: ignore[arg-type]
+    store = ProblemStore()
+    learning = LearningService(store)
+    return ProblemSolvingService(store, learning)
 
 
 def cycle(problem: ProblemSolvingService, causal_level: int = 0) -> dict[str, Any]:

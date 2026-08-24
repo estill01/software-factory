@@ -53,8 +53,8 @@ def test_store_compatibility_names_are_the_same_persistence_owner() -> None:
 
 
 def test_migration_catalog_is_complete_contiguous_and_file_exact() -> None:
-    assert SCHEMA_VERSION == 22
-    assert [migration.version for migration in MIGRATIONS] == list(range(1, 23))
+    assert SCHEMA_VERSION == 23
+    assert [migration.version for migration in MIGRATIONS] == list(range(1, 24))
     names = [migration.name for migration in MIGRATIONS]
     assert len(names) == len(set(names))
     discovered = sorted(path.name for path in (PACKAGE_ROOT / "migrations").glob("*.sql"))
@@ -67,7 +67,7 @@ def test_database_upgrades_an_applied_v9_prefix_without_alternate_writers(
     path = tmp_path / "factory.sqlite3"
     _applied_prefix(path, 9)
     database = Database(path)
-    assert database.health()["schema_version"] == 22
+    assert database.health()["schema_version"] == 23
     tables = {
         row["name"] for row in database.all("SELECT name FROM sqlite_master WHERE type='table'")
     }
@@ -213,12 +213,15 @@ def test_every_operational_table_has_one_primary_owner_and_only_declared_writers
     assert len({owner.concern for owner in LIFECYCLE_OWNERS}) == len(LIFECYCLE_OWNERS)
 
     runtime_writes: set[str] = set()
-    for source in PACKAGE_ROOT.glob("*.py"):
+    for source in PACKAGE_ROOT.rglob("*.py"):
         text = source.read_text(encoding="utf-8")
+        module = source.relative_to(PACKAGE_ROOT).with_suffix("").as_posix().replace("/", ".")
+        if module.endswith(".__init__"):
+            module = module.removesuffix(".__init__")
         for table in WRITE_PATTERN.findall(text):
             runtime_writes.add(table)
             owner = owner_for_table(table)
-            assert source.stem in owner.writer_modules, (
+            assert module in owner.writer_modules, (
                 f"{source.name} writes {table}, owned by {owner.primary_module}; "
                 f"allowed writers are {owner.writer_modules}"
             )
@@ -252,6 +255,7 @@ def test_semantic_records_cannot_be_operational_foreign_key_authority(
         "evolution_checkpoints_v2",
         "experiments_v2",
         "hypotheses_v2",
+        "librsi_records",
         "learned_signal_candidates",
         "reflections_v2",
         "selection_records_v2",

@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from collections.abc import Mapping
+from typing import Any
 
-from .errors import InvalidTransition, StoreError
+from .errors import InvalidTransition
+from .integrations.librsi import LibRSIIntegration
 from .util import canonical_json, digest_json, json_load, new_id, utc_now
-
-_HYPOTHESIS_STATES = {
-    "proposed",
-    "challenged",
-    "selected_for_test",
-    "testing",
-    "supported",
-    "refuted",
-    "inconclusive",
-    "superseded",
-    "retired",
-}
 
 
 class ReflectionService:
@@ -27,9 +16,18 @@ class ReflectionService:
     actions derived from exact observed state.
     """
 
-    def __init__(self, store: Any, *, work_items: Any) -> None:
+    def __init__(
+        self,
+        store: Any,
+        *,
+        work_items: Any,
+        semantic_integration: LibRSIIntegration | None = None,
+    ) -> None:
         self.store = store
         self.work_items = work_items
+        self.semantic_integration = semantic_integration or LibRSIIntegration(
+            store, work_items=work_items
+        )
 
     def _create_execution(
         self,
@@ -96,81 +94,6 @@ class ReflectionService:
             )
         return execution_id
 
-    def _create_hypothesis(
-        self,
-        *,
-        mission_id: str,
-        obligation_id: str | None,
-        origin_execution_id: str,
-        hypothesis_type: str,
-        statement: str,
-        scope: Mapping[str, Any],
-        expected_evidence: Mapping[str, Any],
-        supporting_evidence: Sequence[str] = (),
-        contrary_evidence: Sequence[str] = (),
-        uncertainty: Mapping[str, Any] | None = None,
-        parent_hypothesis_id: str | None = None,
-    ) -> str:
-        existing = self.store.one(
-            """SELECT id FROM hypotheses WHERE mission_id=? AND statement=?
-               AND status NOT IN ('superseded','retired') ORDER BY created_at DESC LIMIT 1""",
-            (mission_id, statement),
-            required=False,
-        )
-        if existing is not None:
-            return str(existing["id"])
-        hypothesis_id = new_id("hyp")
-        now = utc_now()
-        evidence_root = digest_json(
-            {
-                "supporting": list(supporting_evidence),
-                "contrary": list(contrary_evidence),
-            }
-        )
-        with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO hypotheses(
-                    id,mission_id,obligation_id,origin_execution_id,parent_hypothesis_id,
-                    hypothesis_type,statement,status,scope_json,expected_evidence_json,
-                    supporting_evidence_json,contrary_evidence_json,uncertainty_json,
-                    state_version,created_at,updated_at,current_evidence_root
-                ) VALUES(?,?,?,?,?,?,?,'proposed',?,?,?,?,?,1,?,?,?)""",
-                (
-                    hypothesis_id,
-                    mission_id,
-                    obligation_id,
-                    origin_execution_id,
-                    parent_hypothesis_id,
-                    hypothesis_type,
-                    statement,
-                    canonical_json(dict(scope)),
-                    canonical_json(dict(expected_evidence)),
-                    canonical_json(list(supporting_evidence)),
-                    canonical_json(list(contrary_evidence)),
-                    canonical_json(dict(uncertainty or {})),
-                    now,
-                    now,
-                    evidence_root,
-                ),
-            )
-            self.store.append_event(
-                db,
-                mission_id=mission_id,
-                stream_key="reflection",
-                event_type="hypothesis.proposed",
-                subject_type="hypothesis",
-                subject_id=hypothesis_id,
-                causation_id=origin_execution_id,
-                new_version=1,
-                payload={
-                    "hypothesis_type": hypothesis_type,
-                    "statement": statement,
-                    "scope": dict(scope),
-                    "expected_evidence": dict(expected_evidence),
-                },
-            )
-        return hypothesis_id
-
     def reflect_execution(self, execution_id: str, *, timescale: str = "live") -> dict[str, Any]:
         execution = self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
         if execution["status"] not in {"succeeded", "failed", "abandoned", "cancelled"}:
@@ -187,57 +110,14 @@ class ReflectionService:
             json_load(execution["observed_effect_json"], {}).get("unexpected_success")
             or json_load(execution["result_json"], {}).get("unexpected_success")
         )
-        if failure:
-            fingerprint = str(
-                execution.get("failure_fingerprint")
-                or digest_json(json_load(execution["error_json"], {}))
-            )
-            hypotheses = [
-                {
-                    "type": "causal",
-                    "statement": (
-                        f"Strategy {strategy} is causally associated with failure "
-                        f"fingerprint {fingerprint} in the current work context."
-                    ),
-                    "expected": {
-                        "discriminator": "materially different strategy avoids the fingerprint"
-                    },
-                },
-                {
-                    "type": "problem_framing",
-                    "statement": (
-                        f"The failure fingerprint {fingerprint} may be caused by environment, "
-                        "currentness, or acceptance setup rather than the implementation strategy."
-                    ),
-                    "expected": {
-                        "discriminator": "same strategy succeeds under corrected invocation/currentness"
-                    },
-                },
-            ]
-            recommended = "run_discriminating_experiment"
-        elif unexpected:
-            hypotheses = [
-                {
-                    "type": "strategy",
-                    "statement": (
-                        f"Strategy {strategy} produced an unusually strong capability effect in "
-                        "the observed context."
-                    ),
-                    "expected": {"discriminator": "benefit recurs in a bounded similar context"},
-                },
-                {
-                    "type": "predictive",
-                    "statement": (
-                        "The observed improvement may be contextual noise or an unrelated concurrent "
-                        "change rather than a reusable strategy effect."
-                    ),
-                    "expected": {"discriminator": "benefit disappears under matched replay"},
-                },
-            ]
-            recommended = "bounded_replay_and_counterexample_search"
-        else:
-            hypotheses = []
-            recommended = "retain_current_strategy"
+        semantic = (
+            self.semantic_integration.reflect_execution(execution_id)
+            if failure or unexpected
+            else None
+        )
+        recommended = (
+            semantic.recommended_next_action if semantic is not None else "retain_current_strategy"
+        )
 
         source = {
             "execution_id": execution_id,
@@ -250,8 +130,16 @@ class ReflectionService:
         }
         result = {
             "timescale": timescale,
-            "problem_reframing": "strategy_effect" if hypotheses else "no_material_reframe",
-            "hypotheses": hypotheses,
+            "problem_reframing": (
+                "strategy_effect" if semantic is not None else "no_material_reframe"
+            ),
+            "semantic_owner": "libRSI" if semantic is not None else None,
+            "hypotheses": list(semantic.hypothesis_roots) if semantic is not None else [],
+            "evidence_roots": list(semantic.evidence_roots) if semantic is not None else [],
+            "experiment_root": semantic.experiment_root if semantic is not None else None,
+            "cutover_receipt_root": (
+                semantic.cutover_receipt_root if semantic is not None else None
+            ),
             "recommended_next_action": recommended,
         }
         reflection_id = self._create_execution(
@@ -261,26 +149,17 @@ class ReflectionService:
             result=result,
             origin_execution_id=execution_id,
         )
-        hypothesis_ids = [
-            self._create_hypothesis(
-                mission_id=mission_id,
-                obligation_id=execution.get("obligation_id"),
-                origin_execution_id=reflection_id,
-                hypothesis_type=cast(str, item["type"]),
-                statement=cast(str, item["statement"]),
-                scope={
-                    "work_item_id": execution.get("work_item_id"),
-                    "strategy_key": strategy,
-                },
-                expected_evidence=cast(Mapping[str, Any], item["expected"]),
-                supporting_evidence=[execution_id],
-                uncertainty={"posture": "requires_discrimination"},
-            )
-            for item in hypotheses
-        ]
         return {
             "reflection_execution_id": reflection_id,
-            "hypothesis_ids": hypothesis_ids,
+            "hypothesis_roots": (list(semantic.hypothesis_roots) if semantic is not None else []),
+            "evidence_roots": list(semantic.evidence_roots) if semantic is not None else [],
+            "experiment_root": semantic.experiment_root if semantic is not None else None,
+            "experiment_work_item_id": (
+                semantic.experiment_work_item_id if semantic is not None else None
+            ),
+            "cutover_receipt_root": (
+                semantic.cutover_receipt_root if semantic is not None else None
+            ),
             "recommended_next_action": recommended,
         }
 
@@ -328,62 +207,3 @@ class ReflectionService:
             result=result,
         )
         return {"reflection_execution_id": execution_id, **result}
-
-    def update_hypothesis(
-        self,
-        hypothesis_id: str,
-        *,
-        expected_version: int,
-        status: str,
-        supporting_evidence: Sequence[str] = (),
-        contrary_evidence: Sequence[str] = (),
-    ) -> dict[str, Any]:
-        if status not in _HYPOTHESIS_STATES:
-            raise ValueError("unsupported hypothesis status")
-        now = utc_now()
-        with self.store.transaction() as db:
-            current = self.store.check_version(
-                db,
-                table="hypotheses",
-                row_id=hypothesis_id,
-                expected_version=expected_version,
-            )
-            support = list(json_load(current["supporting_evidence_json"], []))
-            contrary = list(json_load(current["contrary_evidence_json"], []))
-            support.extend(item for item in supporting_evidence if item not in support)
-            contrary.extend(item for item in contrary_evidence if item not in contrary)
-            root = digest_json({"supporting": support, "contrary": contrary})
-            db.execute(
-                """UPDATE hypotheses SET status=?,supporting_evidence_json=?,
-                   contrary_evidence_json=?,current_evidence_root=?,last_tested_at=?,
-                   state_version=?,updated_at=? WHERE id=?""",
-                (
-                    status,
-                    canonical_json(support),
-                    canonical_json(contrary),
-                    root,
-                    now,
-                    expected_version + 1,
-                    now,
-                    hypothesis_id,
-                ),
-            )
-            self.store.append_event(
-                db,
-                mission_id=current["mission_id"],
-                stream_key="reflection",
-                event_type=f"hypothesis.{status}",
-                subject_type="hypothesis",
-                subject_id=hypothesis_id,
-                prior_version=expected_version,
-                new_version=expected_version + 1,
-                payload={
-                    "supporting_evidence": support,
-                    "contrary_evidence": contrary,
-                    "evidence_root": root,
-                },
-            )
-        result = self.store.one("SELECT * FROM hypotheses WHERE id=?", (hypothesis_id,))
-        if result is None:
-            raise StoreError("hypothesis disappeared after update")
-        return result

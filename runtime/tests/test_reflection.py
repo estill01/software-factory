@@ -4,10 +4,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from librsi import Hypothesis, deserialize_record
 
-from software_factory import CoreService, InvalidTransition, StaleState, Store
+from software_factory import CoreService, InvalidTransition, Store
 from software_factory.reflection import ReflectionService
-from software_factory.util import canonical_json, json_load, new_id, utc_now
+from software_factory.util import canonical_json, new_id, utc_now
 
 
 def make_runtime(root: Path) -> tuple[Store, CoreService, ReflectionService, str]:
@@ -117,13 +118,37 @@ def test_failure_reflection_is_idempotent_and_retains_competing_hypotheses() -> 
 
         assert first["reflection_execution_id"] == second["reflection_execution_id"]
         assert first["recommended_next_action"] == "run_discriminating_experiment"
-        assert len(first["hypothesis_ids"]) == 2
-        hypotheses = store.all(
-            "SELECT * FROM hypotheses WHERE origin_execution_id=? ORDER BY created_at",
-            (first["reflection_execution_id"],),
+        assert first["hypothesis_roots"] == second["hypothesis_roots"]
+        assert len(first["hypothesis_roots"]) == 2
+        hypotheses = [
+            deserialize_record(
+                store.one("SELECT canonical_json FROM librsi_records WHERE root=?", (root,))[
+                    "canonical_json"
+                ]
+            )
+            for root in first["hypothesis_roots"]
+        ]
+        assert all(isinstance(item, Hypothesis) for item in hypotheses)
+        assert all(item.predictions for item in hypotheses if isinstance(item, Hypothesis))
+        assert store.one("SELECT COUNT(*) AS count FROM hypotheses") == {"count": 0}
+        assert store.one(
+            "SELECT COUNT(*) AS count FROM work_items WHERE lane_key=?",
+            (f"librsi-experiment:{execution}",),
+        ) == {"count": 1}
+        assert store.one(
+            """SELECT COUNT(*) AS count FROM events
+               WHERE event_type='librsi.semantic_slice_cut_over' AND subject_id=?""",
+            (execution,),
+        ) == {"count": 1}
+        receipt = store.one(
+            "SELECT * FROM librsi_cutover_receipts_v2 WHERE source_execution_id=?",
+            (execution,),
         )
-        assert {row["hypothesis_type"] for row in hypotheses} == {"causal", "problem_framing"}
-        assert all(json_load(row["expected_evidence_json"], {}) for row in hypotheses)
+        assert receipt["receipt_root"] == first["cutover_receipt_root"]
+        assert receipt["parity_disposition"] == "matched"
+        assert receipt["authority_posture"] == "authoritative"
+        assert receipt["source_commit"] == "1d81f6180b40435e10145756a2d99e6f334d31bc"
+        assert execution not in first["hypothesis_roots"]
         assert (
             store.one(
                 "SELECT COUNT(*) AS count FROM executions WHERE idempotency_key LIKE 'reflection:%'"
@@ -147,7 +172,7 @@ def test_unexpected_success_and_ordinary_success_choose_different_routes() -> No
         )
         result = reflection.reflect_execution(unexpected)
         assert result["recommended_next_action"] == "bounded_replay_and_counterexample_search"
-        assert len(result["hypothesis_ids"]) == 2
+        assert len(result["hypothesis_roots"]) == 2
 
         obligation2, work2 = add_selected_work(core, mission, strategy="normal-path")
         ordinary = observed_execution(
@@ -160,7 +185,65 @@ def test_unexpected_success_and_ordinary_success_choose_different_routes() -> No
         )
         ordinary_result = reflection.reflect_execution(ordinary)
         assert ordinary_result["recommended_next_action"] == "retain_current_strategy"
-        assert ordinary_result["hypothesis_ids"] == []
+        assert ordinary_result["hypothesis_roots"] == []
+
+
+def test_unexpected_success_changes_work_only_after_bounded_supporting_evidence() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, reflection, mission = make_runtime(Path(directory))
+        obligation, work = add_selected_work(core, mission, strategy="bounded-reuse")
+        source = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="bounded-reuse",
+            status="succeeded",
+            unexpected_success=True,
+        )
+        semantic = reflection.reflect_execution(source)
+        current_root = semantic["hypothesis_roots"][0]
+
+        first_execution = observed_execution(
+            store,
+            mission,
+            obligation,
+            semantic["experiment_work_item_id"],
+            strategy="matched-replay-1",
+            status="succeeded",
+        )
+        first = reflection.semantic_integration.record_experiment_outcome(
+            experiment_execution_id=first_execution,
+            hypothesis_root=current_root,
+            disposition="supported",
+            data={"replicate": 1, "benefit_recurred": True},
+        )
+        assert first["status"] != "supported"
+        assert first["followup_work_item_id"] is None
+
+        second_execution = observed_execution(
+            store,
+            mission,
+            obligation,
+            semantic["experiment_work_item_id"],
+            strategy="matched-replay-2",
+            status="succeeded",
+        )
+        second = reflection.semantic_integration.record_experiment_outcome(
+            experiment_execution_id=second_execution,
+            hypothesis_root=first["hypothesis_root"],
+            disposition="supported",
+            data={"replicate": 2, "benefit_recurred": True},
+        )
+        assert second["status"] == "supported"
+        assert second["followup_work_item_id"]
+        assert store.one(
+            "SELECT planning_status,acceptance_status FROM work_items WHERE id=?",
+            (second["followup_work_item_id"],),
+        ) == {"planning_status": "proposed", "acceptance_status": "pending"}
+        assert store.one("SELECT status FROM obligations WHERE id=?", (obligation,)) == {
+            "status": "open"
+        }
 
 
 def test_reflection_rejects_nonterminal_execution_and_bad_timescale() -> None:
@@ -209,7 +292,7 @@ def test_checkpoint_and_terminal_reflection_detect_recurrence_and_are_idempotent
         assert terminal["reflection_execution_id"] != checkpoint["reflection_execution_id"]
 
 
-def test_hypothesis_updates_are_versioned_deduplicated_and_validated() -> None:
+def test_failed_experiment_is_null_evidence_not_falsification_or_authorization() -> None:
     with tempfile.TemporaryDirectory() as directory:
         store, core, reflection, mission = make_runtime(Path(directory))
         obligation, work = add_selected_work(core, mission, strategy="hypothesis")
@@ -222,30 +305,29 @@ def test_hypothesis_updates_are_versioned_deduplicated_and_validated() -> None:
             status="failed",
             error="needs evidence",
         )
-        hypothesis = reflection.reflect_execution(execution)["hypothesis_ids"][0]
-
-        updated = reflection.update_hypothesis(
-            hypothesis,
-            expected_version=1,
-            status="challenged",
-            supporting_evidence=(execution, execution),
-            contrary_evidence=("counterexample", "counterexample"),
+        semantic = reflection.reflect_execution(execution)
+        hypothesis = semantic["hypothesis_roots"][0]
+        experiment_execution = observed_execution(
+            store,
+            mission,
+            obligation,
+            semantic["experiment_work_item_id"],
+            strategy="discriminator",
+            status="failed",
+            error="experiment harness did not produce a valid observation",
         )
-        assert updated["state_version"] == 2
-        assert updated["status"] == "challenged"
-        assert json_load(updated["supporting_evidence_json"], []) == [execution]
-        assert json_load(updated["contrary_evidence_json"], []) == ["counterexample"]
-        assert updated["current_evidence_root"]
-
-        with pytest.raises(StaleState):
-            reflection.update_hypothesis(
-                hypothesis,
-                expected_version=1,
-                status="supported",
-            )
-        with pytest.raises(ValueError, match="unsupported"):
-            reflection.update_hypothesis(
-                hypothesis,
-                expected_version=2,
-                status="invented",
-            )
+        update = reflection.semantic_integration.record_experiment_outcome(
+            experiment_execution_id=experiment_execution,
+            hypothesis_root=hypothesis,
+            disposition="counterexample",
+            data={"harness": "failed"},
+        )
+        assert update["status"] != "rejected"
+        assert update["operational_transition_authorized"] is False
+        assert store.one(
+            "SELECT acceptance_status FROM work_items WHERE id=?",
+            (semantic["experiment_work_item_id"],),
+        ) == {"acceptance_status": "pending"}
+        assert store.one("SELECT status FROM obligations WHERE id=?", (obligation,)) == {
+            "status": "open"
+        }

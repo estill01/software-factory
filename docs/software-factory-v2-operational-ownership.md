@@ -54,7 +54,8 @@ database transaction.
 | Supervision | `SupervisionService` | assignments, checks, incidents | none |
 | Delivery/operator effects | `ReportingService` | schedules, notifications, attempts, operator tokens and decisions | none |
 | Reports | `ReportingService` | reports | governance delivery disposition |
-| Adaptive and reflection semantics | `AdaptiveService`, `ReflectionService` | adaptive actions, strategy outcomes, legacy hypotheses | none |
+| Adaptive outcomes | `AdaptiveService` | adaptive actions and strategy outcomes | none |
+| libRSI semantic cache and bindings | `integrations.librsi.service` | immutable canonical records, explicit operational bindings, and cutover receipts | `ReflectionService` supplies bounded triggers/context and creates only Factory work through `WorkItemService` |
 | Learning semantics | `LearningService` | observations, signals, reflections, hypotheses, experiments, runs, and effectiveness records | migration observation import |
 | Evolution semantics | `EvolutionService` | portfolios, checkpoints, candidates, policies, selections, reviews, and outcomes | none |
 | Problem-solving semantics | `ProblemSolvingService` | cycles, candidates, next-action decisions, attempts, experiment designs, and verifications | none |
@@ -65,7 +66,7 @@ database transaction.
 | Reconciliation | `ReconciliationService` | integration candidates and restart workspaces | none |
 
 The boundary test extracts `INSERT`, `INSERT OR ...`, `UPDATE`, and `DELETE`
-targets from every top-level runtime module. The extracted set must equal the
+targets from every runtime package module, including integration subpackages. The extracted set must equal the
 registry exactly; an unregistered write or a declared table with no runtime
 writer fails instead of being skipped. Every extracted writer must also be the
 declared primary module or a named transaction participant. The registry uses
@@ -88,7 +89,7 @@ an applied decision is idempotent.
 ## Migration lineage
 
 The active lineage is exactly `0001_core.sql` through
-`0022_acceptance_lifecycle.sql`, with one file per contiguous version. Every SQL
+`0023_librsi_integration.sql`, with one file per contiguous version. Every SQL
 migration file must be present in `MIGRATIONS`, and every catalog entry must
 have one matching file. Applied name or checksum drift, version gaps, unknown
 applied versions, duplicate files, or inert SQL files fail initialization.
@@ -100,11 +101,12 @@ not created. The canonical owners are `supervision_assignments`,
 
 ## Semantic separation
 
-Reflections, hypotheses, experiments, learned signals, evolution candidates,
-and selections are evidence and reasoning records. They may cite operational
+Canonical libRSI records, retained learned signals, evolution candidates, and
+selections are evidence and reasoning records. They may cite operational
 identifiers, but no operational lifecycle row may depend on a semantic row for
 identity, current status, authority, fencing, acceptance, delivery, or release.
-Semantic adoption must pass through the relevant operational owner's explicit
+The migrated failed/unexpected reflection slices use exact libRSI roots and
+bindings rather than the legacy `hypotheses` writer. Semantic adoption must pass through the relevant operational owner's explicit
 transition; inserting or updating a semantic row alone has no operational
 effect.
 

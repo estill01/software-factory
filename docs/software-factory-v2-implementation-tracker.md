@@ -1555,6 +1555,98 @@ semantic/operational identity separation, and outcome use.
   Factory retains missions, obligations, work, execution, effects, governance,
   QA, acceptance, delivery, and operational persistence. Do not consume utils,
   begin delivery/release cutover, or run the broad runtime suite.
+- Immutable admission: runtime metadata and `runtime/uv.lock` resolve only the
+  accepted libRSI source commit. Packaged pin
+  `runtime/src/software_factory/semantic_pins/librsi.json` records the producer
+  acceptance revision, accepted source commit, repository and package trees,
+  package-content-root algorithm, distribution/import/version, accepted wheel
+  and sdist SHA-256 values, schema versions, adapter contract, and unpublished/
+  no-license boundary. The pin verifier checks import/distribution version and
+  exact PEP 610 URL/VCS/requested/installed commit. A bare registry name,
+  mutable `main`, producer checkout import, source copy, or producer write is
+  absent. Exact producer public conformance from an isolated archive returned
+  `22 passed`; its 16 warnings come from producer-owned explicit deprecated
+  compatibility tests rather than the Factory adapter.
+- Canonical integration: `integrations/librsi` maps the complete observed
+  mission/work/execution state to exact composite target and snapshot records.
+  Migration `0023_librsi_integration.sql` adds one immutable canonical-record
+  cache, explicit operational-subject/semantic-root bindings, and rooted
+  shadow/cutover receipts; schema version is 23. Records are immutable by root,
+  conflicting bytes or stale bindings fail closed, operational IDs are never
+  semantic identities, and no operational table foreign-key depends on the
+  semantic cache. The exhaustive owner test now covers integration subpackages
+  and assigns all three tables to one writer.
+- Authoritative vertical slices: failed/abandoned/cancelled execution and
+  unexpected success each yield one exact observation, two competing canonical
+  hypotheses, boundary evidence, and one bounded discriminating experiment.
+  The adapter creates one idempotent proposed/pending Factory experiment work
+  item without closing its obligation. Exact experiment observations update
+  the exact hypothesis version; an invalid or failed experiment is zero-weight
+  null evidence rather than falsification. Unexpected-success follow-up appears
+  only after bounded support reaches libRSI's supported posture, and remains
+  proposed/pending because semantic selection grants no dispatch, effect,
+  acceptance, or lifecycle authority.
+- Shadow, cutover, and deletion: every migrated source execution records exact
+  dependency/currentness roots, the legacy-role shadow root, canonical result
+  root, matched parity, and authoritative posture. Mismatch fails closed. The
+  failed/unexpected local proposal algorithm, `_create_hypothesis`, and mutable
+  `update_hypothesis` writer are deleted. The legacy `hypotheses` table remains
+  schema-history only with no runtime writer or lifecycle-owner claim; Block 11
+  owns any byte retirement after preservation proof. Retained learning signal
+  execution and evolution/problem-solving host coordination are not used as
+  hypothesis/experiment writers for the migrated slices. The exact treatment
+  and deletion map is
+  `docs/software-factory-v2-librsi-cutover.md`.
+- Product-capability review:
+  - Trigger: consequential Block and one-way semantic-owner cutover; frame is
+    the exact Block 7 objective, accepted libRSI handoff, v2 plan sections
+    4.2/5/8–10, and protected Factory operational-authority boundary.
+  - Capability added or preserved: failed work and surprising success now
+    generate evidence-driven competing explanations and real discriminators,
+    while mission continuation, obligations, work, effects, QA, acceptance,
+    delivery, and release remain Factory-owned.
+  - Paths compared: retain duplicate local hypotheses; copy libRSI source;
+    resolve the same public registry name/version; transfer scheduling/effects
+    to libRSI; or use an exact immutable one-way dependency plus thin
+    Factory-owned mappings and bindings.
+  - Selected level and owner: libRSI owns canonical epistemic/experimental
+    records and transitions for the migrated slices; Factory owns complete
+    operational observation, persistence hosting, work/effect conversion, and
+    every authority-bearing transition.
+  - Protected-capability result: failures remain evidence rather than mission
+    closure, unexpected success cannot self-promote, exact currentness and
+    independent downstream review remain mandatory, and no reverse import or
+    duplicate reflection writer exists.
+  - Rejected alternatives: local duplication preserves two writers; source
+    copying breaks independent ownership/versioning; bare registry resolution
+    can select the unrelated public project; authority transfer creates a
+    second controller; a universal semantic/operational ledger conflates IDs.
+  - Tradeoff and uncertainty: immutable cache/bindings and a pinned VCS
+    dependency add records and installation provenance checks, offset by root
+    deduplication and one experiment work item per source. Block 12 must still
+    prove installed terminal qualification; public release/license authority is
+    deliberately absent.
+- Proof: `18 passed` across exact pin, integration, reflection, persistence,
+  ownership, idempotency, and negative boundaries. The mapped Factory host
+  audit returned `75 passed` across learning, evolution, problem solving,
+  supervision, composition, core, reflection, and ownership; one pre-existing
+  `TestStore` collection warning remains. The stale problem-solving fixture now
+  initializes the real contiguous lineage, restoring its nine existing cases
+  without production behavior change. Ruff format/check are clean across 99
+  files, mypy is clean across 68 source files, compile is clean, and full
+  runtime collection is 200 tests with seven documented legacy collection
+  warnings. No broad runtime suite was run. The isolated build produced wheel
+  SHA-256
+  `1bb212106a54479d9fbbf6d9cd40bd9f61ccababc4f93f4062cb13c2c7f4b0aa`
+  and sdist SHA-256
+  `b5f917844a11c4751cec683d1e04a38fd4303efa2ce6b1eb324bc0879613e40b`.
+  Focused evidence JSON SHA-256:
+  `68df2b82fb0c069f52229e579e5bded9d54aefdd637d6070416e296d6b4dbfdf`.
+- Candidate posture: implementation and narrow proof are complete; Block 7
+  remains `in-progress` pending one clean pushed exact candidate and distinct
+  independent review. No utils package was consumed, no production target was
+  used, and delivery/release, service/API, neutral-content, migration, and
+  terminal qualification remain Blocks 8–12.
 
 ### Stop
 

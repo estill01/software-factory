@@ -1,0 +1,19 @@
+{
+  "adapter_contract": "software-factory.librsi/v1",
+  "artifact_boundary": "unpublished-internal-no-license-or-redistribution-claim",
+  "distribution": "libRSI",
+  "event_projection_schema_version": 1,
+  "import_name": "librsi",
+  "outcome_projection_schema_version": 1,
+  "package_content_root": "2653cb551e69bf2f45c95216982f70b50258c92e",
+  "package_content_root_algorithm": "git-tree:src/librsi",
+  "package_tree": "2653cb551e69bf2f45c95216982f70b50258c92e",
+  "producer_acceptance_revision": "dbcb60edfbcab53ff7e5cc25403bfbc33b458329",
+  "repository_tree": "d9ff421192e3582a6b8e908bf8a02cf2d7678acc",
+  "sdist_sha256": "e3ca4a817b80043ea59ba153e4d3ba105c86ad74183cb28816d66dd6d0f813c0",
+  "semantic_record_schema_version": 1,
+  "source_commit": "1d81f6180b40435e10145756a2d99e6f334d31bc",
+  "source_url": "https://github.com/estill01/libRSI.git",
+  "version": "0.2.0",
+  "wheel_sha256": "6b06612150d2f3a11b23de14870738ea9cd6b704574c8cea2c8e811392454659"
+}

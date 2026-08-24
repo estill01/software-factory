@@ -7,7 +7,9 @@ name = "software-factory"
 version = "2.0.0.dev6"
 description = "Native SQL-backed autonomous multi-agent software factory"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "libRSI @ git+https://github.com/estill01/libRSI.git@1d81f6180b40435e10145756a2d99e6f334d31bc",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -33,7 +35,12 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-software_factory = ["web/*", "migrations/*.sql", "provider_pins/*.json"]
+software_factory = [
+  "web/*",
+  "migrations/*.sql",
+  "provider_pins/*.json",
+  "semantic_pins/*.json",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

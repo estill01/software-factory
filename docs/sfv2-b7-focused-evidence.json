@@ -1,0 +1,99 @@
+{
+  "block": "SFV2/B7",
+  "baseline_revision": "93dc761e1383d3b897f614aa3e9d16a57337f794",
+  "scope": {
+    "included": [
+      "exact immutable libRSI dependency admission and lock",
+      "canonical target, snapshot, observation, evidence, hypothesis, and experiment records",
+      "immutable semantic record cache and explicit operational bindings",
+      "failed and unexpected-success authoritative semantic slices",
+      "shadow parity and content-rooted cutover receipts",
+      "Factory-owned proposed experiment and evidence-supported follow-up work",
+      "legacy reflection hypothesis-writer deletion and preservation map"
+    ],
+    "excluded": [
+      "delivery or release cutover",
+      "utils artifact consumption",
+      "public libRSI installability, licensing, redistribution, or release claims",
+      "broad runtime pytest execution before SFV2/B12"
+    ]
+  },
+  "producer_handoff": {
+    "acceptance_revision": "dbcb60edfbcab53ff7e5cc25403bfbc33b458329",
+    "source_commit": "1d81f6180b40435e10145756a2d99e6f334d31bc",
+    "repository_tree": "d9ff421192e3582a6b8e908bf8a02cf2d7678acc",
+    "package_tree_and_content_root": "2653cb551e69bf2f45c95216982f70b50258c92e",
+    "version": "0.2.0",
+    "wheel_sha256": "6b06612150d2f3a11b23de14870738ea9cd6b704574c8cea2c8e811392454659",
+    "sdist_sha256": "e3ca4a817b80043ea59ba153e4d3ba105c86ad74183cb28816d66dd6d0f813c0",
+    "adapter_contract": "software-factory.librsi/v1",
+    "artifact_boundary": "unpublished internal exact-revision artifacts; no public installability, license, redistribution, or release authority claimed"
+  },
+  "producer_conformance": {
+    "source": "isolated git archive of the exact accepted source commit; producer checkout and unrelated untracked uv.lock excluded",
+    "command": "uv run --directory <isolated-exact-archive> --with pytest pytest -q tests/test_block23_consumer_conformance.py tests/test_canonical_records.py tests/test_hypotheses_experiments.py",
+    "result": "22 passed with 16 producer-owned deprecation warnings from its explicit legacy compatibility fixtures"
+  },
+  "focused_runtime": {
+    "command": "uv run --project runtime --with pytest pytest -q runtime/tests/test_librsi_integration.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
+    "result": "18 passed",
+    "negative_cases": [
+      "bare registry or mutable main dependency is absent and exact VCS provenance is required",
+      "libRSI cannot reverse-import Software Factory and no producer source is copied",
+      "operational IDs remain distinct from semantic roots",
+      "canonical record-root conflicts and stale operational bindings fail closed",
+      "duplicate reflection creates one experiment work item and one cutover event",
+      "semantic recommendation creates only proposed pending work and cannot accept or authorize it",
+      "a failed experiment becomes zero-weight null evidence rather than falsification",
+      "unexpected-success follow-up work appears only after bounded evidence reaches supported posture",
+      "the source obligation remains open throughout semantic investigation",
+      "no operational table foreign-key depends on the semantic record cache"
+    ]
+  },
+  "mapped_runtime": {
+    "command": "uv run --project runtime --with pytest pytest -q runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_advanced_integration.py runtime/tests/test_core.py runtime/tests/test_librsi_integration.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
+    "result": "75 passed with one pre-existing TestStore collection warning",
+    "fixture_remediation": "the stale problem-solving fixture now initializes the real contiguous migration lineage; nine existing behavioral cases pass without a production behavior change"
+  },
+  "static_and_collection": [
+    {
+      "command": "uv run --project runtime --with ruff ruff format runtime/src/software_factory runtime/tests",
+      "result": "99 files already formatted after the final source delta"
+    },
+    {
+      "command": "uv run --project runtime --with ruff ruff check runtime/src/software_factory runtime/tests",
+      "result": "clean"
+    },
+    {
+      "command": "uv run --project runtime --with mypy mypy runtime/src/software_factory",
+      "result": "68 source files clean"
+    },
+    {
+      "command": "uv run --project runtime --with pytest pytest --collect-only -q runtime/tests",
+      "result": "200 tests collected with seven documented legacy TestStore collection warnings"
+    },
+    {
+      "command": "python3 -m compileall -q runtime/src/software_factory runtime/tests/test_librsi_integration.py runtime/tests/test_reflection.py",
+      "result": "clean"
+    },
+    {
+      "command": "python3 author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "result": "0 errors, 0 warnings"
+    }
+  ],
+  "build": {
+    "command": "uv run --project runtime --with build python -m build --outdir <isolated-temp> runtime",
+    "wheel_sha256": "1bb212106a54479d9fbbf6d9cd40bd9f61ccababc4f93f4062cb13c2c7f4b0aa",
+    "sdist_sha256": "b5f917844a11c4751cec683d1e04a38fd4303efa2ce6b1eb324bc0879613e40b"
+  },
+  "source_sha256": {
+    "adapter": "426d73377069fccde5d326c4577be7ec174dcca29fea0403e17d70cfc085c3a2",
+    "pin_verifier": "e9865314cb68146086e2089d1b40a7a03a8f895f3944b34666b11eaf86b7bd6a",
+    "migration": "1e2dc94f54373a4e7e0cb840d38149f8d8ced59aaad1d1d4851ad70aa6b5e555",
+    "pin_manifest": "d2256f97722136f1c06184b82d82cc0b666e99f1751f86afd58a5e91387c7986",
+    "cutover_map": "b85ed2fba3ea150317380e71f434956e6da1b80b9e48ffc638e2158f1bee0230",
+    "lock": "b6f50819d363c1404358a6722a65cb87e33910526a5f891a3f1e352c8b0b8d76",
+    "project": "77407d1c7bfa0b7dba5c9786f964a23f0bdc1729515bc66085b2c65d97b20425"
+  },
+  "broad_suite_posture": "deferred to the tracker-mandated SFV2/B12 terminal qualification"
+}

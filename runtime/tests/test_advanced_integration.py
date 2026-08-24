@@ -72,7 +72,7 @@ def _mission(database: Database) -> None:
 def test_real_database_discovers_only_the_active_migration_lineage(tmp_path: Path) -> None:
     database = Database(tmp_path / "factory.sqlite3")
     health = database.health()
-    assert health["schema_version"] == 22
+    assert health["schema_version"] == 23
     tables = {
         row["name"]
         for row in database.all("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")

@@ -140,9 +140,13 @@ LIFECYCLE_OWNERS = (
         authority_class="semantic",
     ),
     LifecycleOwner(
-        "legacy_reflection",
-        "reflection",
-        ("hypotheses",),
+        "librsi_semantic_cache",
+        "integrations.librsi.service",
+        (
+            "librsi_records",
+            "librsi_record_bindings",
+            "librsi_cutover_receipts_v2",
+        ),
         authority_class="semantic",
     ),
     LifecycleOwner(
