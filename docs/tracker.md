@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `aa0aea46059df3a1bb2fe287078ec63f17b202bf602e77e4eaf9b3e1778c4107`; Blocks 0–1 accepted; Block 1 exact reviewed correction `2172dc4b112ad836bff0a292f63adb74cf61d3c0`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 2 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `3f94a3c4263d1918cac0b77e7b15946afe0c86c6666ae43817a3deb6a8e0fe0d`; Blocks 0–1 accepted; Block 2 active from clean acceptance successor `3429a4be1ba019736a9c04a0bdf26c92cfe49bf7`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 2 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -21,7 +21,7 @@ with no material findings. This index activates that reviewed program. Block 0
 is accepted at its preserved exact candidate after fresh review under the
 current full-range binding. Block 1 is accepted at exact pushed correction
 `2172dc4b112ad836bff0a292f63adb74cf61d3c0` after independent review returned
-no P0–P2 findings. Block 2 is the first dependency-eligible Block.
+no P0–P2 findings. Block 2 is active and is the dependency-safe frontier.
 
 ## Required outcome
 

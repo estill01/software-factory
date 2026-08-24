@@ -234,7 +234,7 @@ for this tracker may inspect Patent Studio patent content.
 |---:|---|---:|---|
 | 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
-| 2 | One embedded/standalone engine contract | 1 | `not-started` |
+| 2 | One embedded/standalone engine contract | 1 | `in-progress` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
@@ -560,7 +560,7 @@ Stop before exposing embedded or service hosts.
 
 ## Block 2 — Implement one embedded and standalone engine contract
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -620,7 +620,18 @@ Review state ownership, idempotency, restart, cancellation, and error parity.
 
 ### Completion evidence
 
-Pending.
+- Start posture: `in-progress` from clean pushed Block 1 acceptance successor
+  `3429a4be1ba019736a9c04a0bdf26c92cfe49bf7` on branch
+  `agent/software-factory-v2-native-refactor`, with zero local/remote
+  divergence and the full `SFV2/B0`–`SFV2/B12` range preserved.
+- Planned bounded candidate: one Factory-owned typed engine and two thin local
+  hosts over the same `Database` and `CoreService`; durable idempotent mission
+  submission, bounded event reads, restart, host transfer, cancellation, and
+  outcome equivalence are in scope.
+- Producer boundary: Block 2 does not consume `embedded-service-contract`,
+  `runtime-manifest`, or any other utils artifact. Those accepted producer
+  outputs remain reserved for their tracker-assigned Blocks 4, 9, 11, and 12.
+- Acceptance posture: implementation and exact-revision review pending.
 
 ### Stop
 
