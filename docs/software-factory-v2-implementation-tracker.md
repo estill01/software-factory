@@ -238,7 +238,7 @@ for this tracker may inspect Patent Studio patent content.
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
-| 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `in-progress` |
+| 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `accepted` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `not-started` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `not-started` |
@@ -1262,7 +1262,7 @@ Stop before integrated QA/supervision acceptance.
 
 ## Block 6 — Integrate QA, supervision, acceptance, and outcome closure
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1440,12 +1440,23 @@ capabilities rather than trust the producer's summary.
   `bf783a5c6bc12841d30e08a5a1e57d4b5ca6334185062a9369ba5c0bc4ffa106`.
   Focused evidence JSON SHA-256:
   `d726c0773a24b2135a999cb96295b96fd8f1a967351a8700c88c776d2e99eca7`.
-- Candidate posture: the second exact-review correction and narrow validation
-  are complete; Block 6 remains `in-progress` pending one clean exact
-  correction checkpoint and distinct independent re-review.
-  No production target was used. libRSI cutover,
-  utils artifact consumption, delivery, service boundary, cutover, and
-  terminal program qualification remain outside this candidate.
+- Independent review: exact candidate
+  `5025cf38ea989bb619d9d79facf0386ac5b10c0f`, tree
+  `15a96706f83cca1503aea6e96884b15b54fb5ea1`, was clean, pushed, and at `0/0`.
+  Distinct exact re-review returned `ACCEPT` with no P0–P2 findings after
+  independently reproducing both race orderings, stale/unrelated/unrooted/
+  wrong-revision/wrong-verification effectiveness attacks, the correct rooted
+  resolution, every earlier bypass closure, and the exact Product-capability
+  frame. The reviewer reproduced `66 passed`, 196-test collection, 93-file
+  format, Ruff, mypy across 63 sources, tracker verification 0/0, JSON/diff
+  integrity, and every recorded contract/evidence/source/migration/tracker hash.
+- Acceptance posture: `accepted`. Rejected candidates `fb3561f` and `58d51d7`
+  remain immutable pushed history. Retained open work is Blocks 7–12 and the
+  terminal observable outcome. No production target was used; no libRSI or
+  utils lane was entered, and delivery, service boundary, cutover, and terminal
+  program qualification remain outside this accepted Block. Post-Block audit
+  found no acceptance bypass, stale promotion, range race, evidence-free
+  effectiveness, duplicate writer, early return, or scope bleed.
 
 ### Stop
 
