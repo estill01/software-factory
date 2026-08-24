@@ -452,7 +452,83 @@ Test transaction/fencing/restart invariants and review authority uniqueness.
 
 ### Completion evidence
 
-Pending.
+- Acceptance posture: `candidate`; independent exact-revision review is
+  pending, so Block 1 remains `in-progress`.
+- Frozen implementation candidate: branch
+  `agent/software-factory-v2-native-refactor`, commit
+  `79adac40ffb5650ed46fe78f73d091109b7602e4`, tree
+  `0f82f5b0ed23b2e9390505cc755660d54e60df37`, pushed with local/remote
+  parity and a clean worktree.
+- Migration and persistence boundary:
+  `software_factory.database.Database` is the one implementation;
+  `DatabaseStore` and `Store` are exact compatibility aliases. The active
+  migration catalog is contiguous and file-exact from 1 through 20, the
+  conflicting `0008_supervision.sql` path is retired, and migration 19
+  reconciles runtime-referenced acceptance, observation, learning, reflection,
+  hypothesis, and experiment tables without reusing legacy semantic rows.
+- Operational owner boundary:
+  `runtime/src/software_factory/ownership.py` declares exactly one primary
+  module for each lifecycle table and the bounded coordinators allowed to join
+  its transactions. `CoreService` composes one shared owner graph;
+  `AdvancedServices`, API, daemon, CLI, and skill entrypoints reuse that graph
+  instead of creating alternate supervision, learning, operations, reporting,
+  migration, release, or recovery owners.
+- Owner documentation:
+  `docs/software-factory-v2-operational-ownership.md` records dependency
+  direction, lifecycle/table ownership, migration lineage, semantic separation,
+  and the later Block 2/5/7/11 cutovers. It explicitly rejects a universal
+  entity model.
+- Coupled-transition safety: nested database transactions use savepoints, so a
+  failed inner transition rolls back only its own writes while an outer failure
+  rolls back all nested writes. Operator schedule, work-cancellation, and
+  incident-acknowledgement effects now route through `ReportingService`,
+  `WorkItemService`, and `SupervisionService` rather than direct API writes.
+- Focused Block 1 pytest command over core, composition, controller, execution,
+  QA, supervision, acceptance, learning, migration, API, reporting, entrypoint,
+  and new boundary tests completed `82 passed` with one harmless legacy
+  pytest collection warning; no broad runtime matrix was run.
+- Static baseline closure:
+  `ruff check runtime/src runtime/tests` passes; `ruff format --check
+  runtime/src runtime/tests` reports all 78 files formatted; mypy reports no
+  issues across all 52 `runtime/src/software_factory` modules. Mechanical
+  formatting closes the exact Block 0-assigned static debt and changes no
+  lifecycle ownership.
+- Negative proof:
+  `runtime/tests/test_operational_boundaries.py` rejects inert or duplicate
+  migrations, applied checksum/name drift, unknown/gapped histories, reverse
+  persistence/service or service/host imports, undeclared lifecycle writers,
+  partial nested commits, and operational foreign-key dependence on semantic
+  tables. The advanced integration proof also asserts that the retired
+  alternate supervision/adaptive tables are absent.
+- Product-capability review:
+  - Trigger: consequential Block posture.
+  - Frame identity: this tracker, Block 1 planning bytes at SHA-256
+    `0ab15838469d8fa62140b7f36522152e79aef5f4a2e45514b2434aba525b0fa4`.
+  - Capability added or preserved: one transactional persistence owner and one
+    explicit lifecycle-owner graph while preserving event history, incident
+    recovery, release authority, and full-range continuation.
+  - Paths compared: retain implicit multi-writer composition; collapse all
+    lifecycle state into one universal service/model; retain modular services
+    with one SQL deployment, declared primary owners, and bounded transaction
+    participants.
+  - Selected level and owner: the modular-monolith boundary owned by
+    `Database`, the lifecycle services, and `CoreService` composition.
+  - Protected-capability result: no host/provider/profile/libRSI cutover and no
+    accepted historical evidence rewrite occurred.
+  - Rejected alternatives: implicit writers cannot reject authority drift; a
+    universal entity model erases lifecycle/evidence distinctions; premature
+    host exposure crosses the Block 1 Stop.
+  - Tradeoffs and uncertainty: compatibility aliases remain callable but are
+    the same class identity; later Blocks still own host exposure, semantic
+    cutover, delivery qualification, and legacy retirement.
+- Independent review: pending exact revision
+  `79adac40ffb5650ed46fe78f73d091109b7602e4`; process success and focused green
+  results are not acceptance.
+- Retained open work: exact-revision independent review and any resulting
+  P0–P2 correction only. Blocks 2–12 remain outside this candidate.
+- Decision/continuation posture: hold Block 1 `in-progress` until the exact
+  candidate is independently accepted; then record acceptance and continue
+  automatically to Block 2 without narrowing the full bound range.
 
 ### Stop
 
