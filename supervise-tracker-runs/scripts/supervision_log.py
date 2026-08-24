@@ -27388,8 +27388,8 @@ def cmd_implementation_authority_source_review_sign(args: argparse.Namespace) ->
     evidence = matches[0] if len(matches) == 1 else {}
     if evidence.get("kind") != "meta-review" or evidence.get("model") != "gpt-5.6-sol" or evidence.get("reasoning") != "max" or evidence.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY or evidence.get("status") != "accepted" or evidence.get("resolution_owner") != "supervisor" or evidence.get("user_action_required") != "no" or evidence.get("policy_sha256") != policy.get("policy_sha256") or not required <= set(evidence.get("evidence", [])):
         raise SupervisionLogError("Source review evidence is not one current clean Max review")
-    position = all_events.index(evidence)
-    if any(event.get("category") == DIRECT_AUTHORITY_REVIEW_CATEGORY and event.get("status") != "accepted" and required <= set(event.get("evidence", [])) for event in all_events[position + 1:]):
+    position = all_events.index(evidence); clean = {f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}; stable = required - clean
+    if any(event.get("category") == DIRECT_AUTHORITY_REVIEW_CATEGORY and stable <= set(event.get("evidence", [])) and (event.get("status") != "accepted" or not clean <= set(event.get("evidence", []))) for event in all_events[position + 1:]):
         raise SupervisionLogError("Source review evidence has a later contradiction")
     value: dict[str, Any] = {"schema_version": 1, "kind": "software-factory-direct-authority-source-review", "record_id": f"range-source-review-{evidence_id.lower()}", "target_thread_id": target, "source_task_id": task, "source_item_id": item, "source_record": record, "source_sha256": source_sha256, "source_byte_count": len(source_bytes), "verifier_thread_id": verifier, "reviewer_id": ADAPTIVE_REVIEWER_ID, "review_disposition": "accepted", "finding_count": 0, "policy_sha256": policy["policy_sha256"], "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256, "observed_at": evidence["timestamp"], "review_root": "", "signature_base64": ""}
     value["review_root"] = digest(direct_authority_review_root_material(value))

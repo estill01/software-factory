@@ -4533,8 +4533,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
         with mock.patch.object(supervision_log, "trusted_adaptive_reviewer_private_key", side_effect=AssertionError("key accessed")):
             self.assertTrue(self.call(*sign_arguments)["duplicate"])
         review_path = signed["output_json"]
-        with self.assertRaises(supervision_log.SupervisionLogError):
-            changed = sign_arguments.copy(); changed[changed.index("--review-evidence-record") + 1] = "EVT-000001"; self.call(*changed)
+        changed = sign_arguments.copy(); changed[changed.index("--review-evidence-record") + 1] = "EVT-000001"; self.assertRaises(supervision_log.SupervisionLogError, self.call, *changed)
+        self.call("record", "--target-thread", self.target, "--kind", "meta-review", "--active-block", "0", "--checkpoint", "direct-authority-source-review", "--status", "accepted", "--severity", "warning", "--summary", "later non-clean source review", "--category", supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY, "--model", "gpt-5.6-sol", "--reasoning", "max", "--resolution-owner", "supervisor", "--user-action-required", "no", *(item for value in evidence[:-2] for item in ("--evidence", value))); self.assertRaises(supervision_log.SupervisionLogError, self.call, *sign_arguments)
         arguments = ["implementation-range-authority-source-ingest", "--target-thread", self.target, "--source-task", self.target, "--source-item", source_item, "--source-record", source_record, "--source-text-base64", encoded, "--provenance-review-record", review_path, "--expected-policy-sha256", policy["policy_sha256"]]
         bad_review = supervision_log.read_json(Path(review_path))
         bad_review["source_byte_count"] = 287
