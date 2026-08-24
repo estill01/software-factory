@@ -235,7 +235,7 @@ for this tracker may inspect Patent Studio patent content.
 | 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
 | 1 | Operational authority and persistence boundaries | 0 | `accepted` |
 | 2 | One embedded/standalone engine contract | 1 | `accepted` |
-| 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `in-progress` |
+| 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `accepted` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `not-started` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `not-started` |
@@ -713,7 +713,7 @@ Stop before autonomous scheduling or provider effects.
 
 ## Block 3 — Implement work graph, scheduling, continuation, and concurrency
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -842,9 +842,22 @@ Test race/crash/stale/partial/failure scenarios and review range preservation.
   conflicting work. That candidate is rejected evidence and remains preserved.
 - Corrected candidate posture: `candidate`; attempt exhaustion is now excluded
   before maximal-frontier scope selection and the exact mixed-frontier
-  regression passes. Fresh exact pushed-revision independent review is required
-  before Block 3 acceptance. No utils artifact is consumed and no live
-  agent/provider lifecycle is started in this Block.
+  regression passes.
+- Accepted correction checkpoint: branch
+  `agent/software-factory-v2-native-refactor`, commit
+  `c2bc0a2174d077dbe49a94fb58fd61a90d0613fa`, tree
+  `7d7e04dafccc48d2ce2acaebc9b74003ec590f46`, pushed with a clean worktree
+  and zero local/remote divergence.
+- Independent review: the existing reviewer `/root/sfv2_b0_exact_review`
+  reviewed exact correction `c2bc0a2174d077dbe49a94fb58fd61a90d0613fa`,
+  reproduced `39 passed`, reran the mixed-frontier proof, and returned `ACCEPT`
+  with no P0, P1, or P2 findings. Atomic capacity/attempt fencing, restart,
+  dependency/scope safety, obligation preservation, accepted-history lineage,
+  immutable requested range, and the Block 3 Stop remain sound.
+- Acceptance posture: `accepted`. Retained open work: none in Block 3; Blocks
+  4–12 remain unaccepted inside the current full range. No utils artifact is
+  consumed and no live agent/provider lifecycle is started in this Block.
+  Continue automatically to dependency-eligible Block 4.
 
 ### Stop
 
