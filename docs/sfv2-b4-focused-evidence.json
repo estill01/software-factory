@@ -11,9 +11,9 @@
       "runtime/tests/test_engine_hosts.py",
       "runtime/tests/test_execution_qa.py"
     ],
-    "result": "45 passed"
+    "result": "46 passed"
   },
-  "collection": "178 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "collection": "179 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
   "static_proofs": [
     {
       "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
@@ -63,10 +63,11 @@
   },
   "runtime_wheel_proof": {
     "version": "2.0.0.dev6",
-    "sha256": "9b444aa8f127338930fe0979545eae2aa046c3dbc183d52bcb1fef4f815b0b12",
+    "sha256": "cb8487ebdb14ff52d05a59f76fd9f41d7ce1836db025c1959a5e798d5de44787",
     "posture": "ephemeral local qualification artifact, not a release artifact",
     "required_members": [
       "software_factory/app_server_provider.py",
+      "software_factory/providers.py",
       "software_factory/provider_provenance.py",
       "software_factory/provider_pins/codex-app-server-client.json"
     ]
@@ -75,7 +76,7 @@
     "one_process_owner": "duplicate composition owner keys are rejected and replacement closes the previous owner before installation",
     "restart_reattachment": "a new adapter instance reattaches from exact durable execution, thread, turn, workspace, and producer identity without persisting client objects or callback tokens",
     "approval_boundary": "unrouted command and file approvals are declined; external input interrupts and fails closed",
-    "cancellation": "engine cancellation durably fences dispatch, cancels each exact provider handle, releases its leases only after terminal cancellation, and then cancels the mission",
+    "cancellation": "engine cancellation durably fences dispatch, cancels each exact provider handle, releases its leases only after terminal cancellation, and then cancels the mission; the local-process lane waits for process-group exit and escalates from SIGTERM to SIGKILL before reporting cancelled",
     "recovery_order": "lease-expired provider authority remains active until cancellation succeeds; cancellation failure blocks overlapping replacement dispatch",
     "callback_secret": "callback authentication material remains controller-local and is absent from every ProviderRequest and durable provider handle",
     "acceptance_separation": "completed app-server turn records provider_success_only while work acceptance remains pending",
@@ -90,6 +91,14 @@
         "engine cancellation did not reach active provider work",
         "lease-expiry recovery released authority before provider cancellation",
         "ProviderRequest exposed the controller callback secret to external dispatch"
+      ]
+    },
+    {
+      "candidate": "aea15d082638bf1d23b4c42822b2024aad6f6320",
+      "tree": "b554865b413bdf214265a16b4c9dc051d2ee1547",
+      "disposition": "REVISE",
+      "findings": [
+        "ProcessProvider and CodexCLIProvider reported terminal cancellation immediately after SIGTERM without observing process-group exit"
       ]
     }
   ],

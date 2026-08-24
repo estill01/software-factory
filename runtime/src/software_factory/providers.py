@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -202,6 +203,8 @@ class ProcessProvider:
         *,
         output_limit_bytes: int = 8 * 1024 * 1024,
         max_prompt_bytes: int = 256 * 1024,
+        termination_grace_seconds: float = 5.0,
+        kill_grace_seconds: float = 5.0,
     ) -> None:
         self.state_root = Path(state_root).expanduser().resolve()
         self.state_root.mkdir(parents=True, exist_ok=True)
@@ -210,8 +213,12 @@ class ProcessProvider:
             raise ValueError("output_limit_bytes must be positive")
         if max_prompt_bytes <= 0:
             raise ValueError("max_prompt_bytes must be positive")
+        if termination_grace_seconds <= 0 or kill_grace_seconds <= 0:
+            raise ValueError("process cancellation grace periods must be positive")
         self.output_limit_bytes = output_limit_bytes
         self.max_prompt_bytes = max_prompt_bytes
+        self.termination_grace_seconds = termination_grace_seconds
+        self.kill_grace_seconds = kill_grace_seconds
         self.process_owner_key = f"process-provider:{self.state_root}"
 
     def _directory(self, execution_id: str) -> Path:
@@ -324,12 +331,70 @@ class ProcessProvider:
             error={"reason": "process_exited_without_status"},
         )
 
+    @staticmethod
+    def _process_group_alive(process_group_id: int) -> bool:
+        try:
+            os.killpg(process_group_id, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    @staticmethod
+    def _reap_runner(pid: int) -> None:
+        with contextlib.suppress(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+
+    def _wait_for_process_group_exit(self, process_group_id: int, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            self._reap_runner(process_group_id)
+            if not self._process_group_alive(process_group_id):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(0.02, remaining))
+
     def cancel(self, handle: Mapping[str, Any]) -> ProviderObservation:
         pid = int(handle.get("pid") or 0)
-        if pid > 0 and self._alive(pid):
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(pid, signal.SIGTERM)
-        return ProviderObservation(status="cancelled", handle=dict(handle))
+        if pid <= 0:
+            return ProviderObservation(
+                status="lost",
+                handle=dict(handle),
+                error={"reason": "provider handle has no process group"},
+            )
+        if not self._process_group_alive(pid):
+            return ProviderObservation(
+                status="cancelled",
+                handle=dict(handle),
+                result={"process_group_id": pid, "already_stopped": True},
+            )
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGTERM)
+        if self._wait_for_process_group_exit(pid, self.termination_grace_seconds):
+            return ProviderObservation(
+                status="cancelled",
+                handle=dict(handle),
+                result={"process_group_id": pid, "signal": "SIGTERM", "escalated": False},
+            )
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGKILL)
+        if self._wait_for_process_group_exit(pid, self.kill_grace_seconds):
+            return ProviderObservation(
+                status="cancelled",
+                handle=dict(handle),
+                result={"process_group_id": pid, "signal": "SIGKILL", "escalated": True},
+            )
+        return ProviderObservation(
+            status="running",
+            handle=dict(handle),
+            error={
+                "reason": "process_group_remained_alive_after_sigkill",
+                "process_group_id": pid,
+            },
+        )
 
 
 class CodexCLIProvider(ProcessProvider):

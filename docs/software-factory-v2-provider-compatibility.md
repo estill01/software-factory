@@ -8,7 +8,7 @@ close a mission.
 | Provider | Process owner | Durable restart identity | Cancellation | Bounds and callback posture | Qualification |
 | --- | --- | --- | --- | --- | --- |
 | `DeterministicProvider` | injected host/test owner | Factory execution ID | deterministic observation | prompt-byte bound; no external callback channel | offline fixture and replay |
-| `ProcessProvider` / `CodexCLIProvider` | one registry owner per resolved state root | execution ID plus Factory-owned status/output paths and PID observation | process-group termination | prompt/output bounds; command builder is Factory-owned | local-process fallback |
+| `ProcessProvider` / `CodexCLIProvider` | one registry owner per resolved state root | execution ID plus Factory-owned status/output paths and PID observation | bounded SIGTERM wait, SIGKILL escalation, and verified process-group exit | prompt/output bounds; command builder is Factory-owned | local-process fallback |
 | `CodexAppServerProvider` | one registry owner per explicit composition key | execution, assignment, work, workspace, lease, exact thread/turn, and exact producer roots | exact typed thread/turn interrupt | prompt/event/callback/operation bounds; command and file approvals are declined; external input interrupts fail closed | exact internal wheel and protocol pin below |
 | `ExternalAgentProvider` | injected external owner | host-supplied handle under the Factory execution | injected bounded cancel operation | prompt-byte bound; callback authentication remains Factory-local and never enters `ProviderRequest` | consumer-supplied adapter |
 
@@ -54,6 +54,14 @@ Only an observed terminal cancellation authorizes recovery to release that
 authority. A cancellation exception or non-terminal observation leaves the
 execution, lease, and assignment in place, so replacement dispatch cannot
 overlap work that may still be running.
+
+The local-process and Codex CLI lane does not treat signal delivery as terminal
+proof. It sends SIGTERM to the exact process group, waits for bounded observed
+exit, escalates to SIGKILL when necessary, and again waits for the group to
+disappear. If exit still cannot be proven, the adapter reports non-terminal
+`running`; the controller therefore retains the cancellation fence and target
+authority. A SIGTERM-ignoring fixture proves that no delayed provider effect is
+observed after terminal cancellation returns.
 
 Callback authentication is an internal controller capability. It is persisted
 only in the Factory callback record, is compared at the callback boundary, and

@@ -975,7 +975,7 @@ restart, and provider-success/acceptance separation.
   external input interrupts and fails closed. A completed turn returns
   `provider_success_only` evidence and leaves work acceptance pending.
 - Compatibility and diagnostic: `docs/software-factory-v2-provider-compatibility.md`,
-  SHA-256 `04973348503edfbc30dee536f5b88510e5414cd67e058206bf0a44c50f188cf1`,
+  SHA-256 `ea2a8581327c2282c9f2cbb24455ab164df45e4da01dd0442b40c77c7ba5384e`,
   records ownership, restart, cancellation, bounds, and qualification for all
   four provider lanes. The bounded real-host diagnostic verified exact Codex
   `0.147.0`, executable SHA-256
@@ -984,23 +984,25 @@ restart, and provider-success/acceptance separation.
   typed `thread/list(limit=1)`, observed one result, and closed it. It started no
   generative turn and read or wrote no target repository.
 - Focused evidence: `docs/sfv2-b4-focused-evidence.json`, SHA-256
-  `8398ad3674aed382995813d440be44fd3d53d93cd80932404ae032ab458726d3`,
-  records `45 passed`, repository collection at `178 tests`, Ruff and 87-file
+  `5387daa78b00e6bc7e222fe9540c955cd696b59c917795563f1d0d7737e2803b`,
+  records `46 passed`, repository collection at `179 tests`, Ruff and 87-file
   format success, mypy success across 59 source files, compilation, exact
   producer identity, diagnostic results, and Stop-boundary checks. No broad
   runtime suite was run.
 - Artifact proof: an ephemeral Factory wheel for `2.0.0.dev6`, SHA-256
-  `9b444aa8f127338930fe0979545eae2aa046c3dbc183d52bcb1fef4f815b0b12`,
+  `cb8487ebdb14ff52d05a59f76fd9f41d7ce1836db025c1959a5e798d5de44787`,
   contains the app-server adapter, provenance verifier, and packaged exact pin.
   It is qualification evidence, not a release artifact.
 - Negative proofs: duplicate process owners fail; replacement closes its former
   owner; a tampered producer wheel or stale durable producer root fails closed;
   a replaced provider reattaches to the same exact thread/turn; unrouted
   approval is declined; engine cancellation durably fences new dispatch before
-  cancelling every exact provider handle; failed recovery cancellation retains
-  the expired active lease and blocks overlap; callback authentication material
-  is absent from both `ProviderRequest` and the durable handle; and provider
-  success cannot set work acceptance.
+  cancelling every exact provider handle; the local-process lane waits for
+  process-group exit and escalates a SIGTERM-ignoring child to SIGKILL before
+  returning terminal cancellation; failed recovery cancellation retains the
+  expired active lease and blocks overlap; callback authentication material is
+  absent from both `ProviderRequest` and the durable handle; and provider success
+  cannot set work acceptance.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Capability added or preserved: real replaceable worker execution can start,
@@ -1025,10 +1027,16 @@ restart, and provider-success/acceptance separation.
   `307826a17a56eae0de478d1a32c779a4b61fce05`, returned `REVISE` with three P1
   findings and no P0/P2: engine cancellation could not reach active providers,
   lease-expiry recovery released authority before provider cancellation, and
-  external dispatch received the Factory callback secret. The corrected
-  implementation routes engine cancellation through a durable effect fence,
-  cancels providers before releasing authority, retains the fence/lease after a
-  cancellation failure, and removes callback material from `ProviderRequest`.
+  external dispatch received the Factory callback secret.
+- Preserved rejected correction: exact pushed commit
+  `aea15d082638bf1d23b4c42822b2024aad6f6320`, tree
+  `b554865b413bdf214265a16b4c9dc051d2ee1547`, returned `REVISE` with one P1
+  and no P0/P2: `ProcessProvider` and `CodexCLIProvider` reported terminal
+  cancellation immediately after SIGTERM without observing process-group exit,
+  so a signal-ignoring child could produce effects after Factory authority was
+  released. The next correction retains the durable effect fence, cancellation-
+  before-release ordering, failure retention, and callback-secret removal while
+  adding bounded SIGTERM wait, SIGKILL escalation, and verified group exit.
 - Corrected candidate posture: implementation-complete pending exact independent review.
   Block 9 structural/runtime packages are not consumed, the dashboard duplicate
   is not retired, utils is unmodified, and Block 5 target-profile effects have

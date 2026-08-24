@@ -696,3 +696,51 @@ def test_process_provider_is_restart_observable_and_returns_bounded_output() -> 
                     "status_path": str(root / "outside-status.json"),
                 }
             )
+
+
+def test_process_provider_proves_group_exit_before_terminal_cancellation() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        ready = root / "ready"
+        post_cancel_effect = root / "post-cancel-effect"
+        command = (
+            "import signal,time; from pathlib import Path; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            f"Path({str(ready)!r}).write_text('ready'); "
+            "time.sleep(0.6); "
+            f"Path({str(post_cancel_effect)!r}).write_text('effect')"
+        )
+        provider = ProcessProvider(
+            root / "provider",
+            lambda _: [sys.executable, "-c", command],
+            termination_grace_seconds=0.05,
+            kill_grace_seconds=1.0,
+        )
+        initial = provider.dispatch(
+            ProviderRequest(
+                execution_id="exe_cancel_proof",
+                mission_id="mis_cancel_proof",
+                work_item_id="wrk_cancel_proof",
+                assignment_id="asn_cancel_proof",
+                workspace_id="",
+                workspace_path=root,
+                lease_generation=1,
+                role="implementer",
+                prompt="",
+            )
+        )
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+
+        cancelled = provider.cancel(initial.handle)
+
+        assert cancelled.status == "cancelled"
+        assert cancelled.result == {
+            "process_group_id": initial.handle["pid"],
+            "signal": "SIGKILL",
+            "escalated": True,
+        }
+        time.sleep(0.7)
+        assert not post_cancel_effect.exists()
