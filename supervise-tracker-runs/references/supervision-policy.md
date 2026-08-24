@@ -1280,10 +1280,11 @@ evade the rule. Email remains governed exclusively by `notice-gate`,
 
 `status-broadcast` is the explicit-user-authorized cross-task status lane. Gate
 against the recipient target's policy with its exact target, direct-user class,
-matching source/authority record, source task, and bounded scope. Its envelope,
-root, and notification dedup key bind recipient, source task/item, scope,
-payload hash, and policy; an exact sent receipt suppresses only its unchanged
-retry. Routine, delegated, ambiguous, or unrelated traffic fails closed.
+matching source/authority record, source task, and bounded scope. Its envelope
+and root bind that identity plus the current policy. Its notification dedup key
+binds the same recipient, explicit authority/source, task/item, scope, and
+payload without policy, so policy-only change cannot resend an unchanged
+broadcast. Routine, delegated, ambiguous, or unrelated traffic fails closed.
 
 Record-first ordering is mandatory for every critical correction route and
 every critical report that a correction was handled. Pass `--severity critical`,

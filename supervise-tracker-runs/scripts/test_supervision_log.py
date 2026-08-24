@@ -12574,6 +12574,19 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         ):
             supervision_log.validate_policy(policy)
 
+    def test_status_broadcast_policy_validation_accepts_scalar_legacy_predecessor(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["cross_thread_routing"] = (
+            supervision_log.legacy_single_role_cross_thread_routing_contract()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        self.assertNotIn(
+            "status-broadcast", policy["cross_thread_routing"]["purpose_roles"]
+        )
+        supervision_log.validate_policy(policy)
+
     def test_policy_validation_accepts_missing_legacy_routing_for_bind_upgrade(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         policy.pop("cross_thread_routing")
@@ -12751,6 +12764,8 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
         result = self.status_broadcast()
         self.assertTrue(result["send_allowed"])
         self.assertEqual((result["recipient_role"], result["status_broadcast"]["source_task_id"]), ("target", "source-task-1234"))
+        self.assertEqual(result["status_broadcast"]["authority_source_class"], "direct-user")
+        self.assertEqual(result["status_broadcast"]["authority_source_record"], "msg_direct_user_1234")
         self.assertRegex(result["status_broadcast_dedup_key"], r"^status-broadcast:[0-9a-f]{64}$")
 
     def test_status_broadcast_rejects_missing_mismatched_or_unrelated_provenance(self) -> None:
@@ -12772,6 +12787,12 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
         changed_policy["policy_sha256"] = supervision_log.digest(
             supervision_log.policy_material(changed_policy)
         )
+        policy_retry = self.status_broadcast(
+            all_events=[receipt], policy=changed_policy
+        )
+        self.assertEqual(
+            (policy_retry["send_allowed"], policy_retry["duplicate"]), (False, True)
+        )
         other_target = copy.deepcopy(changed_policy)
         other_target["target_thread_id"] = "target-5678"
         other_target["policy_sha256"] = supervision_log.digest(
@@ -12782,7 +12803,6 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
             {"source_record": "msg_new_user_1234", "authority_source_record": "msg_new_user_1234"},
             {"broadcast_scope": "utils-release"},
             {"source_task": "source-task-5678"},
-            {"policy": changed_policy},
             {"policy": other_target, "recipient": "target-5678"},
         ):
             with self.subTest(changes=changes):

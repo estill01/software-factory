@@ -1216,7 +1216,7 @@ def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
     contract = legacy_cross_thread_routing_contract_without_status_broadcast()
     contract["purpose_roles"] = {
         purpose: roles[0]
-        for purpose, roles in THREAD_ROUTE_PURPOSE_ROLES.items()
+        for purpose, roles in contract["purpose_roles"].items()
         if purpose != "role-refresh"
     }
     return contract
@@ -4954,12 +4954,17 @@ def thread_route_gate_result(
             "recipient_target_thread_id": policy["target_thread_id"],
             "source_task_id": source_task,
             "source_item_id": source_record,
+            "authority_source_class": "direct-user",
+            "authority_source_record": source_record,
             "scope": scope,
             "payload_sha256": digest(action),
             "policy_sha256": policy["policy_sha256"],
         }
         broadcast_root = digest(broadcast)
-        broadcast_key = f"status-broadcast:{broadcast_root}"
+        broadcast_identity = {
+            key: value for key, value in broadcast.items() if key != "policy_sha256"
+        }
+        broadcast_key = f"status-broadcast:{digest(broadcast_identity)}"
         duplicate = any(
             item.get("kind") == "notification" and item.get("category") == "status-broadcast"
             and item.get("status") == "sent"
