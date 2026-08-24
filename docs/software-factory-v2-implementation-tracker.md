@@ -232,7 +232,7 @@ for this tracker may inspect Patent Studio patent content.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Exact baseline, owner inventory, and cutover map | — | `in-progress` |
+| 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
 | 1 | Operational authority and persistence boundaries | 0 | `not-started` |
 | 2 | One embedded/standalone engine contract | 1 | `not-started` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
@@ -252,7 +252,7 @@ Required order:
 
 ## Block 0 — Freeze exact baseline and migration map
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -314,9 +314,10 @@ unsupported completion claims.
 
 ### Completion evidence
 
-- Acceptance posture: `pending-independent-audit`; the preserved implementation
-  checkpoint and artifacts below are candidate evidence, not an accepted Block
-  checkpoint.
+- Acceptance posture: `accepted`; exact independent review under range binding
+  `RANGE-SFV2-B0-B12-3901D4F-2079C81D` accepted the unchanged candidate at
+  commit `3901d4f6a88ed6c34f6a584c12260cfa84a36920`, tree
+  `53a3dc1fe74c9b9932ee2b2b0910c8165a385aa1`, with no P0–P2 findings.
 - Frozen source: branch `agent/software-factory-v2-native-refactor`, commit
   `63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4`, tree
   `79d758db7e36aa45a34d0af96b676344321e953b`, with local/remote parity at
@@ -342,8 +343,9 @@ unsupported completion claims.
   `5915f74c881e315d0c5b4cc96c08b97e6db983806b925bc2ec6e625dbaeb2a3e`,
   and `8b0cd3c130930a7c899ff5f0cda934d4887bf37b28c246e562da2d783b58f63a`.
   Independent review found no remaining material issue in those artifacts and
-  requested only this narrow audit-state correction; acceptance remains pending
-  exact-revision confirmation of the resulting tracker-only successor.
+  requested only the narrow audit-state correction recorded at `3901d4f`.
+  Fresh review of that exact tracker-only successor supplied the pending
+  independent acceptance evidence without rerunning a broad suite.
 - Product-capability review:
   - Trigger: consequential Block posture.
   - Frame identity: this tracker, Block 0, SHA-256
@@ -367,6 +369,21 @@ unsupported completion claims.
 - Known red baseline remains assigned rather than hidden: runtime collection,
   whole-runtime Ruff/format/mypy, dashboard test stability, dependency audit,
   and legacy upload-residue gates retain their explicit successor Blocks.
+- Independent review: `/root/sfv2_b0_exact_review` accepted exact revision
+  `3901d4f6a88ed6c34f6a584c12260cfa84a36920` under the current full-range
+  binding after independently confirming the three artifact roots, clean pushed
+  parity, remediation history, full `SFV2/B0`–`SFV2/B12` scope, and absence of
+  unsupported completion or downstream acceptance claims.
+- Retained open work: none in Block 0; the known red baseline remains explicitly
+  assigned to Blocks 1, 9, 11, and 12 rather than hidden or relabeled green.
+- Decision/continuation posture: Block 0 accepted; continue automatically to
+  dependency-eligible Block 1 without narrowing the requested full range.
+- Post-block audit: accepted; every frozen production path and table has one
+  target owner and disposition, negative cases reject missing or duplicate
+  authority, and no operational writer or persistence owner moved in Block 0.
+- Git durability: implementation checkpoint `bd33086` and accepted review
+  candidate `3901d4f` are pushed with local/remote parity; this tracker-only
+  acceptance record must be committed and pushed before any Block 1 effect.
 
 ### Stop
 
