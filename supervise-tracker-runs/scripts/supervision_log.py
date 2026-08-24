@@ -10964,20 +10964,11 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         elif str(exc) == (
             "implementation range request text must not contain a local path"
         ):
-            (
-                intent,
-                requested,
-                legacy_event_head_sha256,
-            ) = legacy_implementation_request_classification(
-                directory,
-                policy,
-                source_record=source_record,
-                source_sha256=source_sha256,
-                request_text=request_text,
-                blocks=set(blocks),
-            )
+            try: retained_receipt, retained_event, retained_review = retained_full_tracker_authority(policy, all_events=all_events, policy_history=policy_history, source_record=source_record, source_sha256=source_sha256, require_current_receipt=True, request_text=request_text); intent, requested = "full-tracker", sorted(blocks)
+            except SupervisionLogError: intent, requested, legacy_event_head_sha256 = legacy_implementation_request_classification(directory, policy, source_record=source_record, source_sha256=source_sha256, request_text=request_text, blocks=set(blocks))
         else:
-            raise
+            try: retained_receipt, retained_event, retained_review = retained_full_tracker_authority(policy, all_events=all_events, policy_history=policy_history, source_record=source_record, source_sha256=source_sha256, require_current_receipt=True, request_text=request_text); intent, requested = "full-tracker", sorted(blocks)
+            except SupervisionLogError: raise exc
     if not legacy_event_head_sha256:
         if intent == "full-tracker" and retained_receipt is None:
             (
@@ -27363,37 +27354,23 @@ def signed_source_full_tracker_classification(
 
 
 def implementation_authority_source_tuple(policy: Mapping[str, Any], target: str, task: str, item: str, record: str, source_sha256: str) -> Mapping[str, Any]:
-    mission = bound_mission(dict(policy))
-    derivation = mission.get("mission_derivation") if isinstance(mission, Mapping) else None
-    controlling = derivation.get("controlling_source") if isinstance(derivation, Mapping) else None
-    ordinary = record in {f"codex:{target}:{task}:{item}", f"direct-user:{target}:{item}"} and (record.startswith("codex:") or task == target)
-    compatible = task == target and record == f"codex-item-{item}" and mission.get("mission_source_record") == record and derivation.get("mode") == "derived-from-versioned-meta-charter" and controlling.get("class") == "direct-user" and controlling.get("record") == record and controlling.get("sha256") == source_sha256 if isinstance(mission, Mapping) and isinstance(derivation, Mapping) and isinstance(controlling, Mapping) else False
-    if not (ordinary or compatible) or not isinstance(mission, Mapping) or mission.get("mission_source_record") != record:
-        raise SupervisionLogError("Direct-authority source tuple differs from the current mission")
+    mission = bound_mission(dict(policy)); derivation = mission.get("mission_derivation") if isinstance(mission, Mapping) else None; controlling = derivation.get("controlling_source") if isinstance(derivation, Mapping) else None
+    ordinary = record in {f"codex:{target}:{task}:{item}", f"direct-user:{target}:{item}"} and (record.startswith("codex:") or task == target); compatible = task == target and record == f"codex-item-{item}" and mission.get("mission_source_record") == record and derivation.get("mode") == "derived-from-versioned-meta-charter" and controlling.get("class") == "direct-user" and controlling.get("record") == record and controlling.get("sha256") == source_sha256 if isinstance(mission, Mapping) and isinstance(derivation, Mapping) and isinstance(controlling, Mapping) else False
+    if not (ordinary or compatible) or not isinstance(mission, Mapping) or mission.get("mission_source_record") != record: raise SupervisionLogError("Direct-authority source tuple differs from the current mission")
     return mission
 
 
 def cmd_implementation_authority_source_review_sign(args: argparse.Namespace) -> None:
     directory, policy, policy_snapshot, all_events, event_snapshot, directory_snapshot = load_control_snapshot(args)
-    if policy.get("policy_sha256") != exact_sha256(args.expected_policy_sha256, label="expected policy SHA-256"):
-        raise SupervisionLogError("Direct-authority source review cites a stale policy")
-    target, task, turn, item, record = (safe_id(value, label=label) for value, label in ((args.target_thread, "target thread ID"), (args.source_task, "source task"), (args.source_turn, "source turn"), (args.source_item, "source item"), (args.source_record, "source record")))
-    source_bytes, _source_text = decode_exact_utf8_base64(args.source_text_base64, label="direct-authority source bytes", maximum_bytes=MAX_DIRECT_AUTHORITY_SOURCE_BYTES)
-    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
-    implementation_authority_source_tuple(policy, target, task, item, record, source_sha256)
-    evidence_id = safe_id(args.review_evidence_record, label="source review evidence record")
-    matches = [event for event in all_events if event.get("record_id") == evidence_id]
-    verifier = policy.get("runtime", {}).get("reviewer_thread_id")
-    required = {f"source-kind:{DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{task}", f"source-turn:{turn}", f"source-item:{item}", f"source-record:{record}", f"source-byte-count:{len(source_bytes)}", f"source-sha256:{source_sha256}", f"verifier:{verifier}", f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}
-    evidence = matches[0] if len(matches) == 1 else {}
-    if evidence.get("kind") != "meta-review" or evidence.get("model") != "gpt-5.6-sol" or evidence.get("reasoning") != "max" or evidence.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY or evidence.get("status") != "accepted" or evidence.get("resolution_owner") != "supervisor" or evidence.get("user_action_required") != "no" or evidence.get("policy_sha256") != policy.get("policy_sha256") or not required <= set(evidence.get("evidence", [])):
-        raise SupervisionLogError("Source review evidence is not one current clean Max review")
+    if policy.get("policy_sha256") != exact_sha256(args.expected_policy_sha256, label="expected policy SHA-256"): raise SupervisionLogError("Direct-authority source review cites a stale policy")
+    target, task, turn, item, record = (safe_id(value, label=label) for value, label in ((args.target_thread, "target thread ID"), (args.source_task, "source task"), (args.source_turn, "source turn"), (args.source_item, "source item"), (args.source_record, "source record"))); source_bytes, _source_text = decode_exact_utf8_base64(args.source_text_base64, label="direct-authority source bytes", maximum_bytes=MAX_DIRECT_AUTHORITY_SOURCE_BYTES)
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest(); implementation_authority_source_tuple(policy, target, task, item, record, source_sha256)
+    evidence_id = safe_id(args.review_evidence_record, label="source review evidence record"); matches = [event for event in all_events if event.get("record_id") == evidence_id]; verifier = policy.get("runtime", {}).get("reviewer_thread_id")
+    required = {f"source-kind:{DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{task}", f"source-turn:{turn}", f"source-item:{item}", f"source-record:{record}", f"source-byte-count:{len(source_bytes)}", f"source-sha256:{source_sha256}", f"verifier:{verifier}", f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}; evidence = matches[0] if len(matches) == 1 else {}
+    if evidence.get("kind") != "meta-review" or evidence.get("model") != "gpt-5.6-sol" or evidence.get("reasoning") != "max" or evidence.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY or evidence.get("status") != "accepted" or evidence.get("resolution_owner") != "supervisor" or evidence.get("user_action_required") != "no" or evidence.get("policy_sha256") != policy.get("policy_sha256") or not required <= set(evidence.get("evidence", [])): raise SupervisionLogError("Source review evidence is not one current clean Max review")
     position = all_events.index(evidence); clean = {f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}; stable = required - clean
-    if any(event.get("category") == DIRECT_AUTHORITY_REVIEW_CATEGORY and stable <= set(event.get("evidence", [])) and (event.get("status") != "accepted" or not clean <= set(event.get("evidence", []))) for event in all_events[position + 1:]):
-        raise SupervisionLogError("Source review evidence has a later contradiction")
-    value: dict[str, Any] = {"schema_version": 1, "kind": "software-factory-direct-authority-source-review", "record_id": f"range-source-review-{evidence_id.lower()}", "target_thread_id": target, "source_task_id": task, "source_item_id": item, "source_record": record, "source_sha256": source_sha256, "source_byte_count": len(source_bytes), "verifier_thread_id": verifier, "reviewer_id": ADAPTIVE_REVIEWER_ID, "review_disposition": "accepted", "finding_count": 0, "policy_sha256": policy["policy_sha256"], "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256, "observed_at": evidence["timestamp"], "review_root": "", "signature_base64": ""}
-    value["review_root"] = digest(direct_authority_review_root_material(value))
-    output = directory / f"implementation-range-authority-source-review-{evidence['record_sha256']}.json"
+    if any(event.get("category") == DIRECT_AUTHORITY_REVIEW_CATEGORY and stable <= set(event.get("evidence", [])) and (event.get("status") != "accepted" or not clean <= set(event.get("evidence", []))) for event in all_events[position + 1:]): raise SupervisionLogError("Source review evidence has a later contradiction")
+    value: dict[str, Any] = {"schema_version": 1, "kind": "software-factory-direct-authority-source-review", "record_id": f"range-source-review-{evidence_id.lower()}", "target_thread_id": target, "source_task_id": task, "source_item_id": item, "source_record": record, "source_sha256": source_sha256, "source_byte_count": len(source_bytes), "verifier_thread_id": verifier, "reviewer_id": ADAPTIVE_REVIEWER_ID, "review_disposition": "accepted", "finding_count": 0, "policy_sha256": policy["policy_sha256"], "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256, "observed_at": evidence["timestamp"], "review_root": "", "signature_base64": ""}; value["review_root"] = digest(direct_authority_review_root_material(value)); output = directory / f"implementation-range-authority-source-review-{evidence['record_sha256']}.json"
     with owner_append_lock(root_from(args), target, directory_snapshot) as directory_fd:
         require_bound_policy_at(directory_fd, expected_policy=policy, expected_snapshot=policy_snapshot)
         current_events, current_snapshot = events_snapshot(Path("events.jsonl"), directory_fd=directory_fd)
@@ -27404,11 +27381,9 @@ def cmd_implementation_authority_source_review_sign(args: argparse.Namespace) ->
             if output.is_symlink() or direct_authority_review_root_material(validate_direct_authority_review(str(output), policy=policy, target_thread=target, source_task=task, source_item=item, source_record=record, source_sha256=source_sha256, source_byte_count=len(source_bytes))) != direct_authority_review_root_material(value):
                 raise SupervisionLogError("Existing direct-authority source review differs")
         else:
-            private_key, openssl = trusted_adaptive_reviewer_private_key(), trusted_adaptive_review_openssl()
-            before = path_snapshot(private_key)
+            private_key, openssl = trusted_adaptive_reviewer_private_key(), trusted_adaptive_review_openssl(); before = path_snapshot(private_key)
             with tempfile.TemporaryDirectory(prefix="direct-authority-review-sign-") as temp_value:
-                content, signature_path = Path(temp_value) / "review.json", Path(temp_value) / "review.sig"
-                content.write_bytes(canonical({key: member for key, member in value.items() if key != "signature_base64"}))
+                content, signature_path = Path(temp_value) / "review.json", Path(temp_value) / "review.sig"; content.write_bytes(canonical({key: member for key, member in value.items() if key != "signature_base64"}))
                 result = subprocess.run([str(openssl), "pkeyutl", "-sign", "-inkey", str(private_key), "-rawin", "-in", str(content), "-out", str(signature_path)], check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
                 signature = signature_path.read_bytes() if signature_path.is_file() else b""
             if result.returncode != 0 or len(signature) != 64 or path_snapshot(private_key) != before:
@@ -36388,14 +36363,9 @@ def parser() -> argparse.ArgumentParser:
         func=cmd_implementation_authority_source_ingest
     )
 
-    range_authority_review_sign = subparsers.add_parser(
-        "implementation-range-authority-source-review-sign"
-    )
-    for name in ("target-thread", "source-task", "source-turn", "source-item", "source-record", "source-text-base64", "review-evidence-record", "expected-policy-sha256"):
-        range_authority_review_sign.add_argument(f"--{name}", required=True)
-    range_authority_review_sign.set_defaults(
-        func=cmd_implementation_authority_source_review_sign
-    )
+    range_authority_review_sign = subparsers.add_parser("implementation-range-authority-source-review-sign")
+    for name in ("target-thread", "source-task", "source-turn", "source-item", "source-record", "source-text-base64", "review-evidence-record", "expected-policy-sha256"): range_authority_review_sign.add_argument(f"--{name}", required=True)
+    range_authority_review_sign.set_defaults(func=cmd_implementation_authority_source_review_sign)
 
     range_bind = subparsers.add_parser("implementation-range-bind")
     range_bind.add_argument("--target-thread", required=True)

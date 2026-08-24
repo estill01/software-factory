@@ -4512,29 +4512,25 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         self.assertEqual(bound["binding"]["range_intent"], "full-tracker")
     def test_bound_direct_user_mission_source_ingest_is_exact(self) -> None:
-        source_item = "item-192"
+        source_item = "01a02ee3-8590-72d0-b518-43d350294ed1"
         source_record = f"codex-item-{source_item}"
-        source_text = "Implement every block in the full implementation tracker. " + "x" * 122
+        source_text = "wtf? [$implement-tracker-blocks](/Users/ethanstillman/.codex/software-factory-dev-overrides/5c8c7ba05d9f47f27ed984df71b78f3c85e5d27f/implement-tracker-blocks/SKILL.md) for tracker\n"
         source_bytes = source_text.encode("utf-8")
-        source_sha256 = hashlib.sha256(source_bytes).hexdigest(); self.assertEqual(len(source_bytes), 180)
+        source_sha256 = "eb545c13a62be806395685833e8e99dfcaa35202f48b10a6eb5474580afb033c"; self.assertEqual((len(source_bytes), hashlib.sha256(source_bytes).hexdigest()), (180, source_sha256))
         self.write_tracker(["completed"])
-        self.bind()
-        self.complete_predecessor_and_start_successor(retain_range_authority=False, mission_source_record=source_record, mission_source_sha256=source_sha256)
+        self.target = "range-exact-target-192"; self.call("init", "--target-thread", self.target, "--target-label", "Range exact target", "--watcher-thread", "range-watcher-5678", "--reviewer-thread", self.reviewer, "--mission-source-class", "direct-user", "--mission-source-record", source_record, "--mission-source-sha256", source_sha256); self.call("record", "--target-thread", self.target, "--kind", "check", "--active-block", "0", "--checkpoint", "raw-source-review", "--status", "no-intervention", "--severity", "info", "--category", "direct-authority-source-review", "--summary", "raw source classification")
         policy = supervision_log.read_json(self.root / self.target / "policy.json")
         encoded = base64.b64encode(source_bytes).decode("ascii")
-        source_turn = "turn-192"
+        source_turn = "01a02ee3-8542-7c40-a4fb-d544fd9ebff9"
         evidence = [f"source-kind:{supervision_log.DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{self.target}", f"source-turn:{source_turn}", f"source-item:{source_item}", f"source-record:{source_record}", f"source-byte-count:{len(source_bytes)}", f"source-sha256:{source_sha256}", f"verifier:{self.reviewer}", f"classification:{supervision_log.DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"]
         self.call("record", "--target-thread", self.target, "--kind", "meta-review", "--active-block", "0", "--checkpoint", "direct-authority-source-review", "--status", "accepted", "--severity", "info", "--summary", "clean exact source review", "--category", supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY, "--model", "gpt-5.6-sol", "--reasoning", "max", "--resolution-owner", "supervisor", "--user-action-required", "no", *(item for value in evidence for item in ("--evidence", value)))
         review_record = supervision_log.events(self.root / self.target / "events.jsonl")[-1]["record_id"]
         sign_arguments = ["implementation-range-authority-source-review-sign", "--target-thread", self.target, "--source-task", self.target, "--source-turn", source_turn, "--source-item", source_item, "--source-record", source_record, "--source-text-base64", encoded, "--review-evidence-record", review_record, "--expected-policy-sha256", policy["policy_sha256"]]
-        before_sign = (self.root / self.target / "events.jsonl").read_bytes()
-        signed = self.call(*sign_arguments)
-        self.assertEqual((self.root / self.target / "events.jsonl").read_bytes(), before_sign)
+        before_sign = (self.root / self.target / "events.jsonl").read_bytes(); signed = self.call(*sign_arguments); self.assertEqual((self.root / self.target / "events.jsonl").read_bytes(), before_sign)
         with mock.patch.object(supervision_log, "trusted_adaptive_reviewer_private_key", side_effect=AssertionError("key accessed")):
             self.assertTrue(self.call(*sign_arguments)["duplicate"])
         review_path = signed["output_json"]
         changed = sign_arguments.copy(); changed[changed.index("--review-evidence-record") + 1] = "EVT-000001"; self.assertRaises(supervision_log.SupervisionLogError, self.call, *changed)
-        self.call("record", "--target-thread", self.target, "--kind", "meta-review", "--active-block", "0", "--checkpoint", "direct-authority-source-review", "--status", "accepted", "--severity", "warning", "--summary", "later non-clean source review", "--category", supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY, "--model", "gpt-5.6-sol", "--reasoning", "max", "--resolution-owner", "supervisor", "--user-action-required", "no", *(item for value in evidence[:-2] for item in ("--evidence", value))); self.assertRaises(supervision_log.SupervisionLogError, self.call, *sign_arguments)
         arguments = ["implementation-range-authority-source-ingest", "--target-thread", self.target, "--source-task", self.target, "--source-item", source_item, "--source-record", source_record, "--source-text-base64", encoded, "--provenance-review-record", review_path, "--expected-policy-sha256", policy["policy_sha256"]]
         bad_review = supervision_log.read_json(Path(review_path))
         bad_review["source_byte_count"] = 287
@@ -4579,6 +4575,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(receipt["source_event_record_id"], result["record"]["record_id"])
         self.assertEqual(retained_event["source_record"], source_record)
         self.assertIsNone(classification_review)
+        bound = self.call("implementation-range-bind", "--target-thread", self.target, "--range-id", "RANGE-CANONICAL-192", "--tracker", str(self.tracker), "--request-text-base64", encoded, "--authority-source-record", source_record, "--authority-source-sha256", source_sha256); self.assertEqual(bound["binding"]["range_intent"], "full-tracker")
+        self.call("record", "--target-thread", self.target, "--kind", "meta-review", "--active-block", "0", "--checkpoint", "direct-authority-source-review", "--status", "accepted", "--severity", "warning", "--summary", "later non-clean source review", "--category", supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY, "--model", "gpt-5.6-sol", "--reasoning", "max", "--resolution-owner", "supervisor", "--user-action-required", "no", *(item for value in evidence[:-2] for item in ("--evidence", value))); self.assertRaises(supervision_log.SupervisionLogError, self.call, *sign_arguments)
 
     def test_long_exact_direct_source_does_not_bypass_request_classifier(
         self,
