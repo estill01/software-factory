@@ -1351,8 +1351,10 @@ capabilities rather than trust the producer's summary.
   outcome, remaining range, and exact accepted predecessor. A revision or
   currentness change stales the entire downstream stage chain and governance
   records. Identical observations deduplicate by content root; accepted proof
-  is not replayed across stages. Contract SHA-256:
-  `07169e9d151deeb0776568ff307673964e49ae6be088961c277056cd8df47ad9`.
+  is not replayed across stages. Promotion rechecks the stage, reviewer,
+  aligned outcome, unresolved remediation, and terminal blockers inside the
+  same immediate transaction as the work/stage transition. Contract SHA-256:
+  `c8530a521c46cb1fdfbb4c440674abf1981cc1a369223fdbc4ac31770a26c284`.
 - QA and supervision: mechanical probes require current exact-revision
   evidence but cannot represent or satisfy semantic review. Exact role grant,
   provider identity, distinct reviewer, and governance decision remain
@@ -1361,8 +1363,10 @@ capabilities rather than trust the producer's summary.
   A green process record with a disagreeing actual outcome regresses only the
   named work/capability owner, opens one correction obligation and deduplicated
   incident, and remains blocked until later aligned observation, obligation
-  resolution, and an independent effectiveness review with non-empty current
-  evidence and post-correction observations.
+  resolution, and an independent effectiveness review. Effectiveness evidence
+  must name the exact incident, postdate its rooted correction, bind the
+  correction and observation roots, match the candidate revision when present,
+  and bind any declared verification execution.
 - Terminal reducer: provider-reported terminal execution now yields
   `reconcile_terminal_acceptance`. Terminal preparation and promotion derive
   remaining range from active canonical programs instead of trusting the
@@ -1374,6 +1378,29 @@ capabilities rather than trust the producer's summary.
   open obligation, no selected uncancelled work below installed acceptance, and
   terminal evidence at the accepted exact revision from the declared
   independent verifier.
+- Product-capability review:
+  - Trigger: consequential Block posture; target-frame SHA-256
+    `ee09601b733bbc4fc5c12df5fd1a7bb6f29550b50a2f70b2021feb4aa5e35d0d`.
+  - Capability added or preserved: exact candidate, integrated, installed, and
+    terminal acceptance now depends on independent semantic review and observed
+    outcome rather than process success, while mission continuation remains
+    blocked by the canonical requested range.
+  - Paths compared: retain legacy QA self-promotion; add a per-action universal
+    critic/score; collapse to one terminal verdict; or compose one staged
+    coordinator over the existing governance, work, capability, supervision,
+    program, and continuation owners.
+  - Selected level and owner: the staged lifecycle coordinator owns only stage
+    and outcome projections; every operational transition remains with its
+    existing owner and every semantic decision remains grant/review bound.
+  - Protected-capability result: independent review, exact currentness,
+    canonical range preservation, narrow remediation, incident effectiveness,
+    no-early-return, and provider/effect boundaries remain fail closed.
+  - Rejected alternatives: legacy QA conflates process and acceptance; a critic
+    duplicates policy and spends continuously; one terminal verdict loses
+    integration/installation evidence and makes rollback diagnosis ambiguous.
+  - Tradeoff and uncertainty: four stages add bounded changed-state review and
+    record volume, offset by content-root deduplication and no-change reuse;
+    Block 12 must still prove terminal composition under the full mapped suite.
 - Preserved rejected history: candidate
   `fb3561fe39efa0b8fed10bcb4b470b2d61244085`, tree
   `29147c9c013867c7ab5f5937ca9caeca05938b2d`, was clean and pushed. Distinct
@@ -1383,30 +1410,39 @@ capabilities rather than trust the producer's summary.
   candidate remains immutable, preserved, and unaccepted. The narrow
   correction adds the authority fence, canonical program closure, mandatory
   effectiveness evidence/observations, exact outcome-reviewer grants, and the
-  missing negative fixtures without rewriting history.
-- Focused correction proof: `63 passed` across acceptance lifecycle,
+  missing negative fixtures without rewriting history. Correction candidate
+  `58d51d707b7e15686cb124776abd4a0abe94fd5b`, tree
+  `fa9718e69c2ea1daa6ac22d992a5293a9acb33a4`, was also clean and pushed but
+  distinct exact re-review returned `REVISE`: P1 stage promotion predicates
+  were outside the write transaction, P1 effectiveness accepted stale unrelated
+  pre-correction evidence, and P2 evidence/capability-review gaps. It too remains
+  immutable, preserved, and unaccepted. The second narrow correction moves every
+  promotion predicate into one immediate transaction, serializes new program
+  activation behind terminal acceptance, roots and currentness-binds
+  effectiveness proof, and records the missing Product-capability review.
+- Focused correction proof: `66 passed` across acceptance lifecycle,
   governance, supervision, operational boundaries, composition, advanced
   integration, core, and legacy execution QA; one pre-existing `TestStore`
   collection warning. Negative fixtures now cover direct work/legacy QA bypass,
   mechanical/semantic substitution, same-author/stale review, changed
   currentness, exact outcome-reviewer grant/provider identity,
   process-pass/outcome-wrong, protected-capability regression, evidence-free
-  effectiveness, unresolved remediation, provider completion as QA,
+  effectiveness, pre-correction/unrelated proof, concurrent currentness and
+  active-program races, unresolved remediation, provider completion as QA,
   caller-hidden active programs, reviewed program closure, remaining-range
   terminal return, and the accepted exact terminal chain. Ruff format/check are
   clean across 93 files, mypy is clean across 63 source files, compile is
-  clean, and full runtime collection is 193 tests with the documented legacy
-  collection warnings only; full tracker verification is 0 errors/0 warnings.
-  No broad runtime suite was run. The isolated build
-  produced wheel SHA-256
-  `dff4efa0cd8adacd7d3adf40107e6585b8b65ec743515a91a5c88d07aa365a8b`
+  clean, and full runtime collection is 196 tests with the documented legacy
+  collection warnings only. Full tracker verification is 0 errors/0 warnings;
+  no broad runtime suite was run. The isolated build produced wheel SHA-256
+  `1faa0b20177a1422663a89d3b979e112942260125d720f330c22361f0bf1d5ec`
   and sdist SHA-256
-  `e486ce67d4bec11597fd13c506509b6c14599684a135068f8d61981052878d28`.
+  `bf783a5c6bc12841d30e08a5a1e57d4b5ca6334185062a9369ba5c0bc4ffa106`.
   Focused evidence JSON SHA-256:
-  `0150852ca737fce0860e5be3db6497898c4012c69b79b3f2a477831f5e71f434`.
-- Candidate posture: the exact-review correction and narrow validation are
-  complete; Block 6 remains `in-progress` pending one clean exact correction
-  checkpoint and distinct independent re-review.
+  `d726c0773a24b2135a999cb96295b96fd8f1a967351a8700c88c776d2e99eca7`.
+- Candidate posture: the second exact-review correction and narrow validation
+  are complete; Block 6 remains `in-progress` pending one clean exact
+  correction checkpoint and distinct independent re-review.
   No production target was used. libRSI cutover,
   utils artifact consumption, delivery, service boundary, cutover, and
   terminal program qualification remain outside this candidate.

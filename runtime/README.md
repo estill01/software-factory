@@ -64,7 +64,11 @@ installed selected work, exact program evidence, and independent review. A
 provider-reported completion is therefore not QA or terminal acceptance by itself.
 Selected, uncancelled work below installed acceptance is also remaining work and blocks
 terminal reduction even if no execution is active. Incident effectiveness likewise
-requires non-empty evidence and observed post-correction state.
+requires incident-bound evidence created after a rooted correction, exact correction
+and observation roots, the candidate revision when present, and observed
+post-correction state. Stage promotion rechecks every currentness, outcome,
+remediation, and terminal predicate in the same immediate transaction as promotion;
+new program activation cannot race a current accepted terminal stage.
 
 ## Current implementation state
 

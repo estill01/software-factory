@@ -17,34 +17,50 @@
       "broad runtime pytest execution before SFV2/B12"
     ]
   },
-  "rejected_candidate": {
-    "exact_revision": "fb3561fe39efa0b8fed10bcb4b470b2d61244085",
-    "tree": "29147c9c013867c7ab5f5937ca9caeca05938b2d",
-    "disposition": "REVISE",
-    "preservation": "pushed immutable history; not accepted",
-    "findings": [
-      "P1 public WorkItemService and legacy QA acceptance bypassed the governed lifecycle",
-      "P1 terminal range closure trusted caller-authored remaining scope instead of active canonical programs",
-      "P1 effectiveness could be asserted without evidence or observations",
-      "P2 negative-proof claims exceeded the executed fixtures"
-    ]
-  },
+  "rejected_candidates": [
+    {
+      "exact_revision": "fb3561fe39efa0b8fed10bcb4b470b2d61244085",
+      "tree": "29147c9c013867c7ab5f5937ca9caeca05938b2d",
+      "disposition": "REVISE",
+      "preservation": "pushed immutable history; not accepted",
+      "findings": [
+        "P1 public WorkItemService and legacy QA acceptance bypassed the governed lifecycle",
+        "P1 terminal range closure trusted caller-authored remaining scope instead of active canonical programs",
+        "P1 effectiveness could be asserted without evidence or observations",
+        "P2 negative-proof claims exceeded the executed fixtures"
+      ]
+    },
+    {
+      "exact_revision": "58d51d707b7e15686cb124776abd4a0abe94fd5b",
+      "tree": "fa9718e69c2ea1daa6ac22d992a5293a9acb33a4",
+      "disposition": "REVISE",
+      "preservation": "pushed immutable history; not accepted",
+      "findings": [
+        "P1 stage promotion read currentness and terminal blockers before its write transaction",
+        "P1 effectiveness accepted stale unrelated evidence created before correction",
+        "P2 negative-proof claims omitted the reproduced races and provenance attack",
+        "P2 consequential Block lacked its Product-capability review record"
+      ]
+    }
+  ],
   "focused_runtime": {
     "command": "PYTHONPATH=runtime/src uv run --no-project --with pytest pytest -q runtime/tests/test_acceptance_lifecycle.py runtime/tests/test_governance.py runtime/tests/test_supervision.py runtime/tests/test_operational_boundaries.py runtime/tests/test_composition.py runtime/tests/test_advanced_integration.py runtime/tests/test_core.py runtime/tests/test_execution_qa.py",
-    "result": "63 passed, 1 pre-existing TestStore collection warning",
+    "result": "66 passed, 1 pre-existing TestStore collection warning",
     "negative_cases": [
       "mechanical probes cannot satisfy semantic review",
       "same-author and stale-currentness reviews fail closed",
       "direct work acceptance and the legacy QA acceptance API cannot bypass the staged coordinator",
       "outcome reconciliation requires an exact bounded role grant and matching recorded provider identity",
       "changed currentness invalidates the stage chain",
+      "promotion serializes with a concurrent currentness replacement and cannot overwrite its later stale disposition",
       "green process plus wrong actual outcome reopens only the named work owner",
       "protected-capability disagreement regresses that capability and routes its incident",
-      "effectiveness without current evidence or post-correction observations fails closed",
+      "effectiveness without incident-bound post-correction evidence and exact correction/observation roots fails closed",
       "aligned evidence cannot erase an unresolved incident or obligation",
       "provider terminal execution alone cannot complete a mission",
       "terminal stage with remaining requested range cannot promote",
       "caller-authored empty scope cannot hide an active canonical program",
+      "terminal promotion serializes against concurrent active-program creation",
       "program completion requires an independently reviewed range-complete revision and exact program evidence",
       "full exact stage chain plus aligned actual outcome permits terminal completion"
     ]
@@ -64,7 +80,7 @@
     },
     {
       "command": "PYTHONPATH=runtime/src uv run --no-project --with pytest pytest --collect-only -q runtime/tests",
-      "result": "193 tests collected with legacy collection warnings only"
+      "result": "196 tests collected with legacy collection warnings only"
     },
     {
       "command": "python3 -m compileall -q runtime/src/software_factory runtime/tests/test_acceptance_lifecycle.py",
@@ -77,11 +93,11 @@
   ],
   "build": {
     "command": "uv run --no-project --with build python -m build --outdir <isolated-temp> runtime",
-    "wheel_sha256": "dff4efa0cd8adacd7d3adf40107e6585b8b65ec743515a91a5c88d07aa365a8b",
-    "sdist_sha256": "e486ce67d4bec11597fd13c506509b6c14599684a135068f8d61981052878d28"
+    "wheel_sha256": "1faa0b20177a1422663a89d3b979e112942260125d720f330c22361f0bf1d5ec",
+    "sdist_sha256": "bf783a5c6bc12841d30e08a5a1e57d4b5ca6334185062a9369ba5c0bc4ffa106"
   },
-  "contract_sha256": "07169e9d151deeb0776568ff307673964e49ae6be088961c277056cd8df47ad9",
-  "lifecycle_source_sha256": "49b0a36e6cf732c679749ce86c2d7181239f5936d7d511f57f3b64cd51f02365",
+  "contract_sha256": "c8530a521c46cb1fdfbb4c440674abf1981cc1a369223fdbc4ac31770a26c284",
+  "lifecycle_source_sha256": "9fe76a444512e41a35a991af077d7890062e856541b227d3b2ae68345dff25cb",
   "migration_sha256": "6af4638a9417ad6b0f25794f69597652ce5d52229fa2c0114e7ed2ef74b64016",
   "broad_suite_posture": "deferred to the tracker-mandated SFV2/B12 terminal qualification"
 }

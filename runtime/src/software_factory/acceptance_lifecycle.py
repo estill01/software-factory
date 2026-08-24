@@ -645,90 +645,82 @@ class AcceptanceLifecycleService:
         exact_revision: str,
         currentness_root: str,
     ) -> dict[str, Any]:
-        stage = self.store.one("SELECT * FROM acceptance_stage_records_v2 WHERE id=?", (stage_id,))
-        if stage["status"] not in {"prepared", "reopened"}:
-            raise InvalidTransition("acceptance stage is not promotable")
-        if (
-            stage["target_revision"] != exact_revision
-            or stage["currentness_root"] != currentness_root
-        ):
-            raise InvalidTransition("acceptance stage promotion is stale")
-        acceptor = self.store.one(
-            "SELECT mission_id,role FROM agent_sessions WHERE id=?", (acceptor_session_id,)
-        )
-        if (
-            acceptor["mission_id"] != stage["mission_id"]
-            or acceptor["role"] not in _INDEPENDENT_ROLES
-        ):
-            raise RoleConflict("stage promotion requires an independent acceptance role")
-        if acceptor_session_id == stage["implementer_session_id"]:
-            raise RoleConflict("implementer cannot promote its own acceptance stage")
-        latest = self.store.one(
-            """SELECT * FROM outcome_reconciliations_v2
-               WHERE stage_record_id=? ORDER BY created_at DESC,id DESC LIMIT 1""",
-            (stage_id,),
-            required=False,
-        )
-        if latest is None or latest["disposition"] != "aligned":
-            raise EvidenceInvalid("accepted process evidence has no aligned actual outcome")
-        unresolved = self.store.one(
-            """SELECT r.id FROM outcome_reconciliations_v2 r
-               LEFT JOIN obligations o ON o.id=r.obligation_id
-               LEFT JOIN incidents i ON i.id=r.incident_id
-               WHERE r.stage_record_id=? AND r.disposition='disagreed'
-                 AND (
-                   o.status NOT IN ('satisfied','superseded','waived_by_authority')
-                   OR i.status NOT IN ('resolved','superseded')
-                 ) LIMIT 1""",
-            (stage_id,),
-            required=False,
-        )
-        if unresolved is not None:
-            raise InvalidTransition("outcome disagreement remains unresolved")
-        if stage["stage"] == "terminal":
-            remaining = json_load(stage["remaining_scope_json"], [])
-            gaps = int(
-                self.store.scalar(
-                    """SELECT COUNT(*) FROM capabilities
-                       WHERE mission_id=? AND required=1
-                         AND status<>'end_to_end_verified'""",
-                    (stage["mission_id"],),
-                )
-                or 0
-            )
-            obligations = int(
-                self.store.scalar(
-                    """SELECT COUNT(*) FROM obligations WHERE mission_id=?
-                       AND status NOT IN ('satisfied','superseded','waived_by_authority')""",
-                    (stage["mission_id"],),
-                )
-                or 0
-            )
-            unfinished_selected_work = int(
-                self.store.scalar(
-                    """SELECT COUNT(*) FROM work_items
-                       WHERE mission_id=? AND planning_status='selected'
-                         AND execution_status<>'cancelled'
-                         AND acceptance_status<>'installed_accepted'""",
-                    (stage["mission_id"],),
-                )
-                or 0
-            )
-            active_programs = int(
-                self.store.scalar(
-                    """SELECT COUNT(*) FROM programs
-                       WHERE mission_id=? AND status='active'""",
-                    (stage["mission_id"],),
-                )
-                or 0
-            )
-            if remaining or gaps or obligations or unfinished_selected_work or active_programs:
-                raise InvalidTransition(
-                    "terminal acceptance cannot leave requested range, capability gaps, "
-                    "obligations, unfinished selected work, or active programs"
-                )
-
         with self.store.transaction() as db:
+            stage = self.store.one(
+                "SELECT * FROM acceptance_stage_records_v2 WHERE id=?", (stage_id,), db=db
+            )
+            if stage["status"] not in {"prepared", "reopened"}:
+                raise InvalidTransition("acceptance stage is not promotable")
+            if (
+                stage["target_revision"] != exact_revision
+                or stage["currentness_root"] != currentness_root
+            ):
+                raise InvalidTransition("acceptance stage promotion is stale")
+            acceptor = self.store.one(
+                "SELECT mission_id,role FROM agent_sessions WHERE id=?",
+                (acceptor_session_id,),
+                db=db,
+            )
+            if (
+                acceptor["mission_id"] != stage["mission_id"]
+                or acceptor["role"] not in _INDEPENDENT_ROLES
+            ):
+                raise RoleConflict("stage promotion requires an independent acceptance role")
+            if acceptor_session_id == stage["implementer_session_id"]:
+                raise RoleConflict("implementer cannot promote its own acceptance stage")
+            latest = self.store.one(
+                """SELECT * FROM outcome_reconciliations_v2
+                   WHERE stage_record_id=? ORDER BY created_at DESC,id DESC LIMIT 1""",
+                (stage_id,),
+                required=False,
+                db=db,
+            )
+            if latest is None or latest["disposition"] != "aligned":
+                raise EvidenceInvalid("accepted process evidence has no aligned actual outcome")
+            unresolved = self.store.one(
+                """SELECT r.id FROM outcome_reconciliations_v2 r
+                   LEFT JOIN obligations o ON o.id=r.obligation_id
+                   LEFT JOIN incidents i ON i.id=r.incident_id
+                   WHERE r.stage_record_id=? AND r.disposition='disagreed'
+                     AND (
+                       o.status NOT IN ('satisfied','superseded','waived_by_authority')
+                       OR i.status NOT IN ('resolved','superseded')
+                     ) LIMIT 1""",
+                (stage_id,),
+                required=False,
+                db=db,
+            )
+            if unresolved is not None:
+                raise InvalidTransition("outcome disagreement remains unresolved")
+            if stage["stage"] == "terminal":
+                remaining = json_load(stage["remaining_scope_json"], [])
+                counts = db.execute(
+                    """SELECT
+                         (SELECT COUNT(*) FROM capabilities
+                          WHERE mission_id=? AND required=1
+                            AND status<>'end_to_end_verified') AS gaps,
+                         (SELECT COUNT(*) FROM obligations WHERE mission_id=?
+                          AND status NOT IN
+                            ('satisfied','superseded','waived_by_authority')) AS obligations,
+                         (SELECT COUNT(*) FROM work_items
+                          WHERE mission_id=? AND planning_status='selected'
+                            AND execution_status<>'cancelled'
+                            AND acceptance_status<>'installed_accepted') AS unfinished_work,
+                         (SELECT COUNT(*) FROM programs
+                          WHERE mission_id=? AND status='active') AS active_programs""",
+                    (stage["mission_id"],) * 4,
+                ).fetchone()
+                if (
+                    remaining
+                    or counts["gaps"]
+                    or counts["obligations"]
+                    or counts["unfinished_work"]
+                    or counts["active_programs"]
+                ):
+                    raise InvalidTransition(
+                        "terminal acceptance cannot leave requested range, capability gaps, "
+                        "obligations, unfinished selected work, or active programs"
+                    )
             if stage.get("work_item_id") and stage["stage"] != "terminal":
                 self.work_items.promote_acceptance(
                     stage["work_item_id"],

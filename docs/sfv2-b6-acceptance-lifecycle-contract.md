@@ -51,6 +51,14 @@ reopened stage in the same scope, invalidates its governance decision/review,
 and requires a new chain. An exact duplicate preparation is idempotent; the same
 revision/currentness tuple cannot be rebound to different contract material.
 
+Promotion re-reads the stage, reviewer, latest aligned outcome, unresolved
+remediation, and terminal blockers inside the same `BEGIN IMMEDIATE`
+transaction that projects work acceptance and changes stage status. A concurrent
+currentness replacement therefore runs afterward and stales the accepted stage;
+it cannot be overwritten by an older promotion. A concurrent new active program
+also serializes behind terminal promotion and is rejected until terminal
+acceptance has been explicitly reopened.
+
 ## Mechanical versus semantic review
 
 The lifecycle rejects `independent_review`, `review`, `semantic_review`, and
@@ -85,7 +93,10 @@ one correction obligation, opens one deduplicated incident, and marks the stage
 `reopened`. A later aligned observation does not erase history or self-close the
 correction: its obligation must be satisfied and its incident must receive an
 independent effectiveness disposition backed by non-empty current evidence and
-post-correction observations before promotion.
+post-correction observations before promotion. Effectiveness evidence must name
+the exact incident, be created after its rooted correction record, bind the
+correction root and observation root, match the correction candidate revision
+when one exists, and bind the declared verification execution when present.
 
 ## Terminal reducer
 

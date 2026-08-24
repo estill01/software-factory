@@ -45,6 +45,16 @@ class ProgramService:
             mission = db.execute("SELECT id FROM missions WHERE id=?", (mission_id,)).fetchone()
             if mission is None:
                 raise StoreError("mission not found")
+            terminal_stage = db.execute(
+                """SELECT id FROM acceptance_stage_records_v2
+                   WHERE mission_id=? AND stage='terminal' AND status='accepted'
+                   LIMIT 1""",
+                (mission_id,),
+            ).fetchone()
+            if terminal_stage is not None:
+                raise InvalidTransition(
+                    "a new active program requires the accepted terminal stage to be reopened"
+                )
             db.execute(
                 """INSERT INTO programs(
                     id,mission_id,name,status,current_revision_id,requested_range_json,

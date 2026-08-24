@@ -661,6 +661,7 @@ class SupervisionService:
             "expected_effect": dict(expected_effect),
             "recorded_at": now,
         }
+        correction["root"] = digest_json(correction)
         with self.store.transaction() as db:
             db.execute(
                 """UPDATE incidents SET status='correcting',correction_json=?,
@@ -711,17 +712,62 @@ class SupervisionService:
             raise EvidenceInvalid("effectiveness review requires observed post-correction state")
         now = utc_now()
         status = "resolved" if outcome in {"effective", "partially_effective"} else "open"
+        observation_values = dict(observations)
         payload = {
             "outcome": outcome,
             "evidence_ids": evidence_ids,
-            "observations": dict(observations or {}),
+            "observations": observation_values,
         }
         with self.store.transaction() as db:
-            self.store.require_evidence(
+            incident = self.store.one("SELECT * FROM incidents WHERE id=?", (incident_id,), db=db)
+            if incident["status"] not in {"correcting", "verifying"}:
+                raise InvalidTransition(
+                    "effectiveness review requires a recorded correction awaiting verification"
+                )
+            correction = json_load(incident["correction_json"], {})
+            correction_root = correction.get("root")
+            correction_recorded_at = parse_time(correction.get("recorded_at"))
+            if not correction_root or correction_recorded_at is None:
+                raise EvidenceInvalid("effectiveness review requires a rooted correction record")
+            rows = self.store.require_evidence(
                 db,
                 evidence_ids,
                 mission_id=incident["mission_id"],
+                subject_type="incident",
+                subject_id=incident_id,
             )
+            observation_root = digest_json(observation_values)
+            correction_work = db.execute(
+                "SELECT candidate_revision FROM work_items WHERE id=?",
+                (incident["correction_work_item_id"],),
+            ).fetchone()
+            expected_revision = (
+                None if correction_work is None else correction_work["candidate_revision"]
+            )
+            for row in rows:
+                evidence_created_at = parse_time(row["created_at"])
+                if evidence_created_at is None or evidence_created_at <= correction_recorded_at:
+                    raise EvidenceInvalid(
+                        "effectiveness evidence must be produced after the recorded correction"
+                    )
+                if expected_revision and row["revision"] != expected_revision:
+                    raise EvidenceInvalid(
+                        "effectiveness evidence is not bound to the correction revision"
+                    )
+                evidence_payload = json_load(row["payload_json"], {})
+                if (
+                    evidence_payload.get("correction_root") != correction_root
+                    or evidence_payload.get("observations_root") != observation_root
+                ):
+                    raise EvidenceInvalid(
+                        "effectiveness evidence does not bind the correction and observations"
+                    )
+            if incident.get("verification_execution_id") and not any(
+                row["execution_id"] == incident["verification_execution_id"] for row in rows
+            ):
+                raise EvidenceInvalid(
+                    "effectiveness evidence does not bind the verification execution"
+                )
             db.execute(
                 """UPDATE incidents SET status=?,effectiveness=?,updated_at=?,
                    state_version=state_version+1 WHERE id=?""",

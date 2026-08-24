@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from software_factory import CoreService, InvalidTransition, RoleConflict, Store
-from software_factory.util import canonical_json, digest_json, new_id, utc_now
+from software_factory import CoreService, EvidenceInvalid, InvalidTransition, RoleConflict, Store
+from software_factory.util import canonical_json, digest_json, json_load, new_id, utc_now
 
 
 def runtime() -> tuple[Store, CoreService, str]:
@@ -297,6 +297,55 @@ def test_narrow_containment_does_not_cancel_unrelated_execution() -> None:
     )
 
 
+def test_effectiveness_rejects_unrelated_or_unbound_post_correction_evidence() -> None:
+    store, core, mission = runtime()
+    reviewer = session(core, mission, "effectiveness_reviewer")
+    obligation, work = obligation_and_work(core, mission)
+    execution = finished_execution(
+        store, mission, work, obligation, status="failed", failure="same"
+    )
+    incident = core.observe_execution(execution)["incident_id"]
+    unrelated = store.record_evidence(
+        mission_id=mission,
+        evidence_type="effectiveness_probe",
+        subject_type="mission",
+        subject_id=mission,
+        producer_session_id=reviewer,
+        payload={"compile": "passes"},
+    )
+    correction = core.record_correction(
+        incident,
+        work_item_id=work,
+        expected_effect={"compile": "passes"},
+    )
+    observations = {"compile": "passes"}
+    with pytest.raises(EvidenceInvalid, match="wrong subject type"):
+        core.record_effectiveness(
+            incident,
+            outcome="effective",
+            reviewer_session_id=reviewer,
+            evidence_ids=[unrelated],
+            observations=observations,
+        )
+    unbound = store.record_evidence(
+        mission_id=mission,
+        evidence_type="effectiveness_probe",
+        subject_type="incident",
+        subject_id=incident,
+        producer_session_id=reviewer,
+        payload={"compile": "passes"},
+    )
+    with pytest.raises(EvidenceInvalid, match="does not bind"):
+        core.record_effectiveness(
+            incident,
+            outcome="effective",
+            reviewer_session_id=reviewer,
+            evidence_ids=[unbound],
+            observations=observations,
+        )
+    assert json_load(correction["correction_json"], {})["root"]
+
+
 def test_ineffective_correction_reopens_causal_hypothesis_at_higher_level() -> None:
     store, core, mission = runtime()
     reviewer = session(core, mission, "effectiveness_reviewer")
@@ -305,18 +354,24 @@ def test_ineffective_correction_reopens_causal_hypothesis_at_higher_level() -> N
         store, mission, work, obligation, status="failed", failure="same"
     )
     incident = core.observe_execution(execution)["incident_id"]
-    core.record_correction(
+    correction = core.record_correction(
         incident,
         work_item_id=work,
         expected_effect={"compile": "passes"},
     )
+    correction_record = json_load(correction["correction_json"], {})
+    observations = {"compile": "still fails"}
     effectiveness_evidence = store.record_evidence(
         mission_id=mission,
         evidence_type="effectiveness_probe",
         subject_type="incident",
         subject_id=incident,
         producer_session_id=reviewer,
-        payload={"compile": "still fails"},
+        payload={
+            "compile": "still fails",
+            "correction_root": correction_record["root"],
+            "observations_root": digest_json(observations),
+        },
     )
 
     reviewed = core.record_effectiveness(
@@ -324,7 +379,7 @@ def test_ineffective_correction_reopens_causal_hypothesis_at_higher_level() -> N
         outcome="ineffective",
         reviewer_session_id=reviewer,
         evidence_ids=[effectiveness_evidence],
-        observations={"compile": "still fails"},
+        observations=observations,
     )
     assert reviewed["status"] == "open"
     action = store.one(

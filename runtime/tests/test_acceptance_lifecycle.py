@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
@@ -9,7 +11,7 @@ import pytest
 from software_factory.core import CoreService
 from software_factory.database import Database
 from software_factory.errors import AuthorityDenied, EvidenceInvalid, InvalidTransition
-from software_factory.util import json_load
+from software_factory.util import digest_json, json_load
 
 REVISION = "revision-0123456789abcdef"
 CURRENTNESS = "currentness-0123456789abcdef"
@@ -341,6 +343,83 @@ def test_changed_currentness_invalidates_the_prior_stage_and_all_downstream_use(
         )
 
 
+def test_stage_promotion_serializes_with_changed_currentness(
+    runtime: tuple[Database, CoreService, str, str, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, core, mission, work, implementer, reviewer = runtime
+    prepared, evidence = _prepare_decide(
+        store,
+        core,
+        mission=mission,
+        work=work,
+        implementer=implementer,
+        reviewer=reviewer,
+        stage="candidate",
+        prior_stage_id=None,
+    )
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
+        prepared["id"],
+        reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{prepared['id']}",
+        expires_at=_future(),
+    )
+    core.acceptance_lifecycle.reconcile_outcome(
+        prepared["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
+        exact_revision=REVISION,
+        currentness_root=CURRENTNESS,
+        observed_outcome=EXPECTED,
+        evidence_ids=[evidence],
+    )
+    latest_read = Event()
+    release_read = Event()
+    original_one = store.one
+
+    def paused_one(sql: str, *args: Any, **kwargs: Any) -> Any:
+        result = original_one(sql, *args, **kwargs)
+        if (
+            "FROM outcome_reconciliations_v2" in sql
+            and "ORDER BY created_at" in sql
+            and not latest_read.is_set()
+        ):
+            latest_read.set()
+            assert release_read.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(store, "one", paused_one)
+    changed_currentness = "changed-currentness-0123456789abcdef"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        acceptance = pool.submit(
+            core.acceptance_lifecycle.accept_stage,
+            prepared["id"],
+            acceptor_session_id=reviewer,
+            exact_revision=REVISION,
+            currentness_root=CURRENTNESS,
+        )
+        assert latest_read.wait(timeout=5)
+        replacement = pool.submit(
+            core.acceptance_lifecycle.prepare_stage,
+            mission_id=mission,
+            work_item_id=work,
+            stage="candidate",
+            target_revision=REVISION,
+            currentness_root=changed_currentness,
+            implementer_session_id=implementer,
+            required_probes=[{"key": "candidate-behavior", "type": "test"}],
+            expected_outcome=EXPECTED,
+            remaining_scope=["integrated", "installed", "terminal"],
+        )
+        release_read.set()
+        assert acceptance.result(timeout=5)["status"] == "accepted"
+        assert replacement.result(timeout=5)["status"] == "prepared"
+    assert store.one(
+        "SELECT status FROM acceptance_stage_records_v2 WHERE id=?", (prepared["id"],)
+    ) == {"status": "stale"}
+
+
 def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
     runtime: tuple[Database, CoreService, str, str, str, str],
 ) -> None:
@@ -406,6 +485,30 @@ def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
             currentness_root=CURRENTNESS,
         )
 
+    stale_effectiveness_evidence = _evidence(
+        store,
+        mission=mission,
+        suffix="before-correction",
+        producer=reviewer,
+        subject_type="incident",
+        subject_id=disagreement["incident_id"],
+        evidence_type="effectiveness_probe",
+    )
+    correction = core.supervision.record_correction(
+        disagreement["incident_id"],
+        work_item_id=work,
+        expected_effect=EXPECTED,
+    )
+    correction_record = json_load(correction["correction_json"], {})
+    with pytest.raises(EvidenceInvalid, match="after the recorded correction"):
+        core.supervision.record_effectiveness(
+            disagreement["incident_id"],
+            outcome="effective",
+            reviewer_session_id=reviewer,
+            evidence_ids=[stale_effectiveness_evidence],
+            observations={"operator_visible": {"ready": True}},
+        )
+
     aligned_evidence = _evidence(
         store,
         mission=mission,
@@ -453,12 +556,25 @@ def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
         evidence_ids=[obligation_evidence],
         actor_session_id=reviewer,
     )
+    effectiveness_observations = {"operator_visible": {"ready": True}}
+    effectiveness_evidence = store.record_evidence(
+        mission_id=mission,
+        evidence_type="effectiveness_probe",
+        subject_type="incident",
+        subject_id=disagreement["incident_id"],
+        revision=REVISION,
+        producer_session_id=reviewer,
+        payload={
+            "correction_root": correction_record["root"],
+            "observations_root": digest_json(effectiveness_observations),
+        },
+    )
     core.supervision.record_effectiveness(
         disagreement["incident_id"],
         outcome="effective",
         reviewer_session_id=reviewer,
-        evidence_ids=[aligned_evidence],
-        observations={"operator_visible": {"ready": True}},
+        evidence_ids=[effectiveness_evidence],
+        observations=effectiveness_observations,
     )
     accepted = core.acceptance_lifecycle.accept_stage(
         prepared["id"],
@@ -681,6 +797,82 @@ def test_active_canonical_program_cannot_be_hidden_by_empty_declared_remaining_s
         "action": "reconcile_program_range",
         "program_ids": [program],
     }
+
+
+def test_terminal_promotion_serializes_against_new_active_program(
+    runtime: tuple[Database, CoreService, str, str, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, core, mission, work, implementer, reviewer = runtime
+    installed = _accepted_chain(store, core, mission, work, implementer, reviewer)
+    terminal, evidence = _prepare_decide(
+        store,
+        core,
+        mission=mission,
+        work=work,
+        implementer=implementer,
+        reviewer=reviewer,
+        stage="terminal",
+        prior_stage_id=installed["id"],
+    )
+    outcome_grant = core.acceptance_lifecycle.issue_outcome_reviewer_grant(
+        terminal["id"],
+        reviewer_session_id=reviewer,
+        policy_root=f"outcome-policy-{terminal['id']}",
+        expires_at=_future(),
+    )
+    core.acceptance_lifecycle.reconcile_outcome(
+        terminal["id"],
+        grant_id=outcome_grant["id"],
+        reviewer_session_id=reviewer,
+        provider_session_id="reviewer-provider-task",
+        exact_revision=REVISION,
+        currentness_root=CURRENTNESS,
+        observed_outcome=EXPECTED,
+        evidence_ids=[evidence],
+    )
+    latest_read = Event()
+    release_read = Event()
+    original_one = store.one
+
+    def paused_one(sql: str, *args: Any, **kwargs: Any) -> Any:
+        result = original_one(sql, *args, **kwargs)
+        if (
+            "FROM outcome_reconciliations_v2" in sql
+            and "ORDER BY created_at" in sql
+            and not latest_read.is_set()
+        ):
+            latest_read.set()
+            assert release_read.wait(timeout=5)
+        return result
+
+    monkeypatch.setattr(store, "one", paused_one)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        acceptance = pool.submit(
+            core.acceptance_lifecycle.accept_stage,
+            terminal["id"],
+            acceptor_session_id=reviewer,
+            exact_revision=REVISION,
+            currentness_root=CURRENTNESS,
+        )
+        assert latest_read.wait(timeout=5)
+        program = pool.submit(
+            core.programs.create_program,
+            mission_id=mission,
+            name="Late range",
+            requested_range={"remaining": ["successor"]},
+            terminal_criteria={"probe": "operator-visible"},
+        )
+        release_read.set()
+        assert acceptance.result(timeout=5)["status"] == "accepted"
+        with pytest.raises(InvalidTransition, match="terminal stage"):
+            program.result(timeout=5)
+    assert (
+        store.scalar(
+            "SELECT COUNT(*) FROM programs WHERE mission_id=? AND status='active'", (mission,)
+        )
+        == 0
+    )
 
 
 def test_exact_terminal_chain_completes_only_after_independent_actual_outcome(
