@@ -233,7 +233,7 @@ for this tracker may inspect Patent Studio patent content.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Exact baseline, owner inventory, and cutover map | — | `accepted` |
-| 1 | Operational authority and persistence boundaries | 0 | `not-started` |
+| 1 | Operational authority and persistence boundaries | 0 | `in-progress` |
 | 2 | One embedded/standalone engine contract | 1 | `not-started` |
 | 3 | Work graph, scheduling, continuation, and concurrency | 1, 2 | `not-started` |
 | 4 | Agents and replaceable provider runtime | 2, 3 | `not-started` |
@@ -393,7 +393,7 @@ Stop before changing operational authority or persistence.
 
 ## Block 1 — Establish operational authority and persistence boundaries
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
