@@ -240,8 +240,8 @@ for this tracker may inspect Patent Studio patent content.
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `accepted` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `accepted` |
-| 8 | Delivery, release, recovery, and reconciliation | 5–7 | `in-progress` |
-| 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `not-started` |
+| 8 | Delivery, release, recovery, and reconciliation | 5–7 | `accepted` |
+| 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `in-progress` |
 | 10 | Neutral content profile and external-extension proof | 5–9 | `not-started` |
 | 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `not-started` |
 | 12 | Frozen terminal qualification and handoff | 11 | `not-started` |
@@ -1728,7 +1728,7 @@ Stop before delivery/release cutover.
 
 ## Block 8 — Complete delivery, release, recovery, and reconciliation
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2007,7 +2007,7 @@ unfinished-work restoration.
   | target-ref deletion could throw before terminal evidence | missing ref is an observed currentness value at every failure boundary | non-throwing ref observation records JSON `null` before the terminal candidate/cleanup transition | `test_target_ref_deletion_records_terminal_publication_failure` | reconciliation and target profiles | closed by exact review of `eca370f` |
   | later legitimate target successor could rewrite successful history as failed | completed publication and current target-head identity are separate facts | idempotent calls return the immutable published row; terminal completion remains fenced before success | `test_later_target_successor_preserves_historical_publication` | reconciliation and delivery history | closed by exact review of `eca370f` |
   | queued publisher could reuse stale accepted state and resurrect a rollback | one candidate has one monotonic exact publication outcome under concurrent callers | reread under repository lock; candidate and cleanup terminal writes use expected-status SQL CAS in one transaction | `test_concurrent_publisher_cannot_resurrect_rolled_back_candidate` | reconciliation, recovery, and delivery history | closed by exact review of `173280d` |
-  | later or queued caller could substitute a different post-publication validation policy | publication idempotency binds the exact validation intent, not only the candidate head | migration 0025 stores the canonical command before Git publication; both published fast paths and the serialized path reject mismatches | `test_published_candidate_rejects_a_different_post_validation_policy`; `test_queued_publisher_rejects_a_conflicting_validation_policy` | reconciliation, target profiles, and delivery history | pending correction freeze |
+  | later or queued caller could substitute a different post-publication validation policy | publication idempotency binds the exact validation intent, not only the candidate head | migration 0025 stores the canonical command before Git publication; both published fast paths and the serialized path reject mismatches | `test_published_candidate_rejects_a_different_post_validation_policy`; `test_queued_publisher_rejects_a_conflicting_validation_policy` | reconciliation, target profiles, and delivery history | closed by exact review of `e82ee53` |
 - Focused validation: `45 passed` in the operations, governed-release,
   reconciliation, and recovery-coordinator files; the four existing
   `TestStore` collection warnings remain unchanged. Mapped validation across
@@ -2070,13 +2070,15 @@ unfinished-work restoration.
     prove one atomic identity-plus-worktree fence. That storage cost is accepted
     over silently stranding active work. Production activation and external
     delivery remain deliberately unqualified.
-  - Frozen-candidate proof: exact commit/tree identity will be recorded in the
-    acceptance successor after distinct exact-revision review; current bounded
-    behavioral proof is `45` focused and `95` mapped passes, exact installed
-    schema `25`, and the artifact/source/test roots above.
-- Candidate posture: corrected implementation and bounded proof are complete;
-  Block 8 remains `in-progress` pending a clean pushed exact correction and
-  distinct exact-revision review. All effects used isolated local/test targets; no
+  - Frozen-candidate proof: exact pushed commit
+    `e82ee5325c266d8891e86ab22ca7abfb2e369166`, tree
+    `b5be73e4fd137e440ef6c0b72fe13ebb2f2525c1`; distinct exact-revision
+    review returned `ACCEPT` with no P0, P1, or P2 findings after reproducing
+    11 mandatory and prior regression cases. Current bounded behavioral proof
+    is `45` focused and `95` mapped passes, exact installed schema `25`, and the
+    artifact/source/test roots above.
+- Candidate posture: exact candidate `e82ee53` is accepted. All effects used
+  isolated local/test targets; no
   production activation, external notification, utils consumption, service/API
   qualification, migration cutover, or terminal qualification occurred.
 
@@ -2088,7 +2090,7 @@ Stop before service/operator qualification.
 
 ## Block 9 — Qualify service, API, operator, and deployment-ready boundaries
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
