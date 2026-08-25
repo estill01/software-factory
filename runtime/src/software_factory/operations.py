@@ -1577,6 +1577,11 @@ class OperationsService:
             "historical",
         }:
             raise InvalidTransition("cleanup item is not proven safe to retire")
+        if item["item_type"] != "branch":
+            raise InvalidTransition(
+                f"cleanup {item['item_type']} must be preserved or deferred because "
+                "no atomic exact-object deletion adapter exists"
+            )
         bundle = self.store.one(
             "SELECT * FROM preservation_bundles_v2 WHERE id=?", (preservation_bundle_id,)
         )
@@ -1675,14 +1680,19 @@ class OperationsService:
                     raise InvalidTransition("cleanup item disappeared after preservation")
                 if not already_absent:
                     self._require_cleanup_identity(root, item, recorded_identity)
-                    if item["item_type"] == "branch":
-                        _run_git(root, "branch", "-D", item["item_key"])
-                    elif item["item_type"] == "worktree":
-                        _run_git(root, "worktree", "remove", "--force", item["item_key"])
-                    elif item["item_type"] == "stash":
-                        _run_git(root, "stash", "drop", item["item_key"])
-                    else:
-                        raise InvalidTransition("item type has no destructive retirement owner")
+                    self._fault("retirement:after_identity_check")
+                    deleted = _run_git(
+                        root,
+                        "update-ref",
+                        "-d",
+                        f"refs/heads/{item['item_key']}",
+                        str(recorded_identity["object_id"]),
+                        check=False,
+                    )
+                    if deleted.returncode != 0:
+                        raise InvalidTransition(
+                            "cleanup branch changed before atomic compare-and-delete"
+                        )
                 if not retired_postcondition():
                     raise RuntimeError("cleanup physical postcondition was not achieved")
                 self._fault("retirement:after_physical_effect")

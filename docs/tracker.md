@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `d90b1198ddbc8ad568b90035b9df10fa2bce58d998e0d0b5700d0b7d1c893f7b`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidate `4a23d41` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `9124848a9222aee7f2460d0617422ab949ffac8f60ed0bf992618ce6ba4d3b9d`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41` and `76ca892` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -51,8 +51,12 @@ dependency-safe frontier. Exact candidate `4a23d41` is preserved and
 unaccepted after four P1 findings exposed post-preservation cleanup deletion,
 loss of dirty/untracked restart bytes, duplicate resolved recovery wake, and
 overtaking release activation, plus one P2 fsync finding. The bounded
-correction and affected proof are complete, with a clean correction freeze and
-distinct exact-revision review still required.
+correction `76ca892` is also preserved and unaccepted after distinct review
+closed four prior findings but reproduced one remaining P1 check/delete race
+in destructive branch cleanup. The current bounded successor uses atomic
+expected-object ref deletion, preserves/defer-fails destructive worktree and
+stash paths without an equivalent adapter, and has refreshed affected proof;
+a clean correction freeze and distinct exact-revision review remain required.
 
 ## Required outcome
 

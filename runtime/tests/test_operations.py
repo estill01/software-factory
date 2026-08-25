@@ -4,6 +4,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+import tarfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -510,3 +511,88 @@ def test_retirement_rejects_branch_advance_after_preservation(tmp_path: Path) ->
     with pytest.raises(InvalidTransition, match="advanced after preservation"):
         operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
     assert git(repository, "rev-parse", "old-complete") == advanced_head
+
+
+def test_retirement_compare_and_delete_preserves_racing_branch_advance(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    race: dict[str, str | bool] = {"armed": True}
+
+    def fault(point: str) -> None:
+        if point == "retirement:after_identity_check" and race.pop("armed", False):
+            git(
+                repository,
+                "update-ref",
+                "refs/heads/old-complete",
+                str(race["advanced_head"]),
+            )
+
+    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_git_repo(repository)
+    git(repository, "branch", "old-complete")
+    inventory = operations.inventory_repository(repository_root=repository)
+    item = operations.plan_cleanup_item(
+        inventory["id"],
+        item_type="branch",
+        item_key="old-complete",
+        classification="redundant",
+        disposition="retire",
+        evidence={"merged_into": "main"},
+    )
+    bundle = operations.preserve_repository(
+        inventory["id"], output_directory=tmp_path / "preserved"
+    )
+    (repository / "later.txt").write_text("later\n", encoding="utf-8")
+    git(repository, "add", "--", "later.txt")
+    git(repository, "commit", "-m", "later commit")
+    race["advanced_head"] = git(repository, "rev-parse", "HEAD")
+
+    archived_bundle = tmp_path / "repository.bundle"
+    with tarfile.open(bundle["bundle_path"], "r:gz") as archive:
+        member = archive.extractfile("repository.bundle")
+        assert member is not None
+        archived_bundle.write_bytes(member.read())
+    assert str(race["advanced_head"]) not in git(
+        repository, "bundle", "list-heads", str(archived_bundle)
+    )
+
+    with pytest.raises(InvalidTransition, match="atomic compare-and-delete"):
+        operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+    assert git(repository, "rev-parse", "old-complete") == race["advanced_head"]
+    assert store.one("SELECT status FROM cleanup_effects_v2") == {"status": "failed"}
+
+
+def test_retirement_preserves_worktrees_and_stashes_without_atomic_adapter(
+    tmp_path: Path,
+) -> None:
+    operations = service()
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_git_repo(repository)
+    git(repository, "branch", "spare")
+    worktree = tmp_path / "spare-worktree"
+    git(repository, "worktree", "add", str(worktree), "spare")
+    (repository / "README.md").write_text("stashed\n", encoding="utf-8")
+    git(repository, "stash", "push", "-m", "preserve-me")
+    stash_head = git(repository, "rev-parse", "stash@{0}")
+    inventory = operations.inventory_repository(repository_root=repository)
+
+    for item_type, item_key in (
+        ("worktree", str(worktree)),
+        ("stash", "stash@{0}"),
+    ):
+        item = operations.plan_cleanup_item(
+            inventory["id"],
+            item_type=item_type,  # type: ignore[arg-type]
+            item_key=item_key,
+            classification="redundant",
+            disposition="retire",
+        )
+        with pytest.raises(InvalidTransition, match="must be preserved or deferred"):
+            operations.execute_retirement(item["id"], preservation_bundle_id="unused")
+
+    assert worktree.is_dir()
+    assert git(repository, "rev-parse", "stash@{0}") == stash_head

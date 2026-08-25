@@ -1820,9 +1820,13 @@ unfinished-work restoration.
 - Recovery/reconciliation implementation: preservation verification now checks
   the archive root, exact safe member set, embedded manifest bytes, and every
   declared member hash and the exact safe untracked-member set immediately
-  before cleanup. Retirement reuses one recorded effect, locks the repository,
-  rechecks the inventory-recorded branch/stash/worktree object identity before
-  deletion, and recognizes only its exact achieved physical postcondition.
+  before cleanup. Retirement reuses one recorded effect and locks the
+  repository. Branch retirement rechecks the inventoried object and then uses
+  Git's expected-object `update-ref` compare-and-delete, so a ref advance
+  between the last read and deletion fails atomically. Worktree and stash
+  retirement have no equivalent exact-object deletion adapter and therefore
+  fail closed to preserve/defer without a physical effect. Only an exact
+  achieved branch-removal postcondition may complete the cleanup effect.
   Integration preparation resumes an exact planned merge/validation workspace;
   publication recognizes an already-applied accepted Git head and reruns its
   post-publication validation before committing SQL. Unfinished restart uses
@@ -1841,11 +1845,12 @@ unfinished-work restoration.
   token, intent, or workspace. Tests also rejected modified installed files,
   forged active pointers, rollback to unverified bytes, post-probe drift,
   tampered preservation archives, target-branch advance, cleanup without exact
-  preservation, a cleanup branch advanced after preservation, an overtaking
-  release activation, duplicate resolved recovery, false wake delivery, and
-  arbitrary restart state without a restoration receipt. A committed plus
-  dirty plus untracked unfinished branch restores the latest tracked and exact
-  untracked bytes and replays without duplication.
+  preservation, a cleanup branch advanced before or during retirement, unsafe
+  worktree/stash deletion without an atomic adapter, an overtaking release
+  activation, duplicate resolved recovery, false wake delivery, and arbitrary
+  restart state without a restoration receipt. A committed plus dirty plus
+  untracked unfinished branch restores the latest tracked and exact untracked
+  bytes and replays without duplication.
 - Preserved rejected candidate: exact pushed commit
   `4a23d414a3908069161310125042eeb5b4514ba6`, tree
   `5780cd5fbf124523f7892347e66ae6a88a999d6c`, remains immutable and
@@ -1858,34 +1863,48 @@ unfinished-work restoration.
   publication lacked all required post-rename file/directory fsyncs. The
   current correction closes those exact findings without rewriting the
   rejected history.
+- Preserved rejected correction: exact pushed commit
+  `76ca892955e24ebca7b5431312c79730b9850327`, tree
+  `50c4b3f08b7b26afbcc71279e752a7a2a5f3871e`, remains immutable and
+  unaccepted. Its distinct exact-revision review closed the dirty/untracked
+  restart, resolved-recovery replay, activation-overtake, and fsync findings,
+  and returned `REVISE` on one remaining P1 cleanup race. The reviewer advanced
+  `old-complete` to commit `3d1cde8a` after the last identity check but before
+  `git branch -D`; that commit was absent from the preservation bundle and the
+  old adapter deleted it (`effect_status=succeeded`, `race_injected=true`,
+  `branch_exists_after=false`, `advanced_in_bundle_heads=false`). This
+  successor replaces the check-then-delete gap with atomic expected-object ref
+  deletion and disables destructive worktree/stash paths that lack an
+  equivalent adapter.
 - Rejected-candidate closure matrix:
 
   | Finding | Governing invariant | Corrective delta | Focused regression | Affected mapped proof | Fresh exact review |
   |---|---|---|---|---|---|
-  | branch advanced after preservation could be deleted | destructive cleanup binds and rechecks the exact inventoried physical object | repository lock plus exact branch/stash/worktree identity and clean-worktree gate | `test_retirement_rejects_branch_advance_after_preservation` | operations, reconciliation, target profiles | pending correction freeze |
-  | dirty tracked and untracked work was absent from restart | restart rehydrates every safe byte owned by the inventoried checked-out source | replay verified working-tree patch and safe untracked archive; receipt binds source, patch, status, bytes, modes | `test_unfinished_checked_out_branch_restores_dirty_and_untracked_bytes` | operations and reconciliation | pending correction freeze |
-  | resolved replay allocated a duplicate wake and stranded recovery | one defect fingerprint owns one case, token, effect, and delivered wake across terminal replay | include resolved cases in lookup, exact target-state collision check, resolved fast path, explicit `sent` gate | `test_resolved_factory_recovery_replays_without_duplicate_wake_or_case`; `test_unsent_factory_wake_fails_closed_and_redrives_same_intent` | recovery and governed effects | pending correction freeze |
-  | interrupted activation could overtake newer authority | one root has one serialized unfinished transition bound to its exact predecessor/current active state | durable root lock, unfinished-root gate, transition-root/payload/predecessor/current-pointer checks | `test_interrupted_activation_blocks_newer_activation_and_resumes_exact_transition` | operations and governed release | pending correction freeze |
-  | receipt/release publication omitted durability barriers | no reported durable publication relies on an un-fsynced renamed file or directory entry | `atomic_write` receipts, file/tree directory fsync, release-root post-rename fsync, crash-safe persistent locks | staging and restart crash-recovery fixtures plus exact source audit | operations, governed release, reconciliation | pending correction freeze |
-- Focused validation: `32 passed` in the operations, governed-release,
+  | branch advanced after preservation could be deleted | destructive cleanup binds and rechecks the exact inventoried physical object | repository lock plus exact branch identity and clean-worktree gate | `test_retirement_rejects_branch_advance_after_preservation` | operations, reconciliation, target profiles | closed by exact review of `76ca892` |
+  | dirty tracked and untracked work was absent from restart | restart rehydrates every safe byte owned by the inventoried checked-out source | replay verified working-tree patch and safe untracked archive; receipt binds source, patch, status, bytes, modes | `test_unfinished_checked_out_branch_restores_dirty_and_untracked_bytes` | operations and reconciliation | closed by exact review of `76ca892` |
+  | resolved replay allocated a duplicate wake and stranded recovery | one defect fingerprint owns one case, token, effect, and delivered wake across terminal replay | include resolved cases in lookup, exact target-state collision check, resolved fast path, explicit `sent` gate | `test_resolved_factory_recovery_replays_without_duplicate_wake_or_case`; `test_unsent_factory_wake_fails_closed_and_redrives_same_intent` | recovery and governed effects | closed by exact review of `76ca892` |
+  | interrupted activation could overtake newer authority | one root has one serialized unfinished transition bound to its exact predecessor/current active state | durable root lock, unfinished-root gate, transition-root/payload/predecessor/current-pointer checks | `test_interrupted_activation_blocks_newer_activation_and_resumes_exact_transition` | operations and governed release | closed by exact review of `76ca892` |
+  | receipt/release publication omitted durability barriers | no reported durable publication relies on an un-fsynced renamed file or directory entry | `atomic_write` receipts, file/tree directory fsync, release-root post-rename fsync, crash-safe persistent locks | staging and restart crash-recovery fixtures plus exact source audit | operations, governed release, reconciliation | closed by exact review of `76ca892` |
+  | branch ref advanced after the last identity check could still be deleted | destructive cleanup must make the identity precondition and deletion one atomic Git operation | `update-ref -d <ref> <expected-object>` compare-and-delete; preserve/defer worktrees and stashes without an equivalent adapter | `test_retirement_compare_and_delete_preserves_racing_branch_advance`; `test_retirement_preserves_worktrees_and_stashes_without_atomic_adapter` | operations, reconciliation, target profiles | pending correction freeze |
+- Focused validation: `34 passed` in the operations, governed-release,
   reconciliation, and recovery-coordinator files; the four existing
   `TestStore` collection warnings remain unchanged. Mapped validation across
   advanced integration, controller, core, governed release, operational
   boundaries, operations, reconciliation, recovery, and target profiles:
-  `81 passed` with the same four warnings. Runtime collection found `225`
+  `83 passed` with the same four warnings. Runtime collection found `227`
   tests with only the seven existing collection warnings. Ruff format/check, mypy
   across `69` source files, compileall, diff check, and tracker verification are
   clean. No broad runtime suite was run.
 - Isolated build/install proof: wheel SHA-256
-  `90f4136e8bbbc0b9a0930749f7c0e3648025b05da12f029bf205d2a969fbc8f8`;
+  `56849401e8eb9d9c14ae69826744885d3934389df86b0f8aea8b10b228e6b5c2`;
   sdist SHA-256
-  `aff1173b9dbe2e749d9457cf156d03934c6cb8e22b1dcf19e300ab437a947408`.
+  `28745ea1dbbeaa1fd8ac40b90c620cee639f4a26946f65e3d580adb25a4f1884`.
   The exact wheel contains migration 0024 and a fresh isolated install reported
   both catalog and live database schema version `24`. The changed runtime-source
   hash-list root is
-  `dfd8acb97b4c28817839edec6ac66d13bca49f187b8d084c64c3f513bca64933`;
+  `aa6b73518e280ab8efc7a426e7ecd42cb005ebad7a9a2763ca9fe0998bd153ec`;
   the changed-test hash-list root is
-  `c27be10ddfd374d712a62a72144631155997709b145938a13637d792aabc8099`.
+  `8bba607a3d079eac5e06218c20bcc2025876420cba2f0619b4603180272ec190`.
 - Product-capability review:
   - Trigger: consequential durable delivery/recovery boundary and correction
     of a candidate that could lose unfinished work or overwrite newer release
@@ -1895,9 +1914,10 @@ unfinished-work restoration.
     bytes at lines 52–84, SHA-256
     `c2b8110d2cf11edc3d7f52ecc0c6112f0f60ba9d091b6cbeb2e15e9b6bbb3851`.
   - Capability added or preserved: interrupted local delivery rehydrates one
-    exact release/effect/workspace; cleanup cannot delete post-preservation
-    changes; dirty and untracked work remain recoverable; a resolved case does
-    not resume its target twice.
+    exact release/effect/workspace; atomic branch retirement cannot delete a
+    post-check ref advance and unsupported worktree/stash retirement remains
+    preserved; dirty and untracked work remain recoverable; a resolved case
+    does not resume its target twice.
   - Paths compared: retry from current mutable Git refs; retain only the Git
     bundle; use process-local flags; or bind durable journals, exact inventory
     identities, bundle members, receipts, and external idempotency keys under
@@ -1906,8 +1926,9 @@ unfinished-work restoration.
     reconciliation, governance-effect, and recovery owners retain authority;
     no new service, provider, production, or semantic owner is introduced.
   - Protected-capability result: immutable evidence and newer release/Git
-    authority survive every tested interruption, false delivery never consumes
-    the resume token, and unfinished obligations retain their latest bytes.
+    authority survive every tested interruption and the injected deletion
+    race, false delivery never consumes the resume token, and unfinished
+    obligations retain their latest bytes.
   - Rejected alternatives: live-ref reconstruction loses the preserved point;
     committed-only restart loses dirty work; selector-only stash deletion can
     shift; a receipt without directory fsync can vanish after reported success;
@@ -1918,7 +1939,7 @@ unfinished-work restoration.
     remain deliberately unqualified.
   - Frozen-candidate proof: exact commit/tree identity will be recorded in the
     acceptance successor after distinct exact-revision review; current bounded
-    behavioral proof is `32` focused and `81` mapped passes, exact installed
+    behavioral proof is `34` focused and `83` mapped passes, exact installed
     schema `24`, and the artifact/source/test roots above.
 - Candidate posture: corrected implementation and bounded proof are complete;
   Block 8 remains `in-progress` pending a clean pushed exact correction and
