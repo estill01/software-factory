@@ -16,7 +16,6 @@ from librsi import (
     Hypothesis,
     HypothesisPolicy,
     Observation,
-    TargetRef,
     TargetSnapshot,
 )
 
@@ -95,9 +94,9 @@ class LearningService:
     live effects.
     """
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, *, semantic: LibRSIIntegration | None = None) -> None:
         self.store = store
-        self.semantic = LibRSIIntegration(store)
+        self.semantic = semantic or LibRSIIntegration(store)
 
     def _require_mission(self, mission_id: str) -> None:
         if (
@@ -788,18 +787,26 @@ class LearningService:
             )
         else:
             loaded = self.semantic.load_record(hypothesis_id)
-            if not isinstance(loaded, Hypothesis):
+            if type(loaded) is not Hypothesis:
                 raise ValueError("experiment hypothesis must be a canonical libRSI root")
             hypothesis = loaded
-            if hypothesis.target != target:
-                if not isinstance(hypothesis.target, TargetRef):
-                    raise ValueError("canonical experiment hypothesis lacks an exact target")
-                target = hypothesis.target
-                snapshot = TargetSnapshot(
-                    target=target,
-                    revision=snapshot.revision,
-                    state=snapshot.state,
+            binding = self.store.one(
+                """SELECT currentness_root FROM librsi_record_bindings
+                   WHERE mission_id=? AND librsi_root=?
+                     AND semantic_role IN ('hypothesis','hypothesis_update',
+                                           'experiment_hypothesis')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (mission_id, hypothesis_id),
+                required=False,
+            )
+            if binding is None or hypothesis.target != target:
+                raise InvalidTransition(
+                    "experiment hypothesis is not bound to this exact Factory mission"
                 )
+            bound_snapshot = self.semantic.load_record(str(binding["currentness_root"]))
+            if type(bound_snapshot) is not TargetSnapshot:
+                raise StoreError("experiment hypothesis lacks exact host currentness")
+            self.semantic.require_live_currentness(mission_id=mission_id, snapshot=bound_snapshot)
         spec = ExperimentSpec(
             experiment_id=experiment_id,
             kind=experiment_type,

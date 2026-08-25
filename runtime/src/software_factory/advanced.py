@@ -5,6 +5,7 @@ from typing import Any
 from .adaptive import AdaptiveExecutionService
 from .continuation import ContinuationService
 from .evolution import EvolutionService
+from .integrations.librsi import LibRSIIntegration
 from .learning import LearningService
 from .operations import OperationsService
 from .store import Store
@@ -40,18 +41,29 @@ class AdvancedServices:
             work_items=self.work_items,
             continuation=self.continuation,
         )
+        if learning is None:
+            semantic = LibRSIIntegration(store, work_items=self.work_items)
+            self.learning = LearningService(store, semantic=semantic)
+        else:
+            self.learning = learning
+            if self.learning.semantic.work_items is None:
+                self.learning.semantic.work_items = self.work_items
         self.adaptive = adaptive or AdaptiveExecutionService(
             store,
             work_items=self.work_items,
             continuation=self.continuation,
             supervision=self.supervision,
+            semantic_integration=self.learning.semantic,
         )
+        if self.adaptive.semantic is not self.learning.semantic:
+            raise ValueError("advanced services require one shared libRSI semantic owner")
         if self.supervision.adaptive is None:
             self.supervision.bind_adaptive(self.adaptive)
         elif self.supervision.adaptive is not self.adaptive:
             raise ValueError("supervision is already bound to a different adaptive owner")
-        self.learning = learning or LearningService(store)
         self.evolution = evolution or EvolutionService(store, semantic=self.learning.semantic)
+        if self.evolution.semantic is not self.learning.semantic:
+            raise ValueError("advanced services require one shared libRSI semantic owner")
         self._operations = operations or OperationsService(store)
 
     def reconcile_mission(self, mission_id: str) -> dict[str, Any]:

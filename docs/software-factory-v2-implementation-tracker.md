@@ -1586,7 +1586,9 @@ semantic/operational identity separation, and outcome use.
   null evidence rather than falsification. Unexpected-success follow-up appears
   only after bounded support reaches libRSI's supported posture, and remains
   proposed/pending because semantic selection grants no dispatch, effect,
-  acceptance, or lifecycle authority.
+  acceptance, or lifecycle authority. Every semantic ingress revalidates live
+  mission and known work/execution state versions against its exact snapshot;
+  cached equality cannot substitute for host currentness.
 - Supported semantic convergence: `LearningService` maps compatibility
   entrypoints to canonical `Hypothesis`, `Evidence`, and `ExperimentSpec`
   records and the accepted `HypothesisPolicy` and `ExperimentPolicy`.
@@ -1597,11 +1599,17 @@ semantic/operational identity separation, and outcome use.
   `ComparativeSelectionPolicy` produce canonical comparison decisions without
   an operational transition; a Factory candidate advances only after its
   independent review and exact same-group, selected-root, currentness-matched
-  decision binding. Evolution checkpoint, program-change, portfolio,
+  decision binding. A hypothesis is admitted to Learning experiment design only
+  under its exact same-mission binding. Evolution checkpoint, program-change, portfolio,
   and selector paths delegate roots, transitions, and gates to the accepted
   policies. Complete `ImprovementResult` and governed `RSIResult` records cross
   one typed binding boundary, with RSI request revalidation by
-  `SelfChangePolicy`. Learning, evolution, problem-solving, and adaptive tables
+  `SelfChangePolicy`. Problem solving consumes the exact selected candidate
+  roots from one live-current `ImprovementResult`; it may apply host
+  prerequisites, capacity, and writable-scope conflict gates but cannot rank or
+  replace the semantic selection. Adaptive outcome handling delegates failed
+  and unexpected-success semantics directly to the canonical reflection and
+  experiment slice. Learning, evolution, problem-solving, and adaptive tables
   are operational projections; the integration is the only current semantic
   lifecycle owner.
 - Shadow, cutover, and deletion: each failed/unexpected source execution first
@@ -1609,13 +1617,15 @@ semantic/operational identity separation, and outcome use.
   experiment kind against a separately implemented pure legacy projection.
   Mismatch fails before semantic persistence, bindings, Factory work, receipts,
   or cutover events. A match records exact dependency/currentness, shadow, and
-  canonical-result roots. The failed/unexpected local proposal algorithm,
-  `_create_hypothesis`, and mutable `update_hypothesis` writer are deleted. The
+  canonical-result roots. The failed/unexpected local proposal and escalation
+  algorithms, `_create_hypothesis`, mutable `update_hypothesis` writer, local
+  strategy ranking, and local epistemic-next-action choice are deleted. The
   legacy `hypotheses` table and v2 reflection/hypothesis/evidence/selection-
-  outcome tables are schema-history
+  outcome tables plus `adaptive_actions` are schema-history
   only with no runtime writer or lifecycle-owner claim; Block 11 owns byte
-  retirement after preservation proof. The exact treatment and deletion map is
-  `docs/software-factory-v2-librsi-cutover.md`.
+  retirement after preservation proof. The Factory-floor API projects canonical
+  reflection bindings alongside preserved legacy history. The exact treatment
+  and deletion map is `docs/software-factory-v2-librsi-cutover.md`.
 - Preserved rejected candidate: exact pushed commit
   `79374642bdad3581b5a631d228330548489c68c3`, tree
   `5fc629b012bb9355c5399c3b69271e4d1a3c67e5`, remains unaccepted. Distinct
@@ -1625,8 +1635,21 @@ semantic/operational identity separation, and outcome use.
   unrelated and cross-mission terminal executions; shadow parity derived its
   expected projection from the candidate adapter itself; and pin verification
   admitted same-name/version installs without exact PEP 610 provenance. This
-  successor preserves that revision and closes all four findings without
-  editing pushed migration 0023.
+  next candidate preserved that revision and closed the pin, independent shadow,
+  and original unassigned/cross-mission execution attacks without editing pushed
+  migration 0023, but did not earn acceptance.
+- Preserved rejected successor: exact pushed commit
+  `bb1bd62af14f12af82b8dd3a55711e7b5cc4c70e`, tree
+  `01308e2e7fae4f1c73f62d85d20b64fdc26e7020`, remains unaccepted. Distinct
+  exact-revision review returned `REVISE` with five P1 findings: experiment
+  evidence and comparison/selection trusted cached rather than live mission
+  currentness; Learning could bind a mission-A hypothesis into a mission-B
+  experiment; ProblemSolving/Adaptive still owned generic improvement and
+  epistemic-next-action choices; and the operator API read only the retired
+  `reflections_v2` table. The current correction closes those exact findings by
+  live host revalidation, same-mission hypothesis admission, exact
+  `ImprovementResult` consumption, direct adaptive delegation, local-writer and
+  decision-path removal, and canonical API projection.
 - Product-capability review:
   - Trigger: consequential Block and one-way semantic-owner cutover; frame is
     the exact Block 7 objective, accepted libRSI handoff, v2 plan sections
@@ -1658,13 +1681,13 @@ semantic/operational identity separation, and outcome use.
     deliberately absent.
 - Proof: successor focused/mapped proof is recorded in
   `docs/sfv2-b7-focused-evidence.json` at SHA-256
-  `04bec27b69e86426c026f1799145f0c5bd8ddf28be2480233d8d2efd76defb04`;
+  `ead2009b2191de6642ff81c37a9f1af143fe4383a5551d99349905e2f58256eb`;
   no broad runtime suite was run. The
   previously recorded `18`/`75` pass and build hashes belong to rejected
   candidate `7937464` and remain preserved historical evidence, not acceptance
   proof for this correction.
-- Candidate posture: implementation and narrow proof are complete; Block 7
-  remains `in-progress` pending one clean pushed exact candidate and distinct
+- Candidate posture: bounded correction and narrow proof are complete; Block 7
+  remains `in-progress` pending a clean pushed exact candidate and distinct
   independent review. No utils package was consumed, no production target was
   used, and delivery/release, service/API, neutral-content, migration, and
   terminal qualification remain Blocks 8–12.

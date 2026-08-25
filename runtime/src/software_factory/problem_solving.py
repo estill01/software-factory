@@ -6,7 +6,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+from librsi import CandidateSnapshot, ImprovementResult, TargetSnapshot
+
 from .errors import InvalidTransition, StoreError
+from .integrations.librsi import LibRSIIntegration
 from .learning import LearningService
 from .store import Store
 from .util import new_id, utc_now
@@ -22,16 +25,6 @@ StrategyType = Literal[
     "experiment",
     "success_generalization",
 ]
-
-_CAUSAL_LEVEL_STRATEGIES: tuple[StrategyType, ...] = (
-    "local_repair",
-    "alternate_implementation",
-    "candidate_comparison",
-    "architecture_change",
-    "program_revision",
-    "selection_reconsideration",
-    "factory_evolution",
-)
 
 
 def _canonical(value: Any) -> str:
@@ -84,9 +77,18 @@ class ProblemSolvingService:
     strategies can be selected concurrently, and every selection is attributable.
     """
 
-    def __init__(self, store: Store, learning: LearningService | None = None):
+    def __init__(
+        self,
+        store: Store,
+        learning: LearningService | None = None,
+        *,
+        semantic: LibRSIIntegration | None = None,
+    ):
         self.store = store
-        self.learning = learning or LearningService(store)
+        if learning is not None and semantic is not None and learning.semantic is not semantic:
+            raise ValueError("problem solving requires one shared libRSI semantic owner")
+        self.learning = learning or LearningService(store, semantic=semantic)
+        self.semantic = semantic or self.learning.semantic
 
     def _require_mission(self, mission_id: str) -> None:
         if (
@@ -171,14 +173,59 @@ class ProblemSolvingService:
         scope = _normalize_scope(writable_scope)
         evidence = _ids(evidence_ids)
         prerequisite_ids = _ids(prerequisites)
-        semantic_material = {
-            "strategy_type": strategy_type,
-            "strategy": dict(strategy),
-            "expected_effect": dict(expected_effect),
-            "writable_scope": scope,
-            "prerequisites": prerequisite_ids,
+        candidate_root = str(strategy.get("librsi_candidate_root") or "")
+        if not candidate_root:
+            raise InvalidTransition(
+                "operational strategy requires an exact libRSI improvement candidate root"
+            )
+        semantic_candidate = self.semantic.load_record(candidate_root)
+        if type(semantic_candidate) is not CandidateSnapshot:
+            raise InvalidTransition("strategy root is not an exact libRSI CandidateSnapshot")
+        binding = self.store.one(
+            """SELECT candidate.currentness_root,
+                      result.librsi_root AS improvement_result_root
+               FROM librsi_record_bindings AS candidate
+               JOIN librsi_record_bindings AS result
+                 ON result.mission_id=candidate.mission_id
+                AND result.operational_subject_type=candidate.operational_subject_type
+                AND result.operational_subject_id=candidate.operational_subject_id
+                AND result.semantic_role='improvement_result'
+                AND result.currentness_root=candidate.currentness_root
+               WHERE candidate.mission_id=?
+                 AND candidate.operational_subject_type='problem_solving_cycle'
+                 AND candidate.operational_subject_id=?
+                 AND candidate.librsi_root=?
+                 AND candidate.semantic_role='improvement_candidate'
+               ORDER BY result.created_at DESC,candidate.created_at DESC LIMIT 1""",
+            (cycle["mission_id"], cycle_id, candidate_root),
+            required=False,
+        )
+        if (
+            binding is None
+            or semantic_candidate.snapshot.target.target_id
+            != f"software-factory-mission:{cycle['mission_id']}"
+        ):
+            raise InvalidTransition("strategy candidate is not bound to this exact mission")
+        currentness = self.semantic.load_record(str(binding["currentness_root"]))
+        if type(currentness) is not TargetSnapshot:
+            raise StoreError("strategy candidate lacks exact host currentness")
+        self.semantic.require_live_currentness(
+            mission_id=str(cycle["mission_id"]), snapshot=currentness
+        )
+        improvement_result = self.semantic.load_record(str(binding["improvement_result_root"]))
+        if type(improvement_result) is not ImprovementResult or improvement_result.handoff is None:
+            raise InvalidTransition("strategy candidate lacks an exact selected improvement result")
+        selected_roots = {
+            reference.root for reference in improvement_result.handoff.selection.selected
         }
-        semantic_fingerprint = _digest(semantic_material)
+        if (
+            candidate_root not in selected_roots
+            or improvement_result.request.baseline != currentness
+        ):
+            raise InvalidTransition(
+                "strategy candidate was not selected by its exact improvement result"
+            )
+        semantic_fingerprint = candidate_root
         prior = self.store.all(
             """SELECT * FROM strategy_candidates_v2
                WHERE cycle_id=? AND semantic_fingerprint=?
@@ -273,6 +320,40 @@ class ProblemSolvingService:
                 return False
         return True
 
+    def record_improvement_result(
+        self,
+        cycle_id: str,
+        *,
+        result: ImprovementResult,
+        currentness: TargetSnapshot,
+    ) -> dict[str, Any]:
+        """Admit the exact libRSI improvement outcome for one operational cycle."""
+
+        cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
+        if cycle["status"] not in {"open", "experimenting", "executing", "verifying"}:
+            raise InvalidTransition("problem-solving cycle cannot accept an improvement result")
+        if type(result) is not ImprovementResult:
+            raise TypeError("problem solving requires an exact ImprovementResult")
+        self.semantic.record_workflow_result(
+            mission_id=str(cycle["mission_id"]),
+            subject_type="problem_solving_cycle",
+            subject_id=cycle_id,
+            result=result,
+            currentness=currentness,
+        )
+        return {
+            "cycle_id": cycle_id,
+            "improvement_result_root": result.root,
+            "currentness_root": currentness.root,
+            "disposition": result.disposition,
+            "candidate_roots": [
+                reference.root
+                for reference in (
+                    result.handoff.selection.selected if result.handoff is not None else ()
+                )
+            ],
+        }
+
     def select_next_actions(
         self,
         cycle_id: str,
@@ -280,6 +361,8 @@ class ProblemSolvingService:
         selected_by_session_id: str,
         rationale: Mapping[str, Any],
         authority: Mapping[str, Any],
+        improvement_result_root: str,
+        currentness_root: str,
         max_parallel: int = 4,
     ) -> dict[str, Any]:
         cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
@@ -287,34 +370,66 @@ class ProblemSolvingService:
             raise InvalidTransition("problem-solving cycle is not selecting work")
         if max_parallel <= 0:
             raise ValueError("max_parallel must be positive")
+        result = self.semantic.load_record(improvement_result_root)
+        if type(result) is not ImprovementResult:
+            raise InvalidTransition("next action requires an exact libRSI ImprovementResult")
+        binding = self.store.one(
+            """SELECT currentness_root FROM librsi_record_bindings
+               WHERE mission_id=? AND operational_subject_type='problem_solving_cycle'
+                 AND operational_subject_id=? AND semantic_role='improvement_result'
+                 AND librsi_root=?""",
+            (cycle["mission_id"], cycle_id, improvement_result_root),
+            required=False,
+        )
+        if binding is None or str(binding["currentness_root"]) != currentness_root:
+            raise InvalidTransition(
+                "improvement result is not bound to this cycle and exact currentness"
+            )
+        currentness = self.semantic.load_record(currentness_root)
+        if type(currentness) is not TargetSnapshot:
+            raise InvalidTransition("improvement result lacks exact host currentness")
+        self.semantic.require_live_currentness(
+            mission_id=str(cycle["mission_id"]), snapshot=currentness
+        )
+        if result.request.baseline != currentness or result.handoff is None:
+            raise InvalidTransition("improvement result has no current selected handoff")
+        selected_roots = {reference.root for reference in result.handoff.selection.selected}
         candidates = self.store.all(
             """SELECT * FROM strategy_candidates_v2
                WHERE cycle_id=? AND status='proposed'
-               ORDER BY priority DESC,
-                        (expected_value-estimated_cost-estimated_risk) DESC,
-                        created_at,id""",
+               ORDER BY created_at,id""",
             (cycle_id,),
         )
-        chosen: list[dict[str, Any]] = []
-        chosen_ids: set[str] = set()
-        scopes: list[list[str]] = []
-        for candidate in candidates:
-            if len(chosen) >= max_parallel:
-                break
-            if not self._prerequisites_satisfied(candidate, chosen_ids):
-                continue
-            candidate_scope = _loads(candidate["writable_scope_json"], [])
-            if any(_scope_conflicts(candidate_scope, existing_scope) for existing_scope in scopes):
-                continue
-            chosen.append(candidate)
-            chosen_ids.add(str(candidate["id"]))
-            scopes.append(candidate_scope)
+        chosen = [
+            candidate
+            for candidate in candidates
+            if str(_loads(candidate["strategy_json"], {}).get("librsi_candidate_root") or "")
+            in selected_roots
+        ]
+        matched_roots = {
+            str(_loads(candidate["strategy_json"], {})["librsi_candidate_root"])
+            for candidate in chosen
+        }
+        if matched_roots != selected_roots:
+            raise InvalidTransition(
+                "Factory lacks an operational projection for every selected libRSI candidate"
+            )
         if not chosen:
-            raise InvalidTransition("no safe eligible strategy is selectable")
+            raise InvalidTransition("libRSI selected no operationally mapped strategy")
+        if len(chosen) > max_parallel:
+            raise InvalidTransition("selected libRSI set exceeds current host parallel capacity")
+        chosen_ids = {str(candidate["id"]) for candidate in chosen}
+        if any(not self._prerequisites_satisfied(candidate, chosen_ids) for candidate in chosen):
+            raise InvalidTransition("selected libRSI set has unsatisfied host prerequisites")
+        scopes = [_loads(candidate["writable_scope_json"], []) for candidate in chosen]
+        for index, scope in enumerate(scopes):
+            if any(_scope_conflicts(scope, other) for other in scopes[index + 1 :]):
+                raise InvalidTransition("selected libRSI set has conflicting host writable scopes")
         decision_material = {
             "cycle_id": cycle_id,
             "cycle_state_root": cycle["state_root"],
-            "causal_level": cycle["causal_level"],
+            "improvement_result_root": improvement_result_root,
+            "currentness_root": currentness_root,
             "selected_strategy_ids": sorted(chosen_ids),
             "selected_by_session_id": selected_by_session_id,
             "rationale": dict(rationale),
@@ -350,7 +465,14 @@ class ProblemSolvingService:
                     _canonical(sorted(chosen_ids)),
                     selected_by_session_id,
                     _canonical(dict(rationale)),
-                    _canonical(dict(authority)),
+                    _canonical(
+                        {
+                            **dict(authority),
+                            "semantic_owner": "libRSI",
+                            "improvement_result_root": improvement_result_root,
+                            "currentness_root": currentness_root,
+                        }
+                    ),
                     now,
                     now,
                 ),
@@ -630,15 +752,15 @@ class ProblemSolvingService:
         )
         if proposed:
             return {
-                "action": "select_maximal_safe_strategy_set",
+                "action": "await_librsi_improvement_result",
                 "strategy_ids": [row["id"] for row in proposed],
+                "semantic_owner": "libRSI",
             }
-        level = int(cycle["causal_level"])
         return {
-            "action": "generate_strategies",
-            "required_strategy_type": _CAUSAL_LEVEL_STRATEGIES[level],
-            "causal_level": level,
+            "action": "request_librsi_improvement_cycle",
+            "semantic_owner": "libRSI",
             "objective": _loads(cycle["objective_json"], {}),
+            "currentness_required": True,
         }
 
     def verify_cycle(
@@ -720,6 +842,7 @@ class ProblemSolvingService:
         mechanism: Mapping[str, Any],
         outcome: Mapping[str, Any],
         evidence_ids: Sequence[str],
+        improvement_candidate_root: str,
         proposer_session_id: str | None = None,
     ) -> dict[str, Any]:
         return self.propose_strategy(
@@ -729,6 +852,7 @@ class ProblemSolvingService:
                 "source_id": source_id,
                 "mechanism": dict(mechanism),
                 "generalization_mode": "bounded_candidate",
+                "librsi_candidate_root": improvement_candidate_root,
             },
             rationale={
                 "reason": "unexpected success may encode a reusable method",

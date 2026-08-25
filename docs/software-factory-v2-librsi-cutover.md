@@ -62,15 +62,26 @@ The following semantics are authoritative through libRSI:
    and `ComparativeSelectionPolicy`; its `SelectionDecision` is cached and bound
    but creates no Factory work or authority transition. A retained operational
    candidate row can advance only after independent Factory review and an exact
-   same-group, selected-candidate, currentness-matched decision binding;
+   same-group, selected-candidate, currentness-matched decision binding. The
+   adapter recomputes live mission and known work/execution state versions at
+   every binding, comparison, experiment-outcome, result, and selection ingress;
 6. evolution checkpoint, program-change, portfolio, and selector-policy
    compatibility entrypoints delegate their decisions and gates to the accepted
    `CheckpointPolicy`, `ProgramPolicy`, `PortfolioPolicy`, and `SelectorPolicy`;
-   the retained rows are operational projections rather than semantic policy; and
+   the retained rows are operational projections rather than semantic policy;
 7. complete `ImprovementResult` and governed `RSIResult` records cross one typed
    result-binding boundary. `RSIResult` admission revalidates its exact
    `SelfChangePolicy` request; neither result applies, accepts, schedules, or
-   releases a Factory effect.
+   releases a Factory effect. `ProblemSolvingService` consumes an exact current
+   `ImprovementResult`, projects only its selected candidate roots into retained
+   host scheduling rows, and fails closed on missing projections, prerequisites,
+   writable-scope conflicts, or capacity. It no longer ranks candidates or
+   chooses an epistemic next action locally; and
+8. `AdaptiveExecutionService` records the operational execution outcome and
+   incident, then routes failed and unexpectedly successful executions directly
+   through the canonical libRSI reflection/experiment slice. It cannot locally
+   choose diagnosis, alternate implementation, architecture review, or success
+   generalization semantics. No canonical hypothesis may cross mission identity.
 
 Before each failed/unexpected source execution becomes authoritative, a preserved
 pure legacy projection independently produces the exact roles, statements,
@@ -95,7 +106,8 @@ posture. Mismatch fails closed.
 | learning signal detector/runtime tables | retained Factory classifier execution | `learning` operational owner | route observed operational signals only; they are not a second hypothesis, experiment, comparison, improvement, or self-change authority |
 | evolution/program host tables | retained Factory governance/effect coordination | `evolution` operational owner | accepted libRSI policies compute semantic roots and gates; Factory rows attribute review, currentness, and effects |
 | `selection_outcomes_v2` | schema-history only | no runtime writer and no lifecycle-owner claim | complete canonical improvement results replace caller-authored local causal outcomes |
-| problem-solving host tables | retained Factory scheduling/work coordination | `problem_solving` operational owner | writable-scope scheduling and execution remain Factory; hypotheses/experiments/comparison/results cross the canonical integration boundary |
+| `adaptive_actions` | schema-history only | no runtime writer and no lifecycle-owner claim | canonical libRSI reflection/experiment/result records replace local diagnosis/escalation/generalization choices |
+| problem-solving host tables | retained Factory scheduling/work coordination | `problem_solving` operational owner | exact `ImprovementResult` candidate roots are the only selectable inputs; prerequisites, capacity, writable-scope scheduling, and execution remain Factory |
 
 The cutover does not claim that retained historical or compatibility schemas are
 libRSI records. Owner uniqueness is exhaustive: `integrations.librsi.service` is
@@ -103,3 +115,7 @@ the only current semantic lifecycle owner in the runtime registry. Learning,
 evolution, adaptive outcome, and problem-solving tables are operational projections;
 their generic hypothesis/evidence writers are absent and their accepted policy
 decisions originate in libRSI.
+
+The operator Factory-floor view reads both preserved historical reflections and
+current canonical `reflection_observation` bindings. Retiring the legacy writer
+therefore does not make new reflections disappear from the retained API capability.

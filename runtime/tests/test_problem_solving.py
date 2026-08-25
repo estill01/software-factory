@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
+from librsi_improvement_support import accepted_improvement_result
 
 from software_factory.errors import InvalidTransition
 from software_factory.learning import LearningService
@@ -74,10 +75,22 @@ def propose(
     expected_value: float = 1.0,
     prerequisites: list[str] | None = None,
 ) -> dict[str, Any]:
-    return problem.propose_strategy(
+    result, currentness, candidate = accepted_improvement_result(
+        problem.semantic, "mission-1", candidate_id=name
+    )
+    recorded = problem.record_improvement_result(
+        cycle_id,
+        result=result,
+        currentness=currentness,
+    )
+    row = problem.propose_strategy(
         cycle_id,
         strategy_type="alternate_implementation",
-        strategy={"name": name, "implementation": f"implement {name}"},
+        strategy={
+            "name": name,
+            "implementation": f"implement {name}",
+            "librsi_candidate_root": candidate.root,
+        },
         rationale={"reason": f"{name} addresses observed cause"},
         expected_effect={"progress_restored": True},
         writable_scope=scope,
@@ -88,6 +101,29 @@ def propose(
         expected_value=expected_value,
         estimated_cost=0.1,
         estimated_risk=0.1,
+    )
+    return {
+        **row,
+        "improvement_result_root": recorded["improvement_result_root"],
+        "currentness_root": recorded["currentness_root"],
+    }
+
+
+def select(
+    problem: ProblemSolvingService,
+    cycle_id: str,
+    candidate: dict[str, Any],
+    *,
+    max_parallel: int = 4,
+) -> dict[str, Any]:
+    return problem.select_next_actions(
+        cycle_id,
+        selected_by_session_id="selector",
+        rationale={"basis": "exact libRSI improvement result"},
+        authority={"scope": "operational scheduling only"},
+        improvement_result_root=str(candidate["improvement_result_root"]),
+        currentness_root=str(candidate["currentness_root"]),
+        max_parallel=max_parallel,
     )
 
 
@@ -101,9 +137,17 @@ def test_cycle_is_idempotent_for_exact_trigger_and_state() -> None:
     }
 
 
-def test_selects_maximal_nonconflicting_strategy_set_by_attributed_selector() -> None:
+def test_only_exact_librsi_selected_candidate_can_enter_operational_schedule() -> None:
     problem = service()
     current = cycle(problem)
+    with pytest.raises(InvalidTransition, match="exact libRSI improvement candidate root"):
+        problem.propose_strategy(
+            current["id"],
+            strategy_type="alternate_implementation",
+            strategy={"name": "local-only"},
+            rationale={"reason": "caller-authored preference"},
+            expected_effect={"progress_restored": True},
+        )
     api = propose(problem, current["id"], name="api", scope=["runtime/api"], priority=4)
     conflict = propose(
         problem,
@@ -113,22 +157,21 @@ def test_selects_maximal_nonconflicting_strategy_set_by_attributed_selector() ->
         priority=3,
     )
     docs = propose(problem, current["id"], name="docs", scope=["docs"], priority=2)
-    decision = problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "highest-value safe parallel frontier"},
-        authority={"kind": "mission", "range_root": "range-1234567890abcdef"},
-        max_parallel=4,
-    )
+    decision = select(problem, current["id"], api)
     selected = set(__import__("json").loads(decision["selected_strategy_ids_json"]))
-    assert selected == {api["id"], docs["id"]}
+    assert selected == {api["id"]}
     assert conflict["id"] not in selected
+    assert docs["id"] not in selected
     rows = problem.store.all(
-        "SELECT id,selected_by_session_id,status FROM strategy_candidates_v2 WHERE id IN (?,?)",
-        (api["id"], docs["id"]),
+        "SELECT id,selected_by_session_id,status FROM strategy_candidates_v2 WHERE id=?",
+        (api["id"],),
     )
     assert all(row["selected_by_session_id"] == "selector" for row in rows)
     assert all(row["status"] == "selected" for row in rows)
+    with problem.store.transaction() as db:
+        db.execute("UPDATE missions SET state_version=state_version+1 WHERE id='mission-1'")
+    with pytest.raises(InvalidTransition, match="currentness is stale"):
+        select(problem, current["id"], docs)
 
 
 def test_prerequisite_blocks_selection_until_prior_strategy_succeeds() -> None:
@@ -145,12 +188,9 @@ def test_prerequisite_blocks_selection_until_prior_strategy_succeeds() -> None:
         priority=10,
         prerequisites=[foundation["id"]],
     )
-    first = problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "dependency order"},
-        authority={"kind": "mission"},
-    )
+    with pytest.raises(InvalidTransition, match="prerequisites"):
+        select(problem, current["id"], dependent)
+    first = select(problem, current["id"], foundation)
     assert __import__("json").loads(first["selected_strategy_ids_json"]) == [foundation["id"]]
     attempt = problem.start_strategy(
         foundation["id"], agent_session_id="worker-a", basis_evidence_ids=["foundation-basis"]
@@ -168,12 +208,7 @@ def test_prerequisite_blocks_selection_until_prior_strategy_succeeds() -> None:
         evidence_ids=[],
         verifier_session_id="verifier",
     )
-    second = problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "prerequisite now accepted"},
-        authority={"kind": "mission"},
-    )
+    second = select(problem, current["id"], dependent)
     assert __import__("json").loads(second["selected_strategy_ids_json"]) == [dependent["id"]]
 
 
@@ -187,12 +222,7 @@ def test_materially_identical_failed_strategy_cannot_be_reproposed_without_new_e
         scope=["runtime"],
         evidence=["initial-evidence"],
     )
-    problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "initial supported strategy"},
-        authority={"kind": "mission"},
-    )
+    select(problem, current["id"], candidate)
     attempt = problem.start_strategy(
         candidate["id"],
         agent_session_id="worker-a",
@@ -227,12 +257,7 @@ def test_failed_attempt_escalates_causal_level_and_changes_required_strategy_typ
     problem = service()
     current = cycle(problem, causal_level=0)
     candidate = propose(problem, current["id"], name="local", scope=["runtime"])
-    problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "try local fix"},
-        authority={"kind": "mission"},
-    )
+    select(problem, current["id"], candidate)
     attempt = problem.start_strategy(
         candidate["id"], agent_session_id="worker-a", basis_evidence_ids=["trace"]
     )
@@ -248,8 +273,8 @@ def test_failed_attempt_escalates_causal_level_and_changes_required_strategy_typ
     )
     assert updated == {"causal_level": 1, "status": "open"}
     next_action = problem.next_action(current["id"])
-    assert next_action["action"] == "generate_strategies"
-    assert next_action["required_strategy_type"] == "alternate_implementation"
+    assert next_action["action"] == "request_librsi_improvement_cycle"
+    assert next_action["semantic_owner"] == "libRSI"
 
 
 def test_real_discriminating_experiment_changes_available_evidence(tmp_path: Path) -> None:
@@ -284,12 +309,17 @@ def test_real_discriminating_experiment_changes_available_evidence(tmp_path: Pat
 def test_unexpected_success_becomes_bounded_candidate_not_global_policy() -> None:
     problem = service()
     current = cycle(problem)
+    result, currentness, semantic_candidate = accepted_improvement_result(
+        problem.semantic, "mission-1", candidate_id="unexpected-success"
+    )
+    problem.record_improvement_result(current["id"], result=result, currentness=currentness)
     candidate = problem.record_unexpected_success(
         current["id"],
         source_id="execution-success-1",
         mechanism={"batching": "smaller", "ordering": "dependency-first"},
         outcome={"latency_delta": -0.4, "regressions": 0},
         evidence_ids=["success-trace"],
+        improvement_candidate_root=semantic_candidate.root,
         proposer_session_id="proposer",
     )
     assert candidate["strategy_type"] == "success_generalization"
@@ -304,12 +334,7 @@ def test_cycle_resolves_only_after_effective_outcome_verification() -> None:
     problem = service()
     current = cycle(problem)
     candidate = propose(problem, current["id"], name="repair", scope=["runtime"])
-    problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "supported repair"},
-        authority={"kind": "mission"},
-    )
+    select(problem, current["id"], candidate)
     attempt = problem.start_strategy(
         candidate["id"], agent_session_id="worker-a", basis_evidence_ids=["repair-basis"]
     )
@@ -347,12 +372,7 @@ def test_same_strategy_attempt_requires_new_basis_after_failure() -> None:
     problem = service()
     current = cycle(problem)
     candidate = propose(problem, current["id"], name="retryable", scope=["runtime"])
-    problem.select_next_actions(
-        current["id"],
-        selected_by_session_id="selector",
-        rationale={"reason": "first attempt"},
-        authority={"kind": "mission"},
-    )
+    select(problem, current["id"], candidate)
     first = problem.start_strategy(
         candidate["id"], agent_session_id="worker-a", basis_evidence_ids=["basis-1"]
     )

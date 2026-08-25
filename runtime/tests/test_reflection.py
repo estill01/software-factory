@@ -386,6 +386,39 @@ def test_experiment_evidence_rejects_forged_lineage_without_host_admission() -> 
             )
 
 
+def test_experiment_evidence_rejects_live_mission_currentness_advance() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, reflection, mission = make_runtime(Path(directory))
+        obligation, work = add_selected_work(core, mission, strategy="stale-experiment")
+        source = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="stale-experiment",
+            status="failed",
+            error="needs a discriminator",
+        )
+        semantic = reflection.reflect_execution(source)
+        experiment_execution = observed_execution(
+            store,
+            mission,
+            obligation,
+            semantic["experiment_work_item_id"],
+            strategy="discriminator",
+            status="succeeded",
+        )
+        with store.transaction() as db:
+            db.execute("UPDATE missions SET state_version=state_version+1 WHERE id=?", (mission,))
+        with pytest.raises(InvalidTransition, match="currentness is stale"):
+            reflection.semantic_integration.record_experiment_outcome(
+                experiment_execution_id=experiment_execution,
+                hypothesis_root=semantic["hypothesis_roots"][0],
+                disposition="supported",
+                data={"replicate": "after-mission-advance"},
+            )
+
+
 def test_reflection_rejects_nonterminal_execution_and_bad_timescale() -> None:
     with tempfile.TemporaryDirectory() as directory:
         store, core, reflection, mission = make_runtime(Path(directory))

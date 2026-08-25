@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from librsi import (
+    CandidateSnapshot,
     CandidateTrialBatch,
     ComparativeSelectionPolicy,
     EvaluationContract,
@@ -80,9 +81,54 @@ class LibRSIIntegration:
         snapshot = TargetSnapshot(
             target=target,
             revision=revision,
-            state={"mission_state_version": mission["state_version"], **dict(state)},
+            state={**dict(state), "mission_state_version": mission["state_version"]},
         )
         return target, snapshot
+
+    def require_live_currentness(self, *, mission_id: str, snapshot: TargetSnapshot) -> None:
+        """Reject semantic input that no longer names the live host projection."""
+
+        if type(snapshot) is not TargetSnapshot:
+            raise TypeError("libRSI currentness must be an exact TargetSnapshot")
+        expected_target_id = f"software-factory-mission:{mission_id}"
+        if snapshot.target.target_id != expected_target_id:
+            raise InvalidTransition("libRSI currentness crosses the Factory mission boundary")
+        mission = self.store.one("SELECT state_version FROM missions WHERE id=?", (mission_id,))
+        expected_mission_version = str(mission["state_version"])
+        observed_mission_version = snapshot.state.get("mission_state_version")
+        mission_component_seen = False
+        for component in snapshot.components:
+            operational_id = str(component.target.locator.get("operational_id") or "")
+            if component.target.kind == "software-factory-mission":
+                mission_component_seen = True
+                if (
+                    operational_id != mission_id
+                    or str(component.revision) != expected_mission_version
+                ):
+                    raise InvalidTransition("libRSI mission currentness is stale")
+                observed_mission_version = component.state.get("state_version", component.revision)
+            elif component.target.kind == "software-factory-work-item":
+                work = self.store.one(
+                    "SELECT mission_id,state_version FROM work_items WHERE id=?",
+                    (operational_id,),
+                )
+                if work["mission_id"] != mission_id or str(component.revision) != str(
+                    work["state_version"]
+                ):
+                    raise InvalidTransition("libRSI work currentness is stale")
+            elif component.target.kind == "software-factory-execution":
+                execution = self.store.one(
+                    "SELECT mission_id,state_version FROM executions WHERE id=?",
+                    (operational_id,),
+                )
+                if execution["mission_id"] != mission_id or str(component.revision) != str(
+                    execution["state_version"]
+                ):
+                    raise InvalidTransition("libRSI execution currentness is stale")
+        if observed_mission_version is None and not mission_component_seen:
+            raise InvalidTransition("libRSI currentness omits the host mission version")
+        if str(observed_mission_version) != expected_mission_version:
+            raise InvalidTransition("libRSI mission currentness is stale")
 
     def cache_and_bind(
         self,
@@ -96,16 +142,20 @@ class LibRSIIntegration:
     ) -> None:
         """Admit canonical records and bind their exact roots to one host subject."""
 
-        incoming_roots = {record.root for record in records}
-        if currentness_root not in incoming_roots and (
-            self.store.one(
-                "SELECT root FROM librsi_records WHERE root=?",
+        incoming = {record.root: record for record in records}
+        currentness = incoming.get(currentness_root)
+        if currentness is None:
+            row = self.store.one(
+                "SELECT canonical_json FROM librsi_records WHERE root=?",
                 (currentness_root,),
                 required=False,
             )
-            is None
-        ):
-            raise StoreError("libRSI binding currentness must name a cached canonical record")
+            if row is None:
+                raise StoreError("libRSI binding currentness must name a cached canonical record")
+            currentness = deserialize_record(str(row["canonical_json"]))
+        if type(currentness) is not TargetSnapshot:
+            raise StoreError("libRSI binding currentness is not an exact TargetSnapshot")
+        self.require_live_currentness(mission_id=mission_id, snapshot=currentness)
         self._persist_records(records)
         for role, record in roles:
             self._bind(
@@ -137,6 +187,7 @@ class LibRSIIntegration:
 
         if type(currentness) is not TargetSnapshot:
             raise TypeError("comparison currentness must be an exact TargetSnapshot")
+        self.require_live_currentness(mission_id=mission_id, snapshot=currentness)
         decision = ComparativeSelectionPolicy.select(
             selection_id=selection_id,
             contract=contract,
@@ -172,17 +223,31 @@ class LibRSIIntegration:
 
         if type(currentness) is not TargetSnapshot:
             raise TypeError("workflow currentness must be an exact TargetSnapshot")
+        self.require_live_currentness(mission_id=mission_id, snapshot=currentness)
         if type(result) not in {ImprovementResult, RSIResult}:
             raise TypeError("workflow result must be an exact libRSI result record")
         if type(result) is RSIResult:
             SelfChangePolicy.validate_request(result.request)
+        if type(result) is ImprovementResult and result.request.baseline != currentness:
+            raise InvalidTransition("improvement result is stale against host currentness")
         role = "improvement_result" if type(result) is ImprovementResult else "rsi_result"
+        candidates: tuple[CandidateSnapshot, ...] = ()
+        if type(result) is ImprovementResult:
+            by_root = {
+                batch.candidate.root: batch.candidate
+                for iteration in result.iterations
+                for batch in iteration.proposal.batches
+            }
+            candidates = tuple(by_root[root] for root in sorted(by_root))
         self.cache_and_bind(
             mission_id=mission_id,
             subject_type=subject_type,
             subject_id=subject_id,
-            records=(currentness, result),
-            roles=((role, result),),
+            records=(currentness, result, *candidates),
+            roles=(
+                (role, result),
+                *(("improvement_candidate", candidate) for candidate in candidates),
+            ),
             currentness_root=currentness.root,
         )
 
@@ -740,6 +805,9 @@ class LibRSIIntegration:
             raise StoreError("experiment binding does not resolve an exact target snapshot")
         if experiment.target_snapshot != target_snapshot:
             raise InvalidTransition("experiment evidence is stale against its bound currentness")
+        self.require_live_currentness(
+            mission_id=str(execution["mission_id"]), snapshot=target_snapshot
+        )
         relationships = {
             "supported": "support",
             "counterexample": "counterexample",

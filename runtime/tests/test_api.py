@@ -12,6 +12,7 @@ import pytest
 
 from software_factory.api import APIServer, FactoryAPI
 from software_factory.database import Database
+from software_factory.learning import LearningService
 
 
 def _store() -> Database:
@@ -131,3 +132,22 @@ def test_mission_detail_returns_canonical_strategy_and_selection_records() -> No
     assert detail["mission"]["objective"] == "ship system"
     assert detail["strategy_outcomes"] == []
     assert detail["selection_records"][0]["id"] == selection["id"]
+
+
+def test_factory_floor_projects_canonical_librsi_reflections() -> None:
+    store = _store()
+    learning = LearningService(store)
+    reflection = learning.create_reflection(
+        mission_id="mission-1",
+        reflection_type="live",
+        source_type="execution",
+        source_id="execution-1",
+        evidence_ids=["evidence-1"],
+        observations={"status": "failed"},
+        conclusions={"cause": "bounded"},
+        confidence=0.7,
+    )
+    floor = FactoryAPI(store).factory_floor("mission-1")
+    assert floor["reflections"][0]["id"] == reflection["id"]
+    assert floor["reflections"][0]["semantic_owner"] == "libRSI"
+    assert floor["reflections"][0]["canonical"]["record_type"] == "observation"

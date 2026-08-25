@@ -1117,15 +1117,14 @@ class ControllerService:
             blocked_ids = [item["work_item_id"] for item in blocked]
             placeholders = ",".join("?" for _ in blocked_ids)
             rows = self.store.all(
-                f"""SELECT DISTINCT a.selected_work_item_id
-                    FROM adaptive_actions a
-                    JOIN executions e ON e.id=a.source_execution_id
-                    WHERE a.mission_id=? AND e.work_item_id IN ({placeholders})
-                      AND a.status IN ('proposed','selected','running')
-                      AND a.selected_work_item_id IS NOT NULL""",
+                f"""SELECT DISTINCT id FROM work_items
+                    WHERE mission_id=? AND parent_id IN ({placeholders})
+                      AND work_type='semantic_experiment'
+                      AND planning_status IN ('proposed','selected')
+                      AND execution_status IN ('not_started','queued')""",
                 (mission_id, *blocked_ids),
             )
-            generated_problem_solving.extend(str(row["selected_work_item_id"]) for row in rows)
+            generated_problem_solving.extend(str(row["id"]) for row in rows)
             generated_problem_solving = sorted(set(generated_problem_solving))
         final_posture = self.continuation.next_action(mission_id)
         result = {

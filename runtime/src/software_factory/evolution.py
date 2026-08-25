@@ -16,6 +16,7 @@ from librsi import (
     RSITransitionError,
     SelectionDecision,
     SelectorPolicy,
+    TargetSnapshot,
 )
 
 from .errors import InvalidTransition, StoreError
@@ -594,6 +595,12 @@ class EvolutionService:
             raise InvalidTransition(
                 "canonical comparison is stale or does not select this exact operational candidate"
             )
+        currentness = self.semantic.load_record(currentness_root)
+        if type(currentness) is not TargetSnapshot:
+            raise InvalidTransition("canonical comparison lacks exact host currentness")
+        self.semantic.require_live_currentness(
+            mission_id=str(selection["mission_id"]), snapshot=currentness
+        )
         accepted_review = self.store.one(
             """SELECT id FROM selection_reviews_v2
                WHERE selection_id=? AND disposition='accept'

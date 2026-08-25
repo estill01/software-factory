@@ -785,27 +785,5 @@ class SupervisionService:
                 payload=payload,
             )
         if outcome in {"ineffective", "counterproductive"}:
-            self._adaptive().create_action(
-                mission_id=str(incident["mission_id"]),
-                incident_id=incident_id,
-                source_execution_id=None,
-                action_kind="architecture_review",
-                causal_level="architecture",
-                problem_key=str(incident["target_id"]),
-                prior_strategy_key=incident.get("strategy_key"),
-                rationale={
-                    "reason": "applied correction did not produce the predicted effect",
-                    "effectiveness": outcome,
-                    "causal_hypothesis_reopened": True,
-                },
-                work_type="reflection",
-                title="Reopen causal hypothesis after ineffective correction",
-                description=(
-                    "The predicted effect was absent or counterproductive. Reassess the causal "
-                    "model and choose a materially different architecture or program route."
-                ),
-                required_role="escalation_reviewer",
-                parent_work_id=None,
-                obligation_id=None,
-            )
+            self._adaptive().ensure_problem_solving(str(incident["mission_id"]))
         return self.store.one("SELECT * FROM incidents WHERE id=?", (incident_id,))

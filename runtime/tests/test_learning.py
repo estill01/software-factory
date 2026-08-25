@@ -65,6 +65,34 @@ def evaluated_candidate(learning: LearningService) -> dict[str, Any]:
     )  # type: ignore[return-value]
 
 
+def test_experiment_rejects_hypothesis_bound_to_another_mission() -> None:
+    learning = service()
+    with learning.store.transaction() as db:
+        db.execute(
+            """INSERT INTO missions(
+                   id,title,objective,status,autonomy_mode,created_at,updated_at
+               ) VALUES(
+                   'mission-2','other','other','active','full_autonomous',?,?
+               )""",
+            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+    hypothesis = learning.create_hypothesis(
+        mission_id="mission-1",
+        statement="Mission one hypothesis",
+        causal_model={"mission": "one"},
+        prediction={"outcome": "bounded"},
+        confidence=0.5,
+    )
+    with pytest.raises(InvalidTransition, match="not bound to this exact"):
+        learning.design_experiment(
+            mission_id="mission-2",
+            hypothesis_id=hypothesis["id"],
+            experiment_type="simulation",
+            design={"mode": "bounded"},
+            success_criteria={"accepted": True},
+        )
+
+
 def test_historical_events_never_route_live_effects() -> None:
     learning = service()
     candidate = evaluated_candidate(learning)

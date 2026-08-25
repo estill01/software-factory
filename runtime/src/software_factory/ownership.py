@@ -136,7 +136,7 @@ LIFECYCLE_OWNERS = (
     LifecycleOwner(
         "adaptive_outcome",
         "adaptive",
-        ("adaptive_actions", "strategy_outcomes"),
+        ("strategy_outcomes",),
         authority_class="operational",
     ),
     LifecycleOwner(

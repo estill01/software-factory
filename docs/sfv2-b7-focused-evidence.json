@@ -12,6 +12,18 @@
       "P1: same-name/version installs without exact PEP 610 provenance were admitted"
     ]
   },
+  "preserved_rejected_successor": {
+    "commit": "bb1bd62af14f12af82b8dd3a55711e7b5cc4c70e",
+    "tree": "01308e2e7fae4f1c73f62d85d20b64fdc26e7020",
+    "review_disposition": "REVISE",
+    "findings": [
+      "P1: experiment evidence accepted a cached snapshot after live mission currentness advanced",
+      "P1: comparison and operational selection accepted a stale baseline after live mission currentness advanced",
+      "P1: Learning could bind a mission-A hypothesis into a mission-B experiment",
+      "P1: ProblemSolving and Adaptive retained local generic improvement and epistemic-next-action decisions",
+      "P1: the Factory-floor API read only the retired reflections_v2 table and omitted canonical reflections"
+    ]
+  },
   "scope": {
     "included": [
       "exact immutable libRSI dependency admission and fail-closed PEP 610 verification",
@@ -20,9 +32,13 @@
       "failed and unexpected-success authoritative semantic slices",
       "independent full-content legacy shadow parity before any semantic or operational effect",
       "same-mission assigned-experiment and immutable-hypothesis-lineage admission",
+      "live mission/work/execution currentness revalidation at every semantic ingress",
+      "same-mission Learning hypothesis and experiment admission",
       "Learning hypothesis and experiment policy convergence",
       "Evolution checkpoint, program, portfolio, and selector policy convergence",
       "evidence-bound comparison without operational authorization",
+      "complete ImprovementResult consumption with Factory-only scheduling gates",
+      "direct Adaptive delegation and canonical reflection API projection",
       "single semantic lifecycle owner and deletion/preservation map"
     ],
     "excluded": [
@@ -49,8 +65,8 @@
     "result": "22 passed with 16 producer-owned compatibility deprecation warnings"
   },
   "focused_runtime": {
-    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_librsi_integration.py runtime/tests/test_librsi_semantic_workflows.py runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
-    "result": "39 passed with one pre-existing TestStore collection warning",
+    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_librsi_integration.py runtime/tests/test_librsi_semantic_workflows.py runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_api.py",
+    "result": "68 passed with one pre-existing TestStore collection warning",
     "negative_cases": [
       "missing PEP 610 provenance fails closed",
       "libRSI cannot reverse-import Software Factory and no producer source is copied",
@@ -59,16 +75,21 @@
       "mutated canonical content fails parity before persistence, work, binding, receipt, or cutover event",
       "unassigned and cross-mission terminal executions cannot become experiment evidence",
       "only an exact bound hypothesis or immutable descendant can receive experiment evidence",
+      "live mission currentness advance rejects cached experiment evidence, comparison, and operational selection",
+      "a mission-A hypothesis cannot enter a mission-B experiment",
       "a forged hypothesis that merely names the expected root in lineage is rejected without a same-work host-admission binding",
       "failed experiments remain zero-weight null evidence",
       "canonical candidate comparison creates no Factory work or authority transition",
       "a locally reviewed candidate cannot advance without the exact same-group selected root and currentness-matched canonical selection binding",
+      "ProblemSolving cannot propose or select without exact bound libRSI candidate and ImprovementResult roots",
+      "Adaptive cannot choose local diagnosis, architecture, alternate-strategy, or success-generalization semantics",
+      "canonical reflections remain visible after the legacy reflection writer is retired",
       "semantic results cannot accept, dispatch, apply, or close Factory obligations"
     ]
   },
   "mapped_runtime": {
-    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_advanced_integration.py runtime/tests/test_composition.py runtime/tests/test_core.py runtime/tests/test_librsi_integration.py runtime/tests/test_librsi_semantic_workflows.py runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
-    "result": "83 passed with one pre-existing TestStore collection warning"
+    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_advanced_integration.py runtime/tests/test_composition.py runtime/tests/test_core.py runtime/tests/test_controller.py runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_api.py",
+    "result": "63 passed"
   },
   "static_and_collection": [
     {
@@ -85,7 +106,7 @@
     },
     {
       "command": "runtime/.venv/bin/pytest --collect-only -q runtime/tests",
-      "result": "206 tests collected with seven documented legacy TestStore collection warnings"
+      "result": "210 tests collected with seven pre-existing TestStore collection warnings"
     },
     {
       "command": "python3 -m compileall -q runtime/src/software_factory <focused tests>",
@@ -98,19 +119,23 @@
   ],
   "build": {
     "command": "runtime/.venv/bin/python -m build --outdir <isolated-temp> runtime",
-    "wheel_sha256": "0d02f283f512577acdefcd09da9b8f52972ccf2b3b654680abeea8f23013ca6a",
-    "sdist_sha256": "cb0e4903d1d0721cc865b5a7e8761bdd2dae080466db8c3940c2888cd272c7d6"
+    "wheel_sha256": "3659c7f64676883d961875c1c7c6c7220bbef4878680393c7133920c966d82c2",
+    "sdist_sha256": "8e277eb4d3760d418067e3f912293b857a8f17ea84715d95551482642f1aba34"
   },
   "source_sha256": {
-    "adapter": "aa40dd065e6e0f1819ea9afb5ff0240a94d5d04b71539161f4fa6e4b75c4a8b5",
+    "adapter": "54abae32c88a321f544d225dca8ddf3cae172a4dc3f2f5da6846b7e10bd03b50",
     "legacy_shadow": "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644",
     "pin_verifier": "76a97d4962e98ca7c97a079cc8e064f8e3b6794130870ee48c0926a388c5766a",
-    "learning_projection": "a6e848733e3a8cb0fbae88dd9ca694368424ae8d9ae11da260bbf28bc51b23c3",
-    "evolution_projection": "bcf13d88f5b917dd231a3408d9ab7114ec14368d75b864f2a64f3966258ab3c5",
-    "ownership": "29dcdc7d925b3453fcdcaf66dca2b0344aafa08aeb6e6f1f64df14d32a5aae2a",
+    "learning_projection": "738910aecc9235c4620ec95d15b3bf6e3fda5364fef4971558a799e28eff8d4f",
+    "evolution_projection": "e32bac7a987a3a7220af9d6b256bf03717e854d8437d10eb1146b4c5f232fd90",
+    "problem_solving_projection": "60a27bfb9cf0fe4bb819874566f3991ee69a7dca4c45412fc4ccc6e849aad264",
+    "adaptive_projection": "30bbf807845517e477f132e4da2ff7ca222746878dc9a4be73b787665683011f",
+    "composition": "4f42f3b81502c7edcfb433cb4e2e91c51a25312fc473cb772704b0f969ccceca",
+    "api_projection": "bdd305e5ef548b0ea23f44a533d1048ce4d2caf5b8ce401701a16c1ede721d8a",
+    "ownership": "da029ce49dda021b25559f0c08e16d59ea266ba86b53893f1a4ea63b2ff5d889",
     "migration": "1e2dc94f54373a4e7e0cb840d38149f8d8ced59aaad1d1d4851ad70aa6b5e555",
     "pin_manifest": "d2256f97722136f1c06184b82d82cc0b666e99f1751f86afd58a5e91387c7986",
-    "cutover_map": "174d310dc238fc852fdb6708811ca450749227bd453b2a7b4dc8725bbfa810a2",
+    "cutover_map": "0002305bad3c3dd4152be97438512dac7d7ed1cf87f044666536c8c3f7c684a2",
     "lock": "b6f50819d363c1404358a6722a65cb87e33910526a5f891a3f1e352c8b0b8d76",
     "project": "77407d1c7bfa0b7dba5c9786f964a23f0bdc1729515bc66085b2c65d97b20425"
   },

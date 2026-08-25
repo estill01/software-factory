@@ -536,7 +536,11 @@ def test_dispatch_failure_is_observed_without_closing_obligation_or_crashing_tic
             == "in_progress"
         )
         assert tick["generated_problem_solving_work"]
-        assert tick["posture"]["action"] == "dispatch_ready_work"
+        assert tick["posture"]["action"] == "diagnose_reflect_or_replan"
+        assert store.one(
+            "SELECT planning_status FROM work_items WHERE id=?",
+            (tick["generated_problem_solving_work"][0],),
+        ) == {"planning_status": "proposed"}
 
 
 def test_expired_dispatch_revokes_callback_and_rejects_late_result() -> None:

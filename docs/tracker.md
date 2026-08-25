@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `9aaaa0740861b07aa4df80a21b729e1c0f696333b7789d95f09e453f252c1daa`; Blocks 0–6 accepted; rejected Block 7 candidate `7937464` preserved and correction candidate in progress; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 7 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `42a00d64c7c6ffa9bfb1ebebf3010d0edb941000a6485ea286a3f0c82348d5f9`; Blocks 0–6 accepted; rejected Block 7 candidates `7937464` and `bb1bd62` preserved, with corrected candidate proof complete and exact review pending; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 7 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -37,9 +37,12 @@ review returned no P0–P2 findings; acceptance is recorded in pushed successor
 pushed candidate `5025cf38ea989bb619d9d79facf0386ac5b10c0f` after both rejected
 candidates were preserved and independent review returned no P0–P2 findings.
 Block 7 remains the dependency-safe frontier. Exact candidate `7937464` is
-preserved as rejected evidence after four P1 findings; its successor correction
-restores complete semantic convergence, experiment lineage/currentness, an
-independent full-content shadow comparator, and fail-closed PEP 610 admission.
+preserved as rejected evidence after four P1 findings. Exact successor `bb1bd62`
+is also preserved and unaccepted after five P1 findings exposed live-currentness,
+cross-mission Learning, remaining local improvement decisions, and canonical
+reflection-view gaps. The current correction retains the closed independent-
+shadow, exact-lineage, and fail-closed PEP 610 work while repairing those exact
+successor findings.
 
 ## Required outcome
 

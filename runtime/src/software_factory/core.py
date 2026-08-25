@@ -14,6 +14,7 @@ from .controller import ControllerService
 from .evolution import EvolutionService
 from .execution import ExecutionService
 from .governance import GovernanceService
+from .integrations.librsi import LibRSIIntegration
 from .learning import LearningService
 from .migration import MigrationService
 from .mission import MissionService
@@ -70,6 +71,7 @@ class CoreService:
         self.capabilities = CapabilityService(store)
         self.programs = ProgramService(store)
         self.work_items = WorkItemService(store)
+        self.semantic = LibRSIIntegration(store, work_items=self.work_items)
         self.agents = AgentService(store)
         self._workspace_owner = WorkspaceService(store)
         self._executions = ExecutionService(store, self.artifact_service)
@@ -105,6 +107,7 @@ class CoreService:
             work_items=self.work_items,
             continuation=self.continuation,
             supervision=self.supervision,
+            semantic_integration=self.semantic,
         )
         self.supervision.bind_adaptive(self.adaptive)
         self.acceptance_lifecycle = AcceptanceLifecycleService(
@@ -127,13 +130,17 @@ class CoreService:
             providers=self.providers,
             default_provider=default_provider,
         )
-        self.learning = LearningService(store)
+        self.learning = LearningService(store, semantic=self.semantic)
         self.evolution = EvolutionService(store, semantic=self.learning.semantic)
         self.acceptance = AcceptanceService(store)
         self.reporting = ReportingService(store)
         self.migration = MigrationService(store)
-        self.reflection = ReflectionService(store, work_items=self.work_items)
-        self.problem_solving = ProblemSolvingService(store, learning=self.learning)
+        self.reflection = ReflectionService(
+            store, work_items=self.work_items, semantic_integration=self.semantic
+        )
+        self.problem_solving = ProblemSolvingService(
+            store, learning=self.learning, semantic=self.semantic
+        )
         self.recovery = FactoryRecoveryCoordinator(
             store,
             operations=self._operations,

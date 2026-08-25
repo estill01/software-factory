@@ -147,11 +147,13 @@ def test_failed_execution_keeps_obligation_open_and_routes_diagnosis() -> None:
     observed = core.observe_execution(execution)
 
     assert observed["incident_id"].startswith("inc_")
-    action = observed["adaptive_action"]
-    assert action["action_kind"] == "diagnose"
-    routed = store.one("SELECT * FROM work_items WHERE id=?", (action["selected_work_item_id"],))
-    assert routed["planning_status"] == "selected"
-    assert routed["work_type"] == "diagnosis"
+    semantic = observed["semantic_reflection"]
+    assert semantic.recommended_next_action == "run_discriminating_experiment"
+    routed = store.one(
+        "SELECT * FROM work_items WHERE id=?", (observed["experiment_work_item_id"],)
+    )
+    assert routed["planning_status"] == "proposed"
+    assert routed["work_type"] == "semantic_experiment"
     assert (
         store.one("SELECT status FROM obligations WHERE id=?", (obligation,))["status"]
         != "satisfied"
@@ -191,7 +193,10 @@ def test_repeated_identical_failure_forces_alternative_and_blocks_same_retry() -
         failure="same",
     )
     observed = core.observe_execution(second)
-    assert observed["adaptive_action"]["action_kind"] == "alternative_strategy"
+    assert observed["semantic_reflection"].recommended_next_action == (
+        "run_discriminating_experiment"
+    )
+    assert store.one("SELECT COUNT(*) AS n FROM adaptive_actions") == {"n": 0}
 
     third_work = core.create_work_item(
         mission_id=mission,
@@ -382,12 +387,15 @@ def test_ineffective_correction_reopens_causal_hypothesis_at_higher_level() -> N
         observations=observations,
     )
     assert reviewed["status"] == "open"
-    action = store.one(
-        """SELECT * FROM adaptive_actions WHERE incident_id=?
-           AND action_kind='architecture_review'""",
-        (incident,),
+    assert store.one("SELECT COUNT(*) AS n FROM adaptive_actions") == {"n": 0}
+    assert (
+        store.one(
+            """SELECT COUNT(*) AS n FROM work_items
+           WHERE mission_id=? AND work_type='semantic_experiment'""",
+            (mission,),
+        )["n"]
+        >= 1
     )
-    assert action["causal_level"] == "architecture"
 
 
 def test_unexpected_success_creates_bounded_generalization_not_policy_adoption() -> None:
@@ -403,11 +411,14 @@ def test_unexpected_success_creates_bounded_generalization_not_policy_adoption()
         unexpected_success=True,
     )
     observed = core.observe_execution(execution)
-    action = observed["adaptive_action"]
-    assert action["action_kind"] == "success_generalization"
-    routed = store.one("SELECT * FROM work_items WHERE id=?", (action["selected_work_item_id"],))
-    assert routed["work_type"] == "reflection"
-    assert "counterexample" in routed["description"].lower()
+    assert observed["semantic_reflection"].recommended_next_action == (
+        "bounded_replay_and_counterexample_search"
+    )
+    routed = store.one(
+        "SELECT * FROM work_items WHERE id=?", (observed["experiment_work_item_id"],)
+    )
+    assert routed["work_type"] == "semantic_experiment"
+    assert "grants no execution authority" in routed["description"].lower()
     assert store.one("SELECT COUNT(*) AS n FROM policies WHERE status='active'")["n"] == 0
 
 

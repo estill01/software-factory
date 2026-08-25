@@ -111,10 +111,36 @@ class FactoryAPI:
             + " ORDER BY activated_at DESC LIMIT 100",
             parameters,
         )
-        reflections = self.store.all(
+        legacy_reflections = self.store.all(
             "SELECT * FROM reflections_v2" + mission_filter + " ORDER BY created_at DESC LIMIT 100",
             parameters,
         )
+        canonical_rows = self.store.all(
+            """SELECT r.root AS id,b.mission_id,b.operational_subject_type AS source_type,
+                      b.operational_subject_id AS source_id,b.currentness_root,
+                      r.canonical_json,b.created_at
+               FROM librsi_record_bindings AS b
+               JOIN librsi_records AS r ON r.root=b.librsi_root
+               WHERE b.semantic_role='reflection_observation'"""
+            + (" AND b.mission_id=?" if mission_id else "")
+            + " ORDER BY b.created_at DESC LIMIT 100",
+            parameters,
+        )
+        canonical_reflections = [
+            {
+                **row,
+                "reflection_type": "canonical",
+                "status": "advisory",
+                "semantic_owner": "libRSI",
+                "canonical": _loads(row["canonical_json"], {}),
+            }
+            for row in canonical_rows
+        ]
+        reflections = sorted(
+            [*canonical_reflections, *legacy_reflections],
+            key=lambda row: str(row["created_at"]),
+            reverse=True,
+        )[:100]
         experiments = self.store.all(
             "SELECT * FROM experiments_v2" + mission_filter + " ORDER BY created_at DESC LIMIT 100",
             parameters,

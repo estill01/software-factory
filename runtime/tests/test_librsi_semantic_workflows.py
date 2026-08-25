@@ -253,3 +253,59 @@ def test_evidence_bound_comparison_is_canonical_but_not_operational_authority(
              AND semantic_role='selection_decision'"""
     ) == {"librsi_root": decision.root}
     assert store.one("SELECT COUNT(*) AS count FROM work_items") == {"count": 0}
+
+
+def test_comparison_and_selection_reject_live_mission_currentness_advance(
+    tmp_path: Path,
+) -> None:
+    store, integration, mission_id = _runtime(tmp_path)
+    contract, batch, risk, currentness = _comparison_batch(integration, mission_id)
+    evolution = EvolutionService(store, semantic=integration)
+    candidate = evolution.consider_selection(
+        mission_id=mission_id,
+        selection_group="stale-group",
+        selection_type="strategy",
+        candidate_key="candidate-v1",
+        candidate={"librsi_candidate_root": batch.candidate.root},
+        evidence={"candidate_trial_batch_root": batch.root},
+        expected_value={"quality": "increase"},
+        proposer_session_id="proposer",
+    )
+    evolution.review_selection(
+        candidate["id"],
+        reviewer_session_id="reviewer",
+        disposition="accept",
+        findings={"exact_comparison_required": True},
+        evidence_ids=[batch.root],
+    )
+    decision = integration.record_comparison(
+        mission_id=mission_id,
+        subject_type="selection_group",
+        subject_id="stale-group",
+        selection_id="stale-selection",
+        contract=contract,
+        batches=(batch,),
+        risk_policy=risk,
+        currentness=currentness,
+    )
+    with store.transaction() as db:
+        db.execute("UPDATE missions SET state_version=state_version+1 WHERE id=?", (mission_id,))
+    with pytest.raises(InvalidTransition, match="currentness is stale"):
+        integration.record_comparison(
+            mission_id=mission_id,
+            subject_type="selection_group",
+            subject_id="another-group",
+            selection_id="another-selection",
+            contract=contract,
+            batches=(batch,),
+            risk_policy=risk,
+            currentness=currentness,
+        )
+    with pytest.raises(InvalidTransition, match="currentness is stale"):
+        evolution.select_candidate(
+            candidate["id"],
+            selector_session_id="selector",
+            rationale={"decision_root": decision.root},
+            decision_root=decision.root,
+            currentness_root=currentness.root,
+        )
