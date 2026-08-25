@@ -1827,10 +1827,14 @@ unfinished-work restoration.
   audit effect with `physical_effect=false` and a required preserve/defer
   disposition. Integration prepare failures retain their exact branch,
   worktree, tracked changes, and untracked files, and terminal integration-lane
-  retirement likewise preserve/defer-fails. Post-publication validation runs in
-  the integration lane; failure rolls target authority back only through ref
-  compare-and-swap and never hard-resets checkout bytes. No reconciliation path
-  removes a branch ref, checkout, stash, dirty byte, or untracked byte.
+  retirement likewise preserve/defer-fails. Preparation and post-publication
+  validation each run in a fresh retained detached snapshot of the exact
+  `candidate_head`, with exact HEAD and tracked/index tree verified before and
+  after the command; mutable integration-lane bytes cannot authorize another
+  committed tree. Post-publication failure rolls target authority back only
+  through ref compare-and-swap and never hard-resets checkout bytes. No
+  reconciliation path removes a branch ref, checkout, validation snapshot,
+  stash, dirty byte, or untracked byte.
   Integration preparation resumes an exact planned merge/validation workspace;
   publication recognizes an already-applied accepted Git head and reruns its
   post-publication validation before committing SQL. Unfinished restart uses
@@ -1852,9 +1856,11 @@ unfinished-work restoration.
   tampered preservation archives, target-branch advance, cleanup without exact
   preservation, a cleanup branch advanced before retirement, a new dirty
   worktree admitted after inventory, every unsupported physical Git retirement,
-  dirty integration-lane retirement, validation-failure lane cleanup, an
-  overtaking release activation, duplicate resolved recovery, false wake
-  delivery, and arbitrary restart state without a restoration receipt. A
+  dirty integration-lane retirement, validation-failure lane cleanup, a
+  validator substituting dirty bytes for `candidate_head` before preparation or
+  post-publication acceptance, an overtaking release activation, duplicate
+  resolved recovery, false wake delivery, and arbitrary restart state without a
+  restoration receipt. A
   committed plus dirty plus untracked unfinished branch restores the latest
   tracked and exact untracked bytes and replays without duplication.
 - Preserved rejected candidate: exact pushed commit
@@ -1909,6 +1915,18 @@ unfinished-work restoration.
   untracked pending bytes. The current successor removes both force-deletion
   routes and the hard-reset rollback path without weakening the already closed
   release/recovery findings.
+- Preserved rejected mutable-validation candidate: exact pushed commit
+  `91b8cacf8bcd30e256182e84c7519a12e7abfbbd`, tree
+  `1c3baac068cce779a0913aacf505b418a80941cf`, remains immutable and
+  unaccepted. Exact review confirmed every no-delete correction and reproduced
+  the `35`-test focused proof, then returned `REVISE` on one P1 validation
+  identity gap. A validator replaced committed `COMMITTED_BAD` bytes with dirty
+  `VALIDATION_ONLY_GOOD` bytes in the retained integration lane and passed;
+  publication still advanced the different committed `candidate_head`.
+  Post-publication validation could likewise pass against `DIRTY_GOOD` while
+  the target contained the committed bad bytes. The current successor isolates
+  both phases in new exact detached snapshots and fails closed if their tracked
+  or index bytes diverge through command completion.
 - Rejected-candidate closure matrix:
 
   | Finding | Governing invariant | Corrective delta | Focused regression | Affected mapped proof | Fresh exact review |
@@ -1920,28 +1938,29 @@ unfinished-work restoration.
   | receipt/release publication omitted durability barriers | no reported durable publication relies on an un-fsynced renamed file or directory entry | `atomic_write` receipts, file/tree directory fsync, release-root post-rename fsync, crash-safe persistent locks | staging and restart crash-recovery fixtures plus exact source audit | operations, governed release, reconciliation | closed by exact review of `76ca892` |
   | branch ref advanced after the last identity check could still be deleted | destructive cleanup must make the identity precondition and deletion one atomic Git operation | `12adc232` used expected-object compare-and-delete; the current successor eliminates physical Git deletion entirely | `test_retirement_rejects_branch_advance_after_preservation`; `test_retirement_preserves_worktrees_and_stashes_without_atomic_adapter` | operations, reconciliation, target profiles | ref-advance reproduction closed at `12adc232`; deletion path superseded safely |
   | a new active worktree could be admitted between branch check and ref deletion | cleanup must not strand live worktree authority on a deleted symbolic branch | record one failed no-physical-effect audit and require preserve/defer for branch, worktree, and stash retirement | `test_branch_retirement_preserves_new_dirty_worktree_admitted_after_inventory`; `test_redundant_branch_retirement_fails_closed_without_atomic_worktree_fence` | operations, reconciliation, target profiles | closed by exact review of `52acbaf` |
-  | integration retirement and prepare-failure cleanup could force-delete pending bytes | every reconciliation lane retains tracked/untracked state until one proven no-loss retirement owner exists | preserve failed and terminal lanes; reject explicit lane retirement; rollback only the exact target ref by CAS | `test_accepted_branch_is_validated_published_and_lane_retirement_preserves_bytes`; `test_prepare_failure_preserves_integration_worktree_branch_and_pending_bytes`; `test_post_publish_failure_rolls_target_back` | reconciliation, operations, target profiles | pending correction freeze |
-- Focused validation: `35 passed` in the operations, governed-release,
+  | integration retirement and prepare-failure cleanup could force-delete pending bytes | every reconciliation lane retains tracked/untracked state until one proven no-loss retirement owner exists | preserve failed and terminal lanes; reject explicit lane retirement; rollback only the exact target ref by CAS | `test_accepted_branch_is_validated_published_and_lane_retirement_preserves_bytes`; `test_prepare_failure_preserves_integration_and_validation_lanes_with_pending_bytes`; `test_post_publish_failure_rolls_target_back` | reconciliation, operations, target profiles | closed by exact review of `91b8cac` |
+  | mutable integration-lane bytes could pass validation for another committed candidate tree | every publication-authorizing validation observes only one exact immutable candidate identity through command completion | create a fresh detached `candidate_head` snapshot per phase, prove clean exact HEAD before, verify tracked/index currentness after, and retain every snapshot | `test_prepare_rejects_validation_against_bytes_other_than_candidate_head`; `test_post_publish_validation_rejects_dirty_snapshot_and_rolls_target_back` | reconciliation and target profiles | pending correction freeze |
+- Focused validation: `37 passed` in the operations, governed-release,
   reconciliation, and recovery-coordinator files; the four existing
   `TestStore` collection warnings remain unchanged. Mapped validation across
   advanced integration, controller, core, governed release, operational
   boundaries, operations, reconciliation, recovery, and target profiles:
-  `84 passed` with the same four warnings. Runtime collection found `228`
+  `86 passed` with the same four warnings. Runtime collection found `230`
   tests with only the seven existing collection warnings. Ruff format/check, mypy
   across `69` source files, compileall, diff check, and tracker verification are
   clean. The locked dev environment also exposed and the candidate removes one
   obsolete mypy ignore plus one redundant type cast; focused acceptance/libRSI
   regression proof is `11 passed`. No broad runtime suite was run.
 - Isolated build/install proof: wheel SHA-256
-  `bfb45ed3ef82968f24e4d60670d587946f7e39c3c5ace08444df05b6911cb920`;
+  `23af2980cb91309f949373afe9af9b9dd86e8ea5fb2a41ffa43c2b6f4a32cbf4`;
   sdist SHA-256
-  `e39f8c28b56e3cb86bf22141279e8ff53bdd70d0027974347abc59c61379b000`.
+  `0a56daf1553943a9471de3643de0e03e01cefa5403e9f65ab223e0f3cf2c5f45`.
   The exact wheel contains migration 0024 and a fresh isolated install reported
   both catalog and live database schema version `24`. The changed runtime-source
   hash-list root is
-  `09904204c81e2fcc8dc9aa178453cf4ed2143dc47c0102cfe25ce93b21f3f2e0`;
+  `f6b2221e9dbf35eb2713d6870f060f18508aca00c56a5325a6bfd5b1c9a548c3`;
   the changed-test hash-list root is
-  `cf0808b0bdbac0bddb527483213f01e76450c584709f5f10f6f8f534e1f7d7f4`.
+  `8efb5034a7478382c46f943c191b8a588d45ddf34fa003c72328e890b4b1aed7`.
 - Product-capability review:
   - Trigger: consequential durable delivery/recovery boundary and correction
     of a candidate that could lose unfinished work or overwrite newer release
@@ -1953,9 +1972,11 @@ unfinished-work restoration.
   - Capability added or preserved: interrupted local delivery rehydrates one
     exact release/effect/workspace; unsupported physical Git retirement is
     audited or preserve/defer-fails before deleting branch, integration lane,
-    checkout, stash, dirty, or untracked authority; rollback changes exact ref
-    authority without discarding checkout bytes; dirty and untracked work remain
-    recoverable; a resolved case does not resume its target twice.
+    validation snapshot, checkout, stash, dirty, or untracked authority;
+    publication-authorizing validation is bound to one exact committed tree;
+    rollback changes exact ref authority without discarding checkout bytes;
+    dirty and untracked work remain recoverable; a resolved case does not resume
+    its target twice.
   - Paths compared: retry from current mutable Git refs; retain only the Git
     bundle; use process-local flags; or bind durable journals, exact inventory
     identities, bundle members, receipts, and external idempotency keys under
@@ -1979,7 +2000,7 @@ unfinished-work restoration.
     delivery remain deliberately unqualified.
   - Frozen-candidate proof: exact commit/tree identity will be recorded in the
     acceptance successor after distinct exact-revision review; current bounded
-    behavioral proof is `35` focused and `84` mapped passes, exact installed
+    behavioral proof is `37` focused and `86` mapped passes, exact installed
     schema `24`, and the artifact/source/test roots above.
 - Candidate posture: corrected implementation and bounded proof are complete;
   Block 8 remains `in-progress` pending a clean pushed exact correction and

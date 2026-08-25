@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `f11ce5b856e40afb90996eb0856ca0b8b12bb1b6beb6b0b2152a658f560ccedf`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, and `52acbaf` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `b273661dd7db0398fb2b2213f3517fe23f84e15b98de937d15b0206e9b8633b3`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, and `91b8cac` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -64,8 +64,13 @@ deletion routes in the reconciliation owner: prepare-failure cleanup and
 terminal integration-lane retirement. The current correction preserves those
 lanes and pending bytes, and limits failed post-publication rollback to an exact
 ref compare-and-swap without hard-resetting checkout bytes. Refreshed affected
-proof is complete; a clean correction freeze and distinct exact-revision review
-remain required.
+proof is complete. Exact successor `91b8cac` is preserved and unaccepted after
+closing those deletion paths but allowing validators to observe dirty mutable
+lane bytes while publishing a different committed candidate tree. The current
+correction runs each validation phase in a fresh retained detached snapshot of
+the exact `candidate_head` and verifies tracked/index currentness through command
+completion; a clean correction freeze and distinct exact-revision review remain
+required.
 
 ## Required outcome
 

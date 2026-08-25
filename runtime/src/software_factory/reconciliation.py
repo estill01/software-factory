@@ -108,6 +108,69 @@ class RepositoryReconciliationService:
             self._fault_injector(point)
 
     @staticmethod
+    def _validate_exact_head(
+        repository: Path,
+        *,
+        candidate_id: str,
+        candidate_head: str,
+        phase: str,
+        validation_command: Sequence[str],
+        snapshot_root: Path,
+    ) -> dict[str, Any]:
+        """Run validation in a fresh detached snapshot of one exact Git tree.
+
+        The mutable integration lane is retained as evidence but never supplies
+        bytes to a validation that authorizes publication. Validation snapshots
+        are also retained: no cleanup path can discard command-produced evidence.
+        """
+
+        validation_root = snapshot_root / (
+            f".{candidate_id}.{phase}.{new_id('validation_snapshot')}"
+        )
+        _git(
+            repository,
+            "worktree",
+            "add",
+            "--detach",
+            str(validation_root),
+            candidate_head,
+        )
+        initial_head = _git(validation_root, "rev-parse", "HEAD").stdout.strip()
+        initial_status = _git(
+            validation_root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ).stdout
+        if initial_head != candidate_head or initial_status.strip():
+            raise InvalidTransition("validation snapshot differs from the exact candidate tree")
+        validation = subprocess.run(
+            [str(value) for value in validation_command],
+            cwd=validation_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        final_head = _git(validation_root, "rev-parse", "HEAD").stdout.strip()
+        tracked_status = _git(
+            validation_root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=no",
+        ).stdout
+        return {
+            "command": list(validation_command),
+            "exit_code": validation.returncode,
+            "stdout": validation.stdout,
+            "stderr": validation.stderr,
+            "candidate_head": candidate_head,
+            "validation_snapshot": str(validation_root),
+            "exact_tree_before": initial_head == candidate_head and not initial_status.strip(),
+            "exact_tree_after": final_head == candidate_head and not tracked_status.strip(),
+            "tracked_status_after": tracked_status,
+        }
+
+    @staticmethod
     def _restart_receipt_path(worktree: Path, restart_id: str) -> Path:
         return worktree.parent / f".{restart_id}.restore.json"
 
@@ -466,21 +529,18 @@ class RepositoryReconciliationService:
                        SET candidate_head=?,status='validating',updated_at=? WHERE id=?""",
                     (candidate_head, utc_now(), candidate_id),
                 )
-            validation = subprocess.run(
-                [str(value) for value in validation_command],
-                cwd=worktree,
-                capture_output=True,
-                text=True,
-                check=False,
+            validation_result = self._validate_exact_head(
+                repository,
+                candidate_id=candidate_id,
+                candidate_head=candidate_head,
+                phase="prepare",
+                validation_command=validation_command,
+                snapshot_root=root,
             )
-            validation_result = {
-                "command": list(validation_command),
-                "exit_code": validation.returncode,
-                "stdout": validation.stdout,
-                "stderr": validation.stderr,
-            }
-            if validation.returncode != 0:
+            if validation_result["exit_code"] != 0:
                 raise RuntimeError("integration validation failed")
+            if not validation_result["exact_tree_after"]:
+                raise RuntimeError("integration validation did not preserve exact candidate tree")
             self._fault("prepare:after_validation")
         except Exception as exc:
             with self.store.transaction() as db:
@@ -557,15 +617,15 @@ class RepositoryReconciliationService:
                 raise RuntimeError("published target branch differs from accepted candidate")
             self._fault("publish:after_ref_update")
             if post_publish_validation:
-                validation_root = Path(candidate["integration_worktree"])
-                validation = subprocess.run(
-                    [str(value) for value in post_publish_validation],
-                    cwd=validation_root,
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                validation_result = self._validate_exact_head(
+                    repository,
+                    candidate_id=candidate_id,
+                    candidate_head=candidate_head,
+                    phase="post-publish",
+                    validation_command=post_publish_validation,
+                    snapshot_root=Path(candidate["integration_worktree"]).parent,
                 )
-                if validation.returncode != 0:
+                if validation_result["exit_code"] != 0 or not validation_result["exact_tree_after"]:
                     rollback = _git(
                         repository,
                         "update-ref",
@@ -585,9 +645,7 @@ class RepositoryReconciliationService:
                                 _canonical(
                                     {
                                         "phase": "post_publish",
-                                        "exit_code": validation.returncode,
-                                        "stdout": validation.stdout,
-                                        "stderr": validation.stderr,
+                                        **validation_result,
                                     }
                                 ),
                                 utc_now(),

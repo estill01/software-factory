@@ -149,7 +149,7 @@ def test_accepted_branch_is_validated_published_and_lane_retirement_preserves_by
     )
 
 
-def test_prepare_failure_preserves_integration_worktree_branch_and_pending_bytes(
+def test_prepare_failure_preserves_integration_and_validation_lanes_with_pending_bytes(
     tmp_path: Path,
 ) -> None:
     repository = tmp_path / "repo"
@@ -182,14 +182,67 @@ def test_prepare_failure_preserves_integration_worktree_branch_and_pending_bytes
         )
     candidate = reconciliation.store.one("SELECT * FROM integration_candidates_v2")
     worktree = Path(candidate["integration_worktree"])
+    validation_result = json.loads(candidate["validation_result_json"])
+    validation_worktree = Path(validation_result["validation_snapshot"])
     assert candidate["status"] == "failed"
     assert worktree.is_dir()
-    assert (worktree / "app.py").read_text(encoding="utf-8") == "VALUE = 9\n"
-    assert (worktree / "untracked-loss.txt").read_text(encoding="utf-8") == "must survive\n"
+    assert (worktree / "app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    assert not (worktree / "untracked-loss.txt").exists()
+    assert validation_worktree.is_dir()
+    assert (validation_worktree / "app.py").read_text(encoding="utf-8") == "VALUE = 9\n"
+    assert (validation_worktree / "untracked-loss.txt").read_text(encoding="utf-8") == (
+        "must survive\n"
+    )
     assert (
         candidate["integration_branch"]
         in git(repository, "branch", "--format=%(refname:short)").splitlines()
     )
+
+
+def test_prepare_rejects_validation_against_bytes_other_than_candidate_head(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "app.py").write_text("VALUE = 'COMMITTED_BAD'\n", encoding="utf-8")
+    git(repository, "add", "--", "app.py")
+    git(repository, "commit", "-m", "candidate bytes")
+    git(repository, "switch", "main")
+    reconciliation = service()
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+
+    with pytest.raises(RuntimeError, match="exact candidate tree"):
+        reconciliation.prepare_integration(
+            item["id"],
+            preservation_bundle_id=bundle["id"],
+            target_branch="main",
+            worktree_root=tmp_path / "integration-worktrees",
+            validation_command=[
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    "Path('app.py').write_text(\"VALUE = 'VALIDATION_ONLY_GOOD'\\n\")"
+                ),
+            ],
+        )
+    candidate = reconciliation.store.one("SELECT * FROM integration_candidates_v2")
+    result = json.loads(candidate["validation_result_json"])
+    validation_worktree = Path(result["validation_snapshot"])
+    assert candidate["status"] == "failed"
+    assert result["candidate_head"] == candidate["candidate_head"]
+    assert result["exact_tree_before"] is True
+    assert result["exact_tree_after"] is False
+    assert "app.py" in result["tracked_status_after"]
+    assert (validation_worktree / "app.py").read_text(encoding="utf-8") == (
+        "VALUE = 'VALIDATION_ONLY_GOOD'\n"
+    )
+    assert git(repository, "show", f"{candidate['candidate_head']}:app.py") == (
+        "VALUE = 'COMMITTED_BAD'"
+    )
+    assert (repository / "app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
 
 
 def test_target_advance_after_validation_prevents_publication(tmp_path: Path) -> None:
@@ -291,6 +344,52 @@ def test_post_publish_failure_rolls_target_back(tmp_path: Path) -> None:
     assert reconciliation.store.one(
         "SELECT status FROM integration_candidates_v2 WHERE id=?", (candidate["id"],)
     ) == {"status": "rolled_back"}
+
+
+def test_post_publish_validation_rejects_dirty_snapshot_and_rolls_target_back(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    original = git(repository, "rev-parse", "main")
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "app.py").write_text("VALUE = 'COMMITTED_BAD'\n", encoding="utf-8")
+    git(repository, "add", "--", "app.py")
+    git(repository, "commit", "-m", "candidate bytes")
+    git(repository, "switch", "main")
+    reconciliation = service()
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+    candidate = reconciliation.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+
+    with pytest.raises(RuntimeError, match="rolled back"):
+        reconciliation.publish_integration(
+            candidate["id"],
+            post_publish_validation=[
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    "Path('app.py').write_text(\"VALUE = 'DIRTY_GOOD'\\n\")"
+                ),
+            ],
+        )
+    stored = reconciliation.store.one(
+        "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate["id"],)
+    )
+    result = json.loads(stored["validation_result_json"])
+    assert stored["status"] == "rolled_back"
+    assert result["candidate_head"] == candidate["candidate_head"]
+    assert result["exact_tree_before"] is True
+    assert result["exact_tree_after"] is False
+    assert git(repository, "rev-parse", "main") == original
+    assert (repository / "app.py").read_text(encoding="utf-8") == "VALUE = 'COMMITTED_BAD'\n"
 
 
 def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) -> None:
