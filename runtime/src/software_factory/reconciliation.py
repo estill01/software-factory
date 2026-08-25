@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
+import io
 import json
 import os
+import stat
 import subprocess
-import tempfile
+import tarfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .errors import InvalidTransition, StoreError
 from .operations import OperationsService
 from .store import Store
-from .util import new_id, utc_now
+from .util import atomic_write, new_id, utc_now
 
 
 def _canonical(value: Any) -> str:
@@ -73,22 +76,17 @@ def _repository_lock(root: Path, name: str) -> Iterator[None]:
         (root / common_dir).resolve() if not Path(common_dir).is_absolute() else Path(common_dir)
     )
     lock_path = common_path / f"software-factory-{name}.lock"
-    descriptor = -1
+    descriptor = os.open(
+        lock_path,
+        os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
     try:
-        descriptor = os.open(
-            lock_path,
-            os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-        )
-        os.write(descriptor, f"pid={os.getpid()}\n".encode())
-        os.fsync(descriptor)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
-    except FileExistsError as exc:
-        raise InvalidTransition(f"repository effect is already locked: {name}") from exc
     finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-            lock_path.unlink(missing_ok=True)
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 class RepositoryReconciliationService:
@@ -124,31 +122,168 @@ class RepositoryReconciliationService:
     ) -> dict[str, Any]:
         if _git(worktree, "diff", "--quiet", check=False).returncode != 0:
             raise InvalidTransition("restart workspace has unstaged changes")
-        if _git(worktree, "ls-files", "--others", "--exclude-standard", check=False).stdout.strip():
-            raise InvalidTransition("restart workspace has undeclared untracked files")
         staged_patch = _git(worktree, "diff", "--cached", "--binary", check=False).stdout
+        untracked_names = [
+            value
+            for value in _git(
+                worktree,
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                check=False,
+            ).stdout.split("\0")
+            if value
+        ]
+        untracked: list[dict[str, Any]] = []
+        for relative in sorted(untracked_names):
+            pure = PurePosixPath(relative)
+            if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+                raise InvalidTransition("restart workspace has an unsafe untracked path")
+            path = worktree.joinpath(*pure.parts)
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                raise InvalidTransition("restart workspace has a non-file untracked entry")
+            untracked.append(
+                {
+                    "path": relative,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "bytes": metadata.st_size,
+                    "mode": stat.S_IMODE(metadata.st_mode),
+                }
+            )
         return {
             "restart_id": restart_id,
             "cleanup_item_id": cleanup_item_id,
             "baseline_head": baseline_head,
             "source_identity": source_identity,
             "staged_patch_root": hashlib.sha256(staged_patch.encode()).hexdigest(),
+            "untracked_files": untracked,
             "status": _git(worktree, "status", "--porcelain=v1", check=False).stdout.splitlines(),
         }
 
     @staticmethod
     def _write_restart_receipt(path: Path, payload: Mapping[str, Any]) -> None:
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        atomic_write(
+            path,
+            (_canonical(dict(payload)) + "\n").encode("utf-8"),
+            mode=0o600,
         )
+
+    @staticmethod
+    def _inventory_source_identity(item: Mapping[str, Any], inventory: Mapping[str, Any]) -> str:
+        if item["item_type"] == "branch":
+            matches = [
+                value.split("|", 2)[1]
+                for value in _loads(inventory["branches_json"], [])
+                if isinstance(value, str)
+                and value.split("|", 1)[0] == item["item_key"]
+                and len(value.split("|", 2)) >= 2
+            ]
+        elif item["item_type"] == "stash":
+            matches = [
+                value.split("|", 2)[1]
+                for value in _loads(inventory["stashes_json"], [])
+                if isinstance(value, str)
+                and value.split("|", 1)[0] == item["item_key"]
+                and len(value.split("|", 2)) >= 2
+            ]
+        else:
+            matches = [
+                str(item["item_key"])
+                for value in _loads(inventory["detached_commits_json"], [])
+                if isinstance(value, str) and str(item["item_key"]) in value.split()
+            ]
+        if len(matches) != 1 or not matches[0]:
+            raise InvalidTransition("restart source was not exact in the inventory")
+        return matches[0]
+
+    @staticmethod
+    def _bundle_restore_members(
+        bundle: Mapping[str, Any],
+    ) -> tuple[str, bytes, list[str]]:
+        manifest = _loads(bundle["manifest_json"], {})
+        if not isinstance(manifest, dict):
+            raise InvalidTransition("preservation bundle manifest is invalid")
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(_canonical(dict(payload)) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            Path(temporary_name).replace(path)
-        finally:
-            Path(temporary_name).unlink(missing_ok=True)
+            with tarfile.open(Path(str(bundle["bundle_path"])), "r:gz") as archive:
+                patch_member = archive.getmember("working-tree.patch")
+                untracked_member = archive.getmember("untracked.tar")
+                patch_handle = archive.extractfile(patch_member)
+                untracked_handle = archive.extractfile(untracked_member)
+                if patch_handle is None or untracked_handle is None:
+                    raise InvalidTransition("preservation bundle restore members are unreadable")
+                patch = patch_handle.read().decode("utf-8")
+                untracked = untracked_handle.read()
+        except (KeyError, OSError, UnicodeDecodeError, tarfile.TarError) as exc:
+            raise InvalidTransition("preservation bundle restore members are invalid") from exc
+        paths = manifest.get("untracked_paths", [])
+        if not isinstance(paths, list) or any(not isinstance(value, str) for value in paths):
+            raise InvalidTransition("preservation bundle untracked path manifest is invalid")
+        return patch, untracked, sorted(paths)
+
+    @staticmethod
+    def _item_owns_inventory_worktree(
+        item: Mapping[str, Any], inventory: Mapping[str, Any], source_identity: str
+    ) -> bool:
+        if item["item_type"] != "branch":
+            return False
+        repository = str(Path(str(inventory["repository_root"])).resolve())
+        return any(
+            isinstance(value, dict)
+            and str(Path(str(value.get("worktree", ""))).resolve()) == repository
+            and value.get("HEAD") == source_identity
+            and value.get("branch") == f"refs/heads/{item['item_key']}"
+            for value in _loads(inventory["worktrees_json"], [])
+        )
+
+    @staticmethod
+    def _restore_untracked(worktree: Path, archive_bytes: bytes, expected_paths: list[str]) -> None:
+        try:
+            with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
+                members = archive.getmembers()
+                names = [member.name for member in members]
+                if sorted(names) != expected_paths or len(set(names)) != len(names):
+                    raise InvalidTransition("preserved untracked member set differs")
+                for member in members:
+                    pure = PurePosixPath(member.name)
+                    if (
+                        not member.isfile()
+                        or member.issym()
+                        or member.islnk()
+                        or pure.is_absolute()
+                        or any(part in {"", ".", ".."} for part in pure.parts)
+                    ):
+                        raise InvalidTransition("preserved untracked member is unsafe")
+                    target = worktree.joinpath(*pure.parts)
+                    try:
+                        target.resolve().relative_to(worktree)
+                    except ValueError as exc:
+                        raise InvalidTransition(
+                            "preserved untracked member escapes worktree"
+                        ) from exc
+                    if target.exists() or target.is_symlink():
+                        raise InvalidTransition("preserved untracked member collides in worktree")
+                    if (
+                        _git(
+                            worktree,
+                            "ls-files",
+                            "--error-unmatch",
+                            "--",
+                            member.name,
+                            check=False,
+                        ).returncode
+                        == 0
+                    ):
+                        raise InvalidTransition(
+                            "preserved untracked member collides with tracked data"
+                        )
+                    handle = archive.extractfile(member)
+                    if handle is None:
+                        raise InvalidTransition("preserved untracked member is unreadable")
+                    atomic_write(target, handle.read(), mode=stat.S_IMODE(member.mode))
+        except (OSError, tarfile.TarError) as exc:
+            raise InvalidTransition("preserved untracked archive is invalid") from exc
 
     def _require_restart_receipt(self, path: Path, expected: Mapping[str, Any]) -> None:
         if not path.is_file() or path.is_symlink():
@@ -512,15 +647,26 @@ class RepositoryReconciliationService:
             raise InvalidTransition("cleanup item has no restart adapter")
         repository = Path(inventory["repository_root"])
         baseline_head = _branch_head(repository, baseline_branch)
-        source_identity = (
-            _branch_head(repository, item["item_key"])
-            if item["item_type"] == "branch"
-            else _git(
-                repository, "rev-parse", "--verify", item["item_key"], check=False
-            ).stdout.strip()
+        source_identity = self._inventory_source_identity(item, inventory)
+        if (
+            _git(
+                repository,
+                "cat-file",
+                "-e",
+                f"{source_identity}^{{commit}}",
+                check=False,
+            ).returncode
+            != 0
+        ):
+            raise InvalidTransition("restart preserved source object is unavailable")
+        owns_inventory_worktree = self._item_owns_inventory_worktree(
+            item, inventory, source_identity
         )
-        if not source_identity:
-            raise InvalidTransition("restart source reference is unavailable")
+        working_patch, untracked_archive, untracked_paths = self._bundle_restore_members(bundle)
+        if not owns_inventory_worktree and (working_patch.strip() or untracked_paths):
+            working_patch = ""
+            untracked_archive = b""
+            untracked_paths = []
         root = Path(worktree_root).resolve()
         root.mkdir(parents=True, exist_ok=True)
         existing = self.store.one(
@@ -647,7 +793,7 @@ class RepositoryReconciliationService:
                     "show",
                     "-p",
                     "--binary",
-                    item["item_key"],
+                    source_identity,
                     check=False,
                 ).stdout
                 applied = _git(
@@ -661,6 +807,22 @@ class RepositoryReconciliationService:
                 if applied.returncode != 0:
                     raise RuntimeError(f"stash could not be restored: {applied.stderr.strip()}")
             if not already_restored:
+                if working_patch.strip():
+                    restored_working = _git(
+                        worktree,
+                        "apply",
+                        "--3way",
+                        "--index",
+                        check=False,
+                        input_text=working_patch,
+                    )
+                    if restored_working.returncode != 0:
+                        raise RuntimeError(
+                            "unfinished working tree could not be restored: "
+                            f"{restored_working.stderr.strip()}"
+                        )
+                if untracked_paths:
+                    self._restore_untracked(worktree, untracked_archive, untracked_paths)
                 state = self._restart_state(
                     worktree=worktree,
                     restart_id=restart_id,

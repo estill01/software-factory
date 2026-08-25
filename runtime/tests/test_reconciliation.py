@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -277,6 +278,52 @@ def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) 
     assert (worktree / "baseline.txt").read_text(encoding="utf-8") == "new baseline\n"
     assert (worktree / "unfinished.txt").read_text(encoding="utf-8") == "partial implementation\n"
     assert "A  unfinished.txt" in git(worktree, "status", "--porcelain=v1")
+
+
+def test_unfinished_checked_out_branch_restores_dirty_and_untracked_bytes(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "unfinished")
+    (repository / "unfinished.txt").write_text("committed checkpoint\n", encoding="utf-8")
+    git(repository, "add", "--", "unfinished.txt")
+    git(repository, "commit", "-m", "unfinished checkpoint")
+    (repository / "unfinished.txt").write_text("latest dirty bytes\n", encoding="utf-8")
+    (repository / "research.txt").write_text("untracked research\n", encoding="utf-8")
+
+    reconciliation = service()
+    inventory = reconciliation._operations.inventory_repository(
+        repository_root=repository, mission_id="mission-1"
+    )
+    bundle = reconciliation._operations.preserve_repository(
+        inventory["id"], output_directory=tmp_path / "preserved"
+    )
+    item = reconciliation._operations.plan_cleanup_item(
+        inventory["id"],
+        item_type="branch",
+        item_key="unfinished",
+        classification="unfinished",
+        disposition="restart",
+        evidence={"remaining_obligation": "complete dirty work"},
+    )
+    arguments = {
+        "preservation_bundle_id": bundle["id"],
+        "baseline_branch": "main",
+        "worktree_root": tmp_path / "restart-worktrees",
+    }
+    restarted = reconciliation.restart_unfinished_work(item["id"], **arguments)
+    worktree = Path(restarted["restart_worktree"])
+    assert (worktree / "unfinished.txt").read_text(encoding="utf-8") == "latest dirty bytes\n"
+    assert (worktree / "research.txt").read_text(encoding="utf-8") == "untracked research\n"
+    assert "A  unfinished.txt" in git(worktree, "status", "--porcelain=v1")
+    assert "?? research.txt" in git(worktree, "status", "--porcelain=v1")
+
+    receipt_path = worktree.parent / f".{restarted['id']}.restore.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["untracked_files"][0]["path"] == "research.txt"
+    assert reconciliation.restart_unfinished_work(item["id"], **arguments)["id"] == restarted["id"]
 
 
 def test_unfinished_restart_resumes_restored_workspace_without_duplication(

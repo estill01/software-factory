@@ -178,7 +178,15 @@ class FactoryRecoveryCoordinator:
                 "SELECT * FROM external_effect_intents_v2 WHERE id=?", (wake_effect["id"],)
             )
         if wake_effect["status"] == "observed":
-            self.governance.complete_effect(wake_effect["id"], succeeded=True)
+            observed_result = json.loads(wake_effect["observed_result_json"] or "{}")
+            sent = bool(observed_result.get("sent"))
+            wake_effect = self.governance.complete_effect(
+                wake_effect["id"],
+                succeeded=sent,
+                error=None if sent else {"reason": "target wake was not sent"},
+            )
+        if wake_effect["status"] != "succeeded":
+            raise RuntimeError("Factory recovery target wake was not delivered")
         self._operations.mark_resume_sent(token["id"])
         verification_result = dict(verify_target(delivery_payload))
         resolved = self._operations.verify_recovery(

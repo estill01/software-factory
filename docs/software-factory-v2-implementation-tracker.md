@@ -1799,59 +1799,130 @@ unfinished-work restoration.
   targets, deterministic crash points, and focused/mapped proof. Production
   activation, external notification, broad runtime validation, and all utils
   package consumption remain out of scope for this Block.
-- Completion proof: pending exact implementation, fault-injection evidence,
-  clean pushed candidate, and distinct exact-revision review.
+- Completion proof: corrected implementation and bounded fault evidence are
+  complete; a clean pushed correction candidate and distinct exact-revision
+  review remain pending.
 - Delivery/release implementation: immutable staging now leaves a durable
-  stage-root receipt before its physical copy, validates exact installed paths,
-  bytes, executable posture, and manifest bytes before recording a release, and
-  deterministically resumes the same physical release after an injected
-  filesystem/SQL crash. Schema migration `0024_delivery_reconciliation.sql`
-  adds the single-owned release-transition journal; activation and rollback
-  bind an exact pointer payload and transition root, fsync the pointer and
-  containing directory, then commit pointer/SQL posture atomically on retry.
+  stage-root receipt with a file and directory fsync before its physical copy,
+  validates exact installed paths, bytes, executable posture, and manifest
+  bytes before recording a release, fsyncs every staged file and directory,
+  then fsyncs the release root after publication. It deterministically resumes
+  the same physical release after an injected filesystem/SQL crash. Schema
+  migration `0024_delivery_reconciliation.sql` adds the single-owned
+  release-transition journal; activation and rollback serialize on a durable
+  root lock, bind an exact pointer payload, predecessor, and transition root,
+  reject another unfinished/root-currentness-changing transition, fsync the
+  pointer and containing directory, then commit pointer/SQL posture atomically
+  on retry.
   Installed probes rehash before and after the command, active use requires a
   committed matching pointer, and rollback refuses a previous release without
   passed installed verification and current exact bytes.
 - Recovery/reconciliation implementation: preservation verification now checks
   the archive root, exact safe member set, embedded manifest bytes, and every
-  declared member hash again immediately before cleanup. Retirement reuses one
-  recorded effect and recognizes only its exact achieved physical postcondition.
+  declared member hash and the exact safe untracked-member set immediately
+  before cleanup. Retirement reuses one recorded effect, locks the repository,
+  rechecks the inventory-recorded branch/stash/worktree object identity before
+  deletion, and recognizes only its exact achieved physical postcondition.
   Integration preparation resumes an exact planned merge/validation workspace;
   publication recognizes an already-applied accepted Git head and reruns its
   post-publication validation before committing SQL. Unfinished restart uses
-  one workspace plus an fsynced restoration receipt bound to baseline, source,
-  status, and staged-patch root. Recovery wakes and agent refreshes carry their
-  persisted idempotency keys to the external adapter and safely redrive a
-  started/ambiguous effect without allocating another intent.
+  one workspace plus an atomically written and directory-fsynced restoration
+  receipt bound to baseline, preserved source object, staged patch, complete
+  status, and exact untracked-file bytes/modes. For the inventory-root checked
+  out branch it replays both the preservation bundle's tracked working-tree
+  patch and safe untracked archive after the committed branch delta. Recovery
+  reopens the same case even after resolution, returns the original token and
+  wake effect without replay, and treats an explicit false/missing `sent`
+  result as failure before token consumption; target wakes and agent refreshes
+  carry their persisted idempotency keys and redrive the same intent.
 - Negative/fault proof: deterministic injections after staged-copy, active
   pointer, integration merge, published ref, physical retirement, restored
   workspace, target wake, and agent refresh all recovered to one durable row,
   token, intent, or workspace. Tests also rejected modified installed files,
   forged active pointers, rollback to unverified bytes, post-probe drift,
   tampered preservation archives, target-branch advance, cleanup without exact
-  preservation, and arbitrary restart state without a restoration receipt.
-- Focused validation: `27 passed` in the operations, governed-release,
+  preservation, a cleanup branch advanced after preservation, an overtaking
+  release activation, duplicate resolved recovery, false wake delivery, and
+  arbitrary restart state without a restoration receipt. A committed plus
+  dirty plus untracked unfinished branch restores the latest tracked and exact
+  untracked bytes and replays without duplication.
+- Preserved rejected candidate: exact pushed commit
+  `4a23d414a3908069161310125042eeb5b4514ba6`, tree
+  `5780cd5fbf124523f7892347e66ae6a88a999d6c`, remains immutable and
+  unaccepted. Distinct exact-revision review returned `REVISE` with four P1
+  findings and one P2 durability finding: retirement could delete a branch
+  advanced after preservation; restart omitted dirty tracked and untracked
+  bytes; resolved recovery replay allocated a second wake and stranded it at a
+  uniqueness conflict; an interrupted activation could be overtaken and later
+  supersede newer authority; and staging/restart receipts and release-tree
+  publication lacked all required post-rename file/directory fsyncs. The
+  current correction closes those exact findings without rewriting the
+  rejected history.
+- Rejected-candidate closure matrix:
+
+  | Finding | Governing invariant | Corrective delta | Focused regression | Affected mapped proof | Fresh exact review |
+  |---|---|---|---|---|---|
+  | branch advanced after preservation could be deleted | destructive cleanup binds and rechecks the exact inventoried physical object | repository lock plus exact branch/stash/worktree identity and clean-worktree gate | `test_retirement_rejects_branch_advance_after_preservation` | operations, reconciliation, target profiles | pending correction freeze |
+  | dirty tracked and untracked work was absent from restart | restart rehydrates every safe byte owned by the inventoried checked-out source | replay verified working-tree patch and safe untracked archive; receipt binds source, patch, status, bytes, modes | `test_unfinished_checked_out_branch_restores_dirty_and_untracked_bytes` | operations and reconciliation | pending correction freeze |
+  | resolved replay allocated a duplicate wake and stranded recovery | one defect fingerprint owns one case, token, effect, and delivered wake across terminal replay | include resolved cases in lookup, exact target-state collision check, resolved fast path, explicit `sent` gate | `test_resolved_factory_recovery_replays_without_duplicate_wake_or_case`; `test_unsent_factory_wake_fails_closed_and_redrives_same_intent` | recovery and governed effects | pending correction freeze |
+  | interrupted activation could overtake newer authority | one root has one serialized unfinished transition bound to its exact predecessor/current active state | durable root lock, unfinished-root gate, transition-root/payload/predecessor/current-pointer checks | `test_interrupted_activation_blocks_newer_activation_and_resumes_exact_transition` | operations and governed release | pending correction freeze |
+  | receipt/release publication omitted durability barriers | no reported durable publication relies on an un-fsynced renamed file or directory entry | `atomic_write` receipts, file/tree directory fsync, release-root post-rename fsync, crash-safe persistent locks | staging and restart crash-recovery fixtures plus exact source audit | operations, governed release, reconciliation | pending correction freeze |
+- Focused validation: `32 passed` in the operations, governed-release,
   reconciliation, and recovery-coordinator files; the four existing
   `TestStore` collection warnings remain unchanged. Mapped validation across
   advanced integration, controller, core, governed release, operational
   boundaries, operations, reconciliation, recovery, and target profiles:
-  `76 passed` with the same four warnings. Runtime collection found `220`
-  tests with only the existing collection warnings. Ruff format/check, mypy
+  `81 passed` with the same four warnings. Runtime collection found `225`
+  tests with only the seven existing collection warnings. Ruff format/check, mypy
   across `69` source files, compileall, diff check, and tracker verification are
   clean. No broad runtime suite was run.
 - Isolated build/install proof: wheel SHA-256
-  `df0246221b20552eb6f1d105487031a9d18a1b0d010bed83bb2d80e9ba843f67`;
+  `90f4136e8bbbc0b9a0930749f7c0e3648025b05da12f029bf205d2a969fbc8f8`;
   sdist SHA-256
-  `088ab66ca8a2810f847a287cfcdc806618f8afddfdd84a77378e66506fa642af`.
+  `aff1173b9dbe2e749d9457cf156d03934c6cb8e22b1dcf19e300ab437a947408`.
   The exact wheel contains migration 0024 and a fresh isolated install reported
   both catalog and live database schema version `24`. The changed runtime-source
   hash-list root is
-  `dd2113def9b8573859eefec135f353145db0175fe101457c0d3fdb9f008496ce`;
+  `dfd8acb97b4c28817839edec6ac66d13bca49f187b8d084c64c3f513bca64933`;
   the changed-test hash-list root is
-  `0fa7bbfe18a3047d2e884e9652d2be37f764b147d4ebb933480c836021ba6ef4`.
-- Candidate posture: implementation and bounded proof are complete; Block 8
-  remains `in-progress` pending a clean pushed exact candidate and distinct
-  exact-revision review. All effects used isolated local/test targets; no
+  `c27be10ddfd374d712a62a72144631155997709b145938a13637d792aabc8099`.
+- Product-capability review:
+  - Trigger: consequential durable delivery/recovery boundary and correction
+    of a candidate that could lose unfinished work or overwrite newer release
+    authority.
+  - Frame identity:
+    `docs/software-factory-v2-implementation-tracker.md`, Block 8, exact frame
+    bytes at lines 52–84, SHA-256
+    `c2b8110d2cf11edc3d7f52ecc0c6112f0f60ba9d091b6cbeb2e15e9b6bbb3851`.
+  - Capability added or preserved: interrupted local delivery rehydrates one
+    exact release/effect/workspace; cleanup cannot delete post-preservation
+    changes; dirty and untracked work remain recoverable; a resolved case does
+    not resume its target twice.
+  - Paths compared: retry from current mutable Git refs; retain only the Git
+    bundle; use process-local flags; or bind durable journals, exact inventory
+    identities, bundle members, receipts, and external idempotency keys under
+    filesystem/repository locks.
+  - Selected level and owner: existing Factory release, operations,
+    reconciliation, governance-effect, and recovery owners retain authority;
+    no new service, provider, production, or semantic owner is introduced.
+  - Protected-capability result: immutable evidence and newer release/Git
+    authority survive every tested interruption, false delivery never consumes
+    the resume token, and unfinished obligations retain their latest bytes.
+  - Rejected alternatives: live-ref reconstruction loses the preserved point;
+    committed-only restart loses dirty work; selector-only stash deletion can
+    shift; a receipt without directory fsync can vanish after reported success;
+    and a new recovery row defeats exact-once resumption.
+  - Tradeoff and uncertainty: root/repository locks serialize rare destructive
+    transitions and exact hashing adds local I/O, accepted because the paths
+    are consequential and bounded. Production activation and external delivery
+    remain deliberately unqualified.
+  - Frozen-candidate proof: exact commit/tree identity will be recorded in the
+    acceptance successor after distinct exact-revision review; current bounded
+    behavioral proof is `32` focused and `81` mapped passes, exact installed
+    schema `24`, and the artifact/source/test roots above.
+- Candidate posture: corrected implementation and bounded proof are complete;
+  Block 8 remains `in-progress` pending a clean pushed exact correction and
+  distinct exact-revision review. All effects used isolated local/test targets; no
   production activation, external notification, utils consumption, service/API
   qualification, migration cutover, or terminal qualification occurred.
 

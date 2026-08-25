@@ -119,6 +119,116 @@ def test_factory_repair_closes_loop_and_wakes_target_once(tmp_path: Path) -> Non
     assert wake_calls[0]["resume_token_id"] == result["resume_token"]["id"]
 
 
+def test_resolved_factory_recovery_replays_without_duplicate_wake_or_case(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    coordinator = FactoryRecoveryCoordinator(store)  # type: ignore[arg-type]
+    source = tmp_path / "repair-source"
+    source.mkdir()
+    (source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    calls = {"repair": 0, "wake": 0, "verify": 0}
+
+    def repair(_: Mapping[str, Any]) -> Mapping[str, Any]:
+        calls["repair"] += 1
+        return {
+            "source_root": str(source),
+            "source_revision": "repair-revision-1",
+            "source_tree_root": "tree-repair-revision-1",
+            "repair_evidence_ids": ["implementation", "qa"],
+            "health_command": [sys.executable, "health.py"],
+        }
+
+    def wake(_: Mapping[str, Any]) -> Mapping[str, Any]:
+        calls["wake"] += 1
+        return {"provider_reference": "target-thread-1", "sent": True}
+
+    def verify(_: Mapping[str, Any]) -> Mapping[str, Any]:
+        calls["verify"] += 1
+        return {"target_resumed": True, "evidence_ids": ["progress"]}
+
+    arguments = {
+        "target_mission_id": "mission-1",
+        "defect_class": "factory-controller",
+        "defect_evidence": {"occurrence_id": "failure-1"},
+        "target_state": {"obligation": "open"},
+        "requested_range_root": "range-1234567890abcdef",
+        "tracker_currentness_root": "tracker-1234567890abcdef",
+        "safe_frontier": [],
+        "release_root": tmp_path / "releases",
+        "repair": repair,
+        "review": lambda _: {
+            "disposition": "accepted",
+            "findings": {},
+            "evidence_ids": ["review"],
+        },
+        "wake_target": wake,
+        "verify_target": verify,
+    }
+    first = coordinator.recover(**arguments)  # type: ignore[arg-type]
+    second = coordinator.recover(**arguments)  # type: ignore[arg-type]
+
+    assert second["recovery"]["id"] == first["recovery"]["id"]
+    assert second["resume_token"]["resume_key"] == first["resume_token"]["resume_key"]
+    assert second["verification"]["already_resolved"] is True
+    assert calls == {"repair": 1, "wake": 1, "verify": 1}
+    assert store.one("SELECT count(*) AS count FROM factory_recovery_cases_v2") == {"count": 1}
+
+
+def test_unsent_factory_wake_fails_closed_and_redrives_same_intent(tmp_path: Path) -> None:
+    store = TestStore()
+    coordinator = FactoryRecoveryCoordinator(store)  # type: ignore[arg-type]
+    source = tmp_path / "repair-source"
+    source.mkdir()
+    (source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    wake_keys: list[str] = []
+    attempts = {"count": 0}
+
+    def wake(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        wake_keys.append(str(payload["resume_key"]))
+        attempts["count"] += 1
+        return {
+            "provider_reference": "target-thread-1",
+            "sent": attempts["count"] > 1,
+        }
+
+    arguments = {
+        "target_mission_id": "mission-1",
+        "defect_class": "factory-controller",
+        "defect_evidence": {"occurrence_id": "failure-unsent"},
+        "target_state": {"obligation": "open"},
+        "requested_range_root": "range-1234567890abcdef",
+        "tracker_currentness_root": "tracker-1234567890abcdef",
+        "safe_frontier": [],
+        "release_root": tmp_path / "releases",
+        "repair": lambda _: {
+            "source_root": str(source),
+            "source_revision": "repair-revision-1",
+            "source_tree_root": "tree-repair-revision-1",
+            "repair_evidence_ids": ["implementation", "qa"],
+            "health_command": [sys.executable, "health.py"],
+        },
+        "review": lambda _: {
+            "disposition": "accepted",
+            "findings": {},
+            "evidence_ids": ["review"],
+        },
+        "wake_target": wake,
+        "verify_target": lambda _: {
+            "target_resumed": True,
+            "evidence_ids": ["progress"],
+        },
+    }
+    with pytest.raises(RuntimeError, match="not delivered"):
+        coordinator.recover(**arguments)  # type: ignore[arg-type]
+    result = coordinator.recover(**arguments)  # type: ignore[arg-type]
+
+    assert result["recovery"]["status"] == "resolved"
+    assert len(wake_keys) == 2
+    assert len(set(wake_keys)) == 1
+    assert store.one("SELECT count(*) AS count FROM external_effect_intents_v2") == {"count": 1}
+
+
 def test_factory_repair_redrives_ambiguous_wake_with_same_external_idempotency_key(
     tmp_path: Path,
 ) -> None:

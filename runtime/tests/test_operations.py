@@ -224,6 +224,44 @@ def test_activation_reconciles_pointer_write_crash_without_duplicate_transition(
     assert store.one("SELECT status FROM release_transitions_v2") == {"status": "committed"}
 
 
+def test_interrupted_activation_blocks_newer_activation_and_resumes_exact_transition(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    crash = {"armed": True}
+
+    def fault(point: str) -> None:
+        if point == "activate:after_pointer_write" and crash.pop("armed", False):
+            raise RuntimeError("injected activation interruption")
+
+    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    releases = tmp_path / "releases"
+    source_a = tmp_path / "source-a"
+    source_b = tmp_path / "source-b"
+    source_a.mkdir()
+    source_b.mkdir()
+    (source_a / "app.py").write_text("VERSION = 'A'\n", encoding="utf-8")
+    (source_b / "app.py").write_text("VERSION = 'B'\n", encoding="utf-8")
+    release_a = accepted_release(operations, source_a, releases, "revision-a")
+    release_b = accepted_release(operations, source_b, releases, "revision-b")
+
+    with pytest.raises(RuntimeError, match="interruption"):
+        operations.activate_release(release_a["id"], release_root=releases)
+    with pytest.raises(InvalidTransition, match="unfinished transition"):
+        operations.activate_release(release_b["id"], release_root=releases)
+
+    recovered = OperationsService(store).activate_release(  # type: ignore[arg-type]
+        release_a["id"], release_root=releases
+    )
+    assert recovered["status"] == "active"
+    assert store.one("SELECT count(*) AS count FROM release_transitions_v2") == {"count": 1}
+    pointer = json.loads((releases / "active-release.json").read_text(encoding="utf-8"))
+    assert pointer["release_id"] == release_a["id"]
+    assert store.one("SELECT status FROM immutable_releases_v2 WHERE id=?", (release_b["id"],)) == {
+        "status": "accepted"
+    }
+
+
 def test_release_activation_and_rollback_are_scoped_to_one_release_root(
     tmp_path: Path,
 ) -> None:
@@ -443,3 +481,32 @@ def test_retirement_rejects_bundle_tampering_and_recovers_after_physical_crash(
     assert recovered["status"] == "succeeded"
     assert json.loads(recovered["result_json"])["already_absent"] is True
     assert store.one("SELECT count(*) AS count FROM cleanup_effects_v2") == {"count": 1}
+
+
+def test_retirement_rejects_branch_advance_after_preservation(tmp_path: Path) -> None:
+    operations = service()
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_git_repo(repository)
+    git(repository, "branch", "old-complete")
+    inventory = operations.inventory_repository(repository_root=repository)
+    item = operations.plan_cleanup_item(
+        inventory["id"],
+        item_type="branch",
+        item_key="old-complete",
+        classification="redundant",
+        disposition="retire",
+        evidence={"merged_into": "main"},
+    )
+    bundle = operations.preserve_repository(
+        inventory["id"], output_directory=tmp_path / "preserved"
+    )
+    (repository / "later.txt").write_text("later\n", encoding="utf-8")
+    git(repository, "add", "--", "later.txt")
+    git(repository, "commit", "-m", "later commit")
+    git(repository, "branch", "-f", "old-complete", "HEAD")
+    advanced_head = git(repository, "rev-parse", "old-complete")
+
+    with pytest.raises(InvalidTransition, match="advanced after preservation"):
+        operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+    assert git(repository, "rev-parse", "old-complete") == advanced_head
