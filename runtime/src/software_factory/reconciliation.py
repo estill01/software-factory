@@ -497,8 +497,6 @@ class RepositoryReconciliationService:
                     "UPDATE cleanup_items_v2 SET status='failed',updated_at=? WHERE id=?",
                     (utc_now(), cleanup_item_id),
                 )
-            _git(repository, "worktree", "remove", "--force", str(worktree), check=False)
-            _git(repository, "branch", "-D", integration_branch, check=False)
             raise
         with self.store.transaction() as db:
             db.execute(
@@ -559,7 +557,7 @@ class RepositoryReconciliationService:
                 raise RuntimeError("published target branch differs from accepted candidate")
             self._fault("publish:after_ref_update")
             if post_publish_validation:
-                validation_root = target_worktree or Path(candidate["integration_worktree"])
+                validation_root = Path(candidate["integration_worktree"])
                 validation = subprocess.run(
                     [str(value) for value in post_publish_validation],
                     cwd=validation_root,
@@ -568,16 +566,16 @@ class RepositoryReconciliationService:
                     check=False,
                 )
                 if validation.returncode != 0:
-                    if target_worktree is not None:
-                        _git(target_worktree, "reset", "--hard", target_before)
-                    else:
-                        _git(
-                            repository,
-                            "update-ref",
-                            f"refs/heads/{target_branch}",
-                            target_before,
-                            candidate_head,
-                        )
+                    rollback = _git(
+                        repository,
+                        "update-ref",
+                        f"refs/heads/{target_branch}",
+                        target_before,
+                        candidate_head,
+                        check=False,
+                    )
+                    if rollback.returncode != 0:
+                        raise InvalidTransition("post-publication rollback compare-and-swap failed")
                     with self.store.transaction() as db:
                         db.execute(
                             """UPDATE integration_candidates_v2
@@ -621,15 +619,9 @@ class RepositoryReconciliationService:
         )
         if candidate["status"] not in {"published", "rolled_back", "failed"}:
             raise InvalidTransition("integration lane cannot retire before publication or rollback")
-        repository = Path(candidate["repository_root"])
-        worktree = Path(candidate["integration_worktree"])
-        _git(repository, "worktree", "remove", "--force", str(worktree), check=False)
-        _git(
-            repository,
-            "branch",
-            "-D",
-            candidate["integration_branch"],
-            check=False,
+        raise InvalidTransition(
+            "integration lane must be preserved or deferred because Git has no deletion "
+            "adapter that atomically fences tracked, untracked, ref, and worktree currentness"
         )
 
     def restart_unfinished_work(

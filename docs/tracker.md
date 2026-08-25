@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `4cc78d493c8e589d352c9377c02e0833f87ad54e045849eece45e700d063db8b`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, and `12adc23` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `f11ce5b856e40afb90996eb0856ca0b8b12bb1b6beb6b0b2152a658f560ccedf`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, and `52acbaf` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -58,8 +58,14 @@ unaccepted after closing the ref-advance race but reproducing one P1 concurrent
 worktree-admission race. The current bounded successor records refused
 retirement as a no-physical-effect audit and preserve/defer-fails branch,
 worktree, and stash deletion until one adapter can atomically fence both object
-identity and worktree admission. Refreshed affected proof is complete; a clean
-correction freeze and distinct exact-revision review remain required.
+identity and worktree admission. Exact successor `52acbaf` is preserved and
+unaccepted after closing that OperationsService race but leaving two physical
+deletion routes in the reconciliation owner: prepare-failure cleanup and
+terminal integration-lane retirement. The current correction preserves those
+lanes and pending bytes, and limits failed post-publication rollback to an exact
+ref compare-and-swap without hard-resetting checkout bytes. Refreshed affected
+proof is complete; a clean correction freeze and distinct exact-revision review
+remain required.
 
 ## Required outcome
 

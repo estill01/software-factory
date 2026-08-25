@@ -344,7 +344,7 @@ class LibRSIIntegration:
         if len(roles) != 2 or any(not role for role in roles):
             raise InvalidTransition("libRSI result omitted an expected semantic role")
         return LegacyShadowProjection(
-            hypothesis_roles=cast(tuple[str, str], roles),
+            hypothesis_roles=roles,
             statements=cast(tuple[str, str], tuple(item.statement for item in hypotheses)),
             predictions=cast(
                 tuple[Mapping[str, Any], Mapping[str, Any]],

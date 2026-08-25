@@ -76,7 +76,7 @@ class AcceptanceLifecycleService:
     @staticmethod
     def _stage_index(stage: str) -> int:
         try:
-            return _STAGE_ORDER.index(stage)  # type: ignore[arg-type]
+            return _STAGE_ORDER.index(stage)
         except ValueError as exc:
             raise ValueError(f"unsupported acceptance stage: {stage}") from exc
 

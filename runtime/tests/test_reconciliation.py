@@ -108,7 +108,7 @@ def service() -> RepositoryReconciliationService:
     return RepositoryReconciliationService(store)  # type: ignore[arg-type]
 
 
-def test_accepted_branch_is_validated_published_by_cas_and_lane_retires(
+def test_accepted_branch_is_validated_published_and_lane_retirement_preserves_bytes(
     tmp_path: Path,
 ) -> None:
     repository = tmp_path / "repo"
@@ -133,11 +133,62 @@ def test_accepted_branch_is_validated_published_by_cas_and_lane_retires(
     assert published["status"] == "published"
     assert git(repository, "rev-parse", "main") == candidate["candidate_head"]
     assert (repository / "app.py").read_text(encoding="utf-8") == "VALUE = 2\n"
-    reconciliation.retire_integration_lane(candidate["id"])
-    assert not Path(candidate["integration_worktree"]).exists()
+    integration_worktree = Path(candidate["integration_worktree"])
+    (integration_worktree / "app.py").write_text("VALUE = 3\n", encoding="utf-8")
+    (integration_worktree / "untracked-loss.txt").write_text("must survive\n", encoding="utf-8")
+    with pytest.raises(InvalidTransition, match="must be preserved or deferred"):
+        reconciliation.retire_integration_lane(candidate["id"])
+    assert integration_worktree.is_dir()
+    assert (integration_worktree / "app.py").read_text(encoding="utf-8") == "VALUE = 3\n"
+    assert (integration_worktree / "untracked-loss.txt").read_text(encoding="utf-8") == (
+        "must survive\n"
+    )
     assert (
         candidate["integration_branch"]
-        not in git(repository, "branch", "--format=%(refname:short)").splitlines()
+        in git(repository, "branch", "--format=%(refname:short)").splitlines()
+    )
+
+
+def test_prepare_failure_preserves_integration_worktree_branch_and_pending_bytes(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("feature\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "feature")
+    git(repository, "switch", "main")
+    reconciliation = service()
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+
+    with pytest.raises(RuntimeError, match="integration validation failed"):
+        reconciliation.prepare_integration(
+            item["id"],
+            preservation_bundle_id=bundle["id"],
+            target_branch="main",
+            worktree_root=tmp_path / "integration-worktrees",
+            validation_command=[
+                sys.executable,
+                "-c",
+                (
+                    "from pathlib import Path; "
+                    "Path('app.py').write_text('VALUE = 9\\n'); "
+                    "Path('untracked-loss.txt').write_text('must survive\\n'); "
+                    "raise SystemExit(9)"
+                ),
+            ],
+        )
+    candidate = reconciliation.store.one("SELECT * FROM integration_candidates_v2")
+    worktree = Path(candidate["integration_worktree"])
+    assert candidate["status"] == "failed"
+    assert worktree.is_dir()
+    assert (worktree / "app.py").read_text(encoding="utf-8") == "VALUE = 9\n"
+    assert (worktree / "untracked-loss.txt").read_text(encoding="utf-8") == "must survive\n"
+    assert (
+        candidate["integration_branch"]
+        in git(repository, "branch", "--format=%(refname:short)").splitlines()
     )
 
 
@@ -235,6 +286,8 @@ def test_post_publish_failure_rolls_target_back(tmp_path: Path) -> None:
             post_publish_validation=[sys.executable, "-c", "raise SystemExit(9)"],
         )
     assert git(repository, "rev-parse", "main") == original
+    assert (repository / "feature.txt").read_text(encoding="utf-8") == "feature\n"
+    assert "feature.txt" in git(repository, "status", "--short")
     assert reconciliation.store.one(
         "SELECT status FROM integration_candidates_v2 WHERE id=?", (candidate["id"],)
     ) == {"status": "rolled_back"}
