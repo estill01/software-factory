@@ -240,7 +240,7 @@ for this tracker may inspect Patent Studio patent content.
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `accepted` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `accepted` |
-| 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
+| 8 | Delivery, release, recovery, and reconciliation | 5–7 | `in-progress` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `not-started` |
 | 10 | Neutral content profile and external-extension proof | 5–9 | `not-started` |
 | 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `not-started` |
@@ -1728,7 +1728,7 @@ Stop before delivery/release cutover.
 
 ## Block 8 — Complete delivery, release, recovery, and reconciliation
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1790,7 +1790,17 @@ unfinished-work restoration.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: exact pushed Block 7 acceptance successor
+  `c8752129d919edf1b60f3a27ae083e1a89df34f0`, with clean local/remote
+  equality at `0/0`; Blocks 5–7 are accepted dependencies and Block 8 is the
+  first eligible frontier in the preserved full-range binding
+  `RANGE-SFV2-B0-B12-3901D4F-2079C81D`.
+- Execution posture: local/test delivery and release owners only, isolated
+  targets, deterministic crash points, and focused/mapped proof. Production
+  activation, external notification, broad runtime validation, and all utils
+  package consumption remain out of scope for this Block.
+- Completion proof: pending exact implementation, fault-injection evidence,
+  clean pushed candidate, and distinct exact-revision review.
 
 ### Stop
 
