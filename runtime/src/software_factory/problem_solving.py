@@ -97,6 +97,33 @@ class ProblemSolvingService:
         ):
             raise StoreError(f"mission not found: {mission_id}")
 
+    @staticmethod
+    def _operational_projection(candidate: CandidateSnapshot) -> dict[str, Any]:
+        projection = candidate.request.intervention.specification.get("software_factory_operation")
+        if not isinstance(projection, Mapping):
+            raise InvalidTransition(
+                "selected libRSI candidate lacks an exact Factory operational projection"
+            )
+        strategy = projection.get("strategy")
+        expected_effect = projection.get("expected_effect")
+        writable_scope = projection.get("writable_scope")
+        strategy_type = projection.get("strategy_type")
+        if (
+            not isinstance(strategy_type, str)
+            or not isinstance(strategy, Mapping)
+            or not isinstance(expected_effect, Mapping)
+            or not isinstance(writable_scope, Sequence)
+            or isinstance(writable_scope, (str, bytes))
+            or "librsi_candidate_root" in strategy
+        ):
+            raise InvalidTransition("selected libRSI Factory projection is malformed")
+        return {
+            "strategy_type": strategy_type,
+            "strategy": dict(strategy),
+            "expected_effect": dict(expected_effect),
+            "writable_scope": _normalize_scope([str(value) for value in writable_scope]),
+        }
+
     def begin_cycle(
         self,
         *,
@@ -149,6 +176,40 @@ class ProblemSolvingService:
         return self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
 
     def propose_strategy(
+        self,
+        cycle_id: str,
+        *,
+        strategy_type: StrategyType,
+        strategy: Mapping[str, Any],
+        rationale: Mapping[str, Any],
+        expected_effect: Mapping[str, Any],
+        writable_scope: Sequence[str] | None = None,
+        prerequisites: Sequence[str] | None = None,
+        evidence_ids: Sequence[str] | None = None,
+        proposer_session_id: str | None = None,
+        priority: int = 0,
+        expected_value: float = 0.0,
+        estimated_cost: float = 0.0,
+        estimated_risk: float = 0.0,
+    ) -> dict[str, Any]:
+        with self.store.transaction(mode="IMMEDIATE"):
+            return self._propose_strategy_locked(
+                cycle_id,
+                strategy_type=strategy_type,
+                strategy=strategy,
+                rationale=rationale,
+                expected_effect=expected_effect,
+                writable_scope=writable_scope,
+                prerequisites=prerequisites,
+                evidence_ids=evidence_ids,
+                proposer_session_id=proposer_session_id,
+                priority=priority,
+                expected_value=expected_value,
+                estimated_cost=estimated_cost,
+                estimated_risk=estimated_risk,
+            )
+
+    def _propose_strategy_locked(
         self,
         cycle_id: str,
         *,
@@ -225,6 +286,20 @@ class ProblemSolvingService:
             raise InvalidTransition(
                 "strategy candidate was not selected by its exact improvement result"
             )
+        projection = self._operational_projection(semantic_candidate)
+        projected_strategy = {
+            **projection["strategy"],
+            "librsi_candidate_root": candidate_root,
+        }
+        if (
+            strategy_type != projection["strategy_type"]
+            or dict(strategy) != projected_strategy
+            or dict(expected_effect) != projection["expected_effect"]
+            or scope != projection["writable_scope"]
+        ):
+            raise InvalidTransition(
+                "operational strategy differs from the exact selected libRSI candidate projection"
+            )
         semantic_fingerprint = candidate_root
         prior = self.store.all(
             """SELECT * FROM strategy_candidates_v2
@@ -232,6 +307,28 @@ class ProblemSolvingService:
                ORDER BY created_at""",
             (cycle_id, semantic_fingerprint),
         )
+        operational_material = {
+            "strategy_type": strategy_type,
+            "strategy": dict(strategy),
+            "expected_effect": dict(expected_effect),
+            "writable_scope": scope,
+            "prerequisites": prerequisite_ids,
+        }
+        for candidate in prior:
+            if candidate["status"] not in {"proposed", "selected", "running"}:
+                continue
+            prior_material = {
+                "strategy_type": candidate["strategy_type"],
+                "strategy": _loads(candidate["strategy_json"], {}),
+                "expected_effect": _loads(candidate["expected_effect_json"], {}),
+                "writable_scope": _loads(candidate["writable_scope_json"], []),
+                "prerequisites": _loads(candidate["prerequisites_json"], []),
+            }
+            if prior_material == operational_material:
+                return candidate
+            raise InvalidTransition(
+                "selected libRSI candidate already has a different active operational projection"
+            )
         prior_evidence: set[str] = set()
         for candidate in prior:
             prior_evidence.update(_loads(candidate["evidence_ids_json"], []))
@@ -270,6 +367,9 @@ class ProblemSolvingService:
             )
             if prerequisite is None:
                 raise ValueError(f"strategy prerequisite is not in the cycle: {prerequisite_id}")
+        self.semantic.require_live_currentness(
+            mission_id=str(cycle["mission_id"]), snapshot=currentness
+        )
         candidate_id = new_id("strategy")
         now = utc_now()
         with self.store.transaction() as db:
@@ -327,6 +427,20 @@ class ProblemSolvingService:
         result: ImprovementResult,
         currentness: TargetSnapshot,
     ) -> dict[str, Any]:
+        with self.store.transaction(mode="IMMEDIATE"):
+            return self._record_improvement_result_locked(
+                cycle_id,
+                result=result,
+                currentness=currentness,
+            )
+
+    def _record_improvement_result_locked(
+        self,
+        cycle_id: str,
+        *,
+        result: ImprovementResult,
+        currentness: TargetSnapshot,
+    ) -> dict[str, Any]:
         """Admit the exact libRSI improvement outcome for one operational cycle."""
 
         cycle = self.store.one("SELECT * FROM problem_solving_cycles_v2 WHERE id=?", (cycle_id,))
@@ -355,6 +469,28 @@ class ProblemSolvingService:
         }
 
     def select_next_actions(
+        self,
+        cycle_id: str,
+        *,
+        selected_by_session_id: str,
+        rationale: Mapping[str, Any],
+        authority: Mapping[str, Any],
+        improvement_result_root: str,
+        currentness_root: str,
+        max_parallel: int = 4,
+    ) -> dict[str, Any]:
+        with self.store.transaction(mode="IMMEDIATE"):
+            return self._select_next_actions_locked(
+                cycle_id,
+                selected_by_session_id=selected_by_session_id,
+                rationale=rationale,
+                authority=authority,
+                improvement_result_root=improvement_result_root,
+                currentness_root=currentness_root,
+                max_parallel=max_parallel,
+            )
+
+    def _select_next_actions_locked(
         self,
         cycle_id: str,
         *,
@@ -414,6 +550,10 @@ class ProblemSolvingService:
             raise InvalidTransition(
                 "Factory lacks an operational projection for every selected libRSI candidate"
             )
+        if len(chosen) != len(selected_roots):
+            raise InvalidTransition(
+                "each selected libRSI candidate requires exactly one operational projection"
+            )
         if not chosen:
             raise InvalidTransition("libRSI selected no operationally mapped strategy")
         if len(chosen) > max_parallel:
@@ -444,6 +584,9 @@ class ProblemSolvingService:
         )
         if existing is not None:
             return existing
+        self.semantic.require_live_currentness(
+            mission_id=str(cycle["mission_id"]), snapshot=currentness
+        )
         decision_id = new_id("next-action")
         now = utc_now()
         with self.store.transaction() as db:

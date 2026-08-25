@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from librsi import (
     Action,
     ActionResult,
@@ -87,10 +90,12 @@ class _Provider:
         contract: EvaluationContract,
         baseline: TargetSnapshot,
         candidate_id: str,
+        operational_projection: Mapping[str, Any],
     ) -> None:
         self.contract = contract
         self.baseline = baseline
         self.candidate_id = candidate_id
+        self.operational_projection = dict(operational_projection)
 
     def resource_claim(self, action: Action) -> float:
         cycle_request_from_action(action)
@@ -117,7 +122,10 @@ class _Provider:
             intervention_id=f"intervention-{self.candidate_id}",
             baseline=self.baseline,
             kind="bounded-factory-change",
-            specification={"candidate": self.candidate_id},
+            specification={
+                "candidate": self.candidate_id,
+                "software_factory_operation": self.operational_projection,
+            },
             rationale=("Test the supported exact-target mechanism",),
             supporting_refs=(supported.hypothesis.ref,),
             evidence=supported.evidence,
@@ -223,6 +231,10 @@ def accepted_improvement_result(
     mission_id: str,
     *,
     candidate_id: str,
+    strategy_type: str = "alternate_implementation",
+    strategy: Mapping[str, Any] | None = None,
+    expected_effect: Mapping[str, Any] | None = None,
+    writable_scope: Sequence[str] = (),
 ) -> tuple[ImprovementResult, TargetSnapshot, CandidateSnapshot]:
     target, baseline = integration.mission_snapshot(
         mission_id=mission_id,
@@ -314,7 +326,23 @@ def accepted_improvement_result(
     )
     result = improve(
         request,
-        provider=_Provider(contract=contract, baseline=baseline, candidate_id=candidate_id),
+        provider=_Provider(
+            contract=contract,
+            baseline=baseline,
+            candidate_id=candidate_id,
+            operational_projection={
+                "strategy_type": strategy_type,
+                "strategy": dict(
+                    strategy
+                    or {
+                        "name": candidate_id,
+                        "implementation": f"implement {candidate_id}",
+                    }
+                ),
+                "expected_effect": dict(expected_effect or {"progress_restored": True}),
+                "writable_scope": list(writable_scope),
+            },
+        ),
         current_snapshot=baseline,
     )
     if result.handoff is None or len(result.handoff.selection.selected) != 1:

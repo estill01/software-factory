@@ -1588,7 +1588,10 @@ semantic/operational identity separation, and outcome use.
   proposed/pending because semantic selection grants no dispatch, effect,
   acceptance, or lifecycle authority. Every semantic ingress revalidates live
   mission and known work/execution state versions against its exact snapshot;
-  cached equality cannot substitute for host currentness.
+  cached equality cannot substitute for host currentness. Persistence/binding
+  and operational selection hold an immediate host transaction and repeat the
+  currentness gate immediately before commit, so an interleaved host advance
+  rolls the complete effect back.
 - Supported semantic convergence: `LearningService` maps compatibility
   entrypoints to canonical `Hypothesis`, `Evidence`, and `ExperimentSpec`
   records and the accepted `HypothesisPolicy` and `ExperimentPolicy`.
@@ -1605,9 +1608,12 @@ semantic/operational identity separation, and outcome use.
   policies. Complete `ImprovementResult` and governed `RSIResult` records cross
   one typed binding boundary, with RSI request revalidation by
   `SelfChangePolicy`. Problem solving consumes the exact selected candidate
-  roots from one live-current `ImprovementResult`; it may apply host
-  prerequisites, capacity, and writable-scope conflict gates but cannot rank or
-  replace the semantic selection. Adaptive outcome handling delegates failed
+  roots from one live-current `ImprovementResult`. Each selected candidate must
+  carry a byte-exact `software_factory_operation` projection; caller strategy,
+  effect, and scope must match it, and one root maps to one active host row. It
+  may apply host prerequisites, capacity, and writable-scope conflict gates but
+  cannot rank, duplicate, reinterpret, or replace the semantic selection.
+  Adaptive outcome handling delegates failed
   and unexpected-success semantics directly to the canonical reflection and
   experiment slice. Learning, evolution, problem-solving, and adaptive tables
   are operational projections; the integration is the only current semantic
@@ -1649,7 +1655,21 @@ semantic/operational identity separation, and outcome use.
   `reflections_v2` table. The current correction closes those exact findings by
   live host revalidation, same-mission hypothesis admission, exact
   `ImprovementResult` consumption, direct adaptive delegation, local-writer and
-  decision-path removal, and canonical API projection.
+  decision-path removal, and canonical API projection. That candidate closed
+  the five named findings but did not earn acceptance.
+- Preserved rejected atomicity/projection candidate: exact pushed commit
+  `c5bfce2b3fabcc89c22d96572f9c8c0193aa9e36`, tree
+  `78449d51ac291bec8e4b0b5b4b92568ba4ac079a`, remains unaccepted. Distinct
+  exact-revision review returned `REVISE` with two P1 findings and independently
+  reproduced its `68`-pass focused evidence: live currentness could advance
+  after the gate but before semantic persistence or operational selection; and
+  one selected semantic root could authorize multiple unrelated caller-authored
+  operational rows. The current correction holds and double-checks currentness
+  inside the effect transaction, requires a byte-matched operational projection
+  embedded in the exact selected `CandidateSnapshot`, and enforces a one-active-
+  row invariant plus selection-time duplicate rejection. The rejected candidate
+  evidence remains preserved at SHA-256
+  `ead2009b2191de6642ff81c37a9f1af143fe4383a5551d99349905e2f58256eb`.
 - Product-capability review:
   - Trigger: consequential Block and one-way semantic-owner cutover; frame is
     the exact Block 7 objective, accepted libRSI handoff, v2 plan sections
@@ -1681,11 +1701,11 @@ semantic/operational identity separation, and outcome use.
     deliberately absent.
 - Proof: successor focused/mapped proof is recorded in
   `docs/sfv2-b7-focused-evidence.json` at SHA-256
-  `ead2009b2191de6642ff81c37a9f1af143fe4383a5551d99349905e2f58256eb`;
+  `af63ce0aed84275882b4ce7dd0810719e0bc873422392568fcaf0b00e8c00d7e`;
   no broad runtime suite was run. The
-  previously recorded `18`/`75` pass and build hashes belong to rejected
-  candidate `7937464` and remain preserved historical evidence, not acceptance
-  proof for this correction.
+  previously recorded `18`/`75` proof for `7937464` and `68`/`63` proof for
+  `c5bfce2` remain preserved historical evidence, not acceptance proof for this
+  correction.
 - Candidate posture: bounded correction and narrow proof are complete; Block 7
   remains `in-progress` pending a clean pushed exact candidate and distinct
   independent review. No utils package was consumed, no production target was

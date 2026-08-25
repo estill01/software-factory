@@ -76,7 +76,12 @@ def propose(
     prerequisites: list[str] | None = None,
 ) -> dict[str, Any]:
     result, currentness, candidate = accepted_improvement_result(
-        problem.semantic, "mission-1", candidate_id=name
+        problem.semantic,
+        "mission-1",
+        candidate_id=name,
+        strategy={"name": name, "implementation": f"implement {name}"},
+        expected_effect={"progress_restored": True},
+        writable_scope=scope,
     )
     recorded = problem.record_improvement_result(
         cycle_id,
@@ -149,6 +154,39 @@ def test_only_exact_librsi_selected_candidate_can_enter_operational_schedule() -
             expected_effect={"progress_restored": True},
         )
     api = propose(problem, current["id"], name="api", scope=["runtime/api"], priority=4)
+    api_root = __import__("json").loads(api["strategy_json"])["librsi_candidate_root"]
+    duplicate = problem.propose_strategy(
+        current["id"],
+        strategy_type="alternate_implementation",
+        strategy={
+            "name": "api",
+            "implementation": "implement api",
+            "librsi_candidate_root": api_root,
+        },
+        rationale={"reason": "same exact selected candidate"},
+        expected_effect={"progress_restored": True},
+        writable_scope=["runtime/api"],
+        evidence_ids=["new-but-not-a-new-projection"],
+    )
+    assert duplicate["id"] == api["id"]
+    with pytest.raises(InvalidTransition, match="differs from the exact selected"):
+        problem.propose_strategy(
+            current["id"],
+            strategy_type="alternate_implementation",
+            strategy={
+                "name": "caller-authored-unrelated",
+                "implementation": "modify unrelated bytes",
+                "librsi_candidate_root": api_root,
+            },
+            rationale={"reason": "reuse the selected root as an authority token"},
+            expected_effect={"progress_restored": True},
+            writable_scope=["unrelated"],
+            evidence_ids=["unrelated-claim"],
+        )
+    assert problem.store.one(
+        "SELECT COUNT(*) AS count FROM strategy_candidates_v2 WHERE semantic_fingerprint=?",
+        (api_root,),
+    ) == {"count": 1}
     conflict = propose(
         problem,
         current["id"],
@@ -310,7 +348,19 @@ def test_unexpected_success_becomes_bounded_candidate_not_global_policy() -> Non
     problem = service()
     current = cycle(problem)
     result, currentness, semantic_candidate = accepted_improvement_result(
-        problem.semantic, "mission-1", candidate_id="unexpected-success"
+        problem.semantic,
+        "mission-1",
+        candidate_id="unexpected-success",
+        strategy_type="success_generalization",
+        strategy={
+            "source_id": "execution-success-1",
+            "mechanism": {"batching": "smaller", "ordering": "dependency-first"},
+            "generalization_mode": "bounded_candidate",
+        },
+        expected_effect={
+            "test_bounded_reuse": True,
+            "preserve_counterexamples": True,
+        },
     )
     problem.record_improvement_result(current["id"], result=result, currentness=currentness)
     candidate = problem.record_unexpected_success(

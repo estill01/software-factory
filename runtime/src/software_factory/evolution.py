@@ -567,6 +567,24 @@ class EvolutionService:
         decision_root: str | None = None,
         currentness_root: str | None = None,
     ) -> dict[str, Any]:
+        with self.store.transaction(mode="IMMEDIATE"):
+            return self._select_candidate_locked(
+                selection_id,
+                selector_session_id=selector_session_id,
+                rationale=rationale,
+                decision_root=decision_root,
+                currentness_root=currentness_root,
+            )
+
+    def _select_candidate_locked(
+        self,
+        selection_id: str,
+        *,
+        selector_session_id: str,
+        rationale: Mapping[str, Any],
+        decision_root: str | None = None,
+        currentness_root: str | None = None,
+    ) -> dict[str, Any]:
         selection = self.store.one("SELECT * FROM selection_records_v2 WHERE id=?", (selection_id,))
         if not decision_root:
             raise InvalidTransition("selection requires a canonical libRSI comparison decision")
@@ -612,6 +630,9 @@ class EvolutionService:
             raise InvalidTransition("selection requires an independent accepting review")
         if selection["status"] in {"rejected", "deferred", "superseded"}:
             raise InvalidTransition("selection candidate is not eligible")
+        self.semantic.require_live_currentness(
+            mission_id=str(selection["mission_id"]), snapshot=currentness
+        )
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(

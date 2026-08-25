@@ -64,7 +64,10 @@ The following semantics are authoritative through libRSI:
    candidate row can advance only after independent Factory review and an exact
    same-group, selected-candidate, currentness-matched decision binding. The
    adapter recomputes live mission and known work/execution state versions at
-   every binding, comparison, experiment-outcome, result, and selection ingress;
+   every binding, comparison, experiment-outcome, result, and selection ingress.
+   Semantic persistence/binding and operational selection hold one immediate
+   host transaction and repeat the currentness gate immediately before commit,
+   so a version advance cannot interleave between validation and effect;
 6. evolution checkpoint, program-change, portfolio, and selector-policy
    compatibility entrypoints delegate their decisions and gates to the accepted
    `CheckpointPolicy`, `ProgramPolicy`, `PortfolioPolicy`, and `SelectorPolicy`;
@@ -73,10 +76,13 @@ The following semantics are authoritative through libRSI:
    result-binding boundary. `RSIResult` admission revalidates its exact
    `SelfChangePolicy` request; neither result applies, accepts, schedules, or
    releases a Factory effect. `ProblemSolvingService` consumes an exact current
-   `ImprovementResult`, projects only its selected candidate roots into retained
-   host scheduling rows, and fails closed on missing projections, prerequisites,
-   writable-scope conflicts, or capacity. It no longer ranks candidates or
-   chooses an epistemic next action locally; and
+   `ImprovementResult`. Each selected `CandidateSnapshot` must carry an exact
+   `software_factory_operation` projection; caller strategy/effect/scope bytes
+   must match it, and one selected root maps to exactly one active host row.
+   Factory then fails closed on missing projections, prerequisites,
+   writable-scope conflicts, or capacity. It no longer ranks candidates,
+   treats a semantic root as reusable operational authority, or chooses an
+   epistemic next action locally; and
 8. `AdaptiveExecutionService` records the operational execution outcome and
    incident, then routes failed and unexpectedly successful executions directly
    through the canonical libRSI reflection/experiment slice. It cannot locally
@@ -107,7 +113,7 @@ posture. Mismatch fails closed.
 | evolution/program host tables | retained Factory governance/effect coordination | `evolution` operational owner | accepted libRSI policies compute semantic roots and gates; Factory rows attribute review, currentness, and effects |
 | `selection_outcomes_v2` | schema-history only | no runtime writer and no lifecycle-owner claim | complete canonical improvement results replace caller-authored local causal outcomes |
 | `adaptive_actions` | schema-history only | no runtime writer and no lifecycle-owner claim | canonical libRSI reflection/experiment/result records replace local diagnosis/escalation/generalization choices |
-| problem-solving host tables | retained Factory scheduling/work coordination | `problem_solving` operational owner | exact `ImprovementResult` candidate roots are the only selectable inputs; prerequisites, capacity, writable-scope scheduling, and execution remain Factory |
+| problem-solving host tables | retained Factory scheduling/work coordination | `problem_solving` operational owner | exact selected `ImprovementResult` candidates with byte-matched one-to-one `software_factory_operation` projections are the only selectable inputs; prerequisites, capacity, writable-scope scheduling, and execution remain Factory |
 
 The cutover does not claim that retained historical or compatibility schemas are
 libRSI records. Owner uniqueness is exhaustive: `integrations.librsi.service` is

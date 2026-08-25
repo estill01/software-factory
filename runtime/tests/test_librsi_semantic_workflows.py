@@ -257,6 +257,7 @@ def test_evidence_bound_comparison_is_canonical_but_not_operational_authority(
 
 def test_comparison_and_selection_reject_live_mission_currentness_advance(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     store, integration, mission_id = _runtime(tmp_path)
     contract, batch, risk, currentness = _comparison_batch(integration, mission_id)
@@ -288,6 +289,36 @@ def test_comparison_and_selection_reject_live_mission_currentness_advance(
         risk_policy=risk,
         currentness=currentness,
     )
+    original = integration.require_live_currentness
+    gates = 0
+
+    def advance_after_first_gate(*, mission_id: str, snapshot: TargetSnapshot) -> None:
+        nonlocal gates
+        gates += 1
+        original(mission_id=mission_id, snapshot=snapshot)
+        if gates == 1:
+            with store.transaction() as db:
+                db.execute(
+                    "UPDATE missions SET state_version=state_version+1 WHERE id=?", (mission_id,)
+                )
+
+    monkeypatch.setattr(integration, "require_live_currentness", advance_after_first_gate)
+    with pytest.raises(InvalidTransition, match="currentness is stale"):
+        evolution.select_candidate(
+            candidate["id"],
+            selector_session_id="selector",
+            rationale={"decision_root": decision.root},
+            decision_root=decision.root,
+            currentness_root=currentness.root,
+        )
+    assert gates == 2
+    assert store.one("SELECT state_version FROM missions WHERE id=?", (mission_id,)) == {
+        "state_version": 1
+    }
+    assert store.one("SELECT status FROM selection_records_v2 WHERE id=?", (candidate["id"],)) != {
+        "status": "selected"
+    }
+    monkeypatch.setattr(integration, "require_live_currentness", original)
     with store.transaction() as db:
         db.execute("UPDATE missions SET state_version=state_version+1 WHERE id=?", (mission_id,))
     with pytest.raises(InvalidTransition, match="currentness is stale"):

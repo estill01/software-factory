@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from librsi import Hypothesis, HypothesisPolicy, deserialize_record
+from librsi import Hypothesis, HypothesisPolicy, TargetSnapshot, deserialize_record
 
 from software_factory import CoreService, InvalidTransition, Store
 from software_factory.reflection import ReflectionService
@@ -417,6 +417,53 @@ def test_experiment_evidence_rejects_live_mission_currentness_advance() -> None:
                 disposition="supported",
                 data={"replicate": "after-mission-advance"},
             )
+
+
+def test_reflection_rolls_back_if_currentness_advances_after_first_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, reflection, mission = make_runtime(Path(directory))
+        obligation, work = add_selected_work(core, mission, strategy="atomic-currentness")
+        source = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="atomic-currentness",
+            status="failed",
+            error="race the semantic commit",
+        )
+        integration = reflection.semantic_integration
+        original = integration.require_live_currentness
+        gates = 0
+
+        def advance_after_first_gate(*, mission_id: str, snapshot: TargetSnapshot) -> None:
+            nonlocal gates
+            gates += 1
+            original(mission_id=mission_id, snapshot=snapshot)
+            if gates == 1:
+                with store.transaction() as db:
+                    db.execute(
+                        "UPDATE missions SET state_version=state_version+1 WHERE id=?",
+                        (mission_id,),
+                    )
+
+        monkeypatch.setattr(integration, "require_live_currentness", advance_after_first_gate)
+        with pytest.raises(InvalidTransition, match="currentness is stale"):
+            reflection.reflect_execution(source)
+        assert gates == 2
+        assert store.one("SELECT state_version FROM missions WHERE id=?", (mission,)) == {
+            "state_version": 1
+        }
+        assert store.one(
+            "SELECT COUNT(*) AS count FROM librsi_record_bindings WHERE mission_id=?",
+            (mission,),
+        ) == {"count": 0}
+        assert store.one("SELECT COUNT(*) AS count FROM librsi_cutover_receipts_v2") == {"count": 0}
+        assert store.one(
+            "SELECT COUNT(*) AS count FROM work_items WHERE work_type='semantic_experiment'"
+        ) == {"count": 0}
 
 
 def test_reflection_rejects_nonterminal_execution_and_bad_timescale() -> None:

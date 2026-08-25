@@ -142,30 +142,36 @@ class LibRSIIntegration:
     ) -> None:
         """Admit canonical records and bind their exact roots to one host subject."""
 
-        incoming = {record.root: record for record in records}
-        currentness = incoming.get(currentness_root)
-        if currentness is None:
-            row = self.store.one(
-                "SELECT canonical_json FROM librsi_records WHERE root=?",
-                (currentness_root,),
-                required=False,
-            )
-            if row is None:
-                raise StoreError("libRSI binding currentness must name a cached canonical record")
-            currentness = deserialize_record(str(row["canonical_json"]))
-        if type(currentness) is not TargetSnapshot:
-            raise StoreError("libRSI binding currentness is not an exact TargetSnapshot")
-        self.require_live_currentness(mission_id=mission_id, snapshot=currentness)
-        self._persist_records(records)
-        for role, record in roles:
-            self._bind(
-                mission_id=mission_id,
-                subject_type=subject_type,
-                subject_id=subject_id,
-                role=role,
-                record=record,
-                currentness_root=currentness_root,
-            )
+        with self.store.transaction(mode="IMMEDIATE"):
+            incoming = {record.root: record for record in records}
+            currentness = incoming.get(currentness_root)
+            if currentness is None:
+                row = self.store.one(
+                    "SELECT canonical_json FROM librsi_records WHERE root=?",
+                    (currentness_root,),
+                    required=False,
+                )
+                if row is None:
+                    raise StoreError(
+                        "libRSI binding currentness must name a cached canonical record"
+                    )
+                currentness = deserialize_record(str(row["canonical_json"]))
+            if type(currentness) is not TargetSnapshot:
+                raise StoreError("libRSI binding currentness is not an exact TargetSnapshot")
+            self.require_live_currentness(mission_id=mission_id, snapshot=currentness)
+            self._persist_records(records)
+            for role, record in roles:
+                self._bind(
+                    mission_id=mission_id,
+                    subject_type=subject_type,
+                    subject_id=subject_id,
+                    role=role,
+                    record=record,
+                    currentness_root=currentness_root,
+                )
+            # A nested host mutation injected after the first gate must roll the entire
+            # cache/binding transaction back; external writers remain excluded by IMMEDIATE.
+            self.require_live_currentness(mission_id=mission_id, snapshot=currentness)
 
     def load_record(self, root: str) -> SemanticRecord:
         row = self.store.one("SELECT canonical_json FROM librsi_records WHERE root=?", (root,))
@@ -514,6 +520,22 @@ class LibRSIIntegration:
         )
 
     def reflect_execution(self, execution_id: str) -> SemanticReflection:
+        with self.store.transaction(mode="IMMEDIATE"):
+            reflection = self._reflect_execution_locked(execution_id)
+            currentness = self.load_record(reflection.currentness_root)
+            if type(currentness) is not TargetSnapshot:
+                raise StoreError("reflection lost its exact host currentness")
+            self.require_live_currentness(
+                mission_id=str(
+                    self.store.one("SELECT mission_id FROM executions WHERE id=?", (execution_id,))[
+                        "mission_id"
+                    ]
+                ),
+                snapshot=currentness,
+            )
+            return reflection
+
+    def _reflect_execution_locked(self, execution_id: str) -> SemanticReflection:
         execution = self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
         unexpected = bool(
             json_load(cast(str, execution["observed_effect_json"]), {}).get("unexpected_success")
@@ -612,6 +634,9 @@ class LibRSIIntegration:
             *evidence,
             *hypotheses,
             experiment,
+        )
+        self.require_live_currentness(
+            mission_id=str(execution["mission_id"]), snapshot=mapped.snapshot
         )
         self._persist_records(records)
         currentness_root = mapped.snapshot.root
@@ -730,6 +755,24 @@ class LibRSIIntegration:
         )
 
     def record_experiment_outcome(
+        self,
+        *,
+        experiment_execution_id: str,
+        hypothesis_root: str,
+        disposition: str,
+        data: Mapping[str, Any],
+        weight: float = 1.0,
+    ) -> dict[str, Any]:
+        with self.store.transaction(mode="IMMEDIATE"):
+            return self._record_experiment_outcome_locked(
+                experiment_execution_id=experiment_execution_id,
+                hypothesis_root=hypothesis_root,
+                disposition=disposition,
+                data=data,
+                weight=weight,
+            )
+
+    def _record_experiment_outcome_locked(
         self,
         *,
         experiment_execution_id: str,
@@ -936,6 +979,7 @@ class LibRSIIntegration:
                 record=updated,
                 currentness_root=currentness_root,
             )
+        self.require_live_currentness(mission_id=mission_id, snapshot=target_snapshot)
         return {
             "evidence_root": evidence.root,
             "hypothesis_root": updated.root,

@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `42a00d64c7c6ffa9bfb1ebebf3010d0edb941000a6485ea286a3f0c82348d5f9`; Blocks 0–6 accepted; rejected Block 7 candidates `7937464` and `bb1bd62` preserved, with corrected candidate proof complete and exact review pending; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 7 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `a950dc605f217545a43c720585d3740beb8728cf4b2bd3a764eb441390052cfa`; Blocks 0–6 accepted; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` preserved, with atomic one-to-one correction proof complete and exact review pending; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 7 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -40,9 +40,11 @@ Block 7 remains the dependency-safe frontier. Exact candidate `7937464` is
 preserved as rejected evidence after four P1 findings. Exact successor `bb1bd62`
 is also preserved and unaccepted after five P1 findings exposed live-currentness,
 cross-mission Learning, remaining local improvement decisions, and canonical
-reflection-view gaps. The current correction retains the closed independent-
-shadow, exact-lineage, and fail-closed PEP 610 work while repairing those exact
-successor findings.
+reflection-view gaps. Exact candidate `c5bfce2` is preserved and unaccepted
+after two P1 findings exposed a validation-to-commit currentness race and reuse
+of one selected root for unrelated operational rows. The current correction
+retains every closed path while making currentness atomic and selected-candidate
+projection byte-exact and one-to-one.
 
 ## Required outcome
 
