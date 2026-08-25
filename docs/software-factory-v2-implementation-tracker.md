@@ -1801,6 +1801,59 @@ unfinished-work restoration.
   package consumption remain out of scope for this Block.
 - Completion proof: pending exact implementation, fault-injection evidence,
   clean pushed candidate, and distinct exact-revision review.
+- Delivery/release implementation: immutable staging now leaves a durable
+  stage-root receipt before its physical copy, validates exact installed paths,
+  bytes, executable posture, and manifest bytes before recording a release, and
+  deterministically resumes the same physical release after an injected
+  filesystem/SQL crash. Schema migration `0024_delivery_reconciliation.sql`
+  adds the single-owned release-transition journal; activation and rollback
+  bind an exact pointer payload and transition root, fsync the pointer and
+  containing directory, then commit pointer/SQL posture atomically on retry.
+  Installed probes rehash before and after the command, active use requires a
+  committed matching pointer, and rollback refuses a previous release without
+  passed installed verification and current exact bytes.
+- Recovery/reconciliation implementation: preservation verification now checks
+  the archive root, exact safe member set, embedded manifest bytes, and every
+  declared member hash again immediately before cleanup. Retirement reuses one
+  recorded effect and recognizes only its exact achieved physical postcondition.
+  Integration preparation resumes an exact planned merge/validation workspace;
+  publication recognizes an already-applied accepted Git head and reruns its
+  post-publication validation before committing SQL. Unfinished restart uses
+  one workspace plus an fsynced restoration receipt bound to baseline, source,
+  status, and staged-patch root. Recovery wakes and agent refreshes carry their
+  persisted idempotency keys to the external adapter and safely redrive a
+  started/ambiguous effect without allocating another intent.
+- Negative/fault proof: deterministic injections after staged-copy, active
+  pointer, integration merge, published ref, physical retirement, restored
+  workspace, target wake, and agent refresh all recovered to one durable row,
+  token, intent, or workspace. Tests also rejected modified installed files,
+  forged active pointers, rollback to unverified bytes, post-probe drift,
+  tampered preservation archives, target-branch advance, cleanup without exact
+  preservation, and arbitrary restart state without a restoration receipt.
+- Focused validation: `27 passed` in the operations, governed-release,
+  reconciliation, and recovery-coordinator files; the four existing
+  `TestStore` collection warnings remain unchanged. Mapped validation across
+  advanced integration, controller, core, governed release, operational
+  boundaries, operations, reconciliation, recovery, and target profiles:
+  `76 passed` with the same four warnings. Runtime collection found `220`
+  tests with only the existing collection warnings. Ruff format/check, mypy
+  across `69` source files, compileall, diff check, and tracker verification are
+  clean. No broad runtime suite was run.
+- Isolated build/install proof: wheel SHA-256
+  `df0246221b20552eb6f1d105487031a9d18a1b0d010bed83bb2d80e9ba843f67`;
+  sdist SHA-256
+  `088ab66ca8a2810f847a287cfcdc806618f8afddfdd84a77378e66506fa642af`.
+  The exact wheel contains migration 0024 and a fresh isolated install reported
+  both catalog and live database schema version `24`. The changed runtime-source
+  hash-list root is
+  `dd2113def9b8573859eefec135f353145db0175fe101457c0d3fdb9f008496ce`;
+  the changed-test hash-list root is
+  `0fa7bbfe18a3047d2e884e9652d2be37f764b147d4ebb933480c836021ba6ef4`.
+- Candidate posture: implementation and bounded proof are complete; Block 8
+  remains `in-progress` pending a clean pushed exact candidate and distinct
+  exact-revision review. All effects used isolated local/test targets; no
+  production activation, external notification, utils consumption, service/API
+  qualification, migration cutover, or terminal qualification occurred.
 
 ### Stop
 

@@ -21,14 +21,13 @@ class TestStore:
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute("CREATE TABLE missions(id TEXT PRIMARY KEY)")
-        migration = (
-            Path(__file__).parents[1]
-            / "src"
-            / "software_factory"
-            / "migrations"
-            / "0011_release_recovery_cleanup.sql"
-        )
-        self.connection.executescript(migration.read_text(encoding="utf-8"))
+        migrations = Path(__file__).parents[1] / "src" / "software_factory" / "migrations"
+        for name in (
+            "0011_release_recovery_cleanup.sql",
+            "0017_reconciliation_runtime.sql",
+            "0024_delivery_reconciliation.sql",
+        ):
+            self.connection.executescript((migrations / name).read_text(encoding="utf-8"))
         self.connection.execute("INSERT INTO missions(id) VALUES('mission-1')")
 
     @contextmanager
@@ -122,6 +121,34 @@ def test_release_is_staged_immutably_reviewed_activated_and_verified(tmp_path: P
     assert Path(release["release_path"], "runtime.py").stat().st_mode & 0o222 == 0
 
 
+def test_staging_recovers_exact_physical_release_after_database_crash(tmp_path: Path) -> None:
+    store = TestStore()
+    crash = {"armed": True}
+
+    def fault(point: str) -> None:
+        if point == "stage:after_physical_effect" and crash.pop("armed", False):
+            raise SystemExit("injected stage/sql crash")
+
+    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    releases = tmp_path / "releases"
+    arguments = {
+        "source_root": source,
+        "release_root": releases,
+        "source_revision": "revision-1",
+        "source_tree_root": "tree-1",
+    }
+
+    with pytest.raises(SystemExit, match="stage/sql"):
+        operations.stage_release(**arguments)  # type: ignore[arg-type]
+    staged = operations.stage_release(**arguments)  # type: ignore[arg-type]
+    assert Path(staged["release_path"], "app.py").read_text() == "VALUE = 1\n"
+    assert store.one("SELECT count(*) AS count FROM immutable_releases_v2") == {"count": 1}
+    assert not list(releases.glob(".stage-*.json"))
+
+
 def test_failed_fresh_process_verification_restores_previous_release(tmp_path: Path) -> None:
     operations = service()
     releases = tmp_path / "releases"
@@ -148,6 +175,53 @@ def test_failed_fresh_process_verification_restores_previous_release(tmp_path: P
     assert operations.store.one(
         "SELECT status FROM immutable_releases_v2 WHERE id=?", (second["id"],)
     ) == {"status": "rolled_back"}
+
+
+def test_activation_rejects_installed_byte_drift_before_pointer_write(tmp_path: Path) -> None:
+    operations = service()
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    releases = tmp_path / "releases"
+    release = accepted_release(operations, source, releases, "revision-1")
+    Path(release["release_path"], "app.py").chmod(0o644)
+    Path(release["release_path"], "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+
+    with pytest.raises(InvalidTransition, match="installed release file differs"):
+        operations.activate_release(release["id"], release_root=releases)
+    assert not (releases / "active-release.json").exists()
+
+
+def test_activation_reconciles_pointer_write_crash_without_duplicate_transition(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    crash = {"armed": True}
+
+    def fault(point: str) -> None:
+        if point == "activate:after_pointer_write" and crash.pop("armed", False):
+            raise RuntimeError("injected pointer/sql crash")
+
+    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    releases = tmp_path / "releases"
+    release = accepted_release(operations, source, releases, "revision-1")
+
+    with pytest.raises(RuntimeError, match="injected"):
+        operations.activate_release(release["id"], release_root=releases)
+    assert json.loads((releases / "active-release.json").read_text())["release_id"] == release["id"]
+    assert store.one("SELECT status FROM immutable_releases_v2 WHERE id=?", (release["id"],)) == {
+        "status": "accepted"
+    }
+
+    recovered = OperationsService(store).activate_release(  # type: ignore[arg-type]
+        release["id"], release_root=releases
+    )
+    assert recovered["status"] == "active"
+    assert store.one("SELECT count(*) AS count FROM release_transitions_v2") == {"count": 1}
+    assert store.one("SELECT status FROM release_transitions_v2") == {"status": "committed"}
 
 
 def test_release_activation_and_rollback_are_scoped_to_one_release_root(
@@ -186,6 +260,35 @@ def test_release_activation_and_rollback_are_scoped_to_one_release_root(
     with pytest.raises(InvalidTransition, match="different target root"):
         operations.rollback_release(
             release_a["id"], release_root=root_b, evidence_ids=["wrong-root"]
+        )
+
+
+def test_rollback_rejects_unverified_previous_bytes_and_verification_rejects_pointer_drift(
+    tmp_path: Path,
+) -> None:
+    operations = service()
+    releases = tmp_path / "releases"
+    first_source = tmp_path / "first"
+    first_source.mkdir()
+    (first_source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    first = accepted_release(operations, first_source, releases, "revision-1")
+    operations.activate_release(first["id"], release_root=releases)
+
+    second_source = tmp_path / "second"
+    second_source.mkdir()
+    (second_source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    second = accepted_release(operations, second_source, releases, "revision-2")
+    operations.activate_release(second["id"], release_root=releases)
+    with pytest.raises(InvalidTransition, match="lacks installed verification"):
+        operations.rollback_release(second["id"], release_root=releases, evidence_ids=["rollback"])
+
+    pointer_path = releases / "active-release.json"
+    pointer = json.loads(pointer_path.read_text())
+    pointer["manifest_root"] = "forged"
+    pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+    with pytest.raises(InvalidTransition, match="pointer differs"):
+        operations.verify_release(
+            second["id"], command=[sys.executable, "health.py"], release_root=releases
         )
 
 
@@ -297,3 +400,46 @@ def test_redundant_branch_retires_only_after_verified_no_loss_bundle(tmp_path: P
     effect = operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
     assert effect["status"] == "succeeded"
     assert "old-complete" not in git(repository, "branch", "--format=%(refname:short)").splitlines()
+
+
+def test_retirement_rejects_bundle_tampering_and_recovers_after_physical_crash(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    crash = {"armed": True}
+
+    def fault(point: str) -> None:
+        if point == "retirement:after_physical_effect" and crash.pop("armed", False):
+            raise RuntimeError("injected delete/sql crash")
+
+    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_git_repo(repository)
+    git(repository, "branch", "old-complete")
+    inventory = operations.inventory_repository(repository_root=repository)
+    item = operations.plan_cleanup_item(
+        inventory["id"],
+        item_type="branch",
+        item_key="old-complete",
+        classification="redundant",
+        disposition="retire",
+        evidence={"merged_into": "main"},
+    )
+    bundle = operations.preserve_repository(
+        inventory["id"], output_directory=tmp_path / "preserved"
+    )
+    archive = Path(bundle["bundle_path"])
+    original = archive.read_bytes()
+    archive.write_bytes(original + b"tamper")
+    with pytest.raises(InvalidTransition, match="bundle root differs"):
+        operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+    archive.write_bytes(original)
+
+    with pytest.raises(RuntimeError, match="injected"):
+        operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+    assert "old-complete" not in git(repository, "branch", "--format=%(refname:short)").splitlines()
+    recovered = operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+    assert recovered["status"] == "succeeded"
+    assert json.loads(recovered["result_json"])["already_absent"] is True
+    assert store.one("SELECT count(*) AS count FROM cleanup_effects_v2") == {"count": 1}

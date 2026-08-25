@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `30101f918e04d48079062cc03dde627362744eac2f3856eb00e5604186572e55`; Blocks 0–7 accepted; Block 8 in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `d88fafcb9cd76a562d5bd015a965a668417361863bf8c1f717ba14b67adad9fd`; Blocks 0–7 accepted; Block 8 in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -47,7 +47,9 @@ after two P1 findings exposed a validation-to-commit currentness race and reuse
 of one selected root for unrelated operational rows. The current correction
 retains every closed path while making currentness atomic and selected-candidate
 projection byte-exact and one-to-one. Block 8 is now in progress as the
-dependency-safe frontier.
+dependency-safe frontier; its exact delivery/recovery implementation and
+fault-injection proof are complete, with clean candidate freeze and distinct
+exact-revision review still required.
 
 ## Required outcome
 

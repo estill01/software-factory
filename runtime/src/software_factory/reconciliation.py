@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
-from collections.abc import Iterator, Mapping, Sequence
+import tempfile
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -97,9 +99,66 @@ class RepositoryReconciliationService:
         store: Store,
         *,
         operations: OperationsService | None = None,
+        fault_injector: Callable[[str], None] | None = None,
     ):
         self.store = store
         self._operations = operations or OperationsService(store)
+        self._fault_injector = fault_injector
+
+    def _fault(self, point: str) -> None:
+        if self._fault_injector is not None:
+            self._fault_injector(point)
+
+    @staticmethod
+    def _restart_receipt_path(worktree: Path, restart_id: str) -> Path:
+        return worktree.parent / f".{restart_id}.restore.json"
+
+    def _restart_state(
+        self,
+        *,
+        worktree: Path,
+        restart_id: str,
+        cleanup_item_id: str,
+        baseline_head: str,
+        source_identity: str,
+    ) -> dict[str, Any]:
+        if _git(worktree, "diff", "--quiet", check=False).returncode != 0:
+            raise InvalidTransition("restart workspace has unstaged changes")
+        if _git(worktree, "ls-files", "--others", "--exclude-standard", check=False).stdout.strip():
+            raise InvalidTransition("restart workspace has undeclared untracked files")
+        staged_patch = _git(worktree, "diff", "--cached", "--binary", check=False).stdout
+        return {
+            "restart_id": restart_id,
+            "cleanup_item_id": cleanup_item_id,
+            "baseline_head": baseline_head,
+            "source_identity": source_identity,
+            "staged_patch_root": hashlib.sha256(staged_patch.encode()).hexdigest(),
+            "status": _git(worktree, "status", "--porcelain=v1", check=False).stdout.splitlines(),
+        }
+
+    @staticmethod
+    def _write_restart_receipt(path: Path, payload: Mapping[str, Any]) -> None:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(_canonical(dict(payload)) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            Path(temporary_name).replace(path)
+        finally:
+            Path(temporary_name).unlink(missing_ok=True)
+
+    def _require_restart_receipt(self, path: Path, expected: Mapping[str, Any]) -> None:
+        if not path.is_file() or path.is_symlink():
+            raise InvalidTransition("restart workspace lacks an exact restoration receipt")
+        try:
+            actual = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise InvalidTransition("restart restoration receipt is invalid") from exc
+        if actual != dict(expected):
+            raise InvalidTransition("restart restoration receipt differs from workspace state")
 
     def _item_and_bundle(
         self, cleanup_item_id: str, preservation_bundle_id: str
@@ -117,6 +176,7 @@ class RepositoryReconciliationService:
             raise InvalidTransition(
                 "repository effect requires a verified bundle for the same inventory"
             )
+        self._operations._require_verified_bundle(bundle)
         return item, bundle, inventory
 
     def prepare_integration(
@@ -145,52 +205,77 @@ class RepositoryReconciliationService:
             (cleanup_item_id, source_head, target_head),
             required=False,
         )
-        if existing is not None:
+        if existing is not None and existing["status"] in {"accepted", "published"}:
             return existing
-        candidate_id = new_id("integration")
-        integration_branch = f"sf/integration/{candidate_id}"
         root = Path(worktree_root).resolve()
         root.mkdir(parents=True, exist_ok=True)
-        worktree = root / candidate_id
+        if existing is not None:
+            if existing["status"] in {"failed", "rolled_back"}:
+                raise InvalidTransition("integration candidate is terminal and cannot resume")
+            if _loads(existing["validation_command_json"], []) != list(validation_command):
+                raise InvalidTransition("integration retry validation command differs")
+            candidate_id = str(existing["id"])
+            integration_branch = str(existing["integration_branch"])
+            worktree = Path(existing["integration_worktree"])
+        else:
+            candidate_id = new_id("integration")
+            integration_branch = f"sf/integration/{candidate_id}"
+            worktree = root / candidate_id
         now = utc_now()
-        with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO integration_candidates_v2(
-                       id,cleanup_item_id,preservation_bundle_id,repository_root,
-                       source_branch,source_head,target_branch,target_head_before,
-                       integration_branch,integration_worktree,validation_command_json,
-                       status,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,'planned',?,?)""",
-                (
-                    candidate_id,
-                    cleanup_item_id,
-                    bundle["id"],
-                    str(repository),
-                    source_branch,
-                    source_head,
-                    target_branch,
-                    target_head,
-                    integration_branch,
-                    str(worktree),
-                    _canonical(list(validation_command)),
-                    now,
-                    now,
-                ),
-            )
-            db.execute(
-                "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",
-                (now, cleanup_item_id),
-            )
+        if existing is None:
+            with self.store.transaction() as db:
+                db.execute(
+                    """INSERT INTO integration_candidates_v2(
+                           id,cleanup_item_id,preservation_bundle_id,repository_root,
+                           source_branch,source_head,target_branch,target_head_before,
+                           integration_branch,integration_worktree,validation_command_json,
+                           status,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,'planned',?,?)""",
+                    (
+                        candidate_id,
+                        cleanup_item_id,
+                        bundle["id"],
+                        str(repository),
+                        source_branch,
+                        source_head,
+                        target_branch,
+                        target_head,
+                        integration_branch,
+                        str(worktree),
+                        _canonical(list(validation_command)),
+                        now,
+                        now,
+                    ),
+                )
+                db.execute(
+                    "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",
+                    (now, cleanup_item_id),
+                )
         try:
-            _git(
-                repository,
-                "worktree",
-                "add",
-                "-b",
-                integration_branch,
-                str(worktree),
-                target_head,
-            )
+            if not worktree.is_dir():
+                branch_exists = (
+                    _git(
+                        repository,
+                        "show-ref",
+                        "--verify",
+                        "--quiet",
+                        f"refs/heads/{integration_branch}",
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+                if branch_exists:
+                    _git(repository, "worktree", "add", str(worktree), integration_branch)
+                else:
+                    _git(
+                        repository,
+                        "worktree",
+                        "add",
+                        "-b",
+                        integration_branch,
+                        str(worktree),
+                        target_head,
+                    )
             _git(worktree, "config", "user.name", "software-factory-v2")
             _git(worktree, "config", "user.email", "software-factory-v2@invalid")
             with self.store.transaction() as db:
@@ -199,18 +284,47 @@ class RepositoryReconciliationService:
                        SET status='merging',updated_at=? WHERE id=?""",
                     (utc_now(), candidate_id),
                 )
-            merge = _git(
-                worktree,
-                "merge",
-                "--no-ff",
-                "--no-edit",
-                source_head,
-                check=False,
-            )
-            if merge.returncode != 0:
-                _git(worktree, "merge", "--abort", check=False)
-                raise RuntimeError(f"integration merge failed: {merge.stderr.strip()}")
-            candidate_head = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+            current_head = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+            if current_head == target_head:
+                merge = _git(
+                    worktree,
+                    "merge",
+                    "--no-ff",
+                    "--no-edit",
+                    source_head,
+                    check=False,
+                )
+                if merge.returncode != 0:
+                    _git(worktree, "merge", "--abort", check=False)
+                    raise RuntimeError(f"integration merge failed: {merge.stderr.strip()}")
+                candidate_head = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+            else:
+                source_in_candidate = (
+                    _git(
+                        worktree,
+                        "merge-base",
+                        "--is-ancestor",
+                        source_head,
+                        current_head,
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+                target_in_candidate = (
+                    _git(
+                        worktree,
+                        "merge-base",
+                        "--is-ancestor",
+                        target_head,
+                        current_head,
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+                if not source_in_candidate or not target_in_candidate:
+                    raise InvalidTransition("integration worktree head differs from planned merge")
+                candidate_head = current_head
+            self._fault("prepare:after_merge")
             with self.store.transaction() as db:
                 db.execute(
                     """UPDATE integration_candidates_v2
@@ -232,7 +346,8 @@ class RepositoryReconciliationService:
             }
             if validation.returncode != 0:
                 raise RuntimeError("integration validation failed")
-        except BaseException as exc:
+            self._fault("prepare:after_validation")
+        except Exception as exc:
             with self.store.transaction() as db:
                 db.execute(
                     """UPDATE integration_candidates_v2
@@ -283,14 +398,18 @@ class RepositoryReconciliationService:
         target_before = str(candidate["target_head_before"])
         candidate_head = str(candidate["candidate_head"])
         with _repository_lock(repository, f"publish-{target_branch.replace('/', '-')}"):
-            if _branch_head(repository, target_branch) != target_before:
+            current_head = _branch_head(repository, target_branch)
+            if current_head not in {target_before, candidate_head}:
                 raise InvalidTransition("target branch advanced after integration validation")
             target_worktree = self._target_worktree(repository, target_branch)
-            if target_worktree is not None:
-                if _git(target_worktree, "status", "--porcelain=v1", check=False).stdout.strip():
-                    raise InvalidTransition("checked-out target branch has uncommitted work")
+            if (
+                target_worktree is not None
+                and _git(target_worktree, "status", "--porcelain=v1", check=False).stdout.strip()
+            ):
+                raise InvalidTransition("checked-out target branch has uncommitted work")
+            if current_head == target_before and target_worktree is not None:
                 _git(target_worktree, "merge", "--ff-only", candidate_head)
-            else:
+            elif current_head == target_before:
                 result = _git(
                     repository,
                     "update-ref",
@@ -303,6 +422,7 @@ class RepositoryReconciliationService:
                     raise InvalidTransition("target compare-and-swap publication failed")
             if _branch_head(repository, target_branch) != candidate_head:
                 raise RuntimeError("published target branch differs from accepted candidate")
+            self._fault("publish:after_ref_update")
             if post_publish_validation:
                 validation_root = target_worktree or Path(candidate["integration_worktree"])
                 validation = subprocess.run(
@@ -345,6 +465,7 @@ class RepositoryReconciliationService:
                     raise RuntimeError(
                         "post-publication validation failed and target was rolled back"
                     )
+            self._fault("publish:after_validation")
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(
@@ -391,58 +512,119 @@ class RepositoryReconciliationService:
             raise InvalidTransition("cleanup item has no restart adapter")
         repository = Path(inventory["repository_root"])
         baseline_head = _branch_head(repository, baseline_branch)
-        restart_id = new_id("restart")
-        restart_branch = f"sf/restart/{restart_id}"
+        source_identity = (
+            _branch_head(repository, item["item_key"])
+            if item["item_type"] == "branch"
+            else _git(
+                repository, "rev-parse", "--verify", item["item_key"], check=False
+            ).stdout.strip()
+        )
+        if not source_identity:
+            raise InvalidTransition("restart source reference is unavailable")
         root = Path(worktree_root).resolve()
         root.mkdir(parents=True, exist_ok=True)
-        worktree = root / restart_id
+        existing = self.store.one(
+            """SELECT * FROM restart_workspaces_v2
+               WHERE cleanup_item_id=? AND baseline_head=?""",
+            (cleanup_item_id, baseline_head),
+            required=False,
+        )
+        if existing is not None and existing["status"] == "ready":
+            worktree = Path(existing["restart_worktree"])
+            if (
+                not worktree.is_dir()
+                or _git(worktree, "rev-parse", "HEAD", check=False).stdout.strip() != baseline_head
+            ):
+                raise InvalidTransition("ready restart workspace physical state differs")
+            state = self._restart_state(
+                worktree=worktree,
+                restart_id=str(existing["id"]),
+                cleanup_item_id=cleanup_item_id,
+                baseline_head=baseline_head,
+                source_identity=source_identity,
+            )
+            self._require_restart_receipt(
+                self._restart_receipt_path(worktree, str(existing["id"])), state
+            )
+            return existing
+        restart_id = existing["id"] if existing else new_id("restart")
+        restart_branch = str(existing["restart_branch"]) if existing else f"sf/restart/{restart_id}"
+        worktree = Path(existing["restart_worktree"]) if existing else root / restart_id
         now = utc_now()
-        with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO restart_workspaces_v2(
-                       id,cleanup_item_id,preservation_bundle_id,repository_root,
-                       baseline_branch,baseline_head,restart_branch,restart_worktree,
-                       restored_source_reference,status,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?,'creating',?,?)""",
-                (
-                    restart_id,
-                    cleanup_item_id,
-                    bundle["id"],
-                    str(repository),
-                    baseline_branch,
-                    baseline_head,
-                    restart_branch,
-                    str(worktree),
-                    item["item_key"],
-                    now,
-                    now,
-                ),
-            )
-            db.execute(
-                "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",
-                (now, cleanup_item_id),
-            )
-        try:
-            _git(
-                repository,
-                "worktree",
-                "add",
-                "-b",
-                restart_branch,
-                str(worktree),
-                baseline_head,
-            )
-            if item["item_type"] in {"branch", "detached_commit"}:
-                source_reference = (
-                    _branch_head(repository, item["item_key"])
-                    if item["item_type"] == "branch"
-                    else str(item["item_key"])
+        if existing is None:
+            with self.store.transaction() as db:
+                db.execute(
+                    """INSERT INTO restart_workspaces_v2(
+                           id,cleanup_item_id,preservation_bundle_id,repository_root,
+                           baseline_branch,baseline_head,restart_branch,restart_worktree,
+                           restored_source_reference,status,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,'creating',?,?)""",
+                    (
+                        restart_id,
+                        cleanup_item_id,
+                        bundle["id"],
+                        str(repository),
+                        baseline_branch,
+                        baseline_head,
+                        restart_branch,
+                        str(worktree),
+                        item["item_key"],
+                        now,
+                        now,
+                    ),
                 )
+                db.execute(
+                    "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",
+                    (now, cleanup_item_id),
+                )
+        try:
+            if not worktree.is_dir():
+                branch_exists = (
+                    _git(
+                        repository,
+                        "show-ref",
+                        "--verify",
+                        "--quiet",
+                        f"refs/heads/{restart_branch}",
+                        check=False,
+                    ).returncode
+                    == 0
+                )
+                if branch_exists:
+                    _git(repository, "worktree", "add", str(worktree), restart_branch)
+                else:
+                    _git(
+                        repository,
+                        "worktree",
+                        "add",
+                        "-b",
+                        restart_branch,
+                        str(worktree),
+                        baseline_head,
+                    )
+            elif _git(worktree, "rev-parse", "HEAD", check=False).stdout.strip() != baseline_head:
+                raise InvalidTransition("restart workspace baseline differs")
+            receipt_path = self._restart_receipt_path(worktree, restart_id)
+            already_restored = receipt_path.exists()
+            if already_restored:
+                state = self._restart_state(
+                    worktree=worktree,
+                    restart_id=restart_id,
+                    cleanup_item_id=cleanup_item_id,
+                    baseline_head=baseline_head,
+                    source_identity=source_identity,
+                )
+                self._require_restart_receipt(receipt_path, state)
+            elif _git(worktree, "status", "--porcelain=v1", check=False).stdout.strip():
+                raise InvalidTransition(
+                    "restart workspace changed without an exact restoration receipt"
+                )
+            if not already_restored and item["item_type"] in {"branch", "detached_commit"}:
                 patch = _git(
                     repository,
                     "diff",
                     "--binary",
-                    f"{baseline_head}...{source_reference}",
+                    f"{baseline_head}...{source_identity}",
                     check=False,
                 ).stdout
                 if patch.strip():
@@ -458,7 +640,7 @@ class RepositoryReconciliationService:
                         raise RuntimeError(
                             f"unfinished branch could not be restored: {applied.stderr.strip()}"
                         )
-            else:
+            elif not already_restored:
                 patch = _git(
                     repository,
                     "stash",
@@ -478,7 +660,17 @@ class RepositoryReconciliationService:
                 )
                 if applied.returncode != 0:
                     raise RuntimeError(f"stash could not be restored: {applied.stderr.strip()}")
-        except BaseException:
+            if not already_restored:
+                state = self._restart_state(
+                    worktree=worktree,
+                    restart_id=restart_id,
+                    cleanup_item_id=cleanup_item_id,
+                    baseline_head=baseline_head,
+                    source_identity=source_identity,
+                )
+                self._write_restart_receipt(receipt_path, state)
+            self._fault("restart:after_restore")
+        except Exception:
             with self.store.transaction() as db:
                 db.execute(
                     "UPDATE restart_workspaces_v2 SET status='failed',updated_at=? WHERE id=?",

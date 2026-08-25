@@ -53,8 +53,8 @@ def test_store_compatibility_names_are_the_same_persistence_owner() -> None:
 
 
 def test_migration_catalog_is_complete_contiguous_and_file_exact() -> None:
-    assert SCHEMA_VERSION == 23
-    assert [migration.version for migration in MIGRATIONS] == list(range(1, 24))
+    assert SCHEMA_VERSION == 24
+    assert [migration.version for migration in MIGRATIONS] == list(range(1, 25))
     names = [migration.name for migration in MIGRATIONS]
     assert len(names) == len(set(names))
     discovered = sorted(path.name for path in (PACKAGE_ROOT / "migrations").glob("*.sql"))
@@ -67,7 +67,7 @@ def test_database_upgrades_an_applied_v9_prefix_without_alternate_writers(
     path = tmp_path / "factory.sqlite3"
     _applied_prefix(path, 9)
     database = Database(path)
-    assert database.health()["schema_version"] == 23
+    assert database.health()["schema_version"] == 24
     tables = {
         row["name"] for row in database.all("SELECT name FROM sqlite_master WHERE type='table'")
     }

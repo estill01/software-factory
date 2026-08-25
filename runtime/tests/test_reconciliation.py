@@ -28,6 +28,9 @@ class TestStore:
         self.connection.executescript(
             (migrations / "0017_reconciliation_runtime.sql").read_text(encoding="utf-8")
         )
+        self.connection.executescript(
+            (migrations / "0024_delivery_reconciliation.sql").read_text(encoding="utf-8")
+        )
 
     @contextmanager
     def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
@@ -162,6 +165,50 @@ def test_target_advance_after_validation_prevents_publication(tmp_path: Path) ->
         reconciliation.publish_integration(candidate["id"])
 
 
+def test_prepare_and_publish_resume_exact_git_effect_after_sql_crashes(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("feature\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "feature")
+    git(repository, "switch", "main")
+    store = TestStore()
+    armed = {"prepare": True, "publish": True}
+
+    def fault(point: str) -> None:
+        if point == "prepare:after_merge" and armed.pop("prepare", False):
+            raise SystemExit("injected merge/sql crash")
+        if point == "publish:after_ref_update" and armed.pop("publish", False):
+            raise SystemExit("injected ref/sql crash")
+
+    reconciliation = RepositoryReconciliationService(  # type: ignore[arg-type]
+        store, fault_injector=fault
+    )
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+    kwargs = {
+        "preservation_bundle_id": bundle["id"],
+        "target_branch": "main",
+        "worktree_root": tmp_path / "integration-worktrees",
+        "validation_command": [sys.executable, "-m", "pytest", "-q"],
+    }
+    with pytest.raises(SystemExit, match="merge/sql"):
+        reconciliation.prepare_integration(item["id"], **kwargs)
+    candidate = reconciliation.prepare_integration(item["id"], **kwargs)
+    assert candidate["status"] == "accepted"
+    assert store.one("SELECT count(*) AS count FROM integration_candidates_v2") == {"count": 1}
+
+    with pytest.raises(SystemExit, match="ref/sql"):
+        reconciliation.publish_integration(candidate["id"])
+    assert git(repository, "rev-parse", "main") == candidate["candidate_head"]
+    assert store.one(
+        "SELECT status FROM integration_candidates_v2 WHERE id=?", (candidate["id"],)
+    ) == {"status": "accepted"}
+    published = reconciliation.publish_integration(candidate["id"])
+    assert published["status"] == "published"
+
+
 def test_post_publish_failure_rolls_target_back(tmp_path: Path) -> None:
     repository = tmp_path / "repo"
     repository.mkdir()
@@ -230,6 +277,51 @@ def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) 
     assert (worktree / "baseline.txt").read_text(encoding="utf-8") == "new baseline\n"
     assert (worktree / "unfinished.txt").read_text(encoding="utf-8") == "partial implementation\n"
     assert "A  unfinished.txt" in git(worktree, "status", "--porcelain=v1")
+
+
+def test_unfinished_restart_resumes_restored_workspace_without_duplication(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "unfinished")
+    (repository / "unfinished.txt").write_text("partial\n", encoding="utf-8")
+    git(repository, "add", "--", "unfinished.txt")
+    git(repository, "commit", "-m", "unfinished")
+    git(repository, "switch", "main")
+    store = TestStore()
+    armed = {"restart": True}
+
+    def fault(point: str) -> None:
+        if point == "restart:after_restore" and armed.pop("restart", False):
+            raise SystemExit("injected restore/sql crash")
+
+    reconciliation = RepositoryReconciliationService(  # type: ignore[arg-type]
+        store, fault_injector=fault
+    )
+    inventory = reconciliation._operations.inventory_repository(repository_root=repository)
+    bundle = reconciliation._operations.preserve_repository(
+        inventory["id"], output_directory=tmp_path / "preserved"
+    )
+    item = reconciliation._operations.plan_cleanup_item(
+        inventory["id"],
+        item_type="branch",
+        item_key="unfinished",
+        classification="unfinished",
+        disposition="restart",
+        evidence={"remaining_obligation": "finish"},
+    )
+    kwargs = {
+        "preservation_bundle_id": bundle["id"],
+        "baseline_branch": "main",
+        "worktree_root": tmp_path / "restart-worktrees",
+    }
+    with pytest.raises(SystemExit, match="restore/sql"):
+        reconciliation.restart_unfinished_work(item["id"], **kwargs)
+    restarted = reconciliation.restart_unfinished_work(item["id"], **kwargs)
+    assert restarted["status"] == "ready"
+    assert store.one("SELECT count(*) AS count FROM restart_workspaces_v2") == {"count": 1}
 
 
 def test_reconciliation_always_preserves_before_planning_destructive_work(

@@ -39,7 +39,9 @@ class TestStore:
             "0011_release_recovery_cleanup.sql",
             "0012_operability_runtime.sql",
             "0014_governance_effects.sql",
+            "0017_reconciliation_runtime.sql",
             "0018_governed_release.sql",
+            "0024_delivery_reconciliation.sql",
         ):
             self.connection.executescript((migrations / name).read_text(encoding="utf-8"))
 

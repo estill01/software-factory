@@ -210,6 +210,7 @@ LIFECYCLE_OWNERS = (
         (
             "immutable_releases_v2",
             "release_reviews_v2",
+            "release_transitions_v2",
             "release_verifications_v2",
         ),
         ("release",),

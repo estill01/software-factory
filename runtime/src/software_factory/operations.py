@@ -8,7 +8,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -58,8 +58,18 @@ def _run_git(root: Path, *args: str, check: bool = True) -> subprocess.Completed
 class OperationsService:
     """Physical owners for immutable release, systemic recovery, and cleanup."""
 
-    def __init__(self, store: Store):
+    def __init__(
+        self,
+        store: Store,
+        *,
+        fault_injector: Callable[[str], None] | None = None,
+    ):
         self.store = store
+        self._fault_injector = fault_injector
+
+    def _fault(self, point: str) -> None:
+        if self._fault_injector is not None:
+            self._fault_injector(point)
 
     @staticmethod
     def _release_belongs_to_root(release: Mapping[str, Any], release_root: Path) -> bool:
@@ -91,6 +101,77 @@ class OperationsService:
                 )
         return entries, _digest(entries)
 
+    def _installed_equivalence(self, release: Mapping[str, Any]) -> str:
+        """Return the installed content root or reject any byte/path drift."""
+
+        release_path = Path(str(release["release_path"])).resolve()
+        if not release_path.is_dir() or release_path.is_symlink():
+            raise InvalidTransition("installed release path is missing or unsafe")
+        manifest = _loads(release["manifest_json"], {})
+        if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
+            raise InvalidTransition("stored release manifest is invalid")
+        if (
+            manifest.get("release_id") != release["id"]
+            or manifest.get("source_revision") != release["source_revision"]
+            or manifest.get("source_tree_root") != release["source_tree_root"]
+            or manifest.get("manifest_root") != release["manifest_root"]
+        ):
+            raise InvalidTransition("stored release manifest identity is stale")
+        manifest_path = release_path / "release-manifest.json"
+        expected_manifest = (_canonical(manifest) + "\n").encode("utf-8")
+        if (
+            not manifest_path.is_file()
+            or manifest_path.is_symlink()
+            or manifest_path.read_bytes() != expected_manifest
+        ):
+            raise InvalidTransition("installed release manifest bytes differ")
+
+        expected: dict[str, Mapping[str, Any]] = {}
+        for raw_entry in manifest["files"]:
+            if not isinstance(raw_entry, dict) or not isinstance(raw_entry.get("path"), str):
+                raise InvalidTransition("stored release manifest entry is invalid")
+            relative = str(raw_entry["path"])
+            candidate = (release_path / relative).resolve()
+            try:
+                candidate.relative_to(release_path)
+            except ValueError as exc:
+                raise InvalidTransition("release manifest path escapes install root") from exc
+            if relative in expected or relative in {"", "release-manifest.json"}:
+                raise InvalidTransition("release manifest contains a duplicate or reserved path")
+            expected[relative] = raw_entry
+
+        observed: list[dict[str, Any]] = []
+        observed_paths: set[str] = set()
+        for path in sorted(release_path.rglob("*")):
+            relative = path.relative_to(release_path).as_posix()
+            if path.is_symlink():
+                raise InvalidTransition(f"installed release contains a symlink: {relative}")
+            if not path.is_file() or relative == "release-manifest.json":
+                continue
+            entry = expected.get(relative)
+            if entry is None:
+                raise InvalidTransition(
+                    f"installed release contains an undeclared file: {relative}"
+                )
+            mode = stat.S_IMODE(path.stat().st_mode)
+            actual = {
+                "path": relative,
+                "sha256": _file_digest(path),
+                "bytes": path.stat().st_size,
+                "executable": bool(mode & stat.S_IXUSR),
+            }
+            if actual != dict(entry):
+                raise InvalidTransition(f"installed release file differs: {relative}")
+            observed.append(actual)
+            observed_paths.add(relative)
+        missing = sorted(set(expected) - observed_paths)
+        if missing:
+            raise InvalidTransition(f"installed release is missing files: {missing}")
+        installed_root = _digest(observed)
+        if installed_root != release["manifest_root"]:
+            raise InvalidTransition("installed release content root differs")
+        return installed_root
+
     def stage_release(
         self,
         *,
@@ -106,6 +187,16 @@ class OperationsService:
         if not source.is_dir():
             raise ValueError("release source root does not exist")
         manifest, manifest_root = self._manifest(source)
+        releases.mkdir(parents=True, exist_ok=True)
+        stage_root = _digest(
+            {
+                "source_revision": source_revision,
+                "source_tree_root": source_tree_root,
+                "manifest_root": manifest_root,
+                "release_root": str(releases),
+            }
+        )
+        receipt_path = releases / f".stage-{stage_root}.json"
         existing_rows = self.store.all(
             """SELECT * FROM immutable_releases_v2
                WHERE source_revision=? AND manifest_root=?""",
@@ -113,32 +204,78 @@ class OperationsService:
         )
         for existing in existing_rows:
             if self._release_belongs_to_root(existing, releases):
+                self._installed_equivalence(existing)
+                receipt_path.unlink(missing_ok=True)
                 return existing
-        release_id = new_id("release")
-        releases.mkdir(parents=True, exist_ok=True)
+        if receipt_path.exists():
+            if not receipt_path.is_file() or receipt_path.is_symlink():
+                raise InvalidTransition("release staging receipt is unsafe")
+            receipt = _loads(receipt_path.read_text(encoding="utf-8"), {})
+            if not isinstance(receipt, dict) or receipt.get("stage_root") != stage_root:
+                raise InvalidTransition("release staging receipt differs")
+            release_id = str(receipt.get("release_id", ""))
+            if not release_id:
+                raise InvalidTransition("release staging receipt lacks a release id")
+        else:
+            release_id = new_id("release")
+            receipt = {"stage_root": stage_root, "release_id": release_id}
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{receipt_path.name}.", suffix=".tmp", dir=releases
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(_canonical(receipt) + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                Path(temporary_name).replace(receipt_path)
+            finally:
+                Path(temporary_name).unlink(missing_ok=True)
         destination = releases / release_id
-        temporary = Path(tempfile.mkdtemp(prefix=f".{release_id}.", dir=releases))
-        try:
-            for entry in manifest:
-                source_path = source / entry["path"]
-                target = temporary / entry["path"]
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_path, target, follow_symlinks=False)
-                target.chmod(0o555 if entry["executable"] else 0o444)
-            manifest_payload = {
-                "release_id": release_id,
+        manifest_payload = {
+            "release_id": release_id,
+            "source_revision": source_revision,
+            "source_tree_root": source_tree_root,
+            "manifest_root": manifest_root,
+            "files": manifest,
+        }
+        if destination.exists():
+            self._installed_equivalence(
+                {
+                    "id": release_id,
+                    "source_revision": source_revision,
+                    "source_tree_root": source_tree_root,
+                    "manifest_root": manifest_root,
+                    "manifest_json": _canonical(manifest_payload),
+                    "release_path": str(destination),
+                }
+            )
+        else:
+            temporary = Path(tempfile.mkdtemp(prefix=f".{release_id}.", dir=releases))
+            try:
+                for entry in manifest:
+                    source_path = source / entry["path"]
+                    target = temporary / entry["path"]
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_path, target, follow_symlinks=False)
+                    target.chmod(0o555 if entry["executable"] else 0o444)
+                manifest_path = temporary / "release-manifest.json"
+                manifest_path.write_text(_canonical(manifest_payload) + "\n", encoding="utf-8")
+                manifest_path.chmod(0o444)
+                temporary.replace(destination)
+            except Exception:
+                shutil.rmtree(temporary, ignore_errors=True)
+                raise
+        self._installed_equivalence(
+            {
+                "id": release_id,
                 "source_revision": source_revision,
                 "source_tree_root": source_tree_root,
                 "manifest_root": manifest_root,
-                "files": manifest,
+                "manifest_json": _canonical(manifest_payload),
+                "release_path": str(destination),
             }
-            manifest_path = temporary / "release-manifest.json"
-            manifest_path.write_text(_canonical(manifest_payload) + "\n", encoding="utf-8")
-            manifest_path.chmod(0o444)
-            temporary.replace(destination)
-        except BaseException:
-            shutil.rmtree(temporary, ignore_errors=True)
-            raise
+        )
+        self._fault("stage:after_physical_effect")
         now = utc_now()
         try:
             with self.store.transaction() as db:
@@ -161,9 +298,10 @@ class OperationsService:
                         now,
                     ),
                 )
-        except BaseException:
+        except Exception:
             shutil.rmtree(destination, ignore_errors=True)
             raise
+        receipt_path.unlink(missing_ok=True)
         return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
 
     def review_release(
@@ -234,8 +372,129 @@ class OperationsService:
                 handle.flush()
                 os.fsync(handle.fileno())
             Path(temporary_name).replace(pointer)
+            directory = os.open(release_root, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
             Path(temporary_name).unlink(missing_ok=True)
+
+    @staticmethod
+    def _read_active_pointer(release_root: Path) -> dict[str, Any] | None:
+        pointer = release_root / "active-release.json"
+        if not pointer.exists():
+            return None
+        if not pointer.is_file() or pointer.is_symlink():
+            raise InvalidTransition("active release pointer is unsafe")
+        try:
+            payload = json.loads(pointer.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise InvalidTransition("active release pointer is invalid") from exc
+        if not isinstance(payload, dict):
+            raise InvalidTransition("active release pointer is invalid")
+        return payload
+
+    def _require_active_pointer(
+        self, release: Mapping[str, Any], release_root: Path
+    ) -> dict[str, Any]:
+        payload = self._read_active_pointer(release_root)
+        if (
+            payload is None
+            or payload.get("release_id") != release["id"]
+            or payload.get("release_path") != release["release_path"]
+            or payload.get("manifest_root") != release["manifest_root"]
+            or payload.get("source_revision") != release["source_revision"]
+            or not isinstance(payload.get("transition_root"), str)
+        ):
+            raise InvalidTransition("active release pointer differs from database state")
+        transition = self.store.one(
+            """SELECT * FROM release_transitions_v2
+               WHERE transition_root=? AND status='committed'""",
+            (payload["transition_root"],),
+            required=False,
+        )
+        if transition is None or _loads(transition["pointer_payload_json"], {}) != payload:
+            raise InvalidTransition("active release pointer lacks a committed transition")
+        return payload
+
+    def _prepare_release_transition(
+        self,
+        *,
+        transition_type: Literal["activate", "rollback"],
+        release: Mapping[str, Any],
+        target_release: Mapping[str, Any] | None,
+        previous_release: Mapping[str, Any] | None,
+        release_root: Path,
+        pointer_payload: Mapping[str, Any],
+        evidence_ids: Sequence[str] = (),
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        transition_core = {
+            "transition_type": transition_type,
+            "release_id": release["id"],
+            "target_release_id": target_release["id"] if target_release else None,
+            "previous_release_id": previous_release["id"] if previous_release else None,
+            "release_root": str(release_root),
+            "pointer_payload": dict(pointer_payload),
+            "evidence_ids": _ids(evidence_ids),
+        }
+        transition_root = _digest(transition_core)
+        payload = {**dict(pointer_payload), "transition_root": transition_root}
+        existing = self.store.one(
+            "SELECT * FROM release_transitions_v2 WHERE transition_root=?",
+            (transition_root,),
+            required=False,
+        )
+        if existing is None:
+            transition_id = new_id("release-transition")
+            now = utc_now()
+            with self.store.transaction() as db:
+                db.execute(
+                    """INSERT INTO release_transitions_v2(
+                           id,transition_root,transition_type,release_id,target_release_id,
+                           previous_release_id,release_root,pointer_payload_json,status,
+                           created_at,updated_at
+                       ) VALUES(?,?,?,?,?,?,?,?,'prepared',?,?)""",
+                    (
+                        transition_id,
+                        transition_root,
+                        transition_type,
+                        release["id"],
+                        target_release["id"] if target_release else None,
+                        previous_release["id"] if previous_release else None,
+                        str(release_root),
+                        _canonical(payload),
+                        now,
+                        now,
+                    ),
+                )
+            existing = self.store.one(
+                "SELECT * FROM release_transitions_v2 WHERE id=?", (transition_id,)
+            )
+        elif _loads(existing["pointer_payload_json"], {}) != payload:
+            raise InvalidTransition("release transition payload differs from prepared state")
+        return existing, payload
+
+    def _ensure_transition_pointer(
+        self,
+        transition: Mapping[str, Any],
+        *,
+        release_root: Path,
+        payload: Mapping[str, Any],
+    ) -> None:
+        current = self._read_active_pointer(release_root)
+        if current != dict(payload):
+            self._write_active_pointer(release_root, payload)
+        self._fault(f"{transition['transition_type']}:after_pointer_write")
+        if transition["status"] == "prepared":
+            with self.store.transaction() as db:
+                db.execute(
+                    """UPDATE release_transitions_v2
+                       SET status='pointer_written',updated_at=?
+                       WHERE id=? AND status='prepared'""",
+                    (utc_now(), transition["id"]),
+                )
+        self._fault(f"{transition['transition_type']}:after_pointer_record")
 
     def activate_release(
         self,
@@ -245,8 +504,13 @@ class OperationsService:
     ) -> dict[str, Any]:
         release = self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
         root = self._require_release_root(release, release_root)
+        if release["status"] == "active":
+            self._installed_equivalence(release)
+            self._require_active_pointer(release, root)
+            return release
         if release["review_status"] != "accepted" or release["status"] != "accepted":
             raise InvalidTransition("release must pass independent review before activation")
+        self._installed_equivalence(release)
         active_releases = self.store.all(
             """SELECT * FROM immutable_releases_v2 WHERE status='active'
                ORDER BY activated_at DESC""",
@@ -266,7 +530,17 @@ class OperationsService:
             "source_revision": release["source_revision"],
             "previous_release_id": previous["id"] if previous else None,
         }
-        self._write_active_pointer(root, payload)
+        transition, payload = self._prepare_release_transition(
+            transition_type="activate",
+            release=release,
+            target_release=release,
+            previous_release=previous,
+            release_root=root,
+            pointer_payload=payload,
+        )
+        if transition["status"] == "committed":
+            return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
+        self._ensure_transition_pointer(transition, release_root=root, payload=payload)
         now = utc_now()
         with self.store.transaction() as db:
             if previous is not None:
@@ -280,6 +554,11 @@ class OperationsService:
                    SET status='active',previous_release_id=?,activated_at=?,updated_at=?
                    WHERE id=?""",
                 (previous["id"] if previous else None, now, now, release_id),
+            )
+            db.execute(
+                """UPDATE release_transitions_v2
+                   SET status='committed',completed_at=?,updated_at=? WHERE id=?""",
+                (now, now, transition["id"]),
             )
         return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
 
@@ -296,23 +575,54 @@ class OperationsService:
         root = self._require_release_root(release, release_root)
         if release["status"] != "active":
             raise InvalidTransition("only the active release may be installed-verified")
-        process = subprocess.run(
-            [str(part) for part in command],
-            cwd=release["release_path"],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-        disposition = "passed" if process.returncode == 0 else "failed"
+        self._require_active_pointer(release, root)
+        installed_root: str | None = None
+        install_error: str | None = None
+        try:
+            installed_root = self._installed_equivalence(release)
+        except InvalidTransition as exc:
+            install_error = str(exc)
+        if install_error is None:
+            process = subprocess.run(
+                [str(part) for part in command],
+                cwd=release["release_path"],
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            try:
+                post_probe_root = self._installed_equivalence(release)
+            except InvalidTransition as exc:
+                post_probe_root = None
+                install_error = str(exc)
+            disposition = (
+                "passed"
+                if process.returncode == 0
+                and install_error is None
+                and installed_root == post_probe_root
+                else "failed"
+            )
+            exit_code = process.returncode
+            stdout = process.stdout
+            stderr = process.stderr
+        else:
+            post_probe_root = None
+            disposition = "failed"
+            exit_code = -1
+            stdout = ""
+            stderr = install_error
         evidence_root = _digest(
             {
                 "release_id": release_id,
                 "manifest_root": release["manifest_root"],
+                "installed_root": installed_root,
+                "post_probe_root": post_probe_root,
+                "install_error": install_error,
                 "command": list(command),
-                "exit_code": process.returncode,
-                "stdout": process.stdout,
-                "stderr": process.stderr,
+                "exit_code": exit_code,
+                "stdout": stdout,
+                "stderr": stderr,
             }
         )
         verification_id = new_id("release-verification")
@@ -327,9 +637,9 @@ class OperationsService:
                     release_id,
                     verification_type,
                     _canonical(list(command)),
-                    process.returncode,
-                    process.stdout,
-                    process.stderr,
+                    exit_code,
+                    stdout,
+                    stderr,
                     evidence_root,
                     disposition,
                     utc_now(),
@@ -361,6 +671,10 @@ class OperationsService:
         root = self._require_release_root(release, release_root)
         if not evidence_ids:
             raise ValueError("release rollback requires evidence")
+        if release["status"] == "rolled_back":
+            return release
+        if release["status"] != "active":
+            raise InvalidTransition("only an active release may be rolled back")
         previous = None
         if release["previous_release_id"]:
             previous = self.store.one(
@@ -369,6 +683,9 @@ class OperationsService:
             )
             if not self._release_belongs_to_root(previous, root):
                 raise InvalidTransition("previous release belongs to a different target root")
+            if previous["verification_status"] != "passed":
+                raise InvalidTransition("rollback target lacks installed verification")
+            self._installed_equivalence(previous)
         payload = (
             {
                 "release_id": previous["id"],
@@ -380,7 +697,18 @@ class OperationsService:
             if previous is not None
             else {"release_id": None, "rolled_back_from": release_id}
         )
-        self._write_active_pointer(root, payload)
+        transition, payload = self._prepare_release_transition(
+            transition_type="rollback",
+            release=release,
+            target_release=previous,
+            previous_release=previous,
+            release_root=root,
+            pointer_payload=payload,
+            evidence_ids=evidence_ids,
+        )
+        if transition["status"] == "committed":
+            return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
+        self._ensure_transition_pointer(transition, release_root=root, payload=payload)
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(
@@ -399,6 +727,11 @@ class OperationsService:
                        id,release_id,verification_type,evidence_root,disposition,created_at
                    ) VALUES(?,?,'rollback',?,'passed',?)""",
                 (new_id("release-verification"), release_id, _digest(_ids(evidence_ids)), now),
+            )
+            db.execute(
+                """UPDATE release_transitions_v2
+                   SET status='committed',completed_at=?,updated_at=? WHERE id=?""",
+                (now, now, transition["id"]),
             )
         return self.store.one("SELECT * FROM immutable_releases_v2 WHERE id=?", (release_id,))
 
@@ -726,6 +1059,60 @@ class OperationsService:
             )
         return self.store.one("SELECT * FROM repository_inventories_v2 WHERE id=?", (inventory_id,))
 
+    @staticmethod
+    def _verify_bundle_archive(archive_path: Path, manifest: Mapping[str, Any]) -> None:
+        expected_names = {
+            "repository.bundle",
+            "working-tree.patch",
+            "untracked.tar",
+            "manifest.json",
+        }
+        try:
+            with tarfile.open(archive_path, "r:gz") as archive:
+                members = archive.getmembers()
+                if {member.name for member in members} != expected_names:
+                    raise InvalidTransition("preservation bundle member set differs")
+                if any(
+                    not member.isfile()
+                    or member.issym()
+                    or member.islnk()
+                    or Path(member.name).is_absolute()
+                    or ".." in Path(member.name).parts
+                    for member in members
+                ):
+                    raise InvalidTransition("preservation bundle contains unsafe members")
+                content: dict[str, bytes] = {}
+                for member in members:
+                    extracted = archive.extractfile(member)
+                    if extracted is None:
+                        raise InvalidTransition("preservation bundle member is unreadable")
+                    content[member.name] = extracted.read()
+        except (OSError, tarfile.TarError) as exc:
+            raise InvalidTransition("preservation bundle is unreadable") from exc
+        if content["manifest.json"] != (_canonical(dict(manifest)) + "\n").encode("utf-8"):
+            raise InvalidTransition("preservation bundle manifest bytes differ")
+        for name, key in (
+            ("repository.bundle", "git_bundle_sha256"),
+            ("working-tree.patch", "working_tree_patch_sha256"),
+            ("untracked.tar", "untracked_archive_sha256"),
+        ):
+            actual = hashlib.sha256(content[name]).hexdigest()
+            if actual != manifest.get(key):
+                raise InvalidTransition(f"preservation bundle member differs: {name}")
+
+    def _require_verified_bundle(self, bundle: Mapping[str, Any]) -> None:
+        if not bundle["verified"]:
+            raise InvalidTransition("preservation bundle was not verified")
+        archive_path = Path(str(bundle["bundle_path"])).resolve()
+        if not archive_path.is_file() or archive_path.is_symlink():
+            raise InvalidTransition("preservation bundle path is missing or unsafe")
+        if _file_digest(archive_path) != bundle["bundle_root"]:
+            raise InvalidTransition("preservation bundle root differs")
+        manifest = _loads(bundle["manifest_json"], {})
+        if not isinstance(manifest, dict):
+            raise InvalidTransition("preservation bundle stored manifest is invalid")
+        self._verify_bundle_archive(archive_path, manifest)
+
     def preserve_repository(
         self,
         inventory_id: str,
@@ -778,14 +1165,11 @@ class OperationsService:
         finally:
             shutil.rmtree(temporary, ignore_errors=True)
         bundle_root = _file_digest(archive_path)
-        with tarfile.open(archive_path, "r:gz") as tar:
-            names = set(tar.getnames())
-        verified = {
-            "repository.bundle",
-            "working-tree.patch",
-            "untracked.tar",
-            "manifest.json",
-        } <= names
+        verified = True
+        try:
+            self._verify_bundle_archive(archive_path, manifest)
+        except InvalidTransition:
+            verified = False
         with self.store.transaction() as db:
             db.execute(
                 """INSERT INTO preservation_bundles_v2(
@@ -873,6 +1257,7 @@ class OperationsService:
             raise InvalidTransition(
                 "cleanup retirement lacks a verified matching preservation bundle"
             )
+        self._require_verified_bundle(bundle)
         inventory = self.store.one(
             "SELECT * FROM repository_inventories_v2 WHERE id=?", (item["inventory_id"],)
         )
@@ -884,39 +1269,95 @@ class OperationsService:
         ):
             raise InvalidTransition("cleanup item still has an active writer")
         root = Path(inventory["repository_root"])
-        effect_id = new_id("cleanup-effect")
+
+        def retired_postcondition() -> bool:
+            if item["item_type"] == "branch":
+                return (
+                    _run_git(
+                        root,
+                        "show-ref",
+                        "--verify",
+                        "--quiet",
+                        f"refs/heads/{item['item_key']}",
+                        check=False,
+                    ).returncode
+                    != 0
+                )
+            if item["item_type"] == "worktree":
+                target = str(Path(item["item_key"]).resolve())
+                listed = _run_git(root, "worktree", "list", "--porcelain", check=False).stdout
+                return f"worktree {target}\n" not in f"{listed}\n" and not Path(target).exists()
+            if item["item_type"] == "stash":
+                return (
+                    _run_git(
+                        root, "rev-parse", "--verify", item["item_key"], check=False
+                    ).returncode
+                    != 0
+                )
+            raise InvalidTransition("item type has no destructive retirement owner")
+
+        existing_effect = self.store.one(
+            """SELECT * FROM cleanup_effects_v2
+               WHERE cleanup_item_id=? ORDER BY updated_at DESC LIMIT 1""",
+            (cleanup_item_id,),
+            required=False,
+        )
+        if existing_effect is not None and existing_effect["status"] == "succeeded":
+            if not retired_postcondition():
+                raise InvalidTransition("completed cleanup effect no longer matches physical state")
+            return existing_effect
+        effect_id = existing_effect["id"] if existing_effect else new_id("cleanup-effect")
         precondition = {
             "inventory_root": inventory["inventory_root"],
             "bundle_root": bundle["bundle_root"],
             "classification": item["classification"],
         }
         with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO cleanup_effects_v2(
-                       id,cleanup_item_id,effect_type,precondition_json,status,updated_at
-                   ) VALUES(?,?,?,?,'running',?)""",
-                (
-                    effect_id,
-                    cleanup_item_id,
-                    f"retire_{item['item_type']}",
-                    _canonical(precondition),
-                    utc_now(),
-                ),
-            )
+            if existing_effect is None:
+                db.execute(
+                    """INSERT INTO cleanup_effects_v2(
+                           id,cleanup_item_id,effect_type,precondition_json,status,updated_at
+                       ) VALUES(?,?,?,?,'running',?)""",
+                    (
+                        effect_id,
+                        cleanup_item_id,
+                        f"retire_{item['item_type']}",
+                        _canonical(precondition),
+                        utc_now(),
+                    ),
+                )
+            else:
+                if _loads(existing_effect["precondition_json"], {}) != precondition:
+                    raise InvalidTransition("cleanup retry precondition differs")
+                db.execute(
+                    """UPDATE cleanup_effects_v2
+                       SET status='running',result_json=NULL,completed_at=NULL,updated_at=?
+                       WHERE id=?""",
+                    (utc_now(), effect_id),
+                )
             db.execute(
                 "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",
                 (utc_now(), cleanup_item_id),
             )
         try:
-            if item["item_type"] == "branch":
-                _run_git(root, "branch", "-D", item["item_key"])
-            elif item["item_type"] == "worktree":
-                _run_git(root, "worktree", "remove", "--force", item["item_key"])
-            elif item["item_type"] == "stash":
-                _run_git(root, "stash", "drop", item["item_key"])
-            else:
-                raise InvalidTransition("item type has no destructive retirement owner")
-            result = {"retired": item["item_key"], "item_type": item["item_type"]}
+            already_absent = retired_postcondition()
+            if not already_absent:
+                if item["item_type"] == "branch":
+                    _run_git(root, "branch", "-D", item["item_key"])
+                elif item["item_type"] == "worktree":
+                    _run_git(root, "worktree", "remove", "--force", item["item_key"])
+                elif item["item_type"] == "stash":
+                    _run_git(root, "stash", "drop", item["item_key"])
+                else:
+                    raise InvalidTransition("item type has no destructive retirement owner")
+            if not retired_postcondition():
+                raise RuntimeError("cleanup physical postcondition was not achieved")
+            self._fault("retirement:after_physical_effect")
+            result = {
+                "retired": item["item_key"],
+                "item_type": item["item_type"],
+                "already_absent": already_absent,
+            }
         except BaseException as exc:
             with self.store.transaction() as db:
                 db.execute(

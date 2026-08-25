@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from software_factory.recovery import FactoryRecoveryCoordinator, ReleaseRefreshCoordinator
 
 
@@ -34,6 +36,12 @@ class TestStore:
         )
         self.connection.executescript(
             (migrations / "0014_governance_effects.sql").read_text(encoding="utf-8")
+        )
+        self.connection.executescript(
+            (migrations / "0017_reconciliation_runtime.sql").read_text(encoding="utf-8")
+        )
+        self.connection.executescript(
+            (migrations / "0024_delivery_reconciliation.sql").read_text(encoding="utf-8")
         )
 
     @contextmanager
@@ -107,6 +115,68 @@ def test_factory_repair_closes_loop_and_wakes_target_once(tmp_path: Path) -> Non
     assert result["recovery"]["resume_count"] == 1
     assert result["wake_effect"]["status"] == "succeeded"
     assert len(wake_calls) == 1
+    assert wake_calls[0]["resume_key"] == result["resume_token"]["resume_key"]
+    assert wake_calls[0]["resume_token_id"] == result["resume_token"]["id"]
+
+
+def test_factory_repair_redrives_ambiguous_wake_with_same_external_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    coordinator = FactoryRecoveryCoordinator(store)  # type: ignore[arg-type]
+    source = tmp_path / "repair-source"
+    source.mkdir()
+    (source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    repair_calls: list[str] = []
+    wake_keys: list[str] = []
+    armed = {"wake": True}
+
+    def repair(_: Mapping[str, Any]) -> Mapping[str, Any]:
+        repair_calls.append("repair")
+        return {
+            "source_root": str(source),
+            "source_revision": "repair-revision-1",
+            "source_tree_root": "tree-repair-revision-1",
+            "repair_evidence_ids": ["implementation", "qa"],
+            "health_command": [sys.executable, "health.py"],
+        }
+
+    def wake(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        wake_keys.append(str(payload["resume_key"]))
+        if armed.pop("wake", False):
+            raise SystemExit("injected provider/sql crash")
+        return {"provider_reference": "target-thread-1", "sent": True}
+
+    arguments = {
+        "target_mission_id": "mission-1",
+        "defect_class": "factory-controller",
+        "defect_evidence": {"occurrence_id": "failure-1"},
+        "target_state": {"obligation": "open"},
+        "requested_range_root": "range-1234567890abcdef",
+        "tracker_currentness_root": "tracker-1234567890abcdef",
+        "safe_frontier": [],
+        "release_root": tmp_path / "releases",
+        "repair": repair,
+        "review": lambda _: {
+            "disposition": "accepted",
+            "findings": {},
+            "evidence_ids": ["review"],
+        },
+        "wake_target": wake,
+        "verify_target": lambda _: {
+            "target_resumed": True,
+            "evidence_ids": ["progress"],
+        },
+    }
+    with pytest.raises(SystemExit, match="provider/sql"):
+        coordinator.recover(**arguments)  # type: ignore[arg-type]
+    result = coordinator.recover(**arguments)  # type: ignore[arg-type]
+
+    assert result["recovery"]["status"] == "resolved"
+    assert repair_calls == ["repair"]
+    assert len(wake_keys) == 2
+    assert len(set(wake_keys)) == 1
+    assert store.one("SELECT count(*) AS count FROM external_effect_intents_v2") == {"count": 1}
 
 
 def test_release_refresh_waits_for_safe_boundary_and_is_idempotent(tmp_path: Path) -> None:
@@ -176,3 +246,51 @@ def test_release_refresh_waits_for_safe_boundary_and_is_idempotent(tmp_path: Pat
         "agent-busy": "deferred",
     }
     assert calls == ["agent-safe"]
+
+
+def test_release_refresh_redrives_started_effect_with_same_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    store = TestStore()
+    recovery = FactoryRecoveryCoordinator(store)  # type: ignore[arg-type]
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "health.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    staged = recovery._operations.stage_release(
+        source_root=source,
+        release_root=tmp_path / "releases",
+        source_revision="revision-1",
+        source_tree_root="tree-1",
+        implementer_session_id="implementer",
+    )
+    recovery._operations.review_release(
+        staged["id"],
+        reviewer_session_id="reviewer",
+        disposition="accepted",
+        findings={},
+        evidence_ids=["review"],
+    )
+    recovery._operations.activate_release(staged["id"], release_root=tmp_path / "releases")
+    recovery._operations.verify_release(
+        staged["id"],
+        command=[sys.executable, "health.py"],
+        release_root=tmp_path / "releases",
+    )
+    coordinator = ReleaseRefreshCoordinator(store)  # type: ignore[arg-type]
+    keys: list[str] = []
+    armed = {"refresh": True}
+
+    def refresh(plan: Mapping[str, Any]) -> Mapping[str, Any]:
+        keys.append(str(plan["idempotency_key"]))
+        if armed.pop("refresh", False):
+            raise SystemExit("injected refresh/sql crash")
+        return {"refreshed": True, "provider_reference": "agent-safe"}
+
+    agents = [{"id": "agent-safe", "runtime_revision": "old", "at_safe_boundary": True}]
+    with pytest.raises(SystemExit, match="refresh/sql"):
+        coordinator.refresh(staged["id"], agents=agents, refresh_agent=refresh)
+    result = coordinator.refresh(staged["id"], agents=agents, refresh_agent=refresh)
+    assert result[0]["status"] == "refreshed"
+    assert len(keys) == 2
+    assert len(set(keys)) == 1
+    assert store.one("SELECT count(*) AS count FROM external_effect_intents_v2") == {"count": 1}
