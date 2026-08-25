@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `b273661dd7db0398fb2b2213f3517fe23f84e15b98de937d15b0206e9b8633b3`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, and `91b8cac` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `83686f412c7f42321e9c6cae222aec057e1f3b6bd60e604d275e463f84916ba0`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, and `7c27b86` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -69,8 +69,13 @@ closing those deletion paths but allowing validators to observe dirty mutable
 lane bytes while publishing a different committed candidate tree. The current
 correction runs each validation phase in a fresh retained detached snapshot of
 the exact `candidate_head` and verifies tracked/index currentness through command
-completion; a clean correction freeze and distinct exact-revision review remain
-required.
+completion. Exact successor `7c27b86` is preserved and unaccepted after closing
+those mutable-byte substitutions but leaving a post-validation ref-advance race
+and letting validator setup/spawn exceptions bypass rollback evidence. The
+current correction durably handles every known validator failure, terminally
+CAS-fences the exact target ref, and reconciles the ref after SQL completion and
+on later reads; a clean correction freeze and distinct exact-revision review
+remain required.
 
 ## Required outcome
 

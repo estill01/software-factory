@@ -573,6 +573,27 @@ class RepositoryReconciliationService:
                 return Path(row["worktree"]).resolve()
         return None
 
+    def _record_publication_failure(
+        self,
+        candidate: Mapping[str, Any],
+        *,
+        status: str,
+        result: Mapping[str, Any],
+    ) -> None:
+        now = utc_now()
+        with self.store.transaction() as db:
+            db.execute(
+                """UPDATE integration_candidates_v2
+                   SET status=?,validation_result_json=?,completed_at=?,updated_at=?
+                   WHERE id=?""",
+                (status, _canonical(dict(result)), now, now, candidate["id"]),
+            )
+            db.execute(
+                """UPDATE cleanup_items_v2
+                   SET status='failed',updated_at=? WHERE id=?""",
+                (now, candidate["cleanup_item_id"]),
+            )
+
     def publish_integration(
         self,
         candidate_id: str,
@@ -583,7 +604,20 @@ class RepositoryReconciliationService:
             "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
         )
         if candidate["status"] == "published":
-            return candidate
+            repository = Path(candidate["repository_root"])
+            observed = _branch_head(repository, str(candidate["target_branch"]))
+            if observed == candidate["candidate_head"]:
+                return candidate
+            self._record_publication_failure(
+                candidate,
+                status="failed",
+                result={
+                    "phase": "published_currentness_reconciliation",
+                    "candidate_head": candidate["candidate_head"],
+                    "observed_target_head": observed,
+                },
+            )
+            raise InvalidTransition("published target branch no longer matches the candidate")
         if candidate["status"] != "accepted" or not candidate["candidate_head"]:
             raise InvalidTransition("integration candidate is not accepted")
         repository = Path(candidate["repository_root"])
@@ -616,16 +650,34 @@ class RepositoryReconciliationService:
             if _branch_head(repository, target_branch) != candidate_head:
                 raise RuntimeError("published target branch differs from accepted candidate")
             self._fault("publish:after_ref_update")
+            completion_validation_result = candidate["validation_result_json"]
             if post_publish_validation:
-                validation_result = self._validate_exact_head(
-                    repository,
-                    candidate_id=candidate_id,
-                    candidate_head=candidate_head,
-                    phase="post-publish",
-                    validation_command=post_publish_validation,
-                    snapshot_root=Path(candidate["integration_worktree"]).parent,
+                validation_error: Exception | None = None
+                try:
+                    validation_result = self._validate_exact_head(
+                        repository,
+                        candidate_id=candidate_id,
+                        candidate_head=candidate_head,
+                        phase="post-publish",
+                        validation_command=post_publish_validation,
+                        snapshot_root=Path(candidate["integration_worktree"]).parent,
+                    )
+                except Exception as exc:
+                    validation_error = exc
+                    validation_result = {
+                        "command": list(post_publish_validation),
+                        "candidate_head": candidate_head,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                completion_validation_result = _canonical(
+                    {"phase": "post_publish", **validation_result}
                 )
-                if validation_result["exit_code"] != 0 or not validation_result["exact_tree_after"]:
+                if (
+                    validation_error is not None
+                    or validation_result.get("exit_code") != 0
+                    or not validation_result.get("exact_tree_after", False)
+                ):
                     rollback = _git(
                         repository,
                         "update-ref",
@@ -635,40 +687,73 @@ class RepositoryReconciliationService:
                         check=False,
                     )
                     if rollback.returncode != 0:
-                        raise InvalidTransition("post-publication rollback compare-and-swap failed")
-                    with self.store.transaction() as db:
-                        db.execute(
-                            """UPDATE integration_candidates_v2
-                               SET status='rolled_back',validation_result_json=?,
-                                   completed_at=?,updated_at=? WHERE id=?""",
-                            (
-                                _canonical(
-                                    {
-                                        "phase": "post_publish",
-                                        **validation_result,
-                                    }
-                                ),
-                                utc_now(),
-                                utc_now(),
-                                candidate_id,
-                            ),
+                        self._record_publication_failure(
+                            candidate,
+                            status="failed",
+                            result={
+                                "phase": "post_publish_rollback",
+                                **validation_result,
+                                "rollback": "compare_and_swap_failed",
+                                "observed_target_head": _branch_head(repository, target_branch),
+                            },
                         )
+                        raise InvalidTransition(
+                            "post-publication rollback compare-and-swap failed"
+                        ) from validation_error
+                    self._record_publication_failure(
+                        candidate,
+                        status="rolled_back",
+                        result={"phase": "post_publish", **validation_result},
+                    )
                     raise RuntimeError(
                         "post-publication validation failed and target was rolled back"
-                    )
+                    ) from validation_error
             self._fault("publish:after_validation")
-        now = utc_now()
-        with self.store.transaction() as db:
-            db.execute(
-                """UPDATE integration_candidates_v2
-                   SET status='published',completed_at=?,updated_at=? WHERE id=?""",
-                (now, now, candidate_id),
+            completion_fence = _git(
+                repository,
+                "update-ref",
+                f"refs/heads/{target_branch}",
+                candidate_head,
+                candidate_head,
+                check=False,
             )
-            db.execute(
-                """UPDATE cleanup_items_v2
-                   SET status='completed',updated_at=? WHERE id=?""",
-                (now, candidate["cleanup_item_id"]),
-            )
+            if completion_fence.returncode != 0:
+                observed = _branch_head(repository, target_branch)
+                self._record_publication_failure(
+                    candidate,
+                    status="failed",
+                    result={
+                        "phase": "publication_completion_fence",
+                        "candidate_head": candidate_head,
+                        "observed_target_head": observed,
+                    },
+                )
+                raise InvalidTransition("target branch advanced before publication completion")
+            now = utc_now()
+            with self.store.transaction() as db:
+                db.execute(
+                    """UPDATE integration_candidates_v2
+                       SET status='published',validation_result_json=?,completed_at=?,updated_at=?
+                       WHERE id=?""",
+                    (completion_validation_result, now, now, candidate_id),
+                )
+                db.execute(
+                    """UPDATE cleanup_items_v2
+                       SET status='completed',updated_at=? WHERE id=?""",
+                    (now, candidate["cleanup_item_id"]),
+                )
+            observed = _branch_head(repository, target_branch)
+            if observed != candidate_head:
+                self._record_publication_failure(
+                    candidate,
+                    status="failed",
+                    result={
+                        "phase": "publication_completion_reconciliation",
+                        "candidate_head": candidate_head,
+                        "observed_target_head": observed,
+                    },
+                )
+                raise InvalidTransition("target branch advanced during publication completion")
         return self.store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,))
 
     def retire_integration_lane(self, candidate_id: str) -> None:

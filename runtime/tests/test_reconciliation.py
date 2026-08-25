@@ -392,6 +392,108 @@ def test_post_publish_validation_rejects_dirty_snapshot_and_rolls_target_back(
     assert (repository / "app.py").read_text(encoding="utf-8") == "VALUE = 'COMMITTED_BAD'\n"
 
 
+def test_publication_completion_rejects_concurrent_target_ref_advance(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "concurrent-advance")
+    (repository / "concurrent.txt").write_text("newer authority\n", encoding="utf-8")
+    git(repository, "add", "--", "concurrent.txt")
+    git(repository, "commit", "-m", "concurrent target")
+    concurrent_head = git(repository, "rev-parse", "HEAD")
+    git(repository, "switch", "main")
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("candidate\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "accepted feature")
+    git(repository, "switch", "main")
+    store = TestStore()
+    candidate_head = {"value": ""}
+
+    def fault(point: str) -> None:
+        if point == "publish:after_ref_update":
+            git(
+                repository,
+                "update-ref",
+                "refs/heads/main",
+                concurrent_head,
+                candidate_head["value"],
+            )
+
+    reconciliation = RepositoryReconciliationService(  # type: ignore[arg-type]
+        store, fault_injector=fault
+    )
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+    candidate = reconciliation.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+    candidate_head["value"] = candidate["candidate_head"]
+
+    with pytest.raises(InvalidTransition, match="advanced before publication completion"):
+        reconciliation.publish_integration(
+            candidate["id"],
+            post_publish_validation=[sys.executable, "-c", "pass"],
+        )
+    stored = store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate["id"],))
+    result = json.loads(stored["validation_result_json"])
+    assert stored["status"] == "failed"
+    assert result == {
+        "candidate_head": candidate["candidate_head"],
+        "observed_target_head": concurrent_head,
+        "phase": "publication_completion_fence",
+    }
+    assert git(repository, "rev-parse", "main") == concurrent_head
+    assert store.one("SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)) == {
+        "status": "failed"
+    }
+
+
+def test_post_publish_validator_spawn_failure_rolls_back_and_records_failure(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    original = git(repository, "rev-parse", "main")
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("feature\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "feature")
+    git(repository, "switch", "main")
+    reconciliation = service()
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+    candidate = reconciliation.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+
+    with pytest.raises(RuntimeError, match="rolled back") as failure:
+        reconciliation.publish_integration(
+            candidate["id"],
+            post_publish_validation=["/definitely/not/a/validator"],
+        )
+    assert isinstance(failure.value.__cause__, FileNotFoundError)
+    stored = reconciliation.store.one(
+        "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate["id"],)
+    )
+    result = json.loads(stored["validation_result_json"])
+    assert stored["status"] == "rolled_back"
+    assert result["phase"] == "post_publish"
+    assert result["candidate_head"] == candidate["candidate_head"]
+    assert result["error_type"] == "FileNotFoundError"
+    assert git(repository, "rev-parse", "main") == original
+    assert reconciliation.store.one(
+        "SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)
+    ) == {"status": "failed"}
+
+
 def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) -> None:
     repository = tmp_path / "repo"
     repository.mkdir()
