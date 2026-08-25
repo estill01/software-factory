@@ -4,6 +4,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from software_factory.database import Database
 from software_factory.errors import InvalidTransition
 from software_factory.reconciliation import RepositoryReconciliationService
 
@@ -594,6 +596,81 @@ def test_later_target_successor_preserves_historical_publication(tmp_path: Path)
     assert reconciliation.store.one(
         "SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)
     ) == {"status": "completed"}
+
+
+def test_concurrent_publisher_cannot_resurrect_rolled_back_candidate(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    original = git(repository, "rev-parse", "main")
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("candidate\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "accepted feature")
+    git(repository, "switch", "main")
+    store = Database(tmp_path / "concurrent.sqlite3")
+    first_holds_lock = threading.Event()
+    second_loaded_stale_row = threading.Event()
+
+    def first_fault(point: str) -> None:
+        if point == "publish:after_ref_update":
+            first_holds_lock.set()
+            if not second_loaded_stale_row.wait(timeout=5):
+                raise AssertionError("second publisher did not reach the pre-lock boundary")
+
+    def second_fault(point: str) -> None:
+        if point == "publish:before_repository_lock":
+            second_loaded_stale_row.set()
+
+    first_service = RepositoryReconciliationService(store, fault_injector=first_fault)
+    second_service = RepositoryReconciliationService(store, fault_injector=second_fault)
+    item, bundle = accepted_item(first_service, repository, "accepted-feature", tmp_path)
+    candidate = first_service.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+    first_errors: list[BaseException] = []
+    second_errors: list[BaseException] = []
+
+    def publish_then_roll_back() -> None:
+        try:
+            first_service.publish_integration(
+                candidate["id"],
+                post_publish_validation=[sys.executable, "-c", "raise SystemExit(9)"],
+            )
+        except BaseException as exc:
+            first_errors.append(exc)
+
+    def publish_from_stale_read() -> None:
+        try:
+            second_service.publish_integration(candidate["id"])
+        except BaseException as exc:
+            second_errors.append(exc)
+
+    first_thread = threading.Thread(target=publish_then_roll_back)
+    first_thread.start()
+    assert first_holds_lock.wait(timeout=5)
+    second_thread = threading.Thread(target=publish_from_stale_read)
+    second_thread.start()
+    first_thread.join(timeout=10)
+    second_thread.join(timeout=10)
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert len(first_errors) == 1 and isinstance(first_errors[0], RuntimeError)
+    assert len(second_errors) == 1 and isinstance(second_errors[0], InvalidTransition)
+    assert "changed before publication" in str(second_errors[0])
+    stored = store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate["id"],))
+    result = json.loads(stored["validation_result_json"])
+    assert stored["status"] == "rolled_back"
+    assert result["phase"] == "post_publish"
+    assert result["exit_code"] == 9
+    assert git(repository, "rev-parse", "main") == original
+    assert store.one("SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)) == {
+        "status": "failed"
+    }
 
 
 def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) -> None:

@@ -586,20 +586,33 @@ class RepositoryReconciliationService:
         *,
         status: str,
         result: Mapping[str, Any],
+        expected_candidate_status: str,
+        expected_cleanup_status: str,
     ) -> None:
         now = utc_now()
         with self.store.transaction() as db:
-            db.execute(
+            candidate_update = db.execute(
                 """UPDATE integration_candidates_v2
                    SET status=?,validation_result_json=?,completed_at=?,updated_at=?
-                   WHERE id=?""",
-                (status, _canonical(dict(result)), now, now, candidate["id"]),
+                   WHERE id=? AND status=?""",
+                (
+                    status,
+                    _canonical(dict(result)),
+                    now,
+                    now,
+                    candidate["id"],
+                    expected_candidate_status,
+                ),
             )
-            db.execute(
+            if candidate_update.rowcount != 1:
+                raise InvalidTransition("integration candidate changed concurrently")
+            cleanup_update = db.execute(
                 """UPDATE cleanup_items_v2
-                   SET status='failed',updated_at=? WHERE id=?""",
-                (now, candidate["cleanup_item_id"]),
+                   SET status='failed',updated_at=? WHERE id=? AND status=?""",
+                (now, candidate["cleanup_item_id"], expected_cleanup_status),
             )
+            if cleanup_update.rowcount != 1:
+                raise InvalidTransition("integration cleanup item changed concurrently")
 
     def publish_integration(
         self,
@@ -616,9 +629,17 @@ class RepositoryReconciliationService:
             raise InvalidTransition("integration candidate is not accepted")
         repository = Path(candidate["repository_root"])
         target_branch = str(candidate["target_branch"])
-        target_before = str(candidate["target_head_before"])
-        candidate_head = str(candidate["candidate_head"])
+        self._fault("publish:before_repository_lock")
         with _repository_lock(repository, f"publish-{target_branch.replace('/', '-')}"):
+            candidate = self.store.one(
+                "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
+            )
+            if candidate["status"] == "published":
+                return candidate
+            if candidate["status"] != "accepted" or not candidate["candidate_head"]:
+                raise InvalidTransition("integration candidate changed before publication")
+            target_before = str(candidate["target_head_before"])
+            candidate_head = str(candidate["candidate_head"])
             current_head = _branch_head(repository, target_branch)
             if current_head not in {target_before, candidate_head}:
                 raise InvalidTransition("target branch advanced after integration validation")
@@ -692,6 +713,8 @@ class RepositoryReconciliationService:
                                     repository, target_branch
                                 ),
                             },
+                            expected_candidate_status="accepted",
+                            expected_cleanup_status="running",
                         )
                         raise InvalidTransition(
                             "post-publication rollback compare-and-swap failed"
@@ -700,6 +723,8 @@ class RepositoryReconciliationService:
                         candidate,
                         status="rolled_back",
                         result={"phase": "post_publish", **validation_result},
+                        expected_candidate_status="accepted",
+                        expected_cleanup_status="running",
                     )
                     raise RuntimeError(
                         "post-publication validation failed and target was rolled back"
@@ -723,21 +748,28 @@ class RepositoryReconciliationService:
                         "candidate_head": candidate_head,
                         "observed_target_head": observed,
                     },
+                    expected_candidate_status="accepted",
+                    expected_cleanup_status="running",
                 )
                 raise InvalidTransition("target branch advanced before publication completion")
             now = utc_now()
             with self.store.transaction() as db:
-                db.execute(
+                candidate_update = db.execute(
                     """UPDATE integration_candidates_v2
                        SET status='published',validation_result_json=?,completed_at=?,updated_at=?
-                       WHERE id=?""",
+                       WHERE id=? AND status='accepted'""",
                     (completion_validation_result, now, now, candidate_id),
                 )
-                db.execute(
+                if candidate_update.rowcount != 1:
+                    raise InvalidTransition("integration candidate changed before completion")
+                cleanup_update = db.execute(
                     """UPDATE cleanup_items_v2
-                       SET status='completed',updated_at=? WHERE id=?""",
+                       SET status='completed',updated_at=?
+                       WHERE id=? AND status='running'""",
                     (now, candidate["cleanup_item_id"]),
                 )
+                if cleanup_update.rowcount != 1:
+                    raise InvalidTransition("integration cleanup changed before completion")
             observed = _observed_branch_head(repository, target_branch)
             if observed != candidate_head:
                 self._record_publication_failure(
@@ -748,6 +780,8 @@ class RepositoryReconciliationService:
                         "candidate_head": candidate_head,
                         "observed_target_head": observed,
                     },
+                    expected_candidate_status="published",
+                    expected_cleanup_status="completed",
                 )
                 raise InvalidTransition("target branch advanced during publication completion")
         return self.store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,))
