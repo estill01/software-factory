@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `83686f412c7f42321e9c6cae222aec057e1f3b6bd60e604d275e463f84916ba0`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, and `7c27b86` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `e2f21286825608df27c4731e05a6df564a822fe27eefbf57436591f09acae081`; Blocks 0–7 accepted; Block 8 correction in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, and `46631b7` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -74,8 +74,13 @@ those mutable-byte substitutions but leaving a post-validation ref-advance race
 and letting validator setup/spawn exceptions bypass rollback evidence. The
 current correction durably handles every known validator failure, terminally
 CAS-fences the exact target ref, and reconciles the ref after SQL completion and
-on later reads; a clean correction freeze and distinct exact-revision review
-remain required.
+on later reads. Exact successor `46631b7` is preserved and unaccepted after
+closing the advance/spawn cases but throwing before durable evidence when the
+target ref was deleted and rewriting valid historical publication after an
+ordinary later successor. The current correction represents missing refs as
+observed `null` and keeps historical publication independent from later target
+currentness; a clean correction freeze and distinct exact-revision review remain
+required.
 
 ## Required outcome
 

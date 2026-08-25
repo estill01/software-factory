@@ -494,6 +494,108 @@ def test_post_publish_validator_spawn_failure_rolls_back_and_records_failure(
     ) == {"status": "failed"}
 
 
+@pytest.mark.parametrize("validator_succeeds", [True, False])
+def test_target_ref_deletion_records_terminal_publication_failure(
+    tmp_path: Path,
+    validator_succeeds: bool,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("candidate\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "accepted feature")
+    git(repository, "switch", "main")
+    store = TestStore()
+    candidate_head = {"value": ""}
+
+    def fault(point: str) -> None:
+        if point == "publish:after_ref_update":
+            git(
+                repository,
+                "update-ref",
+                "-d",
+                "refs/heads/main",
+                candidate_head["value"],
+            )
+
+    reconciliation = RepositoryReconciliationService(  # type: ignore[arg-type]
+        store, fault_injector=fault
+    )
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+    candidate = reconciliation.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+    candidate_head["value"] = candidate["candidate_head"]
+
+    message = (
+        "advanced before publication completion"
+        if validator_succeeds
+        else "rollback compare-and-swap failed"
+    )
+    with pytest.raises(InvalidTransition, match=message):
+        reconciliation.publish_integration(
+            candidate["id"],
+            post_publish_validation=[
+                sys.executable,
+                "-c",
+                "pass" if validator_succeeds else "raise SystemExit(9)",
+            ],
+        )
+    stored = store.one("SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate["id"],))
+    result = json.loads(stored["validation_result_json"])
+    assert stored["status"] == "failed"
+    assert result["observed_target_head"] is None
+    assert result["phase"] == (
+        "publication_completion_fence" if validator_succeeds else "post_publish_rollback"
+    )
+    assert git(repository, "show-ref", "--verify", "refs/heads/main", check=False) == ""
+    assert store.one("SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)) == {
+        "status": "failed"
+    }
+
+
+def test_later_target_successor_preserves_historical_publication(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("candidate\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "accepted feature")
+    git(repository, "switch", "main")
+    reconciliation = service()
+    item, bundle = accepted_item(reconciliation, repository, "accepted-feature", tmp_path)
+    candidate = reconciliation.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+    first = reconciliation.publish_integration(candidate["id"])
+    assert first["status"] == "published"
+    (repository / "successor.txt").write_text("legitimate successor\n", encoding="utf-8")
+    git(repository, "add", "--", "successor.txt")
+    git(repository, "commit", "-m", "later target successor")
+    successor_head = git(repository, "rev-parse", "main")
+
+    replay = reconciliation.publish_integration(candidate["id"])
+    assert replay == first
+    assert successor_head != candidate["candidate_head"]
+    assert reconciliation.store.one(
+        "SELECT status FROM integration_candidates_v2 WHERE id=?", (candidate["id"],)
+    ) == {"status": "published"}
+    assert reconciliation.store.one(
+        "SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)
+    ) == {"status": "completed"}
+
+
 def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) -> None:
     repository = tmp_path / "repo"
     repository.mkdir()

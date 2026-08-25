@@ -54,6 +54,13 @@ def _branch_head(root: Path, branch: str) -> str:
     return result.stdout.strip()
 
 
+def _observed_branch_head(root: Path, branch: str) -> str | None:
+    """Return the current ref value without losing a missing-ref observation."""
+
+    result = _git(root, "rev-parse", "--verify", f"refs/heads/{branch}", check=False)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def _worktrees(root: Path) -> list[dict[str, str]]:
     output = _git(root, "worktree", "list", "--porcelain").stdout
     rows: list[dict[str, str]] = []
@@ -604,20 +611,7 @@ class RepositoryReconciliationService:
             "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
         )
         if candidate["status"] == "published":
-            repository = Path(candidate["repository_root"])
-            observed = _branch_head(repository, str(candidate["target_branch"]))
-            if observed == candidate["candidate_head"]:
-                return candidate
-            self._record_publication_failure(
-                candidate,
-                status="failed",
-                result={
-                    "phase": "published_currentness_reconciliation",
-                    "candidate_head": candidate["candidate_head"],
-                    "observed_target_head": observed,
-                },
-            )
-            raise InvalidTransition("published target branch no longer matches the candidate")
+            return candidate
         if candidate["status"] != "accepted" or not candidate["candidate_head"]:
             raise InvalidTransition("integration candidate is not accepted")
         repository = Path(candidate["repository_root"])
@@ -694,7 +688,9 @@ class RepositoryReconciliationService:
                                 "phase": "post_publish_rollback",
                                 **validation_result,
                                 "rollback": "compare_and_swap_failed",
-                                "observed_target_head": _branch_head(repository, target_branch),
+                                "observed_target_head": _observed_branch_head(
+                                    repository, target_branch
+                                ),
                             },
                         )
                         raise InvalidTransition(
@@ -718,7 +714,7 @@ class RepositoryReconciliationService:
                 check=False,
             )
             if completion_fence.returncode != 0:
-                observed = _branch_head(repository, target_branch)
+                observed = _observed_branch_head(repository, target_branch)
                 self._record_publication_failure(
                     candidate,
                     status="failed",
@@ -742,7 +738,7 @@ class RepositoryReconciliationService:
                        SET status='completed',updated_at=? WHERE id=?""",
                     (now, candidate["cleanup_item_id"]),
                 )
-            observed = _branch_head(repository, target_branch)
+            observed = _observed_branch_head(repository, target_branch)
             if observed != candidate_head:
                 self._record_publication_failure(
                     candidate,
