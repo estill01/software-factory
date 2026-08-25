@@ -53,12 +53,48 @@ def test_store_compatibility_names_are_the_same_persistence_owner() -> None:
 
 
 def test_migration_catalog_is_complete_contiguous_and_file_exact() -> None:
-    assert SCHEMA_VERSION == 24
-    assert [migration.version for migration in MIGRATIONS] == list(range(1, 25))
+    assert SCHEMA_VERSION == 25
+    assert [migration.version for migration in MIGRATIONS] == list(range(1, 26))
     names = [migration.name for migration in MIGRATIONS]
     assert len(names) == len(set(names))
     discovered = sorted(path.name for path in (PACKAGE_ROOT / "migrations").glob("*.sql"))
     assert discovered == sorted(names)
+
+
+def test_publication_intent_migration_preserves_historical_validator_identity() -> None:
+    database = sqlite3.connect(":memory:", isolation_level=None)
+    database.row_factory = sqlite3.Row
+    database.execute(
+        """CREATE TABLE integration_candidates_v2(
+               id TEXT PRIMARY KEY,
+               status TEXT NOT NULL,
+               validation_result_json TEXT
+           )"""
+    )
+    database.executemany(
+        "INSERT INTO integration_candidates_v2 VALUES(?,?,?)",
+        [
+            (
+                "validated",
+                "published",
+                '{"phase":"post_publish","command":["python","-c","pass"]}',
+            ),
+            ("unvalidated", "published", '{"command":["python","-c","prepare"]}'),
+            ("unfinished", "accepted", None),
+        ],
+    )
+    database.executescript(migration_sql(MIGRATIONS[-1]))
+    rows = {
+        row["id"]: row["post_validation_command_json"]
+        for row in database.execute(
+            "SELECT id,post_validation_command_json FROM integration_candidates_v2"
+        )
+    }
+    assert rows == {
+        "validated": '["python","-c","pass"]',
+        "unvalidated": "[]",
+        "unfinished": None,
+    }
 
 
 def test_database_upgrades_an_applied_v9_prefix_without_alternate_writers(
@@ -67,7 +103,7 @@ def test_database_upgrades_an_applied_v9_prefix_without_alternate_writers(
     path = tmp_path / "factory.sqlite3"
     _applied_prefix(path, 9)
     database = Database(path)
-    assert database.health()["schema_version"] == 24
+    assert database.health()["schema_version"] == 25
     tables = {
         row["name"] for row in database.all("SELECT name FROM sqlite_master WHERE type='table'")
     }

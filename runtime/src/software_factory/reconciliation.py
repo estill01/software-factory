@@ -614,16 +614,27 @@ class RepositoryReconciliationService:
             if cleanup_update.rowcount != 1:
                 raise InvalidTransition("integration cleanup item changed concurrently")
 
+    @staticmethod
+    def _require_publication_intent(candidate: Mapping[str, Any], expected_intent: str) -> None:
+        recorded_intent = candidate.get("post_validation_command_json")
+        if recorded_intent is None:
+            raise InvalidTransition("integration publication validation intent is unbound")
+        if recorded_intent != expected_intent:
+            raise InvalidTransition("integration publication validation intent changed")
+
     def publish_integration(
         self,
         candidate_id: str,
         *,
         post_publish_validation: Sequence[str] | None = None,
     ) -> dict[str, Any]:
+        validation_command = tuple(post_publish_validation or ())
+        validation_intent = _canonical(list(validation_command))
         candidate = self.store.one(
             "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
         )
         if candidate["status"] == "published":
+            self._require_publication_intent(candidate, validation_intent)
             return candidate
         if candidate["status"] != "accepted" or not candidate["candidate_head"]:
             raise InvalidTransition("integration candidate is not accepted")
@@ -635,9 +646,27 @@ class RepositoryReconciliationService:
                 "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
             )
             if candidate["status"] == "published":
+                self._require_publication_intent(candidate, validation_intent)
                 return candidate
             if candidate["status"] != "accepted" or not candidate["candidate_head"]:
                 raise InvalidTransition("integration candidate changed before publication")
+            if candidate.get("post_validation_command_json") is None:
+                with self.store.transaction() as db:
+                    update = db.execute(
+                        """UPDATE integration_candidates_v2
+                           SET post_validation_command_json=?,updated_at=?
+                           WHERE id=? AND status='accepted'
+                             AND post_validation_command_json IS NULL""",
+                        (validation_intent, utc_now(), candidate_id),
+                    )
+                    if update.rowcount != 1:
+                        raise InvalidTransition(
+                            "integration candidate changed while binding publication validation"
+                        )
+                candidate = self.store.one(
+                    "SELECT * FROM integration_candidates_v2 WHERE id=?", (candidate_id,)
+                )
+            self._require_publication_intent(candidate, validation_intent)
             target_before = str(candidate["target_head_before"])
             candidate_head = str(candidate["candidate_head"])
             current_head = _branch_head(repository, target_branch)
@@ -666,7 +695,7 @@ class RepositoryReconciliationService:
                 raise RuntimeError("published target branch differs from accepted candidate")
             self._fault("publish:after_ref_update")
             completion_validation_result = candidate["validation_result_json"]
-            if post_publish_validation:
+            if validation_command:
                 validation_error: Exception | None = None
                 try:
                     validation_result = self._validate_exact_head(
@@ -674,13 +703,13 @@ class RepositoryReconciliationService:
                         candidate_id=candidate_id,
                         candidate_head=candidate_head,
                         phase="post-publish",
-                        validation_command=post_publish_validation,
+                        validation_command=validation_command,
                         snapshot_root=Path(candidate["integration_worktree"]).parent,
                     )
                 except Exception as exc:
                     validation_error = exc
                     validation_result = {
-                        "command": list(post_publish_validation),
+                        "command": list(validation_command),
                         "candidate_head": candidate_head,
                         "error_type": type(exc).__name__,
                         "error": str(exc),

@@ -1839,7 +1839,10 @@ unfinished-work restoration.
   ref is durable `null` currentness rather than an exception that skips evidence.
   Each queued publisher rereads the candidate under the repository lock, and
   every terminal candidate/cleanup transition compare-and-swaps the exact
-  expected SQL status so a stale caller cannot resurrect a rollback.
+  expected SQL status so a stale caller cannot resurrect a rollback. The exact
+  optional post-publication validation command is durably bound before the Git
+  effect; idempotent or queued calls with a different validation policy fail
+  closed instead of inheriting another caller's result.
   Once published, that historical fact remains immutable while legitimate later
   target revisions advance. No reconciliation path removes a branch ref,
   checkout, validation snapshot, stash, dirty byte, or untracked byte.
@@ -1974,6 +1977,18 @@ unfinished-work restoration.
   cleanup completed. The current successor rereads under the physical lock and
   SQL-CAS-fences accepted-to-terminal candidate and running-to-terminal cleanup
   transitions in the same transaction.
+- Preserved rejected validation-intent candidate: exact pushed commit
+  `173280de6c973a806e411e0c15cf1ec40fc7f809`, tree
+  `70be304a0fa02028dfac399b00684deaf4b0d9fe`, remains immutable and
+  unaccepted. Exact review confirmed the queued-stale rollback, missing-ref,
+  historical-successor, target-advance, missing-validator, and dirty-tree paths,
+  then returned `REVISE` on one P1 publication-identity defect and one P2 index
+  overclaim. A first caller could publish with no post validator and a later or
+  queued caller requesting a valid failing validator would receive the earlier
+  `published` result without executing or recording its stricter policy. The
+  current successor adds migration 0025, durably binds the exact command before
+  the Git effect, and rejects both later and queued policy mismatches. The index
+  now limits post-SQL reconciliation to the actual completion boundary.
 - Rejected-candidate closure matrix:
 
   | Finding | Governing invariant | Corrective delta | Focused regression | Affected mapped proof | Fresh exact review |
@@ -1991,28 +2006,30 @@ unfinished-work restoration.
   | validator setup or process spawn failure could bypass rollback and durable evidence | every known post-publication validation failure reaches one exact CAS compensation or explicit failed currentness record | normalize setup/spawn exceptions into bounded failure evidence, CAS rollback, and one terminal candidate/cleanup transition | `test_post_publish_validator_spawn_failure_rolls_back_and_records_failure`; `test_post_publish_failure_rolls_target_back` | reconciliation and recovery | closed by exact review of `46631b7` |
   | target-ref deletion could throw before terminal evidence | missing ref is an observed currentness value at every failure boundary | non-throwing ref observation records JSON `null` before the terminal candidate/cleanup transition | `test_target_ref_deletion_records_terminal_publication_failure` | reconciliation and target profiles | closed by exact review of `eca370f` |
   | later legitimate target successor could rewrite successful history as failed | completed publication and current target-head identity are separate facts | idempotent calls return the immutable published row; terminal completion remains fenced before success | `test_later_target_successor_preserves_historical_publication` | reconciliation and delivery history | closed by exact review of `eca370f` |
-  | queued publisher could reuse stale accepted state and resurrect a rollback | one candidate has one monotonic exact publication outcome under concurrent callers | reread under repository lock; candidate and cleanup terminal writes use expected-status SQL CAS in one transaction | `test_concurrent_publisher_cannot_resurrect_rolled_back_candidate` | reconciliation, recovery, and delivery history | pending correction freeze |
-- Focused validation: `43 passed` in the operations, governed-release,
+  | queued publisher could reuse stale accepted state and resurrect a rollback | one candidate has one monotonic exact publication outcome under concurrent callers | reread under repository lock; candidate and cleanup terminal writes use expected-status SQL CAS in one transaction | `test_concurrent_publisher_cannot_resurrect_rolled_back_candidate` | reconciliation, recovery, and delivery history | closed by exact review of `173280d` |
+  | later or queued caller could substitute a different post-publication validation policy | publication idempotency binds the exact validation intent, not only the candidate head | migration 0025 stores the canonical command before Git publication; both published fast paths and the serialized path reject mismatches | `test_published_candidate_rejects_a_different_post_validation_policy`; `test_queued_publisher_rejects_a_conflicting_validation_policy` | reconciliation, target profiles, and delivery history | pending correction freeze |
+- Focused validation: `45 passed` in the operations, governed-release,
   reconciliation, and recovery-coordinator files; the four existing
   `TestStore` collection warnings remain unchanged. Mapped validation across
   advanced integration, controller, core, governed release, operational
   boundaries, operations, reconciliation, recovery, and target profiles:
-  `92 passed` with the same four warnings. Runtime collection found `236`
+  `95 passed` with the same four warnings. Runtime collection found `239`
   tests with only the seven existing collection warnings. Ruff format/check, mypy
   across `69` source files, compileall, diff check, and tracker verification are
   clean. The locked dev environment also exposed and the candidate removes one
   obsolete mypy ignore plus one redundant type cast; focused acceptance/libRSI
   regression proof is `11 passed`. No broad runtime suite was run.
 - Isolated build/install proof: wheel SHA-256
-  `e2a093a58a2823b87ad4a1a8dc4915bb5b01f533f0475302a6b7dcf090751166`;
+  `7983cbc779b2c17d056a9a596e2d73f408058eeb9f513fb9197180d323f41c1b`;
   sdist SHA-256
-  `40209b01b0847ad4d2330bc1b9bc4df228731613eb5b625d77f2c4d3b348e600`.
-  The exact wheel contains migration 0024 and a fresh isolated install reported
-  both catalog and live database schema version `24`. The changed runtime-source
+  `3b8e150e919fcf1f7c2221b56437a8f167a01ee64ad070f1a4375733c597c5fc`.
+  The exact wheel contains migrations 0024–0025 and a fresh isolated install
+  reported both catalog and live database schema version `25`, including the
+  durable publication-validation-intent column. The changed runtime-source
   hash-list root is
-  `9cdc38f54884e76cf75b8d4ad7bce9ca1cbe6d40022148b343d95b4a2a2c11c8`;
+  `efaa39166064c6fa757158ef3d0de32c196665aac024054d054195b2bfaf2d65`;
   the changed-test hash-list root is
-  `7be00d6847553c3f55af95e75a479256d7bb9d40d09c978f7967de6e8e1c9ee1`.
+  `4e06cf790226d1b290697d51e5b772059ba11833c80bfae1163f3165a1613a0f`.
 - Product-capability review:
   - Trigger: consequential durable delivery/recovery boundary and correction
     of a candidate that could lose unfinished work or overwrite newer release
@@ -2030,8 +2047,8 @@ unfinished-work restoration.
     changes exact ref authority without discarding checkout bytes; dirty and
     untracked work remain recoverable; missing refs still produce evidence;
     successful publication history survives later target successors; concurrent
-    publishers cannot revive a rollback; a resolved case does not resume its
-    target twice.
+    publishers cannot revive a rollback or substitute validation intent; a
+    resolved case does not resume its target twice.
   - Paths compared: retry from current mutable Git refs; retain only the Git
     bundle; use process-local flags; or bind durable journals, exact inventory
     identities, bundle members, receipts, and external idempotency keys under
@@ -2055,8 +2072,8 @@ unfinished-work restoration.
     delivery remain deliberately unqualified.
   - Frozen-candidate proof: exact commit/tree identity will be recorded in the
     acceptance successor after distinct exact-revision review; current bounded
-    behavioral proof is `43` focused and `92` mapped passes, exact installed
-    schema `24`, and the artifact/source/test roots above.
+    behavioral proof is `45` focused and `95` mapped passes, exact installed
+    schema `25`, and the artifact/source/test roots above.
 - Candidate posture: corrected implementation and bounded proof are complete;
   Block 8 remains `in-progress` pending a clean pushed exact correction and
   distinct exact-revision review. All effects used isolated local/test targets; no

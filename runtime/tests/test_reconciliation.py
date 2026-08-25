@@ -34,6 +34,9 @@ class TestStore:
         self.connection.executescript(
             (migrations / "0024_delivery_reconciliation.sql").read_text(encoding="utf-8")
         )
+        self.connection.executescript(
+            (migrations / "0025_publication_validation_intent.sql").read_text(encoding="utf-8")
+        )
 
     @contextmanager
     def transaction(self, *, mode: str = "IMMEDIATE") -> Iterator[sqlite3.Connection]:
@@ -671,6 +674,118 @@ def test_concurrent_publisher_cannot_resurrect_rolled_back_candidate(tmp_path: P
     assert store.one("SELECT status FROM cleanup_items_v2 WHERE id=?", (item["id"],)) == {
         "status": "failed"
     }
+
+
+def test_published_candidate_rejects_a_different_post_validation_policy(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("candidate\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "accepted feature")
+    git(repository, "switch", "main")
+    service = RepositoryReconciliationService(TestStore())
+    item, bundle = accepted_item(service, repository, "accepted-feature", tmp_path)
+    candidate = service.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+
+    published = service.publish_integration(candidate["id"])
+    assert published["status"] == "published"
+    assert published["post_validation_command_json"] == "[]"
+    with pytest.raises(InvalidTransition, match="validation intent changed"):
+        service.publish_integration(
+            candidate["id"],
+            post_publish_validation=[sys.executable, "-c", "raise SystemExit(9)"],
+        )
+    stored = service.store.one(
+        "SELECT status,post_validation_command_json,validation_result_json "
+        "FROM integration_candidates_v2 WHERE id=?",
+        (candidate["id"],),
+    )
+    assert stored["status"] == "published"
+    assert stored["post_validation_command_json"] == "[]"
+    assert json.loads(stored["validation_result_json"])["exit_code"] == 0
+
+
+def test_queued_publisher_rejects_a_conflicting_validation_policy(tmp_path: Path) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    make_repo(repository)
+    git(repository, "switch", "-c", "accepted-feature")
+    (repository / "feature.txt").write_text("candidate\n", encoding="utf-8")
+    git(repository, "add", "--", "feature.txt")
+    git(repository, "commit", "-m", "accepted feature")
+    git(repository, "switch", "main")
+    store = Database(tmp_path / "conflicting-policy.sqlite3")
+    first_holds_lock = threading.Event()
+    second_loaded_candidate = threading.Event()
+
+    def first_fault(point: str) -> None:
+        if point == "publish:after_ref_update":
+            first_holds_lock.set()
+            if not second_loaded_candidate.wait(timeout=5):
+                raise AssertionError("second publisher did not reach the pre-lock boundary")
+
+    def second_fault(point: str) -> None:
+        if point == "publish:before_repository_lock":
+            second_loaded_candidate.set()
+
+    first_service = RepositoryReconciliationService(store, fault_injector=first_fault)
+    second_service = RepositoryReconciliationService(store, fault_injector=second_fault)
+    item, bundle = accepted_item(first_service, repository, "accepted-feature", tmp_path)
+    candidate = first_service.prepare_integration(
+        item["id"],
+        preservation_bundle_id=bundle["id"],
+        target_branch="main",
+        worktree_root=tmp_path / "integration-worktrees",
+        validation_command=[sys.executable, "-c", "pass"],
+    )
+    marker = tmp_path / "conflicting-validator-ran"
+    first_errors: list[BaseException] = []
+    second_errors: list[BaseException] = []
+
+    def publish_without_validator() -> None:
+        try:
+            first_service.publish_integration(candidate["id"])
+        except BaseException as exc:
+            first_errors.append(exc)
+
+    def publish_with_conflicting_validator() -> None:
+        try:
+            second_service.publish_integration(
+                candidate["id"],
+                post_publish_validation=[
+                    sys.executable,
+                    "-c",
+                    f"from pathlib import Path; Path({str(marker)!r}).write_text('ran')",
+                ],
+            )
+        except BaseException as exc:
+            second_errors.append(exc)
+
+    first_thread = threading.Thread(target=publish_without_validator)
+    first_thread.start()
+    assert first_holds_lock.wait(timeout=5)
+    second_thread = threading.Thread(target=publish_with_conflicting_validator)
+    second_thread.start()
+    first_thread.join(timeout=10)
+    second_thread.join(timeout=10)
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert first_errors == []
+    assert len(second_errors) == 1 and isinstance(second_errors[0], InvalidTransition)
+    assert "validation intent changed" in str(second_errors[0])
+    assert not marker.exists()
+    assert store.one(
+        "SELECT status,post_validation_command_json FROM integration_candidates_v2 WHERE id=?",
+        (candidate["id"],),
+    ) == {"status": "published", "post_validation_command_json": "[]"}
 
 
 def test_unfinished_branch_is_restored_on_new_baseline_worktree(tmp_path: Path) -> None:
