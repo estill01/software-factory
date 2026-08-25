@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `a950dc605f217545a43c720585d3740beb8728cf4b2bd3a764eb441390052cfa`; Blocks 0–6 accepted; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` preserved, with atomic one-to-one correction proof complete and exact review pending; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 7 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `60f31361f5f65f764d3ea5c26a41c3f53a5b593ffe458d00916a0cb87573780f`; Blocks 0–7 accepted; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` preserved; exact accepted Block 7 candidate `56d2a22`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 8 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -36,7 +36,8 @@ review returned no P0–P2 findings; acceptance is recorded in pushed successor
 `d10ca8e292ed0850a1236fad22e1736615e96509`. Block 6 is accepted at exact
 pushed candidate `5025cf38ea989bb619d9d79facf0386ac5b10c0f` after both rejected
 candidates were preserved and independent review returned no P0–P2 findings.
-Block 7 remains the dependency-safe frontier. Exact candidate `7937464` is
+Block 7 is accepted at exact pushed candidate `56d2a22` after distinct review
+returned no P0–P2 findings. Exact candidate `7937464` is
 preserved as rejected evidence after four P1 findings. Exact successor `bb1bd62`
 is also preserved and unaccepted after five P1 findings exposed live-currentness,
 cross-mission Learning, remaining local improvement decisions, and canonical
@@ -44,7 +45,7 @@ reflection-view gaps. Exact candidate `c5bfce2` is preserved and unaccepted
 after two P1 findings exposed a validation-to-commit currentness race and reuse
 of one selected root for unrelated operational rows. The current correction
 retains every closed path while making currentness atomic and selected-candidate
-projection byte-exact and one-to-one.
+projection byte-exact and one-to-one. Block 8 is now the dependency-safe frontier.
 
 ## Required outcome
 

@@ -239,7 +239,7 @@ for this tracker may inspect Patent Studio patent content.
 | 4 | Agents and replaceable provider runtime | 2, 3 | `accepted` |
 | 5 | Target profiles, workspaces, and authoritative effects | 3, 4 | `accepted` |
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `accepted` |
-| 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `in-progress` |
+| 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `accepted` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `not-started` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `not-started` |
 | 10 | Neutral content profile and external-extension proof | 5–9 | `not-started` |
@@ -1466,7 +1466,7 @@ Stop before libRSI semantic cutover.
 
 ## Block 7 — Integrate libRSI and remove duplicate semantic owners
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1706,11 +1706,19 @@ semantic/operational identity separation, and outcome use.
   previously recorded `18`/`75` proof for `7937464` and `68`/`63` proof for
   `c5bfce2` remain preserved historical evidence, not acceptance proof for this
   correction.
-- Candidate posture: bounded correction and narrow proof are complete; Block 7
-  remains `in-progress` pending a clean pushed exact candidate and distinct
-  independent review. No utils package was consumed, no production target was
-  used, and delivery/release, service/API, neutral-content, migration, and
-  terminal qualification remain Blocks 8–12.
+- Accepted exact candidate: pushed commit
+  `56d2a22bf2a0df53d5bf2c3212187dc1cc9c67a2`, tree
+  `d58f2a408e59a01bcbaa86825d8c3f3f31aa22c2`, clean and remote-equal at
+  `0/0`. Distinct exact-revision review returned `ACCEPT` with no P0–P2
+  findings after reproducing the post-gate currentness advance in semantic,
+  Evolution, and ProblemSolving paths plus a forged duplicate operational row;
+  every adversarial effect rolled back or failed closed. Targeted reviewer proof
+  returned `3 passed`, Ruff format/check were clean, evidence and tracker hashes
+  matched, and no utils consumption or later-Block scope bleed was found.
+- Acceptance posture: Block 7 is `accepted` at the exact candidate above. No
+  utils package was consumed, no production target was used, and delivery/
+  release, service/API, neutral-content, migration, and terminal qualification
+  remain Blocks 8–12.
 
 ### Stop
 
