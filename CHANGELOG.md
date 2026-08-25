@@ -39,6 +39,21 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Qualified internal service and exact shared-utils boundary.** The v2
+  loopback host now separates minimal public liveness/readiness from
+  bearer-authenticated operator projections and a closed engine operation set.
+  Mutating HTTP requests bind the exact current service-protocol root; governed
+  cancellation additionally requires the existing scoped, expiring, one-time
+  operator authority. Request/response sizes, event pages, error detail, DOM
+  rendering, credential files, and dashboard content are bounded, while
+  `SIGINT`/`SIGTERM` retain durable mission state. Factory-owned adapters consume
+  only the accepted `embedded-service-contract` and `runtime-manifest` wheels
+  from utils revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, after exact
+  filename, artifact, content, source/tree, and public-contract verification.
+  The shared packages own no Factory state or authority, and remain unpublished
+  internal artifacts with no license selected; the service remains
+  loopback-only and is not a hosted or multi-tenant product.
+
 - **Exact-acceptance-triggered release orchestration.** The supervision owner
   now consumes one reviewer-signed canonical acceptance for the exact
   clean source HEAD/tree, invokes only the flagless `skill_release.py promote`

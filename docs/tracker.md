@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `e0211de8b166ea599e3850057e3f9f611262b36132f13af5e31144870b736ccd`; Blocks 0–8 accepted; Block 9 in progress; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 9 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `a5e1becc26aeabf4dd38f499f22d29a4316ff79645e792b9ebe80c8c3274a29a`; Blocks 0–8 accepted; Block 9 implementation/proof complete and pending exact review; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 9 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -46,7 +46,7 @@ reflection-view gaps. Exact candidate `c5bfce2` is preserved and unaccepted
 after two P1 findings exposed a validation-to-commit currentness race and reuse
 of one selected root for unrelated operational rows. The current correction
 retains every closed path while making currentness atomic and selected-candidate
-projection byte-exact and one-to-one. Block 8 is now in progress as the
+projection byte-exact and one-to-one. Block 8 then became the
 dependency-safe frontier. Exact candidate `4a23d41` is preserved and
 unaccepted after four P1 findings exposed post-preservation cleanup deletion,
 loss of dirty/untracked restart bytes, duplicate resolved recovery wake, and
@@ -92,6 +92,9 @@ correction freeze and distinct exact-revision review accepted exact pushed
 candidate `e82ee5325c266d8891e86ab22ca7abfb2e369166`, tree
 `b5be73e4fd137e440ef6c0b72fe13ebb2f2525c1`, with no P0–P2 findings.
 Block 9 is now the dependency-safe frontier.
+Its implementation and mapped proof are complete at the current detailed
+tracker binding, but it remains unaccepted pending a clean pushed candidate and
+distinct exact-revision review.
 
 ## Required outcome
 

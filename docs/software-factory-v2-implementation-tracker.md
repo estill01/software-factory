@@ -2161,7 +2161,116 @@ equivalence, and false authority.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: clean pushed Block 8 acceptance/B9-start successor
+  `1afe96ed02da5588de0340cc2abc8e26e67a4ce6`; Blocks 0–8 are accepted and
+  Block 9 is the sole dependency-eligible frontier. No Block 0 work was
+  reopened and the utils repository was not modified.
+- Exact utils adoption: Factory package data now binds qualified producer
+  revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, producer tree
+  `f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1`, qualification matrix
+  `0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849`,
+  technical root
+  `9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068`,
+  and the separately accepted source commit/tree, package tree, version, wheel
+  SHA-256, content root, size, member count, and public-contract roots for both
+  `embedded-service-contract` and `runtime-manifest`. Startup accepts only
+  explicitly supplied wheel paths after reproducing exact accepted wheel
+  SHA-256 values
+  `2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d`
+  and
+  `f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac`;
+  renamed, modified, pre-acceptance, bare-registry, or copied-source inputs
+  fail closed. The accepted unpublished/no-license boundary remains explicit.
+- Shared contracts and state: one Factory-owned adapter maps the existing
+  embedded and standalone host facades to the exact accepted neutral lifecycle
+  values while retaining all mission state and semantics in the Factory engine.
+  Both facade shapes pass the package's unmodified structural conformance suite
+  against a content-minimized deterministic Factory-owned probe engine, and a
+  real durable runtime proves both adapters observe byte-equivalent current
+  mission status and events. The adapter retains only its Factory host, shared
+  module, and immutable host contract; the shared package gains no Factory
+  persistence, process, scheduling, authority, QA, acceptance, or release
+  owner.
+- Runtime manifest: the accepted package emits canonical descriptive metadata
+  for the exact Factory component and exact utility content roots. Current
+  database, engine, and loopback-service protocol/schema roots are respectively
+  `17883bbecd3e7fd78ff5b2873c0d64d43a46f1e8830f2d6424ee0fc3e7cb3143`,
+  `2052b5c4d4ce8624ab7c1c5fc9037d277aa2fbbceb31dd527d63d1b448035cd8`,
+  and `80c08e1dcee99509d2178fbb5bcee0c1bfd4bb33476a15c2d404ec3b4e32794b`.
+  Recursive validation rejects authorization, acceptance, permission, or
+  release-authority fields, and the manifest is never consumed as operational
+  authority.
+- Service/operator boundary: the production entrypoint requires exact utils
+  wheel paths, an exact component root, and a private regular non-symlink token
+  file. Public routes expose only content-minimal liveness/readiness; every
+  `/api/*` route uses constant-time bearer authentication. Every POST also
+  binds the exact current service-protocol root, so stale workflow hashes fail
+  closed. The general engine route exposes only start, status, continue,
+  outcome, and bounded events; arbitrary commands, paths, cancellation, and
+  transport-only completion are unavailable. Governed cancellation uses a
+  separate scoped, expiring, one-time operator token and the existing canonical
+  cancellation owner. Request targets/bodies, query fields, responses, event
+  pages, error detail, mission IDs, and cancellation reasons are bounded;
+  chunked/malformed/oversized input is rejected. Operator views project explicit
+  columns and omit authority/resource/evidence JSON, external task/thread IDs,
+  repository paths, commands, and other unbounded content. Browser rendering
+  uses text nodes without HTML injection and keeps its transport token only in
+  memory. `SIGINT`/`SIGTERM` close the listener while durable mission state
+  survives restart. The runbook records the internal/loopback-only posture and
+  exact credential, probe, restart, and artifact requirements.
+- Product-capability review:
+  - Trigger: consequential Block posture; an operator/service interface and two
+    accepted shared utility packages become active runtime inputs.
+  - Capability added or preserved: embedded products and a local operator can
+    use one current engine through bounded typed surfaces while exact
+    currentness, privacy, independent authority, durable state, QA, acceptance,
+    and terminal outcome ownership remain server-side.
+  - Paths compared: retain the unauthenticated Block 2 reference API; let one
+    bearer token authorize every engine effect; add public OAuth/multi-tenant
+    hosting; copy or reimplement utils contracts locally; or select a
+    loopback-only authenticated projection with a separate one-time operator
+    authority and exact qualified binary adapters.
+  - Selected level and owner: Factory owns transport authentication, protocol
+    currentness, adapters, pins, projections, lifecycle semantics, persistence,
+    effects, and acceptance. Utils owns only neutral structural values and
+    descriptive manifest serialization. Existing Reporting and engine owners
+    retain governed effects.
+  - Protected-capability result: session identity, stale client hashes, a
+    transport success, provider completion, manifest metadata, or shared
+    conformance values cannot authorize a Factory effect or manufacture
+    acceptance; secrets and arbitrary effects do not enter the projection.
+  - Rejected alternatives: the unauthenticated API leaks internal state; a
+    bearer-as-authority design collapses transport and governance; hosted auth
+    activates an unrequested product; copied/reimplemented utility code loses
+    the accepted producer identity and duplicates ownership.
+  - Tradeoff and uncertainty: operators must supply two exact internal wheels,
+    a private token file, an exact component root, and the current service
+    protocol root. This is deliberate fail-closed local deployment friction;
+    public distribution, licensing, multi-tenancy, and fleet operation remain
+    out of scope.
+- Focused and mapped proof: `45 passed` across API, engine hosts, exact qualified
+  utils, reporting/operator authority, operational ownership boundaries,
+  entrypoints, and composition; one documented legacy `TestStore` collection
+  warning. Negative fixtures cover session-as-authority, absent/wrong service
+  credentials, stale service roots, general-route cancel/complete, arbitrary
+  command keys, oversized bodies, secret/unbounded projection fields, insecure
+  token files, renamed/modified utility artifacts, manifest authority fields,
+  and shared-package state ownership. Full runtime collection is 250 tests with
+  seven documented legacy collection warnings. Ruff format/check are clean
+  across 106 files, mypy is clean across 71 source files, compilation is clean,
+  and detailed-tracker verification passes. Per the range's economy rule, the
+  broad runtime suite remains deferred to Block 12.
+- Isolated build and installed-artifact proof: the wheel SHA-256 is
+  `4fb4c28ba8911b8cf98b8aff431d64cf5dd39ccefbd79a2222befa7137436880`
+  and the sdist SHA-256 is
+  `bf3995213203aa7d2348c5e793eec5bc5a9760d4c444e10136296e6e1b4fc22a`.
+  The wheel contains both Factory-owned adapters and the exact qualified pin;
+  an isolated wheel import reloaded both accepted utils artifacts, reproduced
+  the current service protocol root, and retained the Factory wheel as the
+  actual import source.
+- Candidate posture: implementation and producer audit are complete; exact
+  candidate commit/push and independent exact-revision review remain required
+  before Block 9 acceptance or Block 10 effects.
 
 ### Stop
 

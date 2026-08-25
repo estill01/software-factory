@@ -35,7 +35,11 @@ Neither facade stores mission state. A mission started through either facade
 can be reopened through the other against the same database without a new ID,
 host-specific acceptance state, cursor, or outcome. The loopback-only
 `software-factory-api` entrypoint exposes the service operations at
-`POST /api/engine/{start,status,continue,cancel,outcome,events}`.
+`POST /api/engine/{start,status,continue,outcome,events}`. Block 9 deliberately
+removed `cancel` from the general transport operation set; cancellation now
+requires the distinct governed operator-action path and cannot be authorized by
+the service bearer token alone. See
+`docs/software-factory-v2-service-runbook.md` for the qualified boundary.
 
 ## Boundaries
 

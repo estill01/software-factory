@@ -16,6 +16,7 @@ from software_factory.engine import MAX_EVENT_PAGE, FactoryEngine, MissionSubmis
 from software_factory.errors import InvalidTransition, StoreError
 from software_factory.hosts import EmbeddedFactoryHost, StandaloneFactoryService
 from software_factory.providers import DeterministicProvider, ProviderRegistry
+from software_factory.utility_contracts import service_api_protocol_root
 
 
 def submission(*, objective: str = "Produce one verified capability") -> MissionSubmission:
@@ -148,13 +149,15 @@ def test_service_json_boundary_is_thin_typed_and_bounded(tmp_path: Path) -> None
 def test_loopback_service_api_exposes_the_same_engine_contract(tmp_path: Path) -> None:
     runtime = open_runtime(tmp_path / "factory")
     service = StandaloneFactoryService(runtime.engine)
+    service_token = "engine-host-service-token-0000000000000000000000000000"
     server = APIServer(
         FactoryAPI(
             runtime.store,
             runtime.core.advanced,
             reporting=runtime.core.reporting,
             engine_service=service,
-        )
+        ),
+        service_token=service_token,
     )
     server.start()
     try:
@@ -168,7 +171,11 @@ def test_loopback_service_api_exposes_the_same_engine_contract(tmp_path: Path) -
                     "objective": "Prove the loopback service facade",
                 }
             ).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {service_token}",
+                "X-Software-Factory-Workflow-Root": service_api_protocol_root(),
+            },
             method="POST",
         )
         with urllib.request.urlopen(start_request, timeout=5) as response:
@@ -176,7 +183,11 @@ def test_loopback_service_api_exposes_the_same_engine_contract(tmp_path: Path) -
         status_request = urllib.request.Request(
             f"http://{host}:{port}/api/engine/status",
             data=json.dumps({"mission_id": started["mission_id"]}).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {service_token}",
+                "X-Software-Factory-Workflow-Root": service_api_protocol_root(),
+            },
             method="POST",
         )
         with urllib.request.urlopen(status_request, timeout=5) as response:
