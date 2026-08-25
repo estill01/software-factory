@@ -5,12 +5,21 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from librsi import (
+    CandidateTrialBatch,
+    ComparativeSelectionPolicy,
+    EvaluationContract,
     Evidence,
     ExperimentSpec,
     Hypothesis,
     HypothesisPolicy,
+    ImprovementResult,
     Observation,
+    RiskPolicy,
+    RSIResult,
+    SelectionDecision,
+    SelfChangePolicy,
     SemanticRecord,
+    TargetRef,
     TargetSnapshot,
     deserialize_record,
 )
@@ -18,6 +27,7 @@ from librsi.conformance import ComponentState, map_composite_snapshot
 
 from ...errors import InvalidTransition, StoreError
 from ...util import canonical_json, digest_json, json_load, utc_now
+from .legacy_shadow import LegacyShadowProjection, project_legacy_reflection
 from .pin import LIBRSI_PIN, verify_installed_librsi
 
 
@@ -44,11 +54,137 @@ class _HypothesisInput:
 class LibRSIIntegration:
     """Host libRSI semantics without transferring Factory operational authority."""
 
-    def __init__(self, store: Any, *, work_items: Any, verify_pin: bool = True) -> None:
+    def __init__(
+        self, store: Any, *, work_items: Any | None = None, verify_pin: bool = True
+    ) -> None:
         self.store = store
         self.work_items = work_items
         if verify_pin:
             verify_installed_librsi()
+
+    def mission_snapshot(
+        self,
+        *,
+        mission_id: str,
+        state: Mapping[str, Any],
+        revision: str,
+    ) -> tuple[TargetRef, TargetSnapshot]:
+        """Create a canonical currentness pair for a Factory operational projection."""
+
+        mission = self.store.one("SELECT state_version FROM missions WHERE id=?", (mission_id,))
+        target = TargetRef(
+            target_id=f"software-factory-mission:{mission_id}",
+            kind="software-factory-operational-context",
+            locator={"mission_id": mission_id},
+        )
+        snapshot = TargetSnapshot(
+            target=target,
+            revision=revision,
+            state={"mission_state_version": mission["state_version"], **dict(state)},
+        )
+        return target, snapshot
+
+    def cache_and_bind(
+        self,
+        *,
+        mission_id: str,
+        subject_type: str,
+        subject_id: str,
+        records: Sequence[SemanticRecord],
+        roles: Sequence[tuple[str, SemanticRecord]],
+        currentness_root: str,
+    ) -> None:
+        """Admit canonical records and bind their exact roots to one host subject."""
+
+        incoming_roots = {record.root for record in records}
+        if currentness_root not in incoming_roots and (
+            self.store.one(
+                "SELECT root FROM librsi_records WHERE root=?",
+                (currentness_root,),
+                required=False,
+            )
+            is None
+        ):
+            raise StoreError("libRSI binding currentness must name a cached canonical record")
+        self._persist_records(records)
+        for role, record in roles:
+            self._bind(
+                mission_id=mission_id,
+                subject_type=subject_type,
+                subject_id=subject_id,
+                role=role,
+                record=record,
+                currentness_root=currentness_root,
+            )
+
+    def load_record(self, root: str) -> SemanticRecord:
+        row = self.store.one("SELECT canonical_json FROM librsi_records WHERE root=?", (root,))
+        return deserialize_record(str(row["canonical_json"]))
+
+    def record_comparison(
+        self,
+        *,
+        mission_id: str,
+        subject_type: str,
+        subject_id: str,
+        selection_id: str,
+        contract: EvaluationContract,
+        batches: Sequence[CandidateTrialBatch],
+        risk_policy: RiskPolicy,
+        currentness: TargetSnapshot,
+    ) -> SelectionDecision:
+        """Run the accepted evidence-bound comparison policy without selecting host work."""
+
+        if type(currentness) is not TargetSnapshot:
+            raise TypeError("comparison currentness must be an exact TargetSnapshot")
+        decision = ComparativeSelectionPolicy.select(
+            selection_id=selection_id,
+            contract=contract,
+            batches=batches,
+            risk_policy=risk_policy,
+        )
+        if contract.baseline.snapshot != currentness:
+            raise InvalidTransition("comparison contract is stale against host currentness")
+        self.cache_and_bind(
+            mission_id=mission_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            records=(currentness, *batches, risk_policy, decision),
+            roles=(
+                *(("candidate_trial_batch", batch) for batch in batches),
+                ("comparison_risk_policy", risk_policy),
+                ("selection_decision", decision),
+            ),
+            currentness_root=currentness.root,
+        )
+        return decision
+
+    def record_workflow_result(
+        self,
+        *,
+        mission_id: str,
+        subject_type: str,
+        subject_id: str,
+        result: ImprovementResult | RSIResult,
+        currentness: TargetSnapshot,
+    ) -> None:
+        """Bind a complete accepted improvement or governed-self-change result."""
+
+        if type(currentness) is not TargetSnapshot:
+            raise TypeError("workflow currentness must be an exact TargetSnapshot")
+        if type(result) not in {ImprovementResult, RSIResult}:
+            raise TypeError("workflow result must be an exact libRSI result record")
+        if type(result) is RSIResult:
+            SelfChangePolicy.validate_request(result.request)
+        role = "improvement_result" if type(result) is ImprovementResult else "rsi_result"
+        self.cache_and_bind(
+            mission_id=mission_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            records=(currentness, result),
+            roles=((role, result),),
+            currentness_root=currentness.root,
+        )
 
     @staticmethod
     def _inputs(execution: Mapping[str, Any]) -> tuple[str, tuple[_HypothesisInput, ...]]:
@@ -62,10 +198,10 @@ class LibRSIIntegration:
                 "run_discriminating_experiment",
                 (
                     _HypothesisInput(
-                        role="strategy_cause",
+                        role="causal",
                         statement=(
                             f"Strategy {strategy} is causally associated with failure "
-                            f"fingerprint {fingerprint} in this exact target state."
+                            f"fingerprint {fingerprint} in the current work context."
                         ),
                         causal_model={
                             "candidate_cause": "implementation_strategy",
@@ -73,17 +209,14 @@ class LibRSIIntegration:
                             "failure_fingerprint": fingerprint,
                         },
                         prediction={
-                            "discriminator": (
-                                "a materially different strategy avoids the fingerprint "
-                                "under matched currentness"
-                            )
+                            "discriminator": "materially different strategy avoids the fingerprint"
                         },
                     ),
                     _HypothesisInput(
-                        role="context_cause",
+                        role="problem_framing",
                         statement=(
-                            f"Failure fingerprint {fingerprint} is caused by invocation, "
-                            "environment, or currentness rather than the implementation strategy."
+                            f"The failure fingerprint {fingerprint} may be caused by environment, "
+                            "currentness, or acceptance setup rather than the implementation strategy."
                         ),
                         causal_model={
                             "candidate_cause": "operational_context",
@@ -92,7 +225,7 @@ class LibRSIIntegration:
                         },
                         prediction={
                             "discriminator": (
-                                "the same strategy succeeds after one bounded context correction"
+                                "same strategy succeeds under corrected invocation/currentness"
                             )
                         },
                     ),
@@ -102,30 +235,52 @@ class LibRSIIntegration:
             "bounded_replay_and_counterexample_search",
             (
                 _HypothesisInput(
-                    role="reusable_effect",
+                    role="strategy",
                     statement=(
-                        f"Strategy {strategy} produced a reusable capability effect in this exact "
-                        "target state."
+                        f"Strategy {strategy} produced an unusually strong capability effect in "
+                        "the observed context."
                     ),
                     causal_model={
                         "candidate_cause": "implementation_strategy",
                         "strategy_key": strategy,
                     },
-                    prediction={"discriminator": "the benefit recurs in a bounded matched replay"},
+                    prediction={"discriminator": "benefit recurs in a bounded similar context"},
                 ),
                 _HypothesisInput(
-                    role="contextual_effect",
+                    role="predictive",
                     statement=(
-                        "The observed improvement is contextual noise or an unrelated concurrent "
+                        "The observed improvement may be contextual noise or an unrelated concurrent "
                         "change rather than a reusable strategy effect."
                     ),
                     causal_model={
                         "candidate_cause": "context_or_concurrent_change",
                         "strategy_key": strategy,
                     },
-                    prediction={"discriminator": "the benefit disappears under matched replay"},
+                    prediction={"discriminator": "benefit disappears under matched replay"},
                 ),
             ),
+        )
+
+    @staticmethod
+    def _semantic_projection(
+        hypotheses: Sequence[Hypothesis],
+        experiment: ExperimentSpec,
+        recommended: str,
+    ) -> LegacyShadowProjection:
+        if len(hypotheses) != 2 or any(len(item.predictions) != 1 for item in hypotheses):
+            raise InvalidTransition("libRSI result does not preserve the two-way legacy comparison")
+        roles = tuple(str(item.metadata.get("factory_semantic_role") or "") for item in hypotheses)
+        if len(roles) != 2 or any(not role for role in roles):
+            raise InvalidTransition("libRSI result omitted an expected semantic role")
+        return LegacyShadowProjection(
+            hypothesis_roles=cast(tuple[str, str], roles),
+            statements=cast(tuple[str, str], tuple(item.statement for item in hypotheses)),
+            predictions=cast(
+                tuple[Mapping[str, Any], Mapping[str, Any]],
+                tuple(item.predictions[0] for item in hypotheses),
+            ),
+            recommended_next_action=recommended,
+            experiment_kind=experiment.kind,
         )
 
     def _map_execution(self, execution: Mapping[str, Any]) -> Any:
@@ -256,6 +411,8 @@ class LibRSIIntegration:
         hypothesis_roots: Sequence[str],
         recommended: str,
     ) -> str:
+        if self.work_items is None:
+            raise StoreError("libRSI reflection work requires the Factory work owner")
         lane_key = f"librsi-experiment:{execution['id']}"
         existing = self.store.one(
             "SELECT id FROM work_items WHERE mission_id=? AND lane_key=?",
@@ -378,6 +535,10 @@ class LibRSIIntegration:
             repetitions=1,
             lineage=(observation.ref, *(item.ref for item in hypotheses)),
         )
+        legacy_projection = project_legacy_reflection(execution)
+        canonical_projection = self._semantic_projection(hypotheses, experiment, recommended)
+        if canonical_projection != legacy_projection:
+            raise InvalidTransition("libRSI shadow comparison did not reach parity")
         records: tuple[SemanticRecord, ...] = (
             mapped.target,
             mapped.snapshot,
@@ -423,13 +584,7 @@ class LibRSIIntegration:
             currentness_root=currentness_root,
         )
 
-        shadow_projection_root = digest_json(
-            {
-                "hypothesis_roles": [item.role for item in inputs],
-                "hypothesis_count": 2,
-                "recommended_next_action": recommended,
-            }
-        )
+        shadow_projection_root = digest_json(legacy_projection.to_dict())
         semantic_result_root = digest_json(
             {
                 "observation_root": observation.root,
@@ -439,7 +594,7 @@ class LibRSIIntegration:
                 "recommended_next_action": recommended,
             }
         )
-        parity = len(hypotheses) == 2 and all(item.predictions for item in hypotheses)
+        parity = canonical_projection == legacy_projection
         receipt_root = digest_json(
             {
                 "adapter_contract": LIBRSI_PIN.adapter_contract,
@@ -525,23 +680,66 @@ class LibRSIIntegration:
         )
         if execution["status"] not in {"succeeded", "failed", "abandoned", "cancelled"}:
             raise InvalidTransition("experiment evidence requires a terminal execution")
+        work_item_id = execution.get("work_item_id")
+        if not work_item_id:
+            raise InvalidTransition("experiment evidence requires assigned experiment work")
+        experiment_bindings = self.store.all(
+            """SELECT bindings.mission_id,bindings.currentness_root,records.canonical_json
+               FROM librsi_record_bindings AS bindings
+               JOIN librsi_records AS records ON records.root=bindings.librsi_root
+               WHERE bindings.mission_id=?
+                 AND bindings.operational_subject_type='work_item'
+                 AND bindings.operational_subject_id=?
+                 AND bindings.semantic_role='experiment_spec'""",
+            (execution["mission_id"], work_item_id),
+        )
+        if len(experiment_bindings) != 1:
+            raise InvalidTransition(
+                "experiment evidence requires one exact same-mission experiment binding"
+            )
+        experiment_binding = experiment_bindings[0]
+        experiment = deserialize_record(str(experiment_binding["canonical_json"]))
+        if not isinstance(experiment, ExperimentSpec):
+            raise StoreError("experiment work binding does not resolve an ExperimentSpec")
+        expected_roots = tuple(str(root) for root in experiment.inputs.get("hypothesis_roots", ()))
+        if not expected_roots:
+            raise StoreError("bound ExperimentSpec omits exact hypothesis roots")
         record = self.store.one(
             "SELECT canonical_json FROM librsi_records WHERE root=?", (hypothesis_root,)
         )
         hypothesis = deserialize_record(str(record["canonical_json"]))
         if not isinstance(hypothesis, Hypothesis):
             raise ValueError("experiment evidence must target a canonical libRSI hypothesis")
+        lineage_roots = {reference.root for reference in hypothesis.lineage}
+        if hypothesis_root not in expected_roots:
+            admitted_descendant = self.store.one(
+                """SELECT 1 AS admitted FROM librsi_record_bindings
+                   WHERE mission_id=?
+                     AND operational_subject_type='work_item'
+                     AND operational_subject_id=?
+                     AND semantic_role='hypothesis_update'
+                     AND librsi_root=? AND currentness_root=?""",
+                (
+                    execution["mission_id"],
+                    work_item_id,
+                    hypothesis_root,
+                    experiment_binding["currentness_root"],
+                ),
+                required=False,
+            )
+            if admitted_descendant is None or not lineage_roots.intersection(expected_roots):
+                raise InvalidTransition(
+                    "hypothesis is not the bound experiment root or an admitted immutable descendant"
+                )
         snapshot_record = self.store.one(
-            """SELECT records.canonical_json
-               FROM librsi_record_bindings AS bindings
-               JOIN librsi_records AS records ON records.root=bindings.currentness_root
-               WHERE bindings.librsi_root=?
-               ORDER BY bindings.created_at LIMIT 1""",
-            (hypothesis_root,),
+            "SELECT canonical_json FROM librsi_records WHERE root=?",
+            (experiment_binding["currentness_root"],),
         )
         target_snapshot = deserialize_record(str(snapshot_record["canonical_json"]))
         if not isinstance(target_snapshot, TargetSnapshot):
-            raise StoreError("libRSI hypothesis binding does not resolve an exact target snapshot")
+            raise StoreError("experiment binding does not resolve an exact target snapshot")
+        if experiment.target_snapshot != target_snapshot:
+            raise InvalidTransition("experiment evidence is stale against its bound currentness")
         relationships = {
             "supported": "support",
             "counterexample": "counterexample",
@@ -602,6 +800,14 @@ class LibRSIIntegration:
         )
         self._bind(
             mission_id=mission_id,
+            subject_type="work_item",
+            subject_id=str(work_item_id),
+            role="hypothesis_update",
+            record=updated,
+            currentness_root=currentness_root,
+        )
+        self._bind(
+            mission_id=mission_id,
             subject_type="execution",
             subject_id=experiment_execution_id,
             role="experiment_evidence",
@@ -618,6 +824,8 @@ class LibRSIIntegration:
         )
         followup_work_item_id: str | None = None
         if updated.status == "supported":
+            if self.work_items is None:
+                raise StoreError("supported hypothesis follow-up requires the Factory work owner")
             lane_key = f"librsi-followup:{updated.root}"
             existing = self.store.one(
                 "SELECT id FROM work_items WHERE mission_id=? AND lane_key=?",

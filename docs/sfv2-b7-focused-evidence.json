@@ -1,15 +1,29 @@
 {
   "block": "SFV2/B7",
   "baseline_revision": "93dc761e1383d3b897f614aa3e9d16a57337f794",
+  "preserved_rejected_candidate": {
+    "commit": "79374642bdad3581b5a631d228330548489c68c3",
+    "tree": "5fc629b012bb9355c5399c3b69271e4d1a3c67e5",
+    "review_disposition": "REVISE",
+    "findings": [
+      "P1: semantic cutover was narrowed to two reflection slices while Learning, Evolution, and ProblemSolving remained duplicate semantic owners",
+      "P1: arbitrary, unrelated, and cross-mission terminal executions could update an experiment hypothesis",
+      "P1: shadow parity derived its expected projection from the candidate adapter and could not detect mutated semantic content",
+      "P1: same-name/version installs without exact PEP 610 provenance were admitted"
+    ]
+  },
   "scope": {
     "included": [
-      "exact immutable libRSI dependency admission and lock",
-      "canonical target, snapshot, observation, evidence, hypothesis, and experiment records",
+      "exact immutable libRSI dependency admission and fail-closed PEP 610 verification",
+      "canonical target, snapshot, observation, evidence, hypothesis, experiment, comparison, improvement-result, and governed-RSI-result records",
       "immutable semantic record cache and explicit operational bindings",
       "failed and unexpected-success authoritative semantic slices",
-      "shadow parity and content-rooted cutover receipts",
-      "Factory-owned proposed experiment and evidence-supported follow-up work",
-      "legacy reflection hypothesis-writer deletion and preservation map"
+      "independent full-content legacy shadow parity before any semantic or operational effect",
+      "same-mission assigned-experiment and immutable-hypothesis-lineage admission",
+      "Learning hypothesis and experiment policy convergence",
+      "Evolution checkpoint, program, portfolio, and selector policy convergence",
+      "evidence-bound comparison without operational authorization",
+      "single semantic lifecycle owner and deletion/preservation map"
     ],
     "excluded": [
       "delivery or release cutover",
@@ -30,68 +44,73 @@
     "artifact_boundary": "unpublished internal exact-revision artifacts; no public installability, license, redistribution, or release authority claimed"
   },
   "producer_conformance": {
-    "source": "isolated git archive of the exact accepted source commit; producer checkout and unrelated untracked uv.lock excluded",
+    "source": "preserved exact isolated-archive proof from rejected candidate; producer source and pin identity are unchanged by this correction",
     "command": "uv run --directory <isolated-exact-archive> --with pytest pytest -q tests/test_block23_consumer_conformance.py tests/test_canonical_records.py tests/test_hypotheses_experiments.py",
-    "result": "22 passed with 16 producer-owned deprecation warnings from its explicit legacy compatibility fixtures"
+    "result": "22 passed with 16 producer-owned compatibility deprecation warnings"
   },
   "focused_runtime": {
-    "command": "uv run --project runtime --with pytest pytest -q runtime/tests/test_librsi_integration.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
-    "result": "18 passed",
+    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_librsi_integration.py runtime/tests/test_librsi_semantic_workflows.py runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
+    "result": "39 passed with one pre-existing TestStore collection warning",
     "negative_cases": [
-      "bare registry or mutable main dependency is absent and exact VCS provenance is required",
+      "missing PEP 610 provenance fails closed",
       "libRSI cannot reverse-import Software Factory and no producer source is copied",
-      "operational IDs remain distinct from semantic roots",
-      "canonical record-root conflicts and stale operational bindings fail closed",
-      "duplicate reflection creates one experiment work item and one cutover event",
-      "semantic recommendation creates only proposed pending work and cannot accept or authorize it",
-      "a failed experiment becomes zero-weight null evidence rather than falsification",
-      "unexpected-success follow-up work appears only after bounded evidence reaches supported posture",
-      "the source obligation remains open throughout semantic investigation",
-      "no operational table foreign-key depends on the semantic record cache"
+      "only integrations.librsi.service is a current semantic lifecycle owner",
+      "legacy v2 reflection, hypothesis, hypothesis-evidence, and selection-outcome tables have no runtime writer or owner claim",
+      "mutated canonical content fails parity before persistence, work, binding, receipt, or cutover event",
+      "unassigned and cross-mission terminal executions cannot become experiment evidence",
+      "only an exact bound hypothesis or immutable descendant can receive experiment evidence",
+      "a forged hypothesis that merely names the expected root in lineage is rejected without a same-work host-admission binding",
+      "failed experiments remain zero-weight null evidence",
+      "canonical candidate comparison creates no Factory work or authority transition",
+      "a locally reviewed candidate cannot advance without the exact same-group selected root and currentness-matched canonical selection binding",
+      "semantic results cannot accept, dispatch, apply, or close Factory obligations"
     ]
   },
   "mapped_runtime": {
-    "command": "uv run --project runtime --with pytest pytest -q runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_advanced_integration.py runtime/tests/test_core.py runtime/tests/test_librsi_integration.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
-    "result": "75 passed with one pre-existing TestStore collection warning",
-    "fixture_remediation": "the stale problem-solving fixture now initializes the real contiguous migration lineage; nine existing behavioral cases pass without a production behavior change"
+    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_advanced_integration.py runtime/tests/test_composition.py runtime/tests/test_core.py runtime/tests/test_librsi_integration.py runtime/tests/test_librsi_semantic_workflows.py runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py",
+    "result": "83 passed with one pre-existing TestStore collection warning"
   },
   "static_and_collection": [
     {
-      "command": "uv run --project runtime --with ruff ruff format runtime/src/software_factory runtime/tests",
-      "result": "99 files already formatted after the final source delta"
+      "command": "runtime/.venv/bin/ruff format runtime/src/software_factory <focused tests>",
+      "result": "formatted"
     },
     {
-      "command": "uv run --project runtime --with ruff ruff check runtime/src/software_factory runtime/tests",
+      "command": "runtime/.venv/bin/ruff check runtime/src/software_factory <focused tests>",
       "result": "clean"
     },
     {
-      "command": "uv run --project runtime --with mypy mypy runtime/src/software_factory",
-      "result": "68 source files clean"
+      "command": "runtime/.venv/bin/mypy runtime/src/software_factory",
+      "result": "69 source files clean"
     },
     {
-      "command": "uv run --project runtime --with pytest pytest --collect-only -q runtime/tests",
-      "result": "200 tests collected with seven documented legacy TestStore collection warnings"
+      "command": "runtime/.venv/bin/pytest --collect-only -q runtime/tests",
+      "result": "206 tests collected with seven documented legacy TestStore collection warnings"
     },
     {
-      "command": "python3 -m compileall -q runtime/src/software_factory runtime/tests/test_librsi_integration.py runtime/tests/test_reflection.py",
+      "command": "python3 -m compileall -q runtime/src/software_factory <focused tests>",
       "result": "clean"
     },
     {
-      "command": "python3 author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "command": "python3 /Users/ethanstillman/.codex/skills/author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
       "result": "0 errors, 0 warnings"
     }
   ],
   "build": {
-    "command": "uv run --project runtime --with build python -m build --outdir <isolated-temp> runtime",
-    "wheel_sha256": "1bb212106a54479d9fbbf6d9cd40bd9f61ccababc4f93f4062cb13c2c7f4b0aa",
-    "sdist_sha256": "b5f917844a11c4751cec683d1e04a38fd4303efa2ce6b1eb324bc0879613e40b"
+    "command": "runtime/.venv/bin/python -m build --outdir <isolated-temp> runtime",
+    "wheel_sha256": "0d02f283f512577acdefcd09da9b8f52972ccf2b3b654680abeea8f23013ca6a",
+    "sdist_sha256": "cb0e4903d1d0721cc865b5a7e8761bdd2dae080466db8c3940c2888cd272c7d6"
   },
   "source_sha256": {
-    "adapter": "426d73377069fccde5d326c4577be7ec174dcca29fea0403e17d70cfc085c3a2",
-    "pin_verifier": "e9865314cb68146086e2089d1b40a7a03a8f895f3944b34666b11eaf86b7bd6a",
+    "adapter": "aa40dd065e6e0f1819ea9afb5ff0240a94d5d04b71539161f4fa6e4b75c4a8b5",
+    "legacy_shadow": "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644",
+    "pin_verifier": "76a97d4962e98ca7c97a079cc8e064f8e3b6794130870ee48c0926a388c5766a",
+    "learning_projection": "a6e848733e3a8cb0fbae88dd9ca694368424ae8d9ae11da260bbf28bc51b23c3",
+    "evolution_projection": "bcf13d88f5b917dd231a3408d9ab7114ec14368d75b864f2a64f3966258ab3c5",
+    "ownership": "29dcdc7d925b3453fcdcaf66dca2b0344aafa08aeb6e6f1f64df14d32a5aae2a",
     "migration": "1e2dc94f54373a4e7e0cb840d38149f8d8ced59aaad1d1d4851ad70aa6b5e555",
     "pin_manifest": "d2256f97722136f1c06184b82d82cc0b666e99f1751f86afd58a5e91387c7986",
-    "cutover_map": "b85ed2fba3ea150317380e71f434956e6da1b80b9e48ffc638e2158f1bee0230",
+    "cutover_map": "174d310dc238fc852fdb6708811ca450749227bd453b2a7b4dc8725bbfa810a2",
     "lock": "b6f50819d363c1404358a6722a65cb87e33910526a5f891a3f1e352c8b0b8d76",
     "project": "77407d1c7bfa0b7dba5c9786f964a23f0bdc1729515bc66085b2c65d97b20425"
   },

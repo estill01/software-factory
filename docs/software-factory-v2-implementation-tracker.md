@@ -1562,9 +1562,10 @@ semantic/operational identity separation, and outcome use.
   package-content-root algorithm, distribution/import/version, accepted wheel
   and sdist SHA-256 values, schema versions, adapter contract, and unpublished/
   no-license boundary. The pin verifier checks import/distribution version and
-  exact PEP 610 URL/VCS/requested/installed commit. A bare registry name,
-  mutable `main`, producer checkout import, source copy, or producer write is
-  absent. Exact producer public conformance from an isolated archive returned
+  exact PEP 610 URL/VCS/requested/installed commit. Missing
+  `direct_url.json` fails closed rather than treating a same-name/version wheel
+  as accepted. A bare registry name, mutable `main`, producer checkout import,
+  source copy, or producer write is absent. Exact producer public conformance from an isolated archive returned
   `22 passed`; its 16 warnings come from producer-owned explicit deprecated
   compatibility tests rather than the Factory adapter.
 - Canonical integration: `integrations/librsi` maps the complete observed
@@ -1586,17 +1587,46 @@ semantic/operational identity separation, and outcome use.
   only after bounded support reaches libRSI's supported posture, and remains
   proposed/pending because semantic selection grants no dispatch, effect,
   acceptance, or lifecycle authority.
-- Shadow, cutover, and deletion: every migrated source execution records exact
-  dependency/currentness roots, the legacy-role shadow root, canonical result
-  root, matched parity, and authoritative posture. Mismatch fails closed. The
-  failed/unexpected local proposal algorithm, `_create_hypothesis`, and mutable
-  `update_hypothesis` writer are deleted. The legacy `hypotheses` table remains
-  schema-history only with no runtime writer or lifecycle-owner claim; Block 11
-  owns any byte retirement after preservation proof. Retained learning signal
-  execution and evolution/problem-solving host coordination are not used as
-  hypothesis/experiment writers for the migrated slices. The exact treatment
-  and deletion map is
+- Supported semantic convergence: `LearningService` maps compatibility
+  entrypoints to canonical `Hypothesis`, `Evidence`, and `ExperimentSpec`
+  records and the accepted `HypothesisPolicy` and `ExperimentPolicy`.
+  `reflections_v2`, `hypotheses_v2`, `hypothesis_evidence_v2`, and
+  `selection_outcomes_v2` have no runtime writer or owner claim; experiment
+  rows retain host execution state only. Exact
+  `CandidateTrialBatch` evidence, `RiskPolicy`, and
+  `ComparativeSelectionPolicy` produce canonical comparison decisions without
+  an operational transition; a Factory candidate advances only after its
+  independent review and exact same-group, selected-root, currentness-matched
+  decision binding. Evolution checkpoint, program-change, portfolio,
+  and selector paths delegate roots, transitions, and gates to the accepted
+  policies. Complete `ImprovementResult` and governed `RSIResult` records cross
+  one typed binding boundary, with RSI request revalidation by
+  `SelfChangePolicy`. Learning, evolution, problem-solving, and adaptive tables
+  are operational projections; the integration is the only current semantic
+  lifecycle owner.
+- Shadow, cutover, and deletion: each failed/unexpected source execution first
+  compares complete canonical roles, statements, predictions, route, and
+  experiment kind against a separately implemented pure legacy projection.
+  Mismatch fails before semantic persistence, bindings, Factory work, receipts,
+  or cutover events. A match records exact dependency/currentness, shadow, and
+  canonical-result roots. The failed/unexpected local proposal algorithm,
+  `_create_hypothesis`, and mutable `update_hypothesis` writer are deleted. The
+  legacy `hypotheses` table and v2 reflection/hypothesis/evidence/selection-
+  outcome tables are schema-history
+  only with no runtime writer or lifecycle-owner claim; Block 11 owns byte
+  retirement after preservation proof. The exact treatment and deletion map is
   `docs/software-factory-v2-librsi-cutover.md`.
+- Preserved rejected candidate: exact pushed commit
+  `79374642bdad3581b5a631d228330548489c68c3`, tree
+  `5fc629b012bb9355c5399c3b69271e4d1a3c67e5`, remains unaccepted. Distinct
+  exact-revision review returned `REVISE` with four P1 findings and no P0: the
+  cutover was narrowed to two reflection slices while Learning/Evolution/
+  ProblemSolving remained semantic owners; experiment outcomes accepted
+  unrelated and cross-mission terminal executions; shadow parity derived its
+  expected projection from the candidate adapter itself; and pin verification
+  admitted same-name/version installs without exact PEP 610 provenance. This
+  successor preserves that revision and closes all four findings without
+  editing pushed migration 0023.
 - Product-capability review:
   - Trigger: consequential Block and one-way semantic-owner cutover; frame is
     the exact Block 7 objective, accepted libRSI handoff, v2 plan sections
@@ -1609,8 +1639,8 @@ semantic/operational identity separation, and outcome use.
     resolve the same public registry name/version; transfer scheduling/effects
     to libRSI; or use an exact immutable one-way dependency plus thin
     Factory-owned mappings and bindings.
-  - Selected level and owner: libRSI owns canonical epistemic/experimental
-    records and transitions for the migrated slices; Factory owns complete
+  - Selected level and owner: libRSI owns canonical epistemic, experimental,
+    comparison, improvement, and self-change records and transitions; Factory owns complete
     operational observation, persistence hosting, work/effect conversion, and
     every authority-bearing transition.
   - Protected-capability result: failures remain evidence rather than mission
@@ -1626,22 +1656,13 @@ semantic/operational identity separation, and outcome use.
     deduplication and one experiment work item per source. Block 12 must still
     prove installed terminal qualification; public release/license authority is
     deliberately absent.
-- Proof: `18 passed` across exact pin, integration, reflection, persistence,
-  ownership, idempotency, and negative boundaries. The mapped Factory host
-  audit returned `75 passed` across learning, evolution, problem solving,
-  supervision, composition, core, reflection, and ownership; one pre-existing
-  `TestStore` collection warning remains. The stale problem-solving fixture now
-  initializes the real contiguous lineage, restoring its nine existing cases
-  without production behavior change. Ruff format/check are clean across 99
-  files, mypy is clean across 68 source files, compile is clean, and full
-  runtime collection is 200 tests with seven documented legacy collection
-  warnings. No broad runtime suite was run. The isolated build produced wheel
-  SHA-256
-  `1bb212106a54479d9fbbf6d9cd40bd9f61ccababc4f93f4062cb13c2c7f4b0aa`
-  and sdist SHA-256
-  `b5f917844a11c4751cec683d1e04a38fd4303efa2ce6b1eb324bc0879613e40b`.
-  Focused evidence JSON SHA-256:
-  `68df2b82fb0c069f52229e579e5bded9d54aefdd637d6070416e296d6b4dbfdf`.
+- Proof: successor focused/mapped proof is recorded in
+  `docs/sfv2-b7-focused-evidence.json` at SHA-256
+  `04bec27b69e86426c026f1799145f0c5bd8ddf28be2480233d8d2efd76defb04`;
+  no broad runtime suite was run. The
+  previously recorded `18`/`75` pass and build hashes belong to rejected
+  candidate `7937464` and remain preserved historical evidence, not acceptance
+  proof for this correction.
 - Candidate posture: implementation and narrow proof are complete; Block 7
   remains `in-progress` pending one clean pushed exact candidate and distinct
   independent review. No utils package was consumed, no production target was

@@ -52,9 +52,9 @@ LIBRSI_PIN = _load_pin()
 def verify_installed_librsi() -> dict[str, Any]:
     """Fail closed unless the loaded package matches the immutable accepted pin.
 
-    A VCS install also has to expose PEP 610 provenance for the exact source commit.
-    An accepted wheel may omit VCS metadata, so its admission remains bound by the
-    separately recorded exact artifact hash supplied by the installer/release owner.
+    This runtime admits the pinned VCS installation only when PEP 610 proves the
+    exact source URL and commit. A wheel without that metadata is not silently
+    admitted; a future artifact-hash installer requires a separate explicit owner.
     """
 
     import librsi
@@ -70,21 +70,22 @@ def verify_installed_librsi() -> dict[str, Any]:
 
     direct_url_text = distribution.read_text("direct_url.json")
     direct_url: dict[str, Any] | None = None
-    if direct_url_text:
-        loaded = json.loads(direct_url_text)
-        if not isinstance(loaded, dict):
-            raise StoreError("libRSI direct_url.json is invalid")
-        direct_url = loaded
-        vcs = loaded.get("vcs_info")
-        if loaded.get("url") != LIBRSI_PIN.source_url:
-            raise StoreError("VCS-installed libRSI source URL does not match the accepted producer")
-        if (
-            not isinstance(vcs, dict)
-            or vcs.get("vcs") != "git"
-            or vcs.get("commit_id") != LIBRSI_PIN.source_commit
-            or vcs.get("requested_revision") != LIBRSI_PIN.source_commit
-        ):
-            raise StoreError("VCS-installed libRSI is not bound to the accepted source commit")
+    if not direct_url_text:
+        raise StoreError("installed libRSI lacks exact PEP 610 VCS provenance")
+    loaded = json.loads(direct_url_text)
+    if not isinstance(loaded, dict):
+        raise StoreError("libRSI direct_url.json is invalid")
+    direct_url = loaded
+    vcs = loaded.get("vcs_info")
+    if loaded.get("url") != LIBRSI_PIN.source_url:
+        raise StoreError("VCS-installed libRSI source URL does not match the accepted producer")
+    if (
+        not isinstance(vcs, dict)
+        or vcs.get("vcs") != "git"
+        or vcs.get("commit_id") != LIBRSI_PIN.source_commit
+        or vcs.get("requested_revision") != LIBRSI_PIN.source_commit
+    ):
+        raise StoreError("VCS-installed libRSI is not bound to the accepted source commit")
 
     return {
         "adapter_contract": LIBRSI_PIN.adapter_contract,

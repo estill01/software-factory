@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from librsi import Hypothesis, deserialize_record
+from librsi import Hypothesis, HypothesisPolicy, deserialize_record
 
 from software_factory import CoreService, InvalidTransition, Store
 from software_factory.reflection import ReflectionService
@@ -157,6 +157,39 @@ def test_failure_reflection_is_idempotent_and_retains_competing_hypotheses() -> 
         )
 
 
+def test_shadow_parity_is_independent_and_fails_before_semantic_effects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MutatingPolicy(HypothesisPolicy):
+        def create(self, **kwargs: object) -> Hypothesis:
+            kwargs["statement"] = f"wrong semantic statement: {kwargs['statement']}"
+            return super().create(**kwargs)  # type: ignore[arg-type]
+
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, reflection, mission = make_runtime(Path(directory))
+        obligation, work = add_selected_work(core, mission, strategy="incumbent")
+        execution = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="incumbent",
+            status="failed",
+            error="same failure",
+        )
+        monkeypatch.setattr(
+            "software_factory.integrations.librsi.service.HypothesisPolicy", MutatingPolicy
+        )
+        with pytest.raises(InvalidTransition, match="shadow comparison"):
+            reflection.reflect_execution(execution)
+        assert store.one("SELECT COUNT(*) AS count FROM librsi_records") == {"count": 0}
+        assert store.one(
+            "SELECT COUNT(*) AS count FROM work_items WHERE lane_key=?",
+            (f"librsi-experiment:{execution}",),
+        ) == {"count": 0}
+        assert store.one("SELECT COUNT(*) AS count FROM librsi_cutover_receipts_v2") == {"count": 0}
+
+
 def test_unexpected_success_and_ordinary_success_choose_different_routes() -> None:
     with tempfile.TemporaryDirectory() as directory:
         store, core, reflection, mission = make_runtime(Path(directory))
@@ -244,6 +277,113 @@ def test_unexpected_success_changes_work_only_after_bounded_supporting_evidence(
         assert store.one("SELECT status FROM obligations WHERE id=?", (obligation,)) == {
             "status": "open"
         }
+
+
+def test_experiment_evidence_rejects_unassigned_and_cross_mission_executions() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, reflection, mission = make_runtime(Path(directory))
+        obligation, work = add_selected_work(core, mission, strategy="bounded-reuse")
+        source = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="bounded-reuse",
+            status="succeeded",
+            unexpected_success=True,
+        )
+        semantic = reflection.reflect_execution(source)
+        hypothesis_root = semantic["hypothesis_roots"][0]
+
+        unrelated = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="unassigned-replay",
+            status="succeeded",
+        )
+        with pytest.raises(InvalidTransition, match="experiment binding"):
+            reflection.semantic_integration.record_experiment_outcome(
+                experiment_execution_id=unrelated,
+                hypothesis_root=hypothesis_root,
+                disposition="supported",
+                data={"replicate": "unassigned"},
+            )
+
+        other_project = core.create_project("other-reflection")
+        other_mission = core.create_mission(
+            project_id=other_project,
+            title="Other mission",
+            objective="Do not accept cross-mission experiment evidence",
+        )
+        other_obligation, other_work = add_selected_work(
+            core, other_mission, strategy="cross-mission"
+        )
+        cross_mission = observed_execution(
+            store,
+            other_mission,
+            other_obligation,
+            other_work,
+            strategy="cross-mission",
+            status="succeeded",
+        )
+        with pytest.raises(InvalidTransition, match="same-mission experiment binding"):
+            reflection.semantic_integration.record_experiment_outcome(
+                experiment_execution_id=cross_mission,
+                hypothesis_root=hypothesis_root,
+                disposition="supported",
+                data={"replicate": "cross-mission"},
+            )
+
+
+def test_experiment_evidence_rejects_forged_lineage_without_host_admission() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        store, core, reflection, mission = make_runtime(Path(directory))
+        obligation, work = add_selected_work(core, mission, strategy="bounded-reuse")
+        source = observed_execution(
+            store,
+            mission,
+            obligation,
+            work,
+            strategy="bounded-reuse",
+            status="succeeded",
+            unexpected_success=True,
+        )
+        semantic = reflection.reflect_execution(source)
+        original = deserialize_record(
+            store.one(
+                "SELECT canonical_json FROM librsi_records WHERE root=?",
+                (semantic["hypothesis_roots"][0],),
+            )["canonical_json"]
+        )
+        assert isinstance(original, Hypothesis)
+        forged = Hypothesis(
+            target=original.target,
+            statement="Forged content that merely names the expected root in lineage",
+            causal_model=original.causal_model,
+            predictions=original.predictions,
+            confidence=original.confidence,
+            status=original.status,
+            lineage=(*original.lineage, original.ref),
+            metadata=original.metadata,
+        )
+        reflection.semantic_integration._persist_records((forged,))
+        experiment_execution = observed_execution(
+            store,
+            mission,
+            obligation,
+            semantic["experiment_work_item_id"],
+            strategy="forged-lineage",
+            status="succeeded",
+        )
+        with pytest.raises(InvalidTransition, match="admitted immutable descendant"):
+            reflection.semantic_integration.record_experiment_outcome(
+                experiment_execution_id=experiment_execution,
+                hypothesis_root=forged.root,
+                disposition="supported",
+                data={"replicate": "forged"},
+            )
 
 
 def test_reflection_rejects_nonterminal_execution_and_bad_timescale() -> None:

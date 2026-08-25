@@ -250,16 +250,7 @@ def test_semantic_records_cannot_be_operational_foreign_key_authority(
     tmp_path: Path,
 ) -> None:
     database = Database(tmp_path / "factory.sqlite3")
-    semantic_tables = {
-        "active_signal_bundles",
-        "evolution_checkpoints_v2",
-        "experiments_v2",
-        "hypotheses_v2",
-        "librsi_records",
-        "learned_signal_candidates",
-        "reflections_v2",
-        "selection_records_v2",
-    }
+    semantic_tables = {"librsi_records"}
     operational_tables = {
         table
         for owner in LIFECYCLE_OWNERS
@@ -272,3 +263,18 @@ def test_semantic_records_cannot_be_operational_foreign_key_authority(
             f"operational table {table} depends on semantic authority "
             f"{sorted(foreign_tables & semantic_tables)}"
         )
+
+
+def test_librsi_is_the_only_current_semantic_lifecycle_owner() -> None:
+    semantic_owners = [owner for owner in LIFECYCLE_OWNERS if owner.authority_class == "semantic"]
+    assert [(owner.concern, owner.primary_module) for owner in semantic_owners] == [
+        ("librsi_semantic_cache", "integrations.librsi.service")
+    ]
+    package_text = "\n".join(
+        source.read_text(encoding="utf-8") for source in PACKAGE_ROOT.rglob("*.py")
+    )
+    assert "INSERT INTO hypotheses_v2" not in package_text
+    assert "INSERT INTO hypothesis_evidence_v2" not in package_text
+    assert "INSERT INTO reflections_v2" not in package_text
+    assert "INSERT INTO selection_outcomes_v2" not in package_text
+    assert "UPDATE hypotheses_v2" not in package_text

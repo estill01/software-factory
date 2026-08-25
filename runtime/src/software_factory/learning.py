@@ -8,7 +8,20 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
+from librsi import (
+    CommandObservation,
+    Evidence,
+    ExperimentPolicy,
+    ExperimentSpec,
+    Hypothesis,
+    HypothesisPolicy,
+    Observation,
+    TargetRef,
+    TargetSnapshot,
+)
+
 from .errors import InvalidTransition, StoreError
+from .integrations.librsi import LibRSIIntegration
 from .store import Store
 from .util import new_id, utc_now
 
@@ -84,6 +97,7 @@ class LearningService:
 
     def __init__(self, store: Store):
         self.store = store
+        self.semantic = LibRSIIntegration(store)
 
     def _require_mission(self, mission_id: str) -> None:
         if (
@@ -566,30 +580,57 @@ class LearningService:
                 "observations": dict(observations),
             }
         )
-        reflection_id = new_id("reflection")
-        with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO reflections_v2(
-                       id,mission_id,reflection_type,source_type,source_id,prompt_root,
-                       evidence_ids_json,observations_json,conclusions_json,
-                       proposed_actions_json,confidence,status,created_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,'advisory',?)""",
-                (
-                    reflection_id,
-                    mission_id,
-                    reflection_type,
-                    source_type,
-                    source_id,
-                    prompt_root,
-                    _canonical(evidence),
-                    _canonical(dict(observations)),
-                    _canonical(dict(conclusions)),
-                    _canonical([dict(item) for item in (proposed_actions or ())]),
-                    confidence,
-                    utc_now(),
-                ),
-            )
-        return self.store.one("SELECT * FROM reflections_v2 WHERE id=?", (reflection_id,))
+        target, snapshot = self.semantic.mission_snapshot(
+            mission_id=mission_id,
+            revision=f"learning-reflection:{prompt_root}",
+            state={
+                "reflection_type": reflection_type,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+        )
+        reflection = Observation(
+            kind=f"software-factory.learning.reflection.{reflection_type}",
+            value={
+                "source_type": source_type,
+                "source_id": source_id,
+                "evidence_ids": evidence,
+                "observations": dict(observations),
+                "conclusions": dict(conclusions),
+                "proposed_actions": [dict(item) for item in (proposed_actions or ())],
+                "confidence": confidence,
+                "prompt_root": prompt_root,
+            },
+            target_snapshot=snapshot,
+            metadata={"factory_projection": "learning/v2"},
+        )
+        self.semantic.cache_and_bind(
+            mission_id=mission_id,
+            subject_type="learning_reflection",
+            subject_id=reflection.root,
+            records=(target, snapshot, reflection),
+            roles=(
+                ("target", target),
+                ("target_snapshot", snapshot),
+                ("reflection_observation", reflection),
+            ),
+            currentness_root=snapshot.root,
+        )
+        return {
+            "id": reflection.root,
+            "mission_id": mission_id,
+            "reflection_type": reflection_type,
+            "source_type": source_type,
+            "source_id": source_id,
+            "prompt_root": prompt_root,
+            "evidence_ids_json": _canonical(evidence),
+            "observations_json": _canonical(dict(observations)),
+            "conclusions_json": _canonical(dict(conclusions)),
+            "proposed_actions_json": _canonical([dict(item) for item in (proposed_actions or ())]),
+            "confidence": confidence,
+            "status": "advisory",
+            "canonical": True,
+        }
 
     def create_hypothesis(
         self,
@@ -606,27 +647,50 @@ class LearningService:
             raise ValueError("hypothesis statement is required")
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("hypothesis confidence must be between zero and one")
-        hypothesis_id = new_id("hypothesis")
-        now = utc_now()
-        with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO hypotheses_v2(
-                       id,mission_id,statement,causal_model_json,prediction_json,
-                       status,confidence,created_from_reflection_id,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,'proposed',?,?,?,?)""",
-                (
-                    hypothesis_id,
-                    mission_id,
-                    statement.strip(),
-                    _canonical(dict(causal_model)),
-                    _canonical(dict(prediction)),
-                    confidence,
-                    reflection_id,
-                    now,
-                    now,
-                ),
-            )
-        return self.store.one("SELECT * FROM hypotheses_v2 WHERE id=?", (hypothesis_id,))
+        target, snapshot = self.semantic.mission_snapshot(
+            mission_id=mission_id,
+            revision=f"learning-hypothesis:{_digest({'statement': statement, 'causal_model': dict(causal_model), 'prediction': dict(prediction)})}",
+            state={"reflection_id": reflection_id, "semantic_operation": "hypothesis_proposal"},
+        )
+        observation = Observation(
+            kind="software-factory.learning.hypothesis-proposal",
+            value={"mission_id": mission_id, "reflection_id": reflection_id},
+            target_snapshot=snapshot,
+        )
+        hypothesis = HypothesisPolicy().create(
+            target=target,
+            statement=statement.strip(),
+            causal_model=dict(causal_model),
+            predictions=(dict(prediction),),
+            source_refs=(observation.ref,),
+            confidence=confidence,
+            lineage=(observation.ref,),
+            metadata={"factory_projection": "learning/v2", "reflection_id": reflection_id},
+        )
+        self.semantic.cache_and_bind(
+            mission_id=mission_id,
+            subject_type="learning_hypothesis",
+            subject_id=hypothesis.root,
+            records=(target, snapshot, observation, hypothesis),
+            roles=(
+                ("target", target),
+                ("target_snapshot", snapshot),
+                ("observation", observation),
+                ("hypothesis", hypothesis),
+            ),
+            currentness_root=snapshot.root,
+        )
+        return {
+            "id": hypothesis.root,
+            "mission_id": mission_id,
+            "statement": hypothesis.statement,
+            "causal_model_json": _canonical(dict(hypothesis.causal_model)),
+            "prediction_json": _canonical(dict(hypothesis.predictions[0])),
+            "status": hypothesis.status,
+            "confidence": hypothesis.confidence,
+            "created_from_reflection_id": reflection_id,
+            "canonical": True,
+        }
 
     def add_hypothesis_evidence(
         self,
@@ -639,41 +703,58 @@ class LearningService:
     ) -> dict[str, Any]:
         if not 0.0 <= weight <= 1.0:
             raise ValueError("evidence weight must be between zero and one")
-        hypothesis = self.store.one("SELECT * FROM hypotheses_v2 WHERE id=?", (hypothesis_id,))
-        evidence_row_id = new_id("hypothesis-evidence")
-        now = utc_now()
-        delta = weight * (0.2 if evidence_type == "support" else -0.2)
-        if evidence_type in {"boundary", "confounder", "null"}:
-            delta = -weight * 0.05
-        new_confidence = min(1.0, max(0.0, float(hypothesis["confidence"]) + delta))
-        if new_confidence >= 0.75:
-            status = "supported"
-        elif new_confidence <= 0.2:
-            status = "rejected"
-        elif evidence_type == "counterexample":
-            status = "weakened"
-        else:
-            status = "testing"
-        with self.store.transaction() as db:
-            db.execute(
-                """INSERT INTO hypothesis_evidence_v2(
-                       id,hypothesis_id,evidence_type,evidence_id,weight,rationale_json,created_at
-                   ) VALUES(?,?,?,?,?,?,?)""",
-                (
-                    evidence_row_id,
-                    hypothesis_id,
-                    evidence_type,
-                    evidence_id,
-                    weight,
-                    _canonical(dict(rationale or {})),
-                    now,
-                ),
-            )
-            db.execute(
-                """UPDATE hypotheses_v2 SET status=?,confidence=?,updated_at=? WHERE id=?""",
-                (status, new_confidence, now, hypothesis_id),
-            )
-        return self.store.one("SELECT * FROM hypothesis_evidence_v2 WHERE id=?", (evidence_row_id,))
+        hypothesis = self.semantic.load_record(hypothesis_id)
+        if not isinstance(hypothesis, Hypothesis):
+            raise ValueError("hypothesis evidence requires a canonical libRSI hypothesis root")
+        binding = self.store.one(
+            """SELECT mission_id,currentness_root FROM librsi_record_bindings
+               WHERE librsi_root=? AND semantic_role IN ('hypothesis','hypothesis_update')
+               ORDER BY created_at DESC LIMIT 1""",
+            (hypothesis_id,),
+        )
+        snapshot = self.semantic.load_record(str(binding["currentness_root"]))
+        if not isinstance(snapshot, TargetSnapshot):
+            raise StoreError("canonical hypothesis binding lacks its exact target snapshot")
+        observation = Observation(
+            kind="software-factory.learning.hypothesis-evidence",
+            value={"evidence_id": evidence_id, "rationale": dict(rationale or {})},
+            target_snapshot=snapshot,
+            source_refs=(hypothesis.ref,),
+        )
+        evidence = Evidence(
+            evidence_type=evidence_type,
+            data={"evidence_id": evidence_id, "rationale": dict(rationale or {})},
+            subject_refs=(hypothesis.ref,),
+            source_refs=(observation.ref,),
+            target_snapshot=snapshot,
+            weight=weight,
+            lineage=(hypothesis.ref, observation.ref),
+        )
+        updated = HypothesisPolicy().apply(hypothesis=hypothesis, evidence=evidence)
+        mission_id = str(binding["mission_id"])
+        self.semantic.cache_and_bind(
+            mission_id=mission_id,
+            subject_type="learning_hypothesis",
+            subject_id=updated.root,
+            records=(observation, evidence, updated),
+            roles=(
+                ("evidence_observation", observation),
+                ("hypothesis_evidence", evidence),
+                ("hypothesis_update", updated),
+            ),
+            currentness_root=snapshot.root,
+        )
+        return {
+            "id": evidence.root,
+            "hypothesis_id": hypothesis_id,
+            "hypothesis_root": updated.root,
+            "evidence_type": evidence.evidence_type,
+            "evidence_id": evidence_id,
+            "weight": evidence.weight,
+            "status": updated.status,
+            "confidence": updated.confidence,
+            "canonical": True,
+        }
 
     def design_experiment(
         self,
@@ -691,6 +772,59 @@ class LearningService:
         if not design or not success_criteria:
             raise ValueError("experiment design and success criteria are required")
         experiment_id = new_id("experiment")
+        target, snapshot = self.semantic.mission_snapshot(
+            mission_id=mission_id,
+            revision=f"learning-experiment:{_digest({'experiment_id': experiment_id, 'design': dict(design), 'criteria': dict(success_criteria)})}",
+            state={"experiment_type": experiment_type, "semantic_operation": "experiment_design"},
+        )
+        if hypothesis_id is None:
+            hypothesis = HypothesisPolicy().create(
+                target=target,
+                statement=f"The {experiment_type} experiment can satisfy its exact criteria.",
+                causal_model={"experiment_type": experiment_type},
+                predictions=({"success_criteria": dict(success_criteria)},),
+                confidence=0.5,
+                metadata={"factory_projection": "learning/v2", "generated_for_experiment": True},
+            )
+        else:
+            loaded = self.semantic.load_record(hypothesis_id)
+            if not isinstance(loaded, Hypothesis):
+                raise ValueError("experiment hypothesis must be a canonical libRSI root")
+            hypothesis = loaded
+            if hypothesis.target != target:
+                if not isinstance(hypothesis.target, TargetRef):
+                    raise ValueError("canonical experiment hypothesis lacks an exact target")
+                target = hypothesis.target
+                snapshot = TargetSnapshot(
+                    target=target,
+                    revision=snapshot.revision,
+                    state=snapshot.state,
+                )
+        spec = ExperimentSpec(
+            experiment_id=experiment_id,
+            kind=experiment_type,
+            target_snapshot=snapshot,
+            design=dict(design),
+            criteria=dict(success_criteria),
+            inputs={"hypothesis_root": hypothesis.root},
+            environment={"safety_constraints": dict(safety_constraints or {})},
+            requested_measurements=("command.passed",) if experiment_type == "command" else (),
+            lineage=(hypothesis.ref,),
+            metadata={"factory_projection": "learning/v2", "phase": "designed"},
+        )
+        self.semantic.cache_and_bind(
+            mission_id=mission_id,
+            subject_type="learning_experiment",
+            subject_id=experiment_id,
+            records=(target, snapshot, hypothesis, spec),
+            roles=(
+                ("target", target),
+                ("target_snapshot", snapshot),
+                ("experiment_hypothesis", hypothesis),
+                ("experiment_spec", spec),
+            ),
+            currentness_root=snapshot.root,
+        )
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(
@@ -701,7 +835,7 @@ class LearningService:
                 (
                     experiment_id,
                     mission_id,
-                    hypothesis_id,
+                    None,
                     experiment_type,
                     _canonical(dict(design)),
                     _canonical(dict(success_criteria)),
@@ -710,7 +844,8 @@ class LearningService:
                     now,
                 ),
             )
-        return self.store.one("SELECT * FROM experiments_v2 WHERE id=?", (experiment_id,))
+        row = self.store.one("SELECT * FROM experiments_v2 WHERE id=?", (experiment_id,))
+        return {**row, "hypothesis_root": hypothesis.root, "librsi_root": spec.root}
 
     def run_command_experiment(
         self,
@@ -730,15 +865,38 @@ class LearningService:
         resolved_cwd = str(Path(cwd).resolve())
         design = _loads(experiment["design_json"], {})
         criteria = _loads(experiment["success_criteria_json"], {})
-        exact_input_root = _digest(
-            {
-                "experiment_id": experiment_id,
-                "design": design,
-                "success_criteria": criteria,
-                "command": list(command),
-                "cwd": resolved_cwd,
-            }
+        binding_rows = self.store.all(
+            """SELECT semantic_role,librsi_root,currentness_root
+               FROM librsi_record_bindings
+               WHERE mission_id=? AND operational_subject_type='learning_experiment'
+                 AND operational_subject_id=?""",
+            (experiment["mission_id"], experiment_id),
         )
+        roots_by_role = {str(row["semantic_role"]): str(row["librsi_root"]) for row in binding_rows}
+        hypothesis = self.semantic.load_record(roots_by_role["experiment_hypothesis"])
+        snapshot = self.semantic.load_record(str(binding_rows[0]["currentness_root"]))
+        if not isinstance(hypothesis, Hypothesis) or not isinstance(snapshot, TargetSnapshot):
+            raise StoreError("command experiment lacks canonical hypothesis/currentness")
+        semantic_spec = ExperimentPolicy().design_command(
+            experiment_id=experiment_id,
+            hypothesis=hypothesis,
+            target_snapshot=snapshot,
+            design=design,
+            success_criteria=criteria,
+            command=command,
+            cwd=resolved_cwd,
+            environment={"safety_constraints": _loads(experiment["safety_constraints_json"], {})},
+        )
+        prepared = ExperimentPolicy.prepare_command(semantic_spec)
+        self.semantic.cache_and_bind(
+            mission_id=str(experiment["mission_id"]),
+            subject_type="learning_experiment",
+            subject_id=experiment_id,
+            records=(semantic_spec,),
+            roles=(("execution_experiment_spec", semantic_spec),),
+            currentness_root=snapshot.root,
+        )
+        exact_input_root = semantic_spec.root
         run_id = new_id("experiment-run")
         started = utc_now()
         with self.store.transaction() as db:
@@ -762,8 +920,8 @@ class LearningService:
             )
         try:
             completed = subprocess.run(
-                [str(part) for part in command],
-                cwd=resolved_cwd,
+                list(prepared.command),
+                cwd=prepared.cwd,
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
@@ -779,23 +937,32 @@ class LearningService:
             stderr = str(exc)
             invalid = True
 
-        accepted_codes = criteria.get("accepted_exit_codes", [0])
-        passed = not invalid and exit_code in accepted_codes
-        required_stdout = criteria.get("stdout_contains", [])
-        forbidden_stderr = criteria.get("stderr_not_contains", [])
-        if isinstance(required_stdout, list):
-            passed = passed and all(str(value) in stdout for value in required_stdout)
-        if isinstance(forbidden_stderr, list):
-            passed = passed and all(str(value) not in stderr for value in forbidden_stderr)
-        disposition = "invalid" if invalid else ("passed" if passed else "failed")
-        evidence_root = _digest(
-            {
-                "input_root": exact_input_root,
-                "exit_code": exit_code,
-                "stdout": stdout,
-                "stderr": stderr,
-                "disposition": disposition,
-            }
+        semantic_evidence = ExperimentPolicy().evaluate_command(
+            spec=semantic_spec,
+            observation=CommandObservation(
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+                invalid=invalid,
+                exact_input_root=exact_input_root,
+            ),
+        )
+        disposition = str(semantic_evidence.data["disposition"])
+        passed = bool(semantic_evidence.data["passed"])
+        evidence_root = semantic_evidence.root
+        updated_hypothesis = HypothesisPolicy().apply(
+            hypothesis=hypothesis, evidence=semantic_evidence
+        )
+        self.semantic.cache_and_bind(
+            mission_id=str(experiment["mission_id"]),
+            subject_type="learning_experiment",
+            subject_id=experiment_id,
+            records=(semantic_evidence, updated_hypothesis),
+            roles=(
+                ("experiment_evidence", semantic_evidence),
+                ("hypothesis_update", updated_hypothesis),
+            ),
+            currentness_root=snapshot.root,
         )
         completed_at = utc_now()
         with self.store.transaction() as db:
@@ -817,14 +984,6 @@ class LearningService:
             db.execute(
                 "UPDATE experiments_v2 SET status=?,updated_at=? WHERE id=?",
                 ("succeeded" if passed else disposition, completed_at, experiment_id),
-            )
-        if experiment["hypothesis_id"]:
-            self.add_hypothesis_evidence(
-                experiment["hypothesis_id"],
-                evidence_type="support" if passed else "counterexample",
-                evidence_id=evidence_root,
-                weight=0.7,
-                rationale={"experiment_id": experiment_id, "run_id": run_id},
             )
         return self.store.one("SELECT * FROM experiment_runs_v2 WHERE id=?", (run_id,))
 

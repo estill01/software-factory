@@ -128,7 +128,7 @@ class CoreService:
             default_provider=default_provider,
         )
         self.learning = LearningService(store)
-        self.evolution = EvolutionService(store)
+        self.evolution = EvolutionService(store, semantic=self.learning.semantic)
         self.acceptance = AcceptanceService(store)
         self.reporting = ReportingService(store)
         self.migration = MigrationService(store)

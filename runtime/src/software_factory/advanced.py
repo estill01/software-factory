@@ -51,7 +51,7 @@ class AdvancedServices:
         elif self.supervision.adaptive is not self.adaptive:
             raise ValueError("supervision is already bound to a different adaptive owner")
         self.learning = learning or LearningService(store)
-        self.evolution = evolution or EvolutionService(store)
+        self.evolution = evolution or EvolutionService(store, semantic=self.learning.semantic)
         self._operations = operations or OperationsService(store)
 
     def reconcile_mission(self, mission_id: str) -> dict[str, Any]:

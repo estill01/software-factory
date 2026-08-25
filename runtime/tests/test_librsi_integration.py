@@ -3,9 +3,12 @@ from __future__ import annotations
 import ast
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import librsi
+import pytest
 
+from software_factory import StoreError
 from software_factory.integrations.librsi import LIBRSI_PIN, verify_installed_librsi
 
 RUNTIME_ROOT = Path(__file__).parents[1]
@@ -43,6 +46,18 @@ def test_loaded_librsi_is_the_exact_vcs_revision_and_schema_contract() -> None:
     assert LIBRSI_PIN.outcome_projection_schema_version == 1
     assert LIBRSI_PIN.event_projection_schema_version == 1
     assert LIBRSI_PIN.adapter_contract == "software-factory.librsi/v1"
+
+
+def test_librsi_pin_fails_closed_without_exact_pep610_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    distribution = SimpleNamespace(version=LIBRSI_PIN.version, read_text=lambda _name: None)
+    monkeypatch.setattr(
+        "software_factory.integrations.librsi.pin.metadata.distribution",
+        lambda _name: distribution,
+    )
+    with pytest.raises(StoreError, match="PEP 610"):
+        verify_installed_librsi()
 
 
 def test_dependency_direction_is_one_way_and_factory_does_not_copy_librsi_source() -> None:

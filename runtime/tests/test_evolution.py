@@ -238,7 +238,7 @@ def test_sequential_and_parallel_portfolios_have_distinct_lane_semantics() -> No
     assert parallel_active["active_lane_ids_json"] == '["p1","p2"]'
 
 
-def test_selection_is_selected_by_an_attributed_selector_after_independent_challenge() -> None:
+def test_local_selection_review_cannot_replace_canonical_comparison() -> None:
     evolution = service()
     selection = evolution.consider_selection(
         mission_id="mission-1",
@@ -257,23 +257,24 @@ def test_selection_is_selected_by_an_attributed_selector_after_independent_chall
         findings={"highest leverage": True},
         evidence_ids=["case-1", "case-2"],
     )
-    selected = evolution.select_candidate(
-        selection["id"],
-        selector_session_id="selector",
-        rationale={"reason": "largest supported bottleneck"},
-    )
-    assert selected["status"] == "selected"
-    assert selected["selector_session_id"] == "selector"
-    outcome = evolution.record_selection_outcome(
-        selection["id"],
-        outcome_type="mixed",
-        metrics={"stalls_before": 4, "stalls_after": 1},
-        evidence_ids=["forward-cycle"],
-        causal_confidence=0.7,
-        limitations={"counterfactual": "no randomized control"},
-    )
-    assert outcome["outcome_type"] == "mixed"
-    assert outcome["causal_confidence"] == pytest.approx(0.7)
+    with pytest.raises(InvalidTransition, match="canonical libRSI comparison"):
+        evolution.select_candidate(
+            selection["id"],
+            selector_session_id="selector",
+            rationale={"reason": "largest supported bottleneck"},
+        )
+    assert evolution.store.one(
+        "SELECT status FROM selection_records_v2 WHERE id=?", (selection["id"],)
+    ) == {"status": "considered"}
+    with pytest.raises(InvalidTransition, match="outcomes are retired"):
+        evolution.record_selection_outcome(
+            selection["id"],
+            outcome_type="mixed",
+            metrics={"stalls_before": 4, "stalls_after": 1},
+            evidence_ids=["forward-cycle"],
+            causal_confidence=0.7,
+            limitations={"counterfactual": "no randomized control"},
+        )
 
 
 def test_selector_policy_requires_frozen_history_forward_shadow_and_review() -> None:

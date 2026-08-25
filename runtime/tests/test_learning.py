@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
+from librsi import Evidence, Hypothesis, deserialize_record
 
 from software_factory.database import Database
 from software_factory.errors import InvalidTransition
@@ -188,19 +189,16 @@ def test_reflection_hypothesis_and_counterexample_remain_distinct_records() -> N
         reflection_id=reflection["id"],
         confidence=0.6,
     )
-    learning.add_hypothesis_evidence(
+    updated = learning.add_hypothesis_evidence(
         hypothesis["id"],
         evidence_type="counterexample",
         evidence_id="trace-with-valid-generation",
         weight=0.8,
         rationale={"observed": "failure persisted"},
     )
-    updated = learning.store.one(
-        "SELECT status,confidence FROM hypotheses_v2 WHERE id=?", (hypothesis["id"],)
-    )
-    assert updated is not None
     assert updated["status"] == "weakened"
     assert updated["confidence"] < 0.6
+    assert learning.store.all("SELECT id FROM hypotheses_v2") == []
 
 
 def test_command_experiment_executes_real_process_and_updates_hypothesis() -> None:
@@ -227,12 +225,19 @@ def test_command_experiment_executes_real_process_and_updates_hypothesis() -> No
     assert run["disposition"] == "passed"
     assert run["exit_code"] == 0
     assert run["evidence_root"]
-    updated = learning.store.one(
-        "SELECT status,confidence FROM hypotheses_v2 WHERE id=?", (hypothesis["id"],)
+    updated_row = learning.store.one(
+        """SELECT records.canonical_json
+           FROM librsi_record_bindings AS bindings
+           JOIN librsi_records AS records ON records.root=bindings.librsi_root
+           WHERE bindings.operational_subject_type='learning_experiment'
+             AND bindings.operational_subject_id=?
+             AND bindings.semantic_role='hypothesis_update'""",
+        (experiment["id"],),
     )
-    assert updated is not None
-    assert updated["status"] in {"testing", "supported"}
-    assert updated["confidence"] > 0.5
+    updated = deserialize_record(updated_row["canonical_json"])
+    assert isinstance(updated, Hypothesis)
+    assert updated.status in {"testing", "supported"}
+    assert updated.confidence > 0.5
 
 
 def test_failed_experiment_is_counterevidence_not_a_supported_claim() -> None:
@@ -256,8 +261,16 @@ def test_failed_experiment_is_counterevidence_not_a_supported_claim() -> None:
         cwd=Path.cwd(),
     )
     assert run["disposition"] == "failed"
-    evidence = learning.store.all(
-        "SELECT evidence_type FROM hypothesis_evidence_v2 WHERE hypothesis_id=?",
-        (hypothesis["id"],),
+    evidence_row = learning.store.one(
+        """SELECT records.canonical_json
+           FROM librsi_record_bindings AS bindings
+           JOIN librsi_records AS records ON records.root=bindings.librsi_root
+           WHERE bindings.operational_subject_type='learning_experiment'
+             AND bindings.operational_subject_id=?
+             AND bindings.semantic_role='experiment_evidence'""",
+        (experiment["id"],),
     )
-    assert evidence == [{"evidence_type": "counterexample"}]
+    evidence = deserialize_record(evidence_row["canonical_json"])
+    assert isinstance(evidence, Evidence)
+    assert evidence.evidence_type == "counterexample"
+    assert learning.store.all("SELECT id FROM hypothesis_evidence_v2") == []
