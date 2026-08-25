@@ -1467,104 +1467,6 @@ class OperationsService:
             )
         return self.store.one("SELECT * FROM cleanup_items_v2 WHERE id=?", (item_id,))
 
-    @staticmethod
-    def _recorded_cleanup_identity(
-        item: Mapping[str, Any], inventory: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        if item["item_type"] == "branch":
-            branch_matches = [
-                value.split("|", 2)
-                for value in _loads(inventory["branches_json"], [])
-                if isinstance(value, str) and value.split("|", 1)[0] == item["item_key"]
-            ]
-            if len(branch_matches) != 1 or len(branch_matches[0]) < 2:
-                raise InvalidTransition("cleanup branch was not exact in the inventory")
-            return {"branch": item["item_key"], "object_id": branch_matches[0][1]}
-        if item["item_type"] == "worktree":
-            target = str(Path(str(item["item_key"])).resolve())
-            worktree_matches = [
-                value
-                for value in _loads(inventory["worktrees_json"], [])
-                if isinstance(value, dict)
-                and str(Path(str(value.get("worktree", ""))).resolve()) == target
-            ]
-            if len(worktree_matches) != 1:
-                raise InvalidTransition("cleanup worktree was not exact in the inventory")
-            return {
-                "worktree": target,
-                "head": worktree_matches[0].get("HEAD"),
-                "branch": worktree_matches[0].get("branch"),
-            }
-        if item["item_type"] == "stash":
-            stash_matches = [
-                value.split("|", 2)
-                for value in _loads(inventory["stashes_json"], [])
-                if isinstance(value, str) and value.split("|", 1)[0] == item["item_key"]
-            ]
-            if len(stash_matches) != 1 or len(stash_matches[0]) < 2:
-                raise InvalidTransition("cleanup stash was not exact in the inventory")
-            return {"stash": item["item_key"], "object_id": stash_matches[0][1]}
-        raise InvalidTransition("item type has no destructive retirement owner")
-
-    @staticmethod
-    def _require_cleanup_identity(
-        root: Path, item: Mapping[str, Any], expected: Mapping[str, Any]
-    ) -> None:
-        if item["item_type"] == "branch":
-            actual = _run_git(
-                root,
-                "rev-parse",
-                "--verify",
-                f"refs/heads/{item['item_key']}",
-                check=False,
-            ).stdout.strip()
-            if actual != expected["object_id"]:
-                raise InvalidTransition("cleanup branch advanced after preservation")
-            worktrees = _run_git(root, "worktree", "list", "--porcelain", check=False).stdout
-            if f"branch refs/heads/{item['item_key']}\n" in f"{worktrees}\n":
-                raise InvalidTransition("cleanup branch is checked out in a worktree")
-            return
-        if item["item_type"] == "worktree":
-            target = Path(str(expected["worktree"]))
-            listed = _run_git(root, "worktree", "list", "--porcelain", check=False).stdout
-            entries: list[dict[str, str]] = []
-            current: dict[str, str] = {}
-            for line in listed.splitlines() + [""]:
-                if not line:
-                    if current:
-                        entries.append(current)
-                        current = {}
-                    continue
-                key, _, value = line.partition(" ")
-                current[key] = value
-            match = next(
-                (
-                    value
-                    for value in entries
-                    if str(Path(value.get("worktree", "")).resolve()) == str(target)
-                ),
-                None,
-            )
-            if (
-                match is None
-                or match.get("HEAD") != expected["head"]
-                or match.get("branch") != expected["branch"]
-            ):
-                raise InvalidTransition("cleanup worktree identity changed after preservation")
-            if _run_git(
-                target, "status", "--porcelain=v2", "--untracked-files=all", check=False
-            ).stdout.strip():
-                raise InvalidTransition("cleanup worktree changed after preservation")
-            return
-        if item["item_type"] == "stash":
-            actual = _run_git(
-                root, "rev-parse", "--verify", str(item["item_key"]), check=False
-            ).stdout.strip()
-            if actual != expected["object_id"]:
-                raise InvalidTransition("cleanup stash changed after preservation")
-            return
-        raise InvalidTransition("item type has no destructive retirement owner")
-
     def execute_retirement(
         self,
         cleanup_item_id: str,
@@ -1577,151 +1479,55 @@ class OperationsService:
             "historical",
         }:
             raise InvalidTransition("cleanup item is not proven safe to retire")
-        if item["item_type"] != "branch":
-            raise InvalidTransition(
-                f"cleanup {item['item_type']} must be preserved or deferred because "
-                "no atomic exact-object deletion adapter exists"
-            )
-        bundle = self.store.one(
-            "SELECT * FROM preservation_bundles_v2 WHERE id=?", (preservation_bundle_id,)
+        reason = (
+            f"cleanup {item['item_type']} must be preserved or deferred because Git has "
+            "no deletion adapter that atomically fences exact object identity and "
+            "concurrent worktree admission"
         )
-        if not bundle["verified"] or bundle["inventory_id"] != item["inventory_id"]:
-            raise InvalidTransition(
-                "cleanup retirement lacks a verified matching preservation bundle"
-            )
-        self._require_verified_bundle(bundle)
-        inventory = self.store.one(
-            "SELECT * FROM repository_inventories_v2 WHERE id=?", (item["inventory_id"],)
-        )
-        active_writers = _loads(inventory["active_writers_json"], [])
-        if any(
-            item["item_key"]
-            in {writer.get("branch"), writer.get("worktree"), writer.get("task_owner")}
-            for writer in active_writers
-        ):
-            raise InvalidTransition("cleanup item still has an active writer")
-        root = Path(inventory["repository_root"])
-        recorded_identity = self._recorded_cleanup_identity(item, inventory)
-
-        def retired_postcondition() -> bool:
-            if item["item_type"] == "branch":
-                return (
-                    _run_git(
-                        root,
-                        "show-ref",
-                        "--verify",
-                        "--quiet",
-                        f"refs/heads/{item['item_key']}",
-                        check=False,
-                    ).returncode
-                    != 0
-                )
-            if item["item_type"] == "worktree":
-                target = str(Path(item["item_key"]).resolve())
-                listed = _run_git(root, "worktree", "list", "--porcelain", check=False).stdout
-                return f"worktree {target}\n" not in f"{listed}\n" and not Path(target).exists()
-            if item["item_type"] == "stash":
-                return (
-                    _run_git(
-                        root, "rev-parse", "--verify", item["item_key"], check=False
-                    ).returncode
-                    != 0
-                )
-            raise InvalidTransition("item type has no destructive retirement owner")
-
-        existing_effect = self.store.one(
-            """SELECT * FROM cleanup_effects_v2
-               WHERE cleanup_item_id=? ORDER BY updated_at DESC LIMIT 1""",
-            (cleanup_item_id,),
-            required=False,
-        )
-        if existing_effect is not None and existing_effect["status"] == "succeeded":
-            if not retired_postcondition():
-                raise InvalidTransition("completed cleanup effect no longer matches physical state")
-            return existing_effect
-        effect_id = existing_effect["id"] if existing_effect else new_id("cleanup-effect")
+        effect_type = f"retire_{item['item_type']}_deferred"
         precondition = {
-            "inventory_root": inventory["inventory_root"],
-            "bundle_root": bundle["bundle_root"],
             "classification": item["classification"],
-            "physical_identity": recorded_identity,
+            "disposition": item["disposition"],
+            "inventory_id": item["inventory_id"],
+            "item_key": item["item_key"],
+            "item_type": item["item_type"],
+            "requested_preservation_bundle_id": preservation_bundle_id,
         }
+        now = utc_now()
         with self.store.transaction() as db:
-            if existing_effect is None:
+            existing = db.execute(
+                """SELECT id,precondition_json FROM cleanup_effects_v2
+                   WHERE cleanup_item_id=? AND effect_type=?
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (cleanup_item_id, effect_type),
+            ).fetchone()
+            if existing is None:
                 db.execute(
                     """INSERT INTO cleanup_effects_v2(
-                           id,cleanup_item_id,effect_type,precondition_json,status,updated_at
-                       ) VALUES(?,?,?,?,'running',?)""",
+                           id,cleanup_item_id,effect_type,precondition_json,result_json,
+                           status,started_at,completed_at,updated_at
+                       ) VALUES(?,?,?,?,?,'failed',?,?,?)""",
                     (
-                        effect_id,
+                        new_id("cleanup-effect"),
                         cleanup_item_id,
-                        f"retire_{item['item_type']}",
+                        effect_type,
                         _canonical(precondition),
-                        utc_now(),
+                        _canonical(
+                            {
+                                "error": reason,
+                                "physical_effect": False,
+                                "required_disposition": "preserve_or_defer",
+                            }
+                        ),
+                        now,
+                        now,
+                        now,
                     ),
                 )
-            else:
-                if _loads(existing_effect["precondition_json"], {}) != precondition:
-                    raise InvalidTransition("cleanup retry precondition differs")
-                db.execute(
-                    """UPDATE cleanup_effects_v2
-                       SET status='running',result_json=NULL,completed_at=NULL,updated_at=?
-                       WHERE id=?""",
-                    (utc_now(), effect_id),
-                )
+            elif _loads(existing["precondition_json"], {}) != precondition:
+                raise InvalidTransition("cleanup refusal retry precondition differs")
             db.execute(
-                "UPDATE cleanup_items_v2 SET status='running',updated_at=? WHERE id=?",
-                (utc_now(), cleanup_item_id),
+                "UPDATE cleanup_items_v2 SET status='failed',updated_at=? WHERE id=?",
+                (now, cleanup_item_id),
             )
-        try:
-            with _repository_lock(root, "cleanup-retirement"):
-                already_absent = retired_postcondition()
-                if already_absent and existing_effect is None:
-                    raise InvalidTransition("cleanup item disappeared after preservation")
-                if not already_absent:
-                    self._require_cleanup_identity(root, item, recorded_identity)
-                    self._fault("retirement:after_identity_check")
-                    deleted = _run_git(
-                        root,
-                        "update-ref",
-                        "-d",
-                        f"refs/heads/{item['item_key']}",
-                        str(recorded_identity["object_id"]),
-                        check=False,
-                    )
-                    if deleted.returncode != 0:
-                        raise InvalidTransition(
-                            "cleanup branch changed before atomic compare-and-delete"
-                        )
-                if not retired_postcondition():
-                    raise RuntimeError("cleanup physical postcondition was not achieved")
-                self._fault("retirement:after_physical_effect")
-                result = {
-                    "retired": item["item_key"],
-                    "item_type": item["item_type"],
-                    "already_absent": already_absent,
-                    "physical_identity": recorded_identity,
-                }
-        except BaseException as exc:
-            with self.store.transaction() as db:
-                db.execute(
-                    """UPDATE cleanup_effects_v2
-                       SET status='failed',result_json=?,completed_at=?,updated_at=? WHERE id=?""",
-                    (_canonical({"error": str(exc)}), utc_now(), utc_now(), effect_id),
-                )
-                db.execute(
-                    "UPDATE cleanup_items_v2 SET status='failed',updated_at=? WHERE id=?",
-                    (utc_now(), cleanup_item_id),
-                )
-            raise
-        with self.store.transaction() as db:
-            db.execute(
-                """UPDATE cleanup_effects_v2
-                   SET status='succeeded',result_json=?,completed_at=?,updated_at=? WHERE id=?""",
-                (_canonical(result), utc_now(), utc_now(), effect_id),
-            )
-            db.execute(
-                "UPDATE cleanup_items_v2 SET status='completed',updated_at=? WHERE id=?",
-                (utc_now(), cleanup_item_id),
-            )
-        return self.store.one("SELECT * FROM cleanup_effects_v2 WHERE id=?", (effect_id,))
+        raise InvalidTransition(reason)

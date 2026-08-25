@@ -4,7 +4,6 @@ import json
 import sqlite3
 import subprocess
 import sys
-import tarfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -418,7 +417,9 @@ def test_unknown_cleanup_item_defaults_to_retain_and_cannot_retire(tmp_path: Pat
         operations.execute_retirement(item["id"], preservation_bundle_id="missing-bundle")
 
 
-def test_redundant_branch_retires_only_after_verified_no_loss_bundle(tmp_path: Path) -> None:
+def test_redundant_branch_retirement_fails_closed_without_atomic_worktree_fence(
+    tmp_path: Path,
+) -> None:
     operations = service()
     repository = tmp_path / "repo"
     repository.mkdir()
@@ -436,35 +437,25 @@ def test_redundant_branch_retires_only_after_verified_no_loss_bundle(tmp_path: P
     bundle = operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "preserved"
     )
-    effect = operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
-    assert effect["status"] == "succeeded"
-    assert "old-complete" not in git(repository, "branch", "--format=%(refname:short)").splitlines()
+    for _attempt in range(2):
+        with pytest.raises(InvalidTransition, match="must be preserved or deferred"):
+            operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+    assert "old-complete" in git(repository, "branch", "--format=%(refname:short)").splitlines()
+    refused = operations.store.one("SELECT status,result_json FROM cleanup_effects_v2")
+    assert refused["status"] == "failed"
+    assert json.loads(refused["result_json"])["physical_effect"] is False
+    assert operations.store.one("SELECT count(*) AS count FROM cleanup_effects_v2") == {"count": 1}
 
 
-def test_retirement_rejects_bundle_tampering_and_recovers_after_physical_crash(
+def test_preservation_bundle_reverification_rejects_tampering(
     tmp_path: Path,
 ) -> None:
-    store = TestStore()
-    crash = {"armed": True}
-
-    def fault(point: str) -> None:
-        if point == "retirement:after_physical_effect" and crash.pop("armed", False):
-            raise RuntimeError("injected delete/sql crash")
-
-    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    operations = service()
     repository = tmp_path / "repo"
     repository.mkdir()
     make_git_repo(repository)
     git(repository, "branch", "old-complete")
     inventory = operations.inventory_repository(repository_root=repository)
-    item = operations.plan_cleanup_item(
-        inventory["id"],
-        item_type="branch",
-        item_key="old-complete",
-        classification="redundant",
-        disposition="retire",
-        evidence={"merged_into": "main"},
-    )
     bundle = operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "preserved"
     )
@@ -472,16 +463,9 @@ def test_retirement_rejects_bundle_tampering_and_recovers_after_physical_crash(
     original = archive.read_bytes()
     archive.write_bytes(original + b"tamper")
     with pytest.raises(InvalidTransition, match="bundle root differs"):
-        operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
+        operations._require_verified_bundle(bundle)
     archive.write_bytes(original)
-
-    with pytest.raises(RuntimeError, match="injected"):
-        operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
-    assert "old-complete" not in git(repository, "branch", "--format=%(refname:short)").splitlines()
-    recovered = operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
-    assert recovered["status"] == "succeeded"
-    assert json.loads(recovered["result_json"])["already_absent"] is True
-    assert store.one("SELECT count(*) AS count FROM cleanup_effects_v2") == {"count": 1}
+    operations._require_verified_bundle(bundle)
 
 
 def test_retirement_rejects_branch_advance_after_preservation(tmp_path: Path) -> None:
@@ -508,27 +492,16 @@ def test_retirement_rejects_branch_advance_after_preservation(tmp_path: Path) ->
     git(repository, "branch", "-f", "old-complete", "HEAD")
     advanced_head = git(repository, "rev-parse", "old-complete")
 
-    with pytest.raises(InvalidTransition, match="advanced after preservation"):
+    with pytest.raises(InvalidTransition, match="must be preserved or deferred"):
         operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
     assert git(repository, "rev-parse", "old-complete") == advanced_head
 
 
-def test_retirement_compare_and_delete_preserves_racing_branch_advance(
+def test_branch_retirement_preserves_new_dirty_worktree_admitted_after_inventory(
     tmp_path: Path,
 ) -> None:
     store = TestStore()
-    race: dict[str, str | bool] = {"armed": True}
-
-    def fault(point: str) -> None:
-        if point == "retirement:after_identity_check" and race.pop("armed", False):
-            git(
-                repository,
-                "update-ref",
-                "refs/heads/old-complete",
-                str(race["advanced_head"]),
-            )
-
-    operations = OperationsService(store, fault_injector=fault)  # type: ignore[arg-type]
+    operations = OperationsService(store)  # type: ignore[arg-type]
     repository = tmp_path / "repo"
     repository.mkdir()
     make_git_repo(repository)
@@ -545,23 +518,19 @@ def test_retirement_compare_and_delete_preserves_racing_branch_advance(
     bundle = operations.preserve_repository(
         inventory["id"], output_directory=tmp_path / "preserved"
     )
-    (repository / "later.txt").write_text("later\n", encoding="utf-8")
-    git(repository, "add", "--", "later.txt")
-    git(repository, "commit", "-m", "later commit")
-    race["advanced_head"] = git(repository, "rev-parse", "HEAD")
+    raced_worktree = tmp_path / "raced-worktree"
+    git(repository, "worktree", "add", str(raced_worktree), "old-complete")
+    (raced_worktree / "README.md").write_text("active tracked work\n", encoding="utf-8")
+    (raced_worktree / "uncommitted.txt").write_text("active untracked work\n", encoding="utf-8")
 
-    archived_bundle = tmp_path / "repository.bundle"
-    with tarfile.open(bundle["bundle_path"], "r:gz") as archive:
-        member = archive.extractfile("repository.bundle")
-        assert member is not None
-        archived_bundle.write_bytes(member.read())
-    assert str(race["advanced_head"]) not in git(
-        repository, "bundle", "list-heads", str(archived_bundle)
-    )
-
-    with pytest.raises(InvalidTransition, match="atomic compare-and-delete"):
+    with pytest.raises(InvalidTransition, match="must be preserved or deferred"):
         operations.execute_retirement(item["id"], preservation_bundle_id=bundle["id"])
-    assert git(repository, "rev-parse", "old-complete") == race["advanced_head"]
+    assert git(repository, "show-ref", "--verify", "refs/heads/old-complete")
+    assert git(raced_worktree, "symbolic-ref", "HEAD") == "refs/heads/old-complete"
+    assert git(raced_worktree, "status", "--short").splitlines() == [
+        "M README.md",
+        "?? uncommitted.txt",
+    ]
     assert store.one("SELECT status FROM cleanup_effects_v2") == {"status": "failed"}
 
 

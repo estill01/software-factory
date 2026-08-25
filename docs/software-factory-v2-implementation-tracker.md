@@ -1820,13 +1820,12 @@ unfinished-work restoration.
 - Recovery/reconciliation implementation: preservation verification now checks
   the archive root, exact safe member set, embedded manifest bytes, and every
   declared member hash and the exact safe untracked-member set immediately
-  before cleanup. Retirement reuses one recorded effect and locks the
-  repository. Branch retirement rechecks the inventoried object and then uses
-  Git's expected-object `update-ref` compare-and-delete, so a ref advance
-  between the last read and deletion fails atomically. Worktree and stash
-  retirement have no equivalent exact-object deletion adapter and therefore
-  fail closed to preserve/defer without a physical effect. Only an exact
-  achieved branch-removal postcondition may complete the cleanup effect.
+  before cleanup. Physical Git retirement now fails closed for branches,
+  worktrees, and stashes because Git exposes no deletion adapter that
+  atomically fences both exact object identity and concurrent worktree
+  admission. Each refused retirement is recorded once as a failed audit effect
+  with `physical_effect=false` and a required preserve/defer disposition; no
+  branch ref, checkout, stash, dirty byte, or untracked byte is removed.
   Integration preparation resumes an exact planned merge/validation workspace;
   publication recognizes an already-applied accepted Git head and reruns its
   post-publication validation before committing SQL. Unfinished restart uses
@@ -1840,17 +1839,18 @@ unfinished-work restoration.
   result as failure before token consumption; target wakes and agent refreshes
   carry their persisted idempotency keys and redrive the same intent.
 - Negative/fault proof: deterministic injections after staged-copy, active
-  pointer, integration merge, published ref, physical retirement, restored
-  workspace, target wake, and agent refresh all recovered to one durable row,
-  token, intent, or workspace. Tests also rejected modified installed files,
+  pointer, integration merge, published ref, restored workspace, target wake,
+  and agent refresh all recovered to one durable row, token, intent, or
+  workspace. Refused physical retirement produced one durable failed audit and
+  no physical effect. Tests also rejected modified installed files,
   forged active pointers, rollback to unverified bytes, post-probe drift,
   tampered preservation archives, target-branch advance, cleanup without exact
-  preservation, a cleanup branch advanced before or during retirement, unsafe
-  worktree/stash deletion without an atomic adapter, an overtaking release
-  activation, duplicate resolved recovery, false wake delivery, and arbitrary
-  restart state without a restoration receipt. A committed plus dirty plus
-  untracked unfinished branch restores the latest tracked and exact untracked
-  bytes and replays without duplication.
+  preservation, a cleanup branch advanced before retirement, a new dirty
+  worktree admitted after inventory, every unsupported physical Git retirement,
+  an overtaking release activation, duplicate resolved recovery, false wake
+  delivery, and arbitrary restart state without a restoration receipt. A
+  committed plus dirty plus untracked unfinished branch restores the latest
+  tracked and exact untracked bytes and replays without duplication.
 - Preserved rejected candidate: exact pushed commit
   `4a23d414a3908069161310125042eeb5b4514ba6`, tree
   `5780cd5fbf124523f7892347e66ae6a88a999d6c`, remains immutable and
@@ -1872,10 +1872,24 @@ unfinished-work restoration.
   `old-complete` to commit `3d1cde8a` after the last identity check but before
   `git branch -D`; that commit was absent from the preservation bundle and the
   old adapter deleted it (`effect_status=succeeded`, `race_injected=true`,
-  `branch_exists_after=false`, `advanced_in_bundle_heads=false`). This
-  successor replaces the check-then-delete gap with atomic expected-object ref
-  deletion and disables destructive worktree/stash paths that lack an
+  `branch_exists_after=false`, `advanced_in_bundle_heads=false`). That rejected
+  correction replaced the check-then-delete gap with atomic expected-object
+  ref deletion and disabled destructive worktree/stash paths that lacked an
   equivalent adapter.
+- Preserved rejected successor: exact pushed commit
+  `12adc2326ff47d38ceedef985e3ebcd9bcef133b`, tree
+  `bdbc8a92681839e8495d7cba26c3e63b06441207`, remains immutable and
+  unaccepted. Exact review confirmed that compare-and-delete preserved a
+  post-check ref advance and that worktree/stash item retirement failed closed,
+  but returned `REVISE` on one P1 worktree-admission race. At the same
+  `retirement:after_identity_check` boundary, ordinary `git worktree add`
+  created a new dirty checkout that ignored the Factory-private flock; cleanup
+  then reported success while deleting its symbolic branch
+  (`effect_status=succeeded`, `branch_ref_exists=false`,
+  `raced_worktree_exists=true`, `raced_HEAD=refs/heads/old-complete`, with
+  tracked and untracked pending bytes). The current successor removes physical
+  branch retirement as well, rather than claiming that ref-object CAS fences
+  separately admitted worktree authority.
 - Rejected-candidate closure matrix:
 
   | Finding | Governing invariant | Corrective delta | Focused regression | Affected mapped proof | Fresh exact review |
@@ -1885,7 +1899,8 @@ unfinished-work restoration.
   | resolved replay allocated a duplicate wake and stranded recovery | one defect fingerprint owns one case, token, effect, and delivered wake across terminal replay | include resolved cases in lookup, exact target-state collision check, resolved fast path, explicit `sent` gate | `test_resolved_factory_recovery_replays_without_duplicate_wake_or_case`; `test_unsent_factory_wake_fails_closed_and_redrives_same_intent` | recovery and governed effects | closed by exact review of `76ca892` |
   | interrupted activation could overtake newer authority | one root has one serialized unfinished transition bound to its exact predecessor/current active state | durable root lock, unfinished-root gate, transition-root/payload/predecessor/current-pointer checks | `test_interrupted_activation_blocks_newer_activation_and_resumes_exact_transition` | operations and governed release | closed by exact review of `76ca892` |
   | receipt/release publication omitted durability barriers | no reported durable publication relies on an un-fsynced renamed file or directory entry | `atomic_write` receipts, file/tree directory fsync, release-root post-rename fsync, crash-safe persistent locks | staging and restart crash-recovery fixtures plus exact source audit | operations, governed release, reconciliation | closed by exact review of `76ca892` |
-  | branch ref advanced after the last identity check could still be deleted | destructive cleanup must make the identity precondition and deletion one atomic Git operation | `update-ref -d <ref> <expected-object>` compare-and-delete; preserve/defer worktrees and stashes without an equivalent adapter | `test_retirement_compare_and_delete_preserves_racing_branch_advance`; `test_retirement_preserves_worktrees_and_stashes_without_atomic_adapter` | operations, reconciliation, target profiles | pending correction freeze |
+  | branch ref advanced after the last identity check could still be deleted | destructive cleanup must make the identity precondition and deletion one atomic Git operation | `12adc232` used expected-object compare-and-delete; the current successor eliminates physical Git deletion entirely | `test_retirement_rejects_branch_advance_after_preservation`; `test_retirement_preserves_worktrees_and_stashes_without_atomic_adapter` | operations, reconciliation, target profiles | ref-advance reproduction closed at `12adc232`; deletion path superseded safely |
+  | a new active worktree could be admitted between branch check and ref deletion | cleanup must not strand live worktree authority on a deleted symbolic branch | record one failed no-physical-effect audit and require preserve/defer for branch, worktree, and stash retirement | `test_branch_retirement_preserves_new_dirty_worktree_admitted_after_inventory`; `test_redundant_branch_retirement_fails_closed_without_atomic_worktree_fence` | operations, reconciliation, target profiles | pending correction freeze |
 - Focused validation: `34 passed` in the operations, governed-release,
   reconciliation, and recovery-coordinator files; the four existing
   `TestStore` collection warnings remain unchanged. Mapped validation across
@@ -1896,15 +1911,15 @@ unfinished-work restoration.
   across `69` source files, compileall, diff check, and tracker verification are
   clean. No broad runtime suite was run.
 - Isolated build/install proof: wheel SHA-256
-  `56849401e8eb9d9c14ae69826744885d3934389df86b0f8aea8b10b228e6b5c2`;
+  `313dd6bdef2091259e0bf89b60fafa7e235519fb577cc37e3e5701d99383ac08`;
   sdist SHA-256
-  `28745ea1dbbeaa1fd8ac40b90c620cee639f4a26946f65e3d580adb25a4f1884`.
+  `05ee7e699dbd67ebcc5379360e1072f2c047a1790452659ac0efa5728316b747`.
   The exact wheel contains migration 0024 and a fresh isolated install reported
   both catalog and live database schema version `24`. The changed runtime-source
   hash-list root is
-  `aa6b73518e280ab8efc7a426e7ecd42cb005ebad7a9a2763ca9fe0998bd153ec`;
+  `897a2ad11f246c9aec75763f2535f12791ef2a78812cce5ad31b6745c406aaff`;
   the changed-test hash-list root is
-  `8bba607a3d079eac5e06218c20bcc2025876420cba2f0619b4603180272ec190`.
+  `57ab29fca05702375316425d0dbd49394cdd535c0a38a302876d83746a5a2524`.
 - Product-capability review:
   - Trigger: consequential durable delivery/recovery boundary and correction
     of a candidate that could lose unfinished work or overwrite newer release
@@ -1914,10 +1929,10 @@ unfinished-work restoration.
     bytes at lines 52–84, SHA-256
     `c2b8110d2cf11edc3d7f52ecc0c6112f0f60ba9d091b6cbeb2e15e9b6bbb3851`.
   - Capability added or preserved: interrupted local delivery rehydrates one
-    exact release/effect/workspace; atomic branch retirement cannot delete a
-    post-check ref advance and unsupported worktree/stash retirement remains
-    preserved; dirty and untracked work remain recoverable; a resolved case
-    does not resume its target twice.
+    exact release/effect/workspace; unsupported physical Git retirement is
+    audited and preserve/defer-fails before deleting branch, checkout, stash,
+    dirty, or untracked authority; dirty and untracked work remain recoverable;
+    a resolved case does not resume its target twice.
   - Paths compared: retry from current mutable Git refs; retain only the Git
     bundle; use process-local flags; or bind durable journals, exact inventory
     identities, bundle members, receipts, and external idempotency keys under
@@ -1926,17 +1941,19 @@ unfinished-work restoration.
     reconciliation, governance-effect, and recovery owners retain authority;
     no new service, provider, production, or semantic owner is introduced.
   - Protected-capability result: immutable evidence and newer release/Git
-    authority survive every tested interruption and the injected deletion
-    race, false delivery never consumes the resume token, and unfinished
-    obligations retain their latest bytes.
+    authority survive every tested interruption, ref-advance race, and
+    worktree-admission race; false delivery never consumes the resume token,
+    and unfinished obligations retain their latest bytes.
   - Rejected alternatives: live-ref reconstruction loses the preserved point;
     committed-only restart loses dirty work; selector-only stash deletion can
-    shift; a receipt without directory fsync can vanish after reported success;
-    and a new recovery row defeats exact-once resumption.
-  - Tradeoff and uncertainty: root/repository locks serialize rare destructive
-    transitions and exact hashing adds local I/O, accepted because the paths
-    are consequential and bounded. Production activation and external delivery
-    remain deliberately unqualified.
+    shift; ref-object CAS does not fence separate worktree admission; a receipt
+    without directory fsync can vanish after reported success; and a new
+    recovery row defeats exact-once resumption.
+  - Tradeoff and uncertainty: exact hashing adds bounded local I/O, and
+    preserve/defer retains redundant Git objects until a future adapter can
+    prove one atomic identity-plus-worktree fence. That storage cost is accepted
+    over silently stranding active work. Production activation and external
+    delivery remain deliberately unqualified.
   - Frozen-candidate proof: exact commit/tree identity will be recorded in the
     acceptance successor after distinct exact-revision review; current bounded
     behavioral proof is `34` focused and `83` mapped passes, exact installed
