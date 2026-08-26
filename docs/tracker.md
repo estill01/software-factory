@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `66a8f501aa99319b2a8434367fab30592d55956c65da936cbd8b5762f5404911`; Blocks 0–9 accepted; rejected Block 10 candidates `e60b999`, `44f3e83`, and `b408e17` plus all nine P1/P2 findings preserved; exact candidate-root stage lineage, profile terminal fencing, and atomic stale-QA remediation with mapped proof complete pending successor commit/review; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `4cfb0eb970437c47c4db3e297644229e28bace7a73c12f40c8c46b86e5df20b3`; Blocks 0–9 accepted; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, and `777b2d2` plus all ten P1/P2 findings preserved; exact candidate-root stage lineage, atomic stale-QA, and deterministic all-profile terminal fencing remediation with mapped proof complete pending successor commit/review; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -105,20 +105,23 @@ dependency-safe frontier. Its maintained neutral profile and consumer-owned
 external extension both reach delivered and independently accepted terminal
 mission outcomes through the real CoreService owners. Focused/mapped/static and
 isolated package proof are current at detailed tracker SHA-256
-`66a8f501aa99319b2a8434367fab30592d55956c65da936cbd8b5762f5404911`.
+`4cfb0eb970437c47c4db3e297644229e28bace7a73c12f40c8c46b86e5df20b3`.
 Exact pushed candidates `e60b9990a2453888dfff991dc8c46fb5ca251d58` and
 `44f3e83095550b6cf0db18c08ac314cce110e3f3`, plus exact pushed candidate
-`b408e179b7254ce54aec6ac396dd797159e27fe5`, are preserved and unaccepted after
-distinct reviews found nine P1/P2 gaps across canonical non-workspace QA, durable
+`b408e179b7254ce54aec6ac396dd797159e27fe5` and exact pushed candidate
+`777b2d2a019c89b922469b4cbfb4ac979fbd18fa`, are preserved and unaccepted after
+distinct reviews found ten P1/P2 gaps across canonical non-workspace QA, durable
 target restart, physical-effect fencing, exact execution/candidate lineage,
 mandatory independent review, post-QA staged currentness, stage-to-candidate
-lineage, terminal profile fencing, and stale-QA atomicity. The bounded
+lineage, terminal profile fencing and membership, and stale-QA atomicity. The bounded
 successor retains the earlier closures, forces currentness/review through
 canonical QA for every profile candidate, invalidates same-revision
 cross-execution QA and acceptance lineage, binds every profile stage to the
 active candidate root, rejects mission-scoped terminal bypass, records QA
-children atomically after the stale check, and holds the physical target fence
-through each authoritative acceptance write. Block 10 remains in progress
+children atomically after the stale check, and binds every selected,
+non-cancelled, installed profile target into one deterministic terminal set whose
+physical fences remain held through acceptance and whose identity is rechecked
+at mission completion. Block 10 remains in progress
 pending its clean pushed successor and distinct exact-revision review.
 
 ## Required outcome

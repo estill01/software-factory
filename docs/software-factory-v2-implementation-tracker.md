@@ -2445,12 +2445,18 @@ reuse of the real engine.
   transaction that rechecks the non-stale exact requirement before any durable
   child record. Work promotion requires the already-passed QA state and no
   longer writes `qa_status='passed'`; every
-  candidate/integrated/installed/terminal acceptance re-observes the registered
-  physical target and holds its profile-owned fence through the authoritative
-  stage and work-promotion write. A mission containing profile work rejects an
-  unbound terminal stage, and continuation requires its accepted terminal stage
-  to remain bound to profile work. The existing staged lifecycle remains the
-  sole work-acceptance owner.
+  candidate/integrated/installed acceptance re-observes the registered physical
+  target and holds its profile-owned fence through the authoritative stage and
+  work-promotion write. Terminal preparation instead derives one deterministic
+  composite scope from every selected, non-cancelled, installed profile work
+  item and its exact candidate, revision, and currentness roots. Terminal
+  promotion acquires every target fence in that order and rechecks the complete
+  set inside the same transaction as the authoritative write; mission
+  completion fences and rechecks the same exact set again. Proposed, deferred,
+  unselected, and cancelled profile work cannot enter that terminal scope. A
+  mission containing canonical profile work rejects an unbound or partial
+  terminal stage. The existing staged lifecycle remains the sole
+  work-acceptance owner.
 - External extension proof: `runtime/tests/external_extension_fixture.py` owns
   its sample observation key, target ID, schema, snapshots, and physical effects
   outside `runtime/src/software_factory`. It registers through the unchanged
@@ -2472,9 +2478,9 @@ reuse of the real engine.
   no-isolation diagnostic was invalid because the selected development venv did
   not contain the declared setuptools backend and was not reused as proof. The
   isolated wheel and sdist SHA-256 values are respectively
-  `3474b2afa2eebd76fcab23a96c84aee8e05c5b25f9c3120ff09f8c0a74136de4`
+  `0778d416964eac389f21fa33e31f264e96c2ef5061966507883e5c569b3f914f`
   and
-  `62cbd757b6dc337744b97319c90fbe41bc3aa17609fe9567193aee676a52fc32`.
+  `f09c5e06a5f7e05eaba2861699e24ded96b06515f9c9f31d3266f07e356545b6`.
   A target-directory installation imported version `2.0.0.dev6` from the built
   wheel, exposed the content profile, and composed profile keys `content` and
   `software`; the sdist contains both maintained Block 10 test modules.
@@ -2522,11 +2528,26 @@ reuse of the real engine.
   execution, observes every old stage/governance record become stale or
   invalidated, rejects both stale QA calls without adding evidence, executions,
   or results, and completes only through a new candidate-root scope.
-- Focused and mapped proof: `65 passed` across content/external profiles, target
+- Preserved fourth rejected candidate: exact pushed commit
+  `777b2d2a019c89b922469b4cbfb4ac979fbd18fa`, tree
+  `f9b1be94e54a5585aaf8c0ee52d5f50f772884a9`, remains immutable and
+  unaccepted. Distinct exact-revision review returned one P1 finding: terminal
+  acceptance fenced only its primary profile work while another selected target
+  in the same mission could drift, and the terminal membership query included
+  proposed, deferred, unselected, and cancelled profile rows. The current
+  successor replaces the single-work binding with a digest-rooted composite of
+  every selected, non-cancelled, installed profile work item and its exact
+  candidate, revision, and currentness roots. It acquires all target fences in
+  deterministic order through the terminal acceptance write and revalidates the
+  identical set under those fences at mission completion. Negative proof drifts
+  the non-primary target immediately before terminal acceptance and separately
+  proves that proposed and cancelled profile work do not enter terminal scope.
+  No rejected history was amended or removed.
+- Focused and mapped proof: `68 passed` across content/external profiles, target
   profiles, execution/QA, acceptance lifecycle, core, composition, operational
   boundaries, engine hosts, and v2 entrypoints. Ruff format/check are clean over
-  108 files, mypy is clean over 72 source files, compilation is clean, and full
-  runtime collection is 264 tests with the seven documented legacy `TestStore`
+  109 files, mypy is clean over 73 source files, compilation is clean, and full
+  runtime collection is 267 tests with the seven documented legacy `TestStore`
   collection warnings. Per the range economy contract, the broad runtime suite
   remains deferred to Block 12.
 - Product-capability review:
@@ -2556,9 +2577,9 @@ reuse of the real engine.
     deterministic cited-document contract rather than a universal document
     platform. New domains remain external extensions until another accepted
     shared need justifies a bounded core contract.
-- Candidate posture: rejected exact candidates `e60b999`, `44f3e83`, and
-  `b408e17` and all nine review findings are preserved. The third bounded
-  remediation, docs,
+- Candidate posture: rejected exact candidates `e60b999`, `44f3e83`,
+  `b408e17`, and `777b2d2` and all ten review findings are preserved. The fourth
+  bounded remediation, docs,
   focused/mapped proof, static audit, collection, durable-restart proof, and
   isolated build/import proof are complete. A new exact candidate commit/push
   and distinct exact-revision review remain required before Block 10 acceptance

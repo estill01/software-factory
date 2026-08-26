@@ -99,7 +99,9 @@ class CoreService:
         self.target_profiles.register(self._software_profile)
         self.target_profiles.register(self._content_profile)
         self._profile_workspaces = self._software_profile
-        self.continuation = ContinuationService(store, self.work_items)
+        self.continuation = ContinuationService(
+            store, self.work_items, target_profiles=self.target_profiles
+        )
         self.supervision = SupervisionService(
             store, work_items=self.work_items, continuation=self.continuation
         )

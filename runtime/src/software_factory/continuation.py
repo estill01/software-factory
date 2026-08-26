@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from .errors import EvidenceInvalid, InvalidTransition, RoleConflict
+from .profile_terminal import (
+    terminal_profile_bindings,
+    terminal_profile_fences,
+    terminal_profile_scope,
+)
 from .scheduling import (
     SchedulingPolicy,
     active_execution_count,
@@ -12,9 +17,10 @@ from .util import canonical_json, json_load, utc_now
 
 
 class ContinuationService:
-    def __init__(self, store: Any, work_items: Any):
+    def __init__(self, store: Any, work_items: Any, *, target_profiles: Any | None = None):
         self.store = store
         self.work_items = work_items
+        self.target_profiles = target_profiles
 
     def satisfy_obligation(
         self,
@@ -233,6 +239,11 @@ class ContinuationService:
         verifier_session_id: str,
     ) -> dict[str, Any]:
         with self.store.transaction() as db:
+            expected_profile_bindings = terminal_profile_bindings(db, mission_id)
+        with (
+            terminal_profile_fences(self.target_profiles, expected_profile_bindings),
+            self.store.transaction() as db,
+        ):
             self.store.check_version(
                 db, table="missions", row_id=mission_id, expected_version=expected_version
             )
@@ -308,19 +319,32 @@ class ContinuationService:
                 raise InvalidTransition(
                     "mission completion requires accepted terminal-stage outcome reconciliation"
                 )
-            profile_work_ids = {
-                str(row["id"])
-                for row in db.execute(
-                    "SELECT id,expected_effect_json FROM work_items WHERE mission_id=?",
-                    (mission_id,),
-                ).fetchall()
-                if isinstance(json_load(row["expected_effect_json"], {}).get("target_profile"), str)
-                and isinstance(json_load(row["expected_effect_json"], {}).get("target_id"), str)
-            }
-            if profile_work_ids and terminal_stage["work_item_id"] not in profile_work_ids:
-                raise InvalidTransition(
-                    "profile mission completion requires its work-bound terminal stage"
-                )
+            current_profile_bindings = terminal_profile_bindings(db, mission_id)
+            if current_profile_bindings != expected_profile_bindings:
+                raise InvalidTransition("terminal profile set changed during mission completion")
+            if current_profile_bindings:
+                if terminal_stage["scope_key"] != terminal_profile_scope(
+                    mission_id, current_profile_bindings
+                ):
+                    raise InvalidTransition(
+                        "mission terminal stage differs from its exact profile set"
+                    )
+                if terminal_stage["work_item_id"] not in {
+                    binding["work_item_id"] for binding in current_profile_bindings
+                }:
+                    raise InvalidTransition(
+                        "profile mission completion requires its work-bound terminal stage"
+                    )
+            elif terminal_stage["work_item_id"]:
+                terminal_work = db.execute(
+                    "SELECT expected_effect_json FROM work_items WHERE id=?",
+                    (terminal_stage["work_item_id"],),
+                ).fetchone()
+                expected_effect = json_load(terminal_work["expected_effect_json"], {})
+                if isinstance(expected_effect.get("target_profile"), str) and isinstance(
+                    expected_effect.get("target_id"), str
+                ):
+                    raise InvalidTransition("mission terminal stage uses excluded profile work")
             if json_load(terminal_stage["remaining_scope_json"], []):
                 raise InvalidTransition("mission cannot complete with remaining requested range")
             if evidence["revision"] != terminal_stage["target_revision"]:

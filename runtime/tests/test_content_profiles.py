@@ -200,6 +200,114 @@ def _accept_stage(
     )
 
 
+def _install_additional_profile_work(
+    core: CoreService,
+    *,
+    mission_id: str,
+    profile_key: str,
+    target_id: str,
+    steps: tuple[tuple[EffectClass, str], ...],
+    implementer_id: str,
+    reviewer_id: str,
+) -> dict[str, Any]:
+    store = core.store
+    work_id = core.create_work_item(
+        mission_id=mission_id,
+        work_type="target_production",
+        title=f"Install additional {profile_key} target",
+        description="Exercise composite terminal currentness",
+        expected_effect={"target_profile": profile_key, "target_id": target_id},
+        acceptance_spec={"candidate": []},
+    )
+    core.select_work(
+        work_id,
+        expected_version=1,
+        selected_by="factory-scheduler",
+        basis={"dependency_safe": True, "terminal_profile_set": True},
+    )
+    execution_id = core.queue_execution(
+        mission_id=mission_id,
+        work_item_id=work_id,
+        agent_session_id=implementer_id,
+        execution_type="target_profile_production",
+        idempotency_key=f"{mission_id}:{profile_key}:{target_id}:additional",
+        expected_effect={"target_profile": profile_key, "target_id": target_id},
+    )
+    generation = core.acquire_leases(
+        execution_id,
+        [{"kind": "target_profile", "key": f"{profile_key}:{target_id}", "mode": "exclusive"}],
+    )
+    for effect_class, operation in steps:
+        _execute(core, profile_key, target_id, effect_class, operation)
+    snapshot = core.target_profiles.snapshot(profile_key, target_id)
+    core.complete_external_execution(
+        execution_id,
+        generation=generation,
+        succeeded=True,
+        result={
+            "profile_key": profile_key,
+            "target_id": target_id,
+            "revision": snapshot.revision,
+            "currentness_root": snapshot.currentness_root,
+        },
+    )
+    work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+    submitted = core.qa.submit_profile_candidate(
+        execution_id,
+        profile_key=profile_key,
+        target_id=target_id,
+        expected_revision=snapshot.revision,
+        expected_currentness_root=snapshot.currentness_root,
+        expected_work_version=work["state_version"],
+    )
+    requirements = {
+        item["qa_type"]: item for item in submitted["requirements"] if item["status"] != "stale"
+    }
+    core.qa.record_profile_currentness(requirements["profile_currentness"]["id"])
+    core.qa.record_independent_review(
+        requirements["independent_review"]["id"],
+        reviewer_session_id=reviewer_id,
+        disposition="accept",
+    )
+    work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+    core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
+    outcome = {
+        "operator_visible": {
+            "profile_key": profile_key,
+            "target_id": target_id,
+            "delivered": True,
+        },
+        "protected_capabilities": {"mission_continuation": "preserved"},
+    }
+    evidence_id = store.record_evidence(
+        mission_id=mission_id,
+        evidence_type="installed_probe",
+        subject_type="work_item",
+        subject_id=work_id,
+        revision=snapshot.revision,
+        producer_session_id=reviewer_id,
+        payload={"outcome": outcome},
+    )
+    prior: dict[str, Any] | None = None
+    for stage in ("candidate", "integrated", "installed"):
+        prior = _accept_stage(
+            store,
+            core,
+            mission_id=mission_id,
+            work_item_id=work_id,
+            implementer_id=implementer_id,
+            reviewer_id=reviewer_id,
+            revision=snapshot.revision,
+            currentness_root=snapshot.currentness_root,
+            stage=stage,
+            prior_stage_id=None if prior is None else prior["id"],
+            outcome=outcome,
+            evidence_id=evidence_id,
+        )
+    assert prior is not None
+    return {"work_item_id": work_id, "snapshot": snapshot, "installed_stage": prior}
+
+
 def _complete_profile_mission(
     core: CoreService,
     *,
@@ -209,6 +317,8 @@ def _complete_profile_mission(
     candidate_spec: list[dict[str, Any]] | None = None,
     resubmit_same_revision: bool = False,
     before_stage_accept: Callable[[str], None] | None = None,
+    additional_profile_setup: Callable[[str, str, str], None] | None = None,
+    before_mission_complete: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     store = core.store
     project_id = core.create_project(f"{profile_key} mission project")
@@ -534,6 +644,8 @@ def _complete_profile_mission(
         if stage == "candidate" and superseded_stage is not None:
             assert prior["scope_key"] != superseded_stage["scope_key"]
     assert prior is not None
+    if additional_profile_setup is not None:
+        additional_profile_setup(mission_id, implementer_id, reviewer_id)
     with pytest.raises(InvalidTransition, match="profile missions require a work-bound terminal"):
         core.acceptance_lifecycle.prepare_stage(
             mission_id=mission_id,
@@ -685,11 +797,16 @@ def _complete_profile_mission(
         prior_stage_id=prior["id"],
         outcome=outcome,
         evidence_id=terminal_evidence,
+        before_accept=(
+            None if before_stage_accept is None else lambda: before_stage_accept("terminal")
+        ),
     )
     assert terminal["status"] == "accepted"
     observed = core.target_profiles.snapshot(profile_key, target_id)
     assert observed.revision == final_snapshot.revision
     assert observed.currentness_root == final_snapshot.currentness_root
+    if before_mission_complete is not None:
+        before_mission_complete()
     mission = store.one("SELECT state_version FROM missions WHERE id=?", (mission_id,))
     completed = core.continuation.complete_mission(
         mission_id,
@@ -891,6 +1008,74 @@ def test_profile_acceptance_reobserves_physical_currentness_after_qa(
             target_id=target_id,
             steps=_content_steps(),
             before_stage_accept=drift_after_outcome_reconciliation,
+        )
+
+
+def test_terminal_acceptance_fences_every_selected_profile_target(tmp_path: Path) -> None:
+    core = CoreService(Store(tmp_path / "factory.sqlite3"))
+    content_id = _register_content(core, tmp_path / "content")
+    extension_root = tmp_path / "external-target"
+    core.target_profiles.register(
+        ObservationCardExtensionProfile(
+            extension_root,
+            (
+                {"observed_at": "2026-08-25T09:00:00Z", "value": 7},
+                {"observed_at": "2026-08-25T10:00:00Z", "value": 11},
+            ),
+        )
+    )
+
+    def add_second_target(mission_id: str, implementer_id: str, reviewer_id: str) -> None:
+        _install_additional_profile_work(
+            core,
+            mission_id=mission_id,
+            profile_key="observation-card",
+            target_id="field-summary",
+            steps=(
+                (EffectClass.WORKSPACE, "collect"),
+                (EffectClass.BUILD, "render"),
+                (EffectClass.RELEASE, "deliver"),
+                (EffectClass.TEST, "verify"),
+            ),
+            implementer_id=implementer_id,
+            reviewer_id=reviewer_id,
+        )
+
+    def drift_second_target(stage: str) -> None:
+        if stage == "terminal":
+            delivered = extension_root / "delivered" / "summary.json"
+            delivered.write_text(delivered.read_text(encoding="utf-8") + " ", encoding="utf-8")
+
+    with pytest.raises(InvalidTransition, match="currentness changed"):
+        _complete_profile_mission(
+            core,
+            profile_key="content",
+            target_id=content_id,
+            steps=_content_steps(),
+            additional_profile_setup=add_second_target,
+            before_stage_accept=drift_second_target,
+        )
+
+
+def test_mission_completion_revalidates_terminal_profile_set(tmp_path: Path) -> None:
+    core = CoreService(Store(tmp_path / "factory.sqlite3"))
+    root = tmp_path / "content"
+    target_id = _register_content(core, root)
+
+    def drift_after_terminal_acceptance() -> None:
+        delivered = root / "delivered" / "document.html"
+        delivered.write_text(
+            delivered.read_text(encoding="utf-8") + "<!-- terminal drift -->\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(InvalidTransition, match="revision changed|currentness changed"):
+        _complete_profile_mission(
+            core,
+            profile_key="content",
+            target_id=target_id,
+            steps=_content_steps(),
+            before_mission_complete=drift_after_terminal_acceptance,
         )
 
 

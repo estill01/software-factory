@@ -61,9 +61,12 @@ the completed program materially changes Software Factory.
   through the authoritative acceptance write. Same-revision resubmission also
   stales the prior candidate's prepared/accepted stages and their governed
   contracts, reviews, and decisions. Stale profile QA calls fail before adding
-  an execution, evidence, or result, and a mission containing profile work cannot
-  complete through a mission-scoped terminal stage that bypasses the profile
-  fence. The output still traverses independent
+  an execution, evidence, or result. Terminal acceptance derives one composite
+  scope from every selected, non-cancelled, installed profile target and its
+  exact candidate, revision, and currentness roots, holds all corresponding
+  physical fences through promotion, and revalidates that same set at mission
+  completion; proposed and cancelled work remain outside terminal authority.
+  The output still traverses independent
   candidate/integrated/installed/terminal acceptance and cannot self-accept. A
   consumer-owned example profile lives outside the Factory package, registers
   through the public profile registry, and completes the same real mission,

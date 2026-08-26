@@ -930,3 +930,78 @@ def test_exact_terminal_chain_completes_only_after_independent_actual_outcome(
         verifier_session_id=reviewer,
     )
     assert completed["status"] == "completed"
+
+
+def test_unselected_and_cancelled_profile_work_do_not_enter_terminal_set(
+    runtime: tuple[Database, CoreService, str, str, str, str],
+) -> None:
+    store, core, mission, work, implementer, reviewer = runtime
+    installed = _accepted_chain(store, core, mission, work, implementer, reviewer)
+    proposed = core.work_items.create_work_item(
+        mission_id=mission,
+        work_type="target_production",
+        title="Unselected profile possibility",
+        description="Not part of the canonical selected range",
+        expected_effect={"target_profile": "external", "target_id": "proposed"},
+    )
+    cancelled = core.work_items.create_work_item(
+        mission_id=mission,
+        work_type="target_production",
+        title="Cancelled profile possibility",
+        description="Explicitly excluded from terminal unfinished work",
+        expected_effect={"target_profile": "external", "target_id": "cancelled"},
+    )
+    core.work_items.select_work(
+        cancelled,
+        expected_version=1,
+        selected_by="test-selector",
+        basis={"eligible": True},
+    )
+    core.work_items.cancel_work(cancelled, operator_decision_id="decision-cancel-profile")
+    assert store.one("SELECT planning_status FROM work_items WHERE id=?", (proposed,)) == {
+        "planning_status": "proposed"
+    }
+
+    execution = core._executions.queue_execution(
+        mission_id=mission,
+        execution_type="terminal_verification",
+        idempotency_key="terminal-excludes-noncanonical-profile-work",
+        agent_session_id=reviewer,
+        input_payload={"revision": REVISION},
+    )
+    with store.transaction() as db:
+        db.execute(
+            """UPDATE executions SET status='succeeded',started_at=?,finished_at=?
+               WHERE id=?""",
+            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z", execution),
+        )
+    terminal_evidence = _evidence(
+        store,
+        mission=mission,
+        suffix="terminal-excluded-profile-work",
+        producer=reviewer,
+        evidence_type="terminal_probe",
+        execution_id=execution,
+    )
+    terminal, process_evidence = _prepare_decide(
+        store,
+        core,
+        mission=mission,
+        work=work,
+        implementer=implementer,
+        reviewer=reviewer,
+        stage="terminal",
+        prior_stage_id=installed["id"],
+        remaining_scope=[],
+    )
+    assert (
+        _accept_aligned(core, terminal, reviewer=reviewer, evidence=process_evidence)["status"]
+        == "accepted"
+    )
+    completed = core.continuation.complete_mission(
+        mission,
+        expected_version=1,
+        terminal_evidence_id=terminal_evidence,
+        verifier_session_id=reviewer,
+    )
+    assert completed["status"] == "completed"
