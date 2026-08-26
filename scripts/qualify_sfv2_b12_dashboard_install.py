@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
+import os
+import stat
 import subprocess
 import sys
 from contextlib import closing
-from hashlib import sha256
+from hashlib import sha1, sha256
 from importlib.metadata import distribution
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
+from types import ModuleType
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -19,6 +21,9 @@ from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
 from software_factory_dashboard.runtime_owners import SOFTWARE_FACTORY_PACKAGE_ROOT
 from software_factory_dashboard.server import DashboardHTTPServer, ServerConfig
 from software_factory_dashboard.tracker import DEFAULT_VERIFIER_PATH
+
+
+OFFLINE_QUALIFIER_RELATIVE_PATH = Path("scripts/qualify_sfv2_b11_install.py")
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -57,14 +62,91 @@ def _distribution_root(name: str) -> Path:
     return Path(distribution(name).locate_file("")).resolve(strict=True)
 
 
-def _load_offline_qualifier(path: Path) -> Any:
-    path = path.resolve(strict=True)
-    spec = importlib.util.spec_from_file_location("_sfv2_b12_offline_qualifier", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("offline qualifier could not be loaded")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _read_stable_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytes:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > maximum_bytes:
+            raise RuntimeError(f"{label} is not a bounded regular file")
+        chunks: list[bytes] = []
+        remaining = maximum_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    value = b"".join(chunks)
+    if (
+        _file_identity(before) != _file_identity(after)
+        or len(value) != before.st_size
+        or len(value) > maximum_bytes
+    ):
+        raise RuntimeError(f"{label} changed while read")
+    return value
+
+
+def _git_blob_sha1(content: bytes) -> str:
+    return sha1(
+        f"blob {len(content)}\0".encode("ascii") + content, usedforsecurity=False
+    ).hexdigest()
+
+
+def _load_offline_qualifier(
+    project_root: Path, source_revision: str
+) -> tuple[ModuleType, dict[str, str]]:
+    relative_path = OFFLINE_QUALIFIER_RELATIVE_PATH.as_posix()
+    path = project_root / OFFLINE_QUALIFIER_RELATIVE_PATH
+    if path.is_symlink():
+        raise RuntimeError("offline qualifier must be a tracked regular file")
+    content = _read_stable_bytes(
+        path.resolve(strict=True),
+        label="source-bound offline qualifier",
+        maximum_bytes=1024 * 1024,
+    )
+    listing = _git_value(
+        project_root,
+        "ls-tree",
+        source_revision,
+        "--",
+        relative_path,
+    )
+    try:
+        metadata, listed_path = listing.split("\t", 1)
+        mode, object_type, expected_blob = metadata.split()
+    except ValueError as exc:
+        raise RuntimeError("offline qualifier is absent from the exact source") from exc
+    actual_blob = _git_blob_sha1(content)
+    if (
+        listed_path != relative_path
+        or mode not in {"100644", "100755"}
+        or object_type != "blob"
+        or actual_blob != expected_blob
+    ):
+        raise RuntimeError("offline qualifier differs from the exact source")
+    module = ModuleType("_sfv2_b12_source_bound_offline_qualifier")
+    module.__file__ = str(path)
+    exec(compile(content, str(path), "exec"), module.__dict__)
+    return module, {
+        "path": relative_path,
+        "git_blob": expected_blob,
+        "sha256": sha256(content).hexdigest(),
+    }
 
 
 def _git_value(project_root: Path, *arguments: str) -> str:
@@ -86,17 +168,35 @@ def _bind_exact_install(
     manifest_path: Path,
     offline_receipt_path: Path,
     artifact_directory: Path,
-    offline_qualifier_path: Path,
 ) -> dict[str, Any]:
-    qualifier = _load_offline_qualifier(offline_qualifier_path)
-    manifest_bytes = qualifier.read_stable_bytes(
+    manifest_bytes = _read_stable_bytes(
         manifest_path.resolve(strict=True),
         label="dashboard qualification manifest",
         maximum_bytes=1024 * 1024,
     )
+    try:
+        manifest_identity = json.loads(manifest_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("dashboard qualification manifest is unreadable") from exc
+    if not isinstance(manifest_identity, dict):
+        raise TypeError("dashboard qualification manifest must be an object")
+    source_revision = _git_value(project_root, "rev-parse", "HEAD")
+    source_tree = _git_value(project_root, "rev-parse", "HEAD^{tree}")
+    source_status = _git_value(
+        project_root, "status", "--porcelain=v1", "--untracked-files=all"
+    )
+    if (
+        source_revision != manifest_identity.get("source_revision")
+        or source_tree != manifest_identity.get("source_tree")
+        or source_status
+    ):
+        raise RuntimeError("project checkout differs from the exact source candidate")
+    qualifier, qualifier_identity = _load_offline_qualifier(
+        project_root, source_revision
+    )
     manifest = qualifier.load_manifest(manifest_bytes)
     manifest_sha256 = sha256(manifest_bytes).hexdigest()
-    receipt_bytes = qualifier.read_stable_bytes(
+    receipt_bytes = _read_stable_bytes(
         offline_receipt_path.resolve(strict=True),
         label="dashboard offline qualification receipt",
         maximum_bytes=4 * 1024 * 1024,
@@ -192,21 +292,22 @@ def _bind_exact_install(
     if len(installed_distributions) != len(manifest["artifacts"]):
         raise RuntimeError("installed distribution set is incomplete")
 
-    source_revision = _git_value(project_root, "rev-parse", "HEAD")
-    source_tree = _git_value(project_root, "rev-parse", "HEAD^{tree}")
-    source_status = _git_value(
+    final_source_revision = _git_value(project_root, "rev-parse", "HEAD")
+    final_source_tree = _git_value(project_root, "rev-parse", "HEAD^{tree}")
+    final_source_status = _git_value(
         project_root, "status", "--porcelain=v1", "--untracked-files=all"
     )
     if (
-        source_revision != manifest.get("source_revision")
-        or source_tree != manifest.get("source_tree")
-        or source_status
+        final_source_revision != source_revision
+        or final_source_tree != source_tree
+        or final_source_status
     ):
-        raise RuntimeError("project checkout differs from the exact source candidate")
+        raise RuntimeError("project checkout changed during exact qualification")
 
     return {
         "source_revision": source_revision,
         "source_tree": source_tree,
+        "offline_qualifier": qualifier_identity,
         "manifest_sha256": manifest_sha256,
         "offline_qualification_root_sha256": offline_root,
         "offline_receipt_material_sha256": sha256(
@@ -230,7 +331,6 @@ def qualify(
     manifest_path: Path,
     offline_receipt_path: Path,
     artifact_directory: Path,
-    offline_qualifier_path: Path,
 ) -> dict[str, Any]:
     project_root = project_root.resolve(strict=True)
     static_dir = static_dir.resolve(strict=True)
@@ -244,7 +344,6 @@ def qualify(
         manifest_path=manifest_path,
         offline_receipt_path=offline_receipt_path,
         artifact_directory=artifact_directory,
-        offline_qualifier_path=offline_qualifier_path,
     )
 
     runtime_distribution_root = _distribution_root("software-factory")
@@ -382,11 +481,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--offline-receipt", type=Path, required=True)
     parser.add_argument("--artifact-directory", type=Path, required=True)
-    parser.add_argument(
-        "--offline-qualifier",
-        type=Path,
-        default=Path(__file__).with_name("qualify_sfv2_b11_install.py"),
-    )
     return parser
 
 
@@ -400,7 +494,6 @@ def main() -> int:
                 manifest_path=args.manifest,
                 offline_receipt_path=args.offline_receipt,
                 artifact_directory=args.artifact_directory,
-                offline_qualifier_path=args.offline_qualifier,
             ),
             indent=2,
         )
