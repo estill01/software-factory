@@ -83,18 +83,28 @@ def terminal_profile_fences(
     target_profiles: Any,
     bindings: Sequence[dict[str, str]],
 ) -> Iterator[None]:
-    """Acquire every physical profile fence in the binding's deterministic order."""
+    """Acquire each distinct physical target once in deterministic order."""
 
     if bindings and target_profiles is None:
         raise InvalidTransition("terminal profile currentness is not configured")
+    targets: dict[tuple[str, str], tuple[str, str]] = {}
+    for binding in bindings:
+        target = (binding["profile_key"], binding["target_id"])
+        roots = (binding["revision"], binding["currentness_root"])
+        existing = targets.get(target)
+        if existing is not None and existing != roots:
+            raise EvidenceInvalid(
+                "terminal profile work has conflicting roots for one physical target"
+            )
+        targets[target] = roots
     with ExitStack() as stack:
-        for binding in bindings:
+        for (profile_key, target_id), (revision, currentness_root) in sorted(targets.items()):
             stack.enter_context(
                 target_profiles.currentness_fence(
-                    binding["profile_key"],
-                    binding["target_id"],
-                    expected_revision=binding["revision"],
-                    expected_currentness_root=binding["currentness_root"],
+                    profile_key,
+                    target_id,
+                    expected_revision=revision,
+                    expected_currentness_root=currentness_root,
                 )
             )
         yield

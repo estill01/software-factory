@@ -12,12 +12,96 @@ from software_factory import (
     AuthorityDenied,
     CoreService,
     EffectClass,
+    EvidenceInvalid,
     InvalidTransition,
     RegisteredSoftwareCommand,
     Store,
     TargetProfileRegistry,
 )
 from software_factory.operations import OperationsService
+from software_factory.profile_terminal import terminal_profile_fences
+
+
+class NonReentrantFenceRegistry:
+    def __init__(self) -> None:
+        self.entered: list[tuple[str, str, str, str]] = []
+        self.active: set[tuple[str, str]] = set()
+
+    @contextlib.contextmanager
+    def currentness_fence(
+        self,
+        profile_key: str,
+        target_id: str,
+        *,
+        expected_revision: str,
+        expected_currentness_root: str,
+    ):
+        target = (profile_key, target_id)
+        if target in self.active:
+            raise AssertionError("physical target fence was entered twice")
+        self.active.add(target)
+        self.entered.append((profile_key, target_id, expected_revision, expected_currentness_root))
+        try:
+            yield
+        finally:
+            self.active.remove(target)
+
+
+def test_terminal_profile_fences_deduplicate_one_physical_target() -> None:
+    registry = NonReentrantFenceRegistry()
+    bindings = [
+        {
+            "work_item_id": "work-a",
+            "profile_key": "content",
+            "target_id": "brief",
+            "candidate_root": "candidate-a",
+            "revision": "revision-1",
+            "currentness_root": "currentness-1",
+        },
+        {
+            "work_item_id": "work-b",
+            "profile_key": "content",
+            "target_id": "brief",
+            "candidate_root": "candidate-b",
+            "revision": "revision-1",
+            "currentness_root": "currentness-1",
+        },
+    ]
+
+    with terminal_profile_fences(registry, bindings):
+        assert registry.active == {("content", "brief")}
+
+    assert registry.entered == [("content", "brief", "revision-1", "currentness-1")]
+    assert registry.active == set()
+
+
+def test_terminal_profile_fences_reject_conflicting_physical_target_roots() -> None:
+    registry = NonReentrantFenceRegistry()
+    bindings = [
+        {
+            "work_item_id": "work-a",
+            "profile_key": "content",
+            "target_id": "brief",
+            "candidate_root": "candidate-a",
+            "revision": "revision-1",
+            "currentness_root": "currentness-1",
+        },
+        {
+            "work_item_id": "work-b",
+            "profile_key": "content",
+            "target_id": "brief",
+            "candidate_root": "candidate-b",
+            "revision": "revision-2",
+            "currentness_root": "currentness-2",
+        },
+    ]
+
+    with (
+        pytest.raises(EvidenceInvalid, match="conflicting roots"),
+        terminal_profile_fences(registry, bindings),
+    ):
+        raise AssertionError("conflicting target roots reached the fenced body")
+    assert registry.entered == []
 
 
 def git(root: Path, *args: str) -> str:

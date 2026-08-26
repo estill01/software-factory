@@ -65,7 +65,10 @@ the completed program materially changes Software Factory.
   scope from every selected, non-cancelled, installed profile target and its
   exact candidate, revision, and currentness roots, holds all corresponding
   physical fences through promotion, and revalidates that same set at mission
-  completion; proposed and cancelled work remain outside terminal authority.
+  completion. Multiple work bindings for one physical target remain distinct in
+  terminal identity but share one fence acquisition, while conflicting roots
+  reject before acquisition; proposed and cancelled work remain outside terminal
+  authority.
   The output still traverses independent
   candidate/integrated/installed/terminal acceptance and cannot self-accept. A
   consumer-owned example profile lives outside the Factory package, registers

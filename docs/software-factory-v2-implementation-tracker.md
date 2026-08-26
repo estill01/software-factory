@@ -2478,9 +2478,9 @@ reuse of the real engine.
   no-isolation diagnostic was invalid because the selected development venv did
   not contain the declared setuptools backend and was not reused as proof. The
   isolated wheel and sdist SHA-256 values are respectively
-  `0778d416964eac389f21fa33e31f264e96c2ef5061966507883e5c569b3f914f`
+  `83402791b7824f01ce5687a0e6beedb619e81da76fbbb7d5a7705651c862d146`
   and
-  `f09c5e06a5f7e05eaba2861699e24ded96b06515f9c9f31d3266f07e356545b6`.
+  `fa0bf09a7272c6d2a1fbd5848fbb8777b415136e5b93a40029f7422819c4db9a`.
   A target-directory installation imported version `2.0.0.dev6` from the built
   wheel, exposed the content profile, and composed profile keys `content` and
   `software`; the sdist contains both maintained Block 10 test modules.
@@ -2543,11 +2543,25 @@ reuse of the real engine.
   the non-primary target immediately before terminal acceptance and separately
   proves that proposed and cancelled profile work do not enter terminal scope.
   No rejected history was amended or removed.
-- Focused and mapped proof: `68 passed` across content/external profiles, target
+- Preserved fifth rejected candidate: exact pushed commit
+  `8edf34b917694e6aa9e9942287b0668c1dd07bfd`, tree
+  `f2c60649d959e9bfd984afb9b7d4f645106bbff9`, remains immutable and
+  unaccepted. Distinct exact-revision review returned one P1 finding: two
+  selected installed work items may legitimately bind the same physical target
+  at identical revision/currentness but different execution-derived candidate
+  roots, and the composite fence loop entered that target twice even though the
+  profile contract does not require a reentrant physical fence. The current
+  successor preserves both work bindings in terminal identity while grouping
+  the physical fence layer by `(profile_key, target_id)`, rejecting conflicting
+  revision/currentness roots before any acquisition, and entering each unique
+  target once in deterministic order. A deliberately non-reentrant bounded
+  regression proves same-target deduplication and zero-entry conflict rejection.
+  No rejected history was amended or removed.
+- Focused and mapped proof: `70 passed` across content/external profiles, target
   profiles, execution/QA, acceptance lifecycle, core, composition, operational
   boundaries, engine hosts, and v2 entrypoints. Ruff format/check are clean over
   109 files, mypy is clean over 73 source files, compilation is clean, and full
-  runtime collection is 267 tests with the seven documented legacy `TestStore`
+  runtime collection is 269 tests with the seven documented legacy `TestStore`
   collection warnings. Per the range economy contract, the broad runtime suite
   remains deferred to Block 12.
 - Product-capability review:
@@ -2578,8 +2592,8 @@ reuse of the real engine.
     platform. New domains remain external extensions until another accepted
     shared need justifies a bounded core contract.
 - Candidate posture: rejected exact candidates `e60b999`, `44f3e83`,
-  `b408e17`, and `777b2d2` and all ten review findings are preserved. The fourth
-  bounded remediation, docs,
+  `b408e17`, `777b2d2`, and `8edf34b` and all eleven review findings are
+  preserved. The fifth bounded remediation, docs,
   focused/mapped proof, static audit, collection, durable-restart proof, and
   isolated build/import proof are complete. A new exact candidate commit/push
   and distinct exact-revision review remain required before Block 10 acceptance
