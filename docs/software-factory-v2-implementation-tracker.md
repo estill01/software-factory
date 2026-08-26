@@ -243,8 +243,8 @@ for this tracker may inspect Patent Studio patent content.
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `accepted` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `accepted` |
 | 10 | Neutral content profile and external-extension proof | 5–9 | `accepted` |
-| 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `in-progress` |
-| 12 | Frozen terminal qualification and handoff | 11 | `not-started` |
+| 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `accepted` |
+| 12 | Frozen terminal qualification and handoff | 11 | `in-progress` |
 
 Required order:
 
@@ -2615,7 +2615,7 @@ Stop before migration and legacy retirement.
 
 ## Block 11 — Migrate, cut over, and retire duplicate legacy paths
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2691,6 +2691,69 @@ behavior.
   artifact supplied by path and verified by producer/source/tree/content/version
   and artifact hashes; bare registry resolution and utils repository mutation
   remain prohibited.
+- Cutover lineage: repository/source, dashboard client, semantic-comparator,
+  state, compatibility, and qualification work is preserved in exact commits
+  `279f5ca536786c5c6889f86ba26f99cf0cbbc986`,
+  `60762687f83d2f287760986a8ff1a23398a8c546`,
+  `d9094fec33f800b247bf3ca90bb9ab7719e65de9`,
+  `e870cca7831282138ec75111202c394d84e84502`,
+  `5ba775dd74d3d7fbada98b7bd4a0819d3139f295`,
+  `d267ef71b44b37917ca98e5927d85a8de247c413`,
+  `a52ddedadeda7df56937ee68f605385d67cdb57d`, and
+  `ff0f49158f768e3ad75f17b29bbf1f73e1e55b93`.
+- Rejected history: exact candidates
+  `10eea9efb37182a63389d5d70fb2fd0ac96d35ce` and
+  `0f2ed7093dcd2e18a46e252e3b829675c0a03db5` remain preserved and
+  unaccepted after their independent cutover reviews. Exact candidate
+  `bc599d7e93afba51e239c62cb3d3a63db84a0356` remains rejected after
+  compatibility-writer, archived-byte addressability, and exact offline
+  dependency-resolution findings. Exact candidate
+  `e8342defff05aa8ada3e57c778b317911ad0385e` remains rejected after
+  qualification-environment ownership and mutable source-wheel findings.
+  Exact candidate `71f965ec4224262c7b28f37994fb85e469fabc1c`
+  remains rejected after incomplete ZIP/installed RECORD inventory and
+  manifest read/hash currentness findings. No rejected commit was amended,
+  reset, deleted, or relabeled as accepted.
+- No-loss and one-owner proof: `docs/sfv2-b11-cutover-evidence.json` records
+  the frozen source and residue migrations, apply/rollback/reapply receipts,
+  exact historical supervision-snapshot import, immutable archive roots,
+  deletion ledger, and one native writer per concern. The active dashboard
+  compatibility surface is mechanically read-only; source skill releases,
+  legacy supervision effects, the dashboard-local app-server client, and the
+  libRSI shadow comparator are no longer competing active authorities.
+- Exact installed proof: all 16 wheels were copied through stable no-follow
+  descriptors into qualification-owned private storage and installed with
+  `--no-index --no-deps`. Every non-directory ZIP member occurs exactly once
+  in its wheel RECORD, every installed RECORD inventory is closed and
+  content-verified, and the manifest's one stable byte sequence supplies both
+  parsing and receipt hash authority. The committed qualification root is
+  `d639b02c751b40333d3e865dad0cb936baec311da7192a94485d8a7eb31935e9`.
+  A clean archive rebuilt the runtime wheel at
+  `c819f31af2edca586cc60ec0132c147ee9fc1dda593f5092ed9188bbd58ae2e1`
+  and dashboard wheel at
+  `e4d861284841fdec2fc0b15bdbfa1744cc798ded483850a3856a21ad4b5c0216`
+  byte-identically and reproduced the committed install receipt twice.
+- Validation: the final focused boundary passed 31 runtime/cutover tests and
+  five dashboard compatibility tests; the clean archive passed five qualifier
+  regressions plus five dashboard compatibility tests. Ruff check/format,
+  JSON validation, compile proof, and the previously mapped 54-test exact
+  utility-wheel runtime slice and full 137-test dashboard slice remain current
+  because their owned sources did not change.
+- Utility boundary: the exact client, embedded-contract, and runtime-manifest
+  wheels remain bound to utils producer revision
+  `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, its accepted package source/tree
+  identities, qualification matrix
+  `0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849`,
+  technical root
+  `9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068`,
+  and exact artifact hashes. Registry resolution, source copying, public
+  installability, reuse, redistribution, and release authority remain denied.
+- Acceptance: distinct read-only review accepted exact pushed candidate
+  `e378f92059395ff802e5d4c3ac1fd1cad0432210`, tree
+  `8b40685c9838134542187415a95dbbe92b4af5ac`, with no P0, P1, or P2
+  findings. The review independently reproduced all ten clean-archive
+  qualifier/compatibility tests and the committed receipt root. Blocks 0–11
+  are accepted; Block 12 is now the sole dependency-eligible frontier.
 
 ### Stop
 
@@ -2700,7 +2763,7 @@ Stop before terminal qualification or release activation.
 
 ## Block 12 — Freeze and audit the complete v2 runtime
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2772,7 +2835,27 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: exact pushed Block 11 candidate
+  `e378f92059395ff802e5d4c3ac1fd1cad0432210`, tree
+  `8b40685c9838134542187415a95dbbe92b4af5ac`, accepted by distinct
+  exact-revision review with no P0–P2 findings. Blocks 0–11 are accepted and
+  Block 12 is the sole dependency-eligible frontier.
+- Qualification posture: freeze one exact non-activating release candidate,
+  run focused currentness checks first and the complete broad runtime,
+  dashboard, web, migration/concurrency/crash, installed-artifact, and
+  operator-visible outcome matrix once, then route the exact evidence revision
+  to a distinct final reviewer. Reuse unchanged Block evidence instead of
+  rerunning it outside the terminal matrix.
+- Utility posture: reconcile all three consumed packages against utils
+  producer revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, accepted
+  Blocks 0–16, qualification matrix
+  `0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849`,
+  technical root
+  `9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068`,
+  and each accepted package source commit/tree/content root/version/artifact
+  hash. The producer remains unpublished and no-license-selected; this Block
+  cannot deploy, publish, redistribute, copy utils source, or grant release or
+  reuse authority.
 
 ### Stop
 

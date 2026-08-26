@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `4065ed0a7afd4b443e58f803cd6d24f0a2b36cea1286f5b46d662aea19288574`; Blocks 0–10 accepted; exact accepted Block 10 candidate `5988b3d`; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` plus all eleven P1/P2 findings preserved; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 11 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `ca0c3b93adbdc087154d3f46f90cfa543da6958442cd873fff7573aea9dfb8d3`; Blocks 0–11 accepted; exact accepted Block 11 candidate `e378f92`; rejected Block 11 candidates `10eea9e`, `0f2ed70`, `bc599d7`, `e8342de`, and `71f965e` plus all cutover and qualification findings preserved; exact accepted Block 10 candidate `5988b3d`; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` plus all eleven P1/P2 findings preserved; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 12 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -126,7 +126,22 @@ work identity is rechecked at mission completion; conflicting physical-target
 roots reject before fence acquisition. Distinct exact-revision review accepted
 exact pushed candidate `5988b3d7dd9bf3fd2720842abfb810f8e0a0cc30`, tree
 `c35773d65cf9040156d70cab31c84047d3b80e85`, with no P0–P2 findings. Block 10
-is accepted and Block 11 is now the sole dependency-safe frontier.
+is accepted. Block 11 then migrated the frozen real-state and historical
+supervision snapshot with rollback/reapply proof, cut dashboard and skill
+entrypoints to one native owner, retired the libRSI shadow comparator, archived
+legacy bytes without losing revision addressability, and qualified the exact
+16-wheel offline composition. Exact candidates `10eea9e`, `0f2ed70`,
+`bc599d7`, `e8342de`, and `71f965e` remain preserved and unaccepted with every
+independent finding. The accepted successor closes complete ZIP and installed
+RECORD inventory, stable one-read manifest authority, private artifact and
+environment ownership, exact-path/no-registry resolution, compatibility-writer
+closure, and archive-addressability gaps. Distinct exact-revision review
+accepted exact pushed candidate
+`e378f92059395ff802e5d4c3ac1fd1cad0432210`, tree
+`8b40685c9838134542187415a95dbbe92b4af5ac`, with no P0–P2 findings and
+independently reproduced the ten-test clean-archive slice plus exact receipt
+root. Block 11 is accepted and Block 12 is now the sole dependency-safe
+frontier.
 
 ## Required outcome
 
