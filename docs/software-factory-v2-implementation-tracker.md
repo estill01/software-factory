@@ -1,6 +1,6 @@
 # Software Factory v2 Autonomous Work, QA, and Delivery Runtime Implementation Tracker
 
-- Tracker status: `active`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–12
 - Repository: `https://github.com/estill01/software-factory`
 - Governing objective: implement the maintained Software Factory v2 plan as one standalone and embeddable autonomous work, QA, supervision, acceptance, and delivery runtime.
@@ -244,7 +244,7 @@ for this tracker may inspect Patent Studio patent content.
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `accepted` |
 | 10 | Neutral content profile and external-extension proof | 5–9 | `accepted` |
 | 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `accepted` |
-| 12 | Frozen terminal qualification and handoff | 11 | `in-progress` |
+| 12 | Frozen terminal qualification and handoff | 11 | `accepted` |
 
 Required order:
 
@@ -2763,7 +2763,7 @@ Stop before terminal qualification or release activation.
 
 ## Block 12 — Freeze and audit the complete v2 runtime
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2964,9 +2964,23 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   `54d0ce62d265a17ddcfcaa6193937830fe9e6a15055c8ec2d160369b0ff983a9`,
   bind the source candidate, artifact checksums, broad/focused currentness,
   operator outcome, exact utility package identities, and Stop boundaries.
-  The full terminal candidate is assembled but remains `in-progress` pending
-  distinct exact-revision outcome review. Nothing was deployed, activated,
-  published, redistributed, licensed, or granted consumer-domain authority.
+  The full terminal candidate is assembled and independently accepted. Nothing
+  was deployed, activated, published, redistributed, licensed, or granted
+  consumer-domain authority.
+- Acceptance: distinct read-only exact-revision review accepted pushed evidence
+  `935fe88bc9b69aa846600d41e7162f16df5c1fb1`, tree
+  `7bbe3a4b34a2c9954e69567cdf26e461c7c2db04`, over frozen product/source
+  `86720234d09c59e663588baa92854f11d8dd4b7d`, tree
+  `f40e8ba30ffdf4f0b15e3377955e701ee3aa839e`, with no P0, P1, or P2
+  findings. The reviewer independently reconciled the exact source archive and
+  both Factory wheel hashes, manifest and evidence-file hashes, offline and
+  installed-dashboard receipt roots, all artifact/RECORD bindings, the
+  source-bound qualifier identity and substitution rejection, installed-owner
+  correction, utility provenance/no-license posture, provider-unavailable and
+  no-simulation truthfulness, static-directory limitation, broad-once economy,
+  and every no-activation/release/deployment boundary. Blocks 0–12 and the
+  tracker-level observable outcome are accepted; the Stop below remains in
+  force.
 
 ### Stop
 

@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `ca0c3b93adbdc087154d3f46f90cfa543da6958442cd873fff7573aea9dfb8d3`; Blocks 0–11 accepted; exact accepted Block 11 candidate `e378f92`; rejected Block 11 candidates `10eea9e`, `0f2ed70`, `bc599d7`, `e8342de`, and `71f965e` plus all cutover and qualification findings preserved; exact accepted Block 10 candidate `5988b3d`; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` plus all eleven P1/P2 findings preserved; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 12 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `1073633ed89a622301487ec1a6d005cf5a06c50e257d1545460beac46141d517`; Blocks 0–12 accepted; exact accepted Block 12 evidence `935fe88` over source `8672023`; rejected Block 12 evidence `0176ef7`, `e4956b7`, and `e55a0d1` plus all three P1 findings preserved; exact accepted Block 11 candidate `e378f92`; rejected Block 11 candidates `10eea9e`, `0f2ed70`, `bc599d7`, `e8342de`, and `71f965e` plus all cutover and qualification findings preserved; exact accepted Block 10 candidate `5988b3d`; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` plus all eleven P1/P2 findings preserved; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | — | `completed` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -140,8 +140,21 @@ accepted exact pushed candidate
 `e378f92059395ff802e5d4c3ac1fd1cad0432210`, tree
 `8b40685c9838134542187415a95dbbe92b4af5ac`, with no P0–P2 findings and
 independently reproduced the ten-test clean-archive slice plus exact receipt
-root. Block 11 is accepted and Block 12 is now the sole dependency-safe
-frontier.
+root. Block 11 is accepted. Block 12 froze source
+`86720234d09c59e663588baa92854f11d8dd4b7d`, reproducibly built and
+qualified its exact source archive and both Factory wheels, verified the
+16-wheel no-index/no-deps composition twice, and produced byte-identical
+installed-dashboard receipts bound to the exact source, manifest, offline
+qualification root, installed RECORD roots, artifact projection, and
+source-tree offline-qualifier identity. Exact evidence revisions `0176ef7`,
+`e4956b7`, and `e55a0d1` remain preserved and unaccepted after three P1
+findings across installed owner resolution, exact-install receipt binding, and
+caller-replaceable verifier authority. Distinct exact-revision review accepted
+pushed evidence `935fe88bc9b69aa846600d41e7162f16df5c1fb1`, tree
+`7bbe3a4b34a2c9954e69567cdf26e461c7c2db04`, with no P0–P2 findings. Blocks
+0–12 and the terminal observable outcome are accepted. Nothing was deployed,
+activated, published, redistributed, licensed, or granted consumer-domain
+authority.
 
 ## Required outcome
 
@@ -176,7 +189,9 @@ nor Block 0.
 
 ## Terminal completion
 
-SFV2 is terminal only when `SFV2/B0`–`SFV2/B12` and the tracker-level
-observable outcome are accepted at one current pushed revision. A branch,
-commit, review, handoff, provider completion, release candidate, or Block Stop
-is nonterminal.
+SFV2 reached its terminal implementation outcome: `SFV2/B0`–`SFV2/B12`
+and the tracker-level observable outcome are accepted under detailed tracker
+SHA-256 `1073633ed89a622301487ec1a6d005cf5a06c50e257d1545460beac46141d517`.
+The accepted terminal evidence remains an internal qualification candidate;
+production deployment, public release, hosted multi-tenancy, and
+consumer-domain mutation require separate authority.
