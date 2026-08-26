@@ -8,13 +8,10 @@ import re
 import subprocess
 import sys
 from collections import Counter, OrderedDict
-from contextlib import redirect_stdout
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from io import StringIO
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from threading import RLock
 from types import ModuleType
 from typing import Any, Callable, Mapping, Sequence
@@ -2882,7 +2879,7 @@ class OperationsProjectionService:
         source_record: str,
         source_sha256: str,
     ) -> dict[str, Any]:
-        """Exercise the maintained bind owner against an ephemeral exact policy copy."""
+        """Project the maintained bind owner without creating an ephemeral writer."""
 
         if not SAFE_ID.fullmatch(target_thread_id):
             raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
@@ -2935,171 +2932,37 @@ class OperationsProjectionService:
                 status=422,
             ) from error
 
-        with TemporaryDirectory(prefix="sf-dashboard-bind-preview-") as temporary:
-            preview_root = Path(temporary).resolve() / "tracker-runs"
-            preview_directory = preview_root / target_thread_id
-            preview_directory.mkdir(parents=True)
-            os.chmod(preview_directory, 0o700)
-            owner.atomic_json(
-                preview_directory / "policy.json",
-                json.loads(json.dumps(policy)),
-            )
-            for record in history:
-                if not isinstance(record, Mapping):
-                    raise OperationsProjectionError(
-                        "binding_source_unavailable",
-                        "The canonical policy history contains a non-record value.",
-                        status=422,
-                    )
-                material = {
-                    key: json.loads(json.dumps(value))
-                    for key, value in record.items()
-                    if key not in {"previous_record_sha256", "record_sha256"}
-                }
-                owner.append_raw(preview_directory / "policy-history.jsonl", material)
-            arguments = argparse.Namespace(
-                root=str(preview_root),
-                target_thread=target_thread_id,
-                base_reviewer_thread=None,
-                notice_reviewer_thread=None,
-                fix_executor_thread=None,
-                routine_automation=None,
-                meta_automation=None,
-                gmail_gate_thread=None,
-                gmail_processor_thread=None,
-                gmail_poll_automation=None,
-                roundup_thread=None,
-                roundup_automation=None,
-                gmail_reply_message_id=None,
-                gmail_project_key=None,
-                gmail_subject=None,
-                gmail_priority_reply_message_id=None,
-                gmail_priority_project_key=None,
-                gmail_priority_subject=None,
-                gmail_priority_decision_context=False,
-                gmail_roundup_reply_message_id=None,
-                gmail_roundup_project_key=None,
-                gmail_roundup_subject=None,
-                mission_root=None,
-                mission_source_record=source_record,
-                mission_source_class="direct-user",
-                mission_source_sha256=source_sha256,
-            )
-            output = StringIO()
-            try:
-                with redirect_stdout(output):
-                    owner.cmd_bind(arguments)
-                result = json.loads(output.getvalue())
-                expected_policy = owner.read_json(preview_directory / "policy.json")
-                expected_history = owner.events(
-                    preview_directory / "policy-history.jsonl"
-                )
-            except Exception as error:
-                raise OperationsProjectionError(
-                    "binding_owner_preview_failed",
-                    "The maintained bind owner rejected the exact ephemeral repair preview.",
-                    status=422,
-                ) from error
-        if result.get("changed") is not True or not expected_history:
+        if any(not isinstance(record, Mapping) for record in history):
             raise OperationsProjectionError(
-                "binding_owner_preview_failed",
-                "The maintained bind owner did not produce one changed preview.",
+                "binding_source_unavailable",
+                "The canonical policy history contains a non-record value.",
                 status=422,
             )
-        expected_record = expected_history[-1]
-        if (
-            expected_policy.get("mission_binding") != planned_binding
-            or expected_policy.get("policy_version") != int(policy.get("policy_version", 0)) + 1
-            or expected_record.get("kind") != "policy-bind"
-            or expected_record.get("reason") != "Bound live identifiers and current routing defaults."
-            or expected_record.get("evidence") != []
-            or expected_record.get("policy") != expected_policy
-        ):
+        try:
+            projection = owner.project_policy_bind(
+                policy, mission_binding=planned_binding
+            )
+        except Exception as error:
             raise OperationsProjectionError(
                 "binding_owner_preview_failed",
-                "The maintained bind owner returned an incompatible repair postcondition.",
+                "The maintained bind owner rejected the exact read-only repair projection.",
                 status=422,
-            )
-
-        def preserved_material(value: Mapping[str, Any]) -> dict[str, Any]:
-            result = json.loads(json.dumps(value))
-            for key in (
-                "mission_binding",
-                "policy_version",
-                "policy_sha256",
-                "updated_at",
-            ):
-                result.pop(key, None)
-            return result
-
-        if preserved_material(policy) != preserved_material(expected_policy):
-            raise OperationsProjectionError(
-                "binding_repair_owner_would_expand_scope",
-                "The maintained bind owner would change fields beyond the missing mission binding.",
-                status=409,
-            )
-        normalized = json.loads(json.dumps(expected_policy))
-        normalized.pop("policy_sha256", None)
-        normalized.pop("updated_at", None)
+            ) from error
         return {
             "control": control,
             "owner_sha256": self.owner_revisions()["supervision"]["sha256"],
             "source_record": source_record,
             "source_sha256": source_sha256,
             "expected_mission_binding": json.loads(json.dumps(planned_binding)),
-            "expected_policy_version": expected_policy["policy_version"],
-            "expected_normalized_policy_sha256": _digest(normalized),
-            "expected_history_kind": "policy-bind",
-            "expected_history_reason": "Bound live identifiers and current routing defaults.",
-            "expected_history_evidence": [],
+            "expected_policy_version": projection["policy_version"],
+            "expected_normalized_policy_sha256": projection[
+                "normalized_policy_sha256"
+            ],
+            "expected_history_kind": projection["history_kind"],
+            "expected_history_reason": projection["history_reason"],
+            "expected_history_evidence": projection["history_evidence"],
             "group_ids": group_ids,
         }
-
-    @staticmethod
-    def _role_bind_arguments(
-        target_thread_id: str,
-        *,
-        role: str,
-        candidate_task_id: str,
-        root: Path,
-    ) -> argparse.Namespace:
-        binding = ROLE_BIND_FIELDS.get(role)
-        if binding is None:
-            raise OperationsProjectionError(
-                "role_binding_owner_unavailable",
-                "The maintained bind owner cannot assign the selected role.",
-                status=409,
-            )
-        values: dict[str, Any] = {
-            "root": str(root),
-            "target_thread": target_thread_id,
-            "base_reviewer_thread": None,
-            "notice_reviewer_thread": None,
-            "fix_executor_thread": None,
-            "routine_automation": None,
-            "meta_automation": None,
-            "gmail_gate_thread": None,
-            "gmail_processor_thread": None,
-            "gmail_poll_automation": None,
-            "roundup_thread": None,
-            "roundup_automation": None,
-            "gmail_reply_message_id": None,
-            "gmail_project_key": None,
-            "gmail_subject": None,
-            "gmail_priority_reply_message_id": None,
-            "gmail_priority_project_key": None,
-            "gmail_priority_subject": None,
-            "gmail_priority_decision_context": False,
-            "gmail_roundup_reply_message_id": None,
-            "gmail_roundup_project_key": None,
-            "gmail_roundup_subject": None,
-            "mission_root": None,
-            "mission_source_record": None,
-            "mission_source_class": None,
-            "mission_source_sha256": None,
-        }
-        values[binding[1]] = candidate_task_id
-        return argparse.Namespace(**values)
 
     def preview_role_bind(
         self,
@@ -3107,7 +2970,7 @@ class OperationsProjectionService:
         *,
         role: str,
     ) -> dict[str, Any]:
-        """Derive one prior exact role task and exercise bind on an ephemeral copy."""
+        """Derive one prior exact role task and project its bind without writes."""
 
         binding = ROLE_BIND_FIELDS.get(role)
         if binding is None:
@@ -3244,86 +3107,18 @@ class OperationsProjectionService:
             )
 
         owner = self._module("supervision")
-        with TemporaryDirectory(prefix="sf-dashboard-role-bind-preview-") as temporary:
-            preview_root = Path(temporary).resolve() / "tracker-runs"
-            preview_directory = preview_root / target_thread_id
-            preview_directory.mkdir(parents=True)
-            os.chmod(preview_directory, 0o700)
-            owner.atomic_json(
-                preview_directory / "policy.json",
-                json.loads(json.dumps(policy)),
+        try:
+            projection = owner.project_policy_bind(
+                policy,
+                runtime_field=field,
+                runtime_value=candidate_task_id,
             )
-            for record in history:
-                if not isinstance(record, Mapping):
-                    raise OperationsProjectionError(
-                        "role_binding_source_unavailable",
-                        "Canonical policy history contains a non-record value.",
-                        status=422,
-                    )
-                material = {
-                    key: json.loads(json.dumps(value))
-                    for key, value in record.items()
-                    if key not in {"previous_record_sha256", "record_sha256"}
-                }
-                owner.append_raw(preview_directory / "policy-history.jsonl", material)
-            output = StringIO()
-            try:
-                arguments = self._role_bind_arguments(
-                    target_thread_id,
-                    role=role,
-                    candidate_task_id=candidate_task_id,
-                    root=preview_root,
-                )
-                with redirect_stdout(output):
-                    owner.cmd_bind(arguments)
-                result = json.loads(output.getvalue())
-                expected_policy = owner.read_json(preview_directory / "policy.json")
-                expected_history = owner.events(
-                    preview_directory / "policy-history.jsonl"
-                )
-            except Exception as error:
-                raise OperationsProjectionError(
-                    "role_binding_owner_preview_failed",
-                    "The maintained bind owner rejected the ephemeral role repair preview.",
-                    status=422,
-                ) from error
-        expected_record = expected_history[-1] if expected_history else None
-        if (
-            result.get("changed") is not True
-            or not isinstance(expected_record, Mapping)
-            or expected_policy.get("runtime", {}).get(field) != candidate_task_id
-            or expected_policy.get("policy_version")
-            != int(policy.get("policy_version", 0)) + 1
-            or expected_record.get("kind") != "policy-bind"
-            or expected_record.get("reason")
-            != "Bound live identifiers and current routing defaults."
-            or expected_record.get("evidence") != []
-            or expected_record.get("policy") != expected_policy
-        ):
+        except Exception as error:
             raise OperationsProjectionError(
                 "role_binding_owner_preview_failed",
-                "The maintained bind owner returned an incompatible role repair postcondition.",
+                "The maintained bind owner rejected the read-only role repair projection.",
                 status=422,
-            )
-
-        def preserved_material(value: Mapping[str, Any]) -> dict[str, Any]:
-            material = json.loads(json.dumps(value))
-            for key in ("policy_version", "policy_sha256", "updated_at"):
-                material.pop(key, None)
-            selected_runtime = material.get("runtime")
-            if isinstance(selected_runtime, dict):
-                selected_runtime.pop(field, None)
-            return material
-
-        if preserved_material(policy) != preserved_material(expected_policy):
-            raise OperationsProjectionError(
-                "role_binding_owner_would_expand_scope",
-                "The maintained bind owner would change fields beyond the selected missing role.",
-                status=409,
-            )
-        normalized = json.loads(json.dumps(expected_policy))
-        normalized.pop("policy_sha256", None)
-        normalized.pop("updated_at", None)
+            ) from error
         return {
             "control": control,
             "owner_sha256": self.owner_revisions()["supervision"]["sha256"],
@@ -3332,11 +3127,13 @@ class OperationsProjectionService:
             "candidate_task_id": candidate_task_id,
             "candidate_source_records": source_records,
             "expected_model": dict(expected_model),
-            "expected_policy_version": expected_policy["policy_version"],
-            "expected_normalized_policy_sha256": _digest(normalized),
-            "expected_history_kind": "policy-bind",
-            "expected_history_reason": "Bound live identifiers and current routing defaults.",
-            "expected_history_evidence": [],
+            "expected_policy_version": projection["policy_version"],
+            "expected_normalized_policy_sha256": projection[
+                "normalized_policy_sha256"
+            ],
+            "expected_history_kind": projection["history_kind"],
+            "expected_history_reason": projection["history_reason"],
+            "expected_history_evidence": projection["history_evidence"],
             "preserved_runtime": {
                 key: value for key, value in runtime.items() if key != field
             },

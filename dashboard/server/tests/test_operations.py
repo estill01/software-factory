@@ -37,13 +37,19 @@ REVIEWER = "reviewer-thread-01"
 OLD_MISSION = sha256(b"Implement the tracker.").hexdigest()
 NEW_MISSION = "b" * 64
 FIXTURE_SUPERVISION_OWNER = Path(__file__).with_name("supervision_fixture_owner.py")
+ARCHIVED_SUPERVISION_OWNER = (
+    Path(__file__).resolve().parents[3]
+    / "legacy/v1/skills/supervise-tracker-runs/scripts/supervision_log.py"
+)
 
 
 def owner_module():
-    spec = importlib.util.spec_from_file_location("test_supervision_owner", DEFAULT_SUPERVISION_OWNER)
+    spec = importlib.util.spec_from_file_location(
+        "test_supervision_owner", ARCHIVED_SUPERVISION_OWNER
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    scripts = str(DEFAULT_SUPERVISION_OWNER.parent)
+    scripts = str(ARCHIVED_SUPERVISION_OWNER.parent)
     sys.path.insert(0, scripts)
     try:
         spec.loader.exec_module(module)
@@ -1878,6 +1884,15 @@ class OperationsProjectionTests(unittest.TestCase):
             packet["report_set_id"],
             "--review-base64",
             encoded,
+        )
+        self._command(
+            "terminal-report",
+            "--target-thread",
+            TARGET,
+            "--action",
+            "verify",
+            "--report-set-id",
+            packet["report_set_id"],
         )
         verified = self.service.terminal_report_workflow_snapshot(TARGET)
         self.assertEqual(verified["stage"], "delivery")

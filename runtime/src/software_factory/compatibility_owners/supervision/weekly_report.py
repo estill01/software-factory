@@ -2148,3 +2148,20 @@ def manifest_for(
         "files": files,
         "manifest_root": digest(files),
     }
+
+
+def _reject_compatibility_effect(*_args: Any, **_kwargs: Any) -> None:
+    raise WeeklyReportError(
+        "The installed v1 weekly-report compatibility module is projection-only"
+    )
+
+
+# Historical fixture/report production lives only in the exact archived owner.
+# The installed compatibility companion is limited to validation and projection.
+globals().update(
+    {
+        "atomic_write": _reject_compatibility_effect,
+        "atomic_json": _reject_compatibility_effect,
+        "render_pdf": _reject_compatibility_effect,
+    }
+)

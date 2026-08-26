@@ -20952,14 +20952,21 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
-def factory_evolution_module() -> Any:
+def _projection_companion_module(name: str) -> Any:
+    path = Path(__file__).resolve().with_name(f"{name}.py")
+    spec = importlib.util.spec_from_file_location(f"sfv2_compatibility_{name}", path)
+    if spec is None or spec.loader is None:
+        raise SupervisionLogError(f"{name.replace('_', ' ').title()} is unavailable")
+    module = importlib.util.module_from_spec(spec)
     try:
-        import factory_evolution
+        spec.loader.exec_module(module)
     except ImportError as exc:
-        raise SupervisionLogError(
-            "Factory evolution implementation is unavailable"
-        ) from exc
-    return factory_evolution
+        raise SupervisionLogError(f"{name.replace('_', ' ').title()} is unavailable") from exc
+    return module
+
+
+def factory_evolution_module() -> Any:
+    return _projection_companion_module("factory_evolution")
 
 
 def factory_evolution_call(module: Any, name: str, *args: Any, **kwargs: Any) -> Any:
@@ -21301,11 +21308,7 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
 
 
 def weekly_report_module() -> Any:
-    try:
-        import weekly_report
-    except ImportError as exc:
-        raise SupervisionLogError("Weekly report implementation is unavailable") from exc
-    return weekly_report
+    return _projection_companion_module("weekly_report")
 
 
 def weekly_projection_inventory(directory: Path) -> dict[str, Any]:
@@ -22061,11 +22064,7 @@ def cmd_weekly_report(args: argparse.Namespace) -> None:
 
 
 def terminal_report_module() -> Any:
-    try:
-        import terminal_report
-    except ImportError as exc:
-        raise SupervisionLogError("Terminal report implementation is unavailable") from exc
-    return terminal_report
+    return _projection_companion_module("terminal_report")
 
 
 def terminal_report_directory(directory: Path, report_set_id: str) -> Path:
@@ -36632,6 +36631,162 @@ READ_ONLY_COMPATIBILITY_COMMANDS = {
     "terminal-report": {"verify"},
     "factory-evolution": {"verify"},
 }
+
+
+def project_policy_bind(
+    policy: Mapping[str, Any],
+    *,
+    mission_binding: Mapping[str, Any] | None = None,
+    runtime_field: str | None = None,
+    runtime_value: str | None = None,
+) -> dict[str, Any]:
+    """Project the exact normalized post-bind policy without performing an effect."""
+
+    candidate = json.loads(json.dumps(policy))
+    validate_policy(candidate)
+    mission_requested = mission_binding is not None
+    runtime_requested = runtime_field is not None or runtime_value is not None
+    if mission_requested == runtime_requested:
+        raise SupervisionLogError(
+            "Policy bind projection requires exactly one mission or runtime update"
+        )
+    if mission_binding is not None:
+        current = bound_mission(candidate)
+        if current is not None and mission_binding_identity(current) != mission_binding_identity(
+            mission_binding
+        ):
+            raise SupervisionLogError("Mission binding already differs")
+        candidate["mission_binding"] = json.loads(json.dumps(mission_binding))
+    else:
+        allowed_runtime_fields = {
+            "base_reviewer_thread_id",
+            "notice_reviewer_thread_id",
+            "fix_executor_thread_id",
+            "gmail_gate_thread_id",
+            "gmail_processor_thread_id",
+            "roundup_thread_id",
+        }
+        if runtime_field not in allowed_runtime_fields or not runtime_value:
+            raise SupervisionLogError("Runtime bind projection is unsupported")
+        value = safe_id(runtime_value, label=runtime_field.replace("_", " "))
+        runtime = candidate.get("runtime")
+        if not isinstance(runtime, dict):
+            raise SupervisionLogError("Runtime bind projection lacks runtime policy")
+        if runtime.get(runtime_field) not in (None, value):
+            raise SupervisionLogError(f"Runtime binding already differs for {runtime_field}")
+        runtime[runtime_field] = value
+    candidate["policy_version"] = int(candidate["policy_version"]) + 1
+    candidate.pop("policy_sha256", None)
+    candidate.pop("updated_at", None)
+    return {
+        "policy": candidate,
+        "policy_version": candidate["policy_version"],
+        "normalized_policy_sha256": digest(candidate),
+        "history_kind": "policy-bind",
+        "history_reason": "Bound live identifiers and current routing defaults.",
+        "history_evidence": [],
+    }
+
+
+_projection_cmd_gmail_cadence = cmd_gmail_cadence
+_projection_cmd_lifecycle_gate = cmd_lifecycle_gate
+_projection_cmd_resume_gate = cmd_resume_gate
+_projection_cmd_status = cmd_status
+_projection_cmd_successor_transition_gate = cmd_successor_transition_gate
+_projection_cmd_thread_route_gate = cmd_thread_route_gate
+_projection_cmd_weekly_report_status = cmd_weekly_report_status
+_projection_cmd_factory_evolution_verify = cmd_factory_evolution_verify
+
+
+def _reject_compatibility_effect(*_args: Any, **_kwargs: Any) -> None:
+    raise SupervisionLogError(
+        "The v1 compatibility owner is projection-only after SFV2 cutover; "
+        "invoke sf-skill supervise-tracker-runs for native supervision effects"
+    )
+
+
+def _projection_cmd_weekly_report(args: argparse.Namespace) -> None:
+    if args.action != "status" or not args.report_id:
+        _reject_compatibility_effect()
+    _projection_cmd_weekly_report_status(args)
+
+
+def _projection_cmd_terminal_report(args: argparse.Namespace) -> None:
+    if args.action != "verify" or not args.report_set_id:
+        _reject_compatibility_effect()
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    verified = verify_terminal_report_set(
+        directory, args.report_set_id, render_expected_pdfs=False
+    )
+    require_current_terminal_completion(
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        all_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
+        lifecycle_record_id=str(verified["lifecycle_record_id"]),
+    )
+    verification = require_terminal_report_verification(
+        all_events, verified, policy=policy
+    )
+    verified["verification_record_id"] = verification["record_id"]
+    print(json.dumps(verified, sort_keys=True))
+
+
+def _projection_cmd_factory_evolution(args: argparse.Namespace) -> None:
+    if args.action != "verify":
+        _reject_compatibility_effect()
+    _projection_cmd_factory_evolution_verify(args)
+
+
+# Retain pure validators and projections for the dashboard without retaining a
+# callable second-writer bypass. Shadow every historical command and low-level
+# write primitive before the parser binds handlers, then restore only the
+# explicit projection commands above.
+for _compatibility_name, _compatibility_value in tuple(globals().items()):
+    if not callable(_compatibility_value):
+        continue
+    if _compatibility_name.startswith("cmd_") or _compatibility_name.startswith(
+        ("atomic_", "append_", "write_")
+    ):
+        globals()[_compatibility_name] = _reject_compatibility_effect
+
+for _compatibility_effect_name in (
+    "factory_candidate_archive",
+    "factory_candidate_execute_baseline_comparison",
+    "factory_candidate_execute_validations",
+    "factory_candidate_load_or_produce_baseline_comparison",
+    "factory_candidate_remove_completed_pending_comparison",
+    "factory_evolution_checkpoint_admission",
+    "recover_factory_evolution_adoption_currentness",
+    "recover_factory_evolution_outcome_currentness",
+    "render_and_verify_terminal_pdf",
+):
+    if _compatibility_effect_name in globals():
+        globals()[_compatibility_effect_name] = _reject_compatibility_effect
+
+globals().update(
+    {
+        "cmd_gmail_cadence": _projection_cmd_gmail_cadence,
+        "cmd_lifecycle_gate": _projection_cmd_lifecycle_gate,
+        "cmd_resume_gate": _projection_cmd_resume_gate,
+        "cmd_status": _projection_cmd_status,
+        "cmd_successor_transition_gate": _projection_cmd_successor_transition_gate,
+        "cmd_thread_route_gate": _projection_cmd_thread_route_gate,
+        "cmd_weekly_report": _projection_cmd_weekly_report,
+        "cmd_terminal_report": _projection_cmd_terminal_report,
+        "cmd_terminal_report_verify": _projection_cmd_terminal_report,
+        "cmd_factory_evolution": _projection_cmd_factory_evolution,
+    }
+)
 
 
 def main() -> int:

@@ -27,11 +27,14 @@ from software_factory_dashboard.factory_workflows import (
     _normalized_policy_root,
     _policy_after_changes,
 )
-from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
 from test_server import FAKE_SHARED_CLIENT, NONCE_PLACEHOLDER, response, running_server
 from test_tracker import FULL_TRACKER
 
 FIXTURE_SUPERVISION_OWNER = Path(__file__).with_name("supervision_fixture_owner.py")
+ARCHIVED_SUPERVISION_OWNER = (
+    Path(__file__).resolve().parents[3]
+    / "legacy/v1/skills/supervise-tracker-runs/scripts/supervision_log.py"
+)
 
 
 def post(origin: str, path: str, payload: dict[str, object]):
@@ -232,11 +235,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
     def supervision_owner_module():
         spec = importlib.util.spec_from_file_location(
             "test_factory_workflow_supervision_owner",
-            DEFAULT_SUPERVISION_OWNER,
+            ARCHIVED_SUPERVISION_OWNER,
         )
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
-        scripts = str(DEFAULT_SUPERVISION_OWNER.parent)
+        scripts = str(ARCHIVED_SUPERVISION_OWNER.parent)
         sys.path.insert(0, scripts)
         try:
             spec.loader.exec_module(module)

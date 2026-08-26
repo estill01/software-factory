@@ -99,19 +99,69 @@
       "evidence_root": "3a0fa142cebc7cc30d531cc49a864ec05b2f8f1d2a91491fd030069fc41a8e42"
     },
     "supervision_state_migration": {
-      "representative_legacy_inputs": [
-        "state/events.jsonl",
-        "tests/test_supervision.py"
+      "source_posture": "bounded-real-historical-dogfood-snapshot",
+      "source_revision": "0f2ed7093dcd2e18a46e252e3b829675c0a03db5",
+      "source_root": "legacy/v1/skills/supervise-tracker-runs",
+      "migration_identity": "e8a5c3546034b549aa93e3dd502eacdff366a35598d1e0f885c3a6e9a6f51f2c",
+      "source_inventory_root": "be63f5ef90ccc3dde73c36999742bfcac85178b09790e52264bdf23aff0a7a83",
+      "selected_items": [
+        {
+          "path": "fixtures/factory_evolution_integrated_dogfood_evidence_v1.json",
+          "git_blob": "f34b5c9a27e03cface83b2cc442922d8175e51f5",
+          "sha256": "257eedf58201f030d1e7ec6d3aaf6aa1973b4c06e66d6ee75af9bf11d18e4102",
+          "bytes": 15486,
+          "import_kind": "fixture"
+        },
+        {
+          "path": "fixtures/factory_evolution_integrated_dogfood_projection_v1.json",
+          "git_blob": "b4c1cff0f7b19270499b66b1ca5ab1c84ec78b97",
+          "sha256": "ca67b5a24683a676ff929bdc133cbe3e9d22d7f505f982ecddf8b4bba36e34a1",
+          "bytes": 8701,
+          "import_kind": "fixture"
+        },
+        {
+          "path": "scripts/test_factory_evolution_dogfood.py",
+          "git_blob": "3bd1a3313c35384c2f0aa3094ccb13dddc8ae626",
+          "sha256": "9f8a6f1128122f88f40aa93b0b8e0fe705ca82e7f7fd47c81545b18a939c8ee5",
+          "bytes": 16722,
+          "import_kind": "test"
+        }
       ],
       "historical_only": true,
-      "imported_event_count": 1,
-      "parity_case_count": 1,
+      "imported_counts": {
+        "fixture": 2,
+        "test": 1,
+        "total": 3,
+        "live_observed_events": 0
+      },
+      "parity": {
+        "legacy_case_count": 10,
+        "disposition": "stronger_replacement",
+        "native_tests": [
+          "runtime/tests/test_librsi_semantic_workflows.py::test_evidence_bound_comparison_is_canonical_but_not_operational_authority",
+          "runtime/tests/test_acceptance_lifecycle.py::test_exact_terminal_chain_completes_only_after_independent_actual_outcome",
+          "runtime/tests/test_content_profiles.py::test_neutral_content_mission_reaches_current_delivered_outcome"
+        ],
+        "rationale": "The frozen v1 cases prove projection-level Factory evolution dogfood. The native replacements prove direct runtime semantic selection, terminal actual-outcome currentness, and neutral-content delivery without granting the historical import live authority."
+      },
+      "snapshot_cutover": {
+        "backup_verified": true,
+        "apply_rollback_reapply": [
+          "verified",
+          "rolled_back",
+          "verified"
+        ],
+        "source_bytes_unchanged": true,
+        "archive_bytes_equal_source": true,
+        "legacy_writers": 0,
+        "native_writers": 1
+      },
       "replacement_owner": "software_factory.native_skills",
-      "legacy_writers": 0,
-      "native_writers": 1,
       "projection_owner": "runtime/src/software_factory/compatibility_owners/supervision/supervision_log.py",
+      "fixture_effect_owner": "legacy/v1/skills/supervise-tracker-runs/scripts/supervision_log.py",
       "effect_entrypoint": "sf-skill supervise-tracker-runs",
-      "proof": "runtime/tests/test_migration.py::test_unmapped_legacy_test_fails_closed_until_explicitly_adjudicated"
+      "proof": "runtime/tests/test_migration.py::test_real_archived_supervision_snapshot_is_historical_only_and_cutover_safe",
+      "qualification": "12 focused migration tests passed, including the 10-case exact historical snapshot import and apply/rollback/reapply proof"
     },
     "effects": [
       {
@@ -200,8 +250,8 @@
     "release_posture": "no-license-selected/unpublished"
   },
   "validation": {
-    "focused_runtime": "57 passed with the exact client, embedded-contract, and runtime-manifest wheels; one existing collection warning",
-    "dashboard": "135 passed and 29 subtests passed",
+    "focused_runtime": "55 passed with the exact client, embedded-contract, and runtime-manifest wheels, including the real historical snapshot migration and installed compatibility boundary",
+    "dashboard": "136 passed and 29 subtests passed",
     "runtime_ruff": "all checks passed",
     "runtime_format": "111 files formatted",
     "runtime_mypy": "75 source files clean",
@@ -218,11 +268,12 @@
     },
     {
       "concern": "dashboard tracker and supervision helper consumers",
-      "active_disposition": "read-only-projection-tree-with-effects-retired-to-native-sf-skill",
+      "active_disposition": "read-only-projection-tree; every historical command and low-level writer fails closed; fixture effects load only the exact archived owner",
       "active_path": "runtime/src/software_factory/compatibility_owners",
       "active_file_count": 12,
-      "active_file_hash_set_sha256": "c9c82e348de7279b7ce7d3773bf84880479e3d6d828285cb39aaf890e10a95fe",
+      "active_file_hash_set_sha256": "946605bbf4c5ad6feb58405706c8e422f63ea03e62eef9bed200b834c12b3376",
       "legacy_execution": false,
+      "test_fixture_execution": "exact archived owner against temporary test roots only",
       "second_active_writer": false
     },
     {

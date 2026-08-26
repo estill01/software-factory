@@ -2,8 +2,7 @@
 
 Production entrypoints intentionally reject mutation after the SFV2 cutover. Tests
 that exercise read-only projection still need representative historical ledgers, so
-this driver calls the preserved compatibility command functions directly against a
-temporary test root.
+this driver invokes the exact archived v1 owner against a temporary test root.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from pathlib import Path
 
 OWNER = (
     Path(__file__).resolve().parents[3]
-    / "runtime/src/software_factory/compatibility_owners/supervision/supervision_log.py"
+    / "legacy/v1/skills/supervise-tracker-runs/scripts/supervision_log.py"
 )
 
 

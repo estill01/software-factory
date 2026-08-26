@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import inspect
 import json
 import subprocess
@@ -22,6 +23,20 @@ SKILLS = (
     "evolve-product-program",
     "clean-software-factory",
 )
+
+
+def compatibility_owner_module():
+    spec = importlib.util.spec_from_file_location(
+        "cutover_compatibility_owner", DEFAULT_SUPERVISION_OWNER
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(DEFAULT_SUPERVISION_OWNER.parent))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+    return module
 
 
 def test_cutover_has_one_active_compatibility_owner_and_inert_legacy_sources() -> None:
@@ -105,6 +120,80 @@ def test_legacy_dashboard_supervision_effects_are_unavailable_not_hidden() -> No
     apply_source = inspect.getsource(OperationsProjectionService.apply_role_bind)
     assert "owner.cmd_bind" not in apply_source
     assert "legacy_supervision_writer_retired" in apply_source
+
+
+def test_installed_compatibility_owner_has_no_direct_second_writer_bypass(
+    tmp_path: Path,
+) -> None:
+    owner = compatibility_owner_module()
+    target = tmp_path / "forbidden.json"
+
+    for effect in (
+        lambda: owner.cmd_bind(object()),
+        lambda: owner.atomic_json(target, {"forbidden": True}),
+        lambda: owner.append_raw(target, {"forbidden": True}),
+    ):
+        try:
+            effect()
+        except owner.SupervisionLogError as exc:
+            assert "projection-only" in str(exc)
+        else:
+            raise AssertionError(
+                "installed compatibility effect unexpectedly succeeded"
+            )
+        assert not target.exists()
+
+    parsed = owner.parser().parse_args(
+        [
+            "--root",
+            str(tmp_path / "supervision"),
+            "init",
+            "--target-thread",
+            "target-thread-retired-writer",
+            "--target-label",
+            "Retired writer probe",
+            "--watcher-thread",
+            "watcher-thread-retired-writer",
+            "--reviewer-thread",
+            "reviewer-thread-retired-writer",
+        ]
+    )
+    try:
+        parsed.func(parsed)
+    except owner.SupervisionLogError as exc:
+        assert "projection-only" in str(exc)
+    else:
+        raise AssertionError(
+            "parsed compatibility command bypassed the read-only boundary"
+        )
+    assert not (tmp_path / "supervision").exists()
+
+    sys.path.insert(0, str(DEFAULT_SUPERVISION_OWNER.parent))
+    try:
+        weekly = owner.weekly_report_module()
+        terminal = owner.terminal_report_module()
+    finally:
+        sys.path.pop(0)
+    for effect in (
+        lambda: weekly.atomic_write(target, b"forbidden"),
+        lambda: weekly.render_pdf(target, {}, {}),
+        lambda: terminal.atomic_write(target, b"forbidden"),
+        lambda: terminal.render_pdf(target, {}, report_set_id="forbidden"),
+    ):
+        try:
+            effect()
+        except (weekly.WeeklyReportError, terminal.TerminalReportError) as exc:
+            assert "projection-only" in str(exc)
+        else:
+            raise AssertionError(
+                "installed report companion retained a producer effect"
+            )
+        assert not target.exists()
+
+    fixture_driver = Path(__file__).with_name("supervision_fixture_owner.py")
+    assert "legacy/v1/skills/supervise-tracker-runs" in fixture_driver.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_dashboard_composes_the_exact_local_factory_runtime() -> None:

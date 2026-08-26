@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
+import tarfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -12,6 +14,14 @@ from software_factory.database import Database
 from software_factory.errors import InvalidTransition
 from software_factory.learning import LearningService
 from software_factory.migration import MigrationService
+
+REPOSITORY = Path(__file__).resolve().parents[2]
+ARCHIVED_SUPERVISION_ROOT = REPOSITORY / "legacy/v1/skills/supervise-tracker-runs"
+REAL_SUPERVISION_SNAPSHOT = (
+    "fixtures/factory_evolution_integrated_dogfood_evidence_v1.json",
+    "fixtures/factory_evolution_integrated_dogfood_projection_v1.json",
+    "scripts/test_factory_evolution_dogfood.py",
+)
 
 
 def services() -> tuple[MigrationService, LearningService]:
@@ -84,6 +94,134 @@ def test_inventory_rejects_symlinked_source_bytes(tmp_path: Path) -> None:
     (source / "linked-tracker").symlink_to(source / "docs" / "tracker.md")
     with pytest.raises(ValueError, match="symlink"):
         migration.inventory_source(source)
+
+
+def test_bounded_inventory_rejects_unsafe_or_ambiguous_selection(
+    tmp_path: Path,
+) -> None:
+    migration, _ = services()
+    source = tmp_path / "v1"
+    source.mkdir()
+    make_source(source)
+    with pytest.raises(ValueError, match="normalized relative"):
+        migration.inventory_source(source, include_paths=("../escape",))
+    with pytest.raises(ValueError, match="unique"):
+        migration.inventory_source(
+            source,
+            include_paths=("docs/tracker.md", "docs/tracker.md"),
+        )
+    with pytest.raises(ValueError, match="regular source file"):
+        migration.inventory_source(source, include_paths=("missing.json",))
+
+
+def test_real_archived_supervision_snapshot_is_historical_only_and_cutover_safe(
+    tmp_path: Path,
+) -> None:
+    migration, _ = services()
+    source_hashes = {
+        relative: hashlib.sha256((ARCHIVED_SUPERVISION_ROOT / relative).read_bytes()).hexdigest()
+        for relative in REAL_SUPERVISION_SNAPSHOT
+    }
+    assert source_hashes == {
+        "fixtures/factory_evolution_integrated_dogfood_evidence_v1.json": (
+            "257eedf58201f030d1e7ec6d3aaf6aa1973b4c06e66d6ee75af9bf11d18e4102"
+        ),
+        "fixtures/factory_evolution_integrated_dogfood_projection_v1.json": (
+            "ca67b5a24683a676ff929bdc133cbe3e9d22d7f505f982ecddf8b4bba36e34a1"
+        ),
+        "scripts/test_factory_evolution_dogfood.py": (
+            "9f8a6f1128122f88f40aa93b0b8e0fe705ca82e7f7fd47c81545b18a939c8ee5"
+        ),
+    }
+
+    run = migration.inventory_source(
+        ARCHIVED_SUPERVISION_ROOT,
+        include_paths=REAL_SUPERVISION_SNAPSHOT,
+    )
+    backed_up = migration.create_backup(run["id"], output_directory=tmp_path / "backups")
+    imported = migration.import_historical(run["id"], target_mission_id="mission-1")
+    assert imported == {
+        "migration_id": run["id"],
+        "status": "imported",
+        "imported": 3,
+        "preserved_only": 0,
+    }
+    items = migration.store.all(
+        """SELECT relative_path,historical_only,import_status,native_reference_json
+           FROM migration_items_v2 WHERE migration_id=? ORDER BY relative_path""",
+        (run["id"],),
+    )
+    assert [item["relative_path"] for item in items] == sorted(REAL_SUPERVISION_SNAPSHOT)
+    assert all(item["historical_only"] == 1 for item in items)
+    assert all(item["import_status"] == "imported" for item in items)
+    assert all(
+        json.loads(item["native_reference_json"])["historical_only"] is True for item in items
+    )
+    assert migration.store.scalar("SELECT COUNT(*) FROM observed_stream_events") == 0
+
+    native_tests = (
+        "runtime/tests/test_librsi_semantic_workflows.py::"
+        "test_evidence_bound_comparison_is_canonical_but_not_operational_authority",
+        "runtime/tests/test_acceptance_lifecycle.py::"
+        "test_exact_terminal_chain_completes_only_after_independent_actual_outcome",
+        "runtime/tests/test_content_profiles.py::"
+        "test_neutral_content_mission_reaches_current_delivered_outcome",
+    )
+    cases = migration.map_parity_cases(run["id"])
+    assert len(cases) == 10
+    for case in cases:
+        migration.accept_parity_case(
+            case["id"],
+            disposition="stronger_replacement",
+            native_test_ids=native_tests,
+            evidence_ids=("sfv2-b11-real-supervision-snapshot",),
+            rationale={
+                "boundary": "historical projection only",
+                "replacement": (
+                    "native execution, exact semantic selection, terminal actual-outcome, "
+                    "and neutral-content delivery tests provide stronger runtime proof"
+                ),
+            },
+        )
+    parity = migration.verify_parity(
+        run["id"],
+        repository_root=REPOSITORY,
+        test_command=(sys.executable, "-m", "pytest", "-q", *native_tests),
+    )
+    assert parity["status"] == "passed"
+    assert parity["parity_case_count"] == 10
+
+    repository = tmp_path / "cutover-repository"
+    snapshot = repository / "frozen-supervision-snapshot"
+    snapshot.mkdir(parents=True)
+    with tarfile.open(backed_up["backup_path"], "r:gz") as archive:
+        archive.extractall(snapshot, filter="data")
+    native = repository / "runtime"
+    native.mkdir()
+    (native / "one-writer.txt").write_text("native\n", encoding="utf-8")
+    cutover = migration.plan_cutover(
+        run["id"],
+        repository_root=repository,
+        native_runtime_root="runtime",
+        legacy_paths=("frozen-supervision-snapshot",),
+        active_writer_probe={"legacy_writers": 0, "native_writers": 1},
+    )
+    assert migration.apply_cutover(cutover["id"])["status"] == "verified"
+    archived = repository / "legacy/v1/frozen-supervision-snapshot"
+    assert {
+        relative: hashlib.sha256((archived / relative).read_bytes()).hexdigest()
+        for relative in REAL_SUPERVISION_SNAPSHOT
+    } == source_hashes
+    assert migration.rollback_cutover(cutover["id"])["status"] == "rolled_back"
+    assert migration.apply_cutover(cutover["id"])["status"] == "verified"
+    assert {
+        relative: hashlib.sha256((archived / relative).read_bytes()).hexdigest()
+        for relative in REAL_SUPERVISION_SNAPSHOT
+    } == source_hashes
+    assert {
+        relative: hashlib.sha256((ARCHIVED_SUPERVISION_ROOT / relative).read_bytes()).hexdigest()
+        for relative in REAL_SUPERVISION_SNAPSHOT
+    } == source_hashes
 
 
 def test_historical_event_import_cannot_trigger_live_signal_route(tmp_path: Path) -> None:

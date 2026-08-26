@@ -127,14 +127,48 @@ class MigrationService:
     def __init__(self, store: Store):
         self.store = store
 
-    def inventory_source(self, source_root: str | Path) -> dict[str, Any]:
+    def inventory_source(
+        self,
+        source_root: str | Path,
+        *,
+        include_paths: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
         root = Path(source_root).resolve()
         if not root.is_dir():
             raise ValueError("migration source root does not exist")
         if any(path.is_symlink() for path in root.rglob("*")):
             raise ValueError("migration source contains a symlink")
+        if include_paths is None:
+            candidates = sorted(root.rglob("*"))
+        else:
+            if not include_paths:
+                raise ValueError("bounded migration inventory cannot be empty")
+            relative_paths: set[str] = set()
+            candidates = []
+            for value in include_paths:
+                relative_path = Path(value)
+                if (
+                    relative_path.is_absolute()
+                    or relative_path.as_posix() in {"", "."}
+                    or ".." in relative_path.parts
+                    or relative_path.as_posix() != value
+                ):
+                    raise ValueError("bounded migration path must be a normalized relative path")
+                normalized = relative_path.as_posix()
+                if normalized in relative_paths:
+                    raise ValueError("bounded migration paths must be unique")
+                candidate = (root / relative_path).resolve()
+                try:
+                    candidate.relative_to(root)
+                except ValueError as exc:
+                    raise ValueError("bounded migration path escapes source root") from exc
+                if not candidate.is_file() or candidate.is_symlink():
+                    raise ValueError("bounded migration path must name a regular source file")
+                relative_paths.add(normalized)
+                candidates.append(candidate)
+            candidates.sort()
         items: list[dict[str, Any]] = []
-        for path in sorted(root.rglob("*")):
+        for path in candidates:
             if not path.is_file() or path.is_symlink():
                 continue
             relative = path.relative_to(root).as_posix()
