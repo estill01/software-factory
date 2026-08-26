@@ -14,6 +14,7 @@ from software_factory_dashboard.operations import (
     DEFAULT_SUPERVISION_OWNER,
     OperationsProjectionService,
 )
+from software_factory_dashboard.runtime_owners import COMPATIBILITY_OWNER_ROOT
 from software_factory_dashboard.tracker import DEFAULT_VERIFIER_PATH
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -73,6 +74,7 @@ def test_cutover_has_one_active_compatibility_owner_and_inert_legacy_sources() -
     compatibility_root = (
         REPOSITORY / "runtime" / "src" / "software_factory" / "compatibility_owners"
     )
+    assert COMPATIBILITY_OWNER_ROOT == compatibility_root
     assert DEFAULT_SUPERVISION_OWNER.is_relative_to(compatibility_root)
     assert DEFAULT_VERIFIER_PATH.is_relative_to(compatibility_root)
     assert "legacy/v1" not in DEFAULT_SUPERVISION_OWNER.read_text(encoding="utf-8")

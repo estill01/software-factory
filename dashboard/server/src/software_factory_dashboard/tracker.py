@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 import unicodedata
 
 from .catalog import ProjectRecord
+from .runtime_owners import COMPATIBILITY_OWNER_ROOT
 
 
 MAX_TRACKER_BYTES = 4 * 1024 * 1024
@@ -46,13 +47,7 @@ def tracker_block_is_complete(value: Any) -> bool:
 
 DASHBOARD_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFIER_PATH = (
-    DASHBOARD_REPOSITORY_ROOT
-    / "runtime"
-    / "src"
-    / "software_factory"
-    / "compatibility_owners"
-    / "tracker"
-    / "verify_tracker.py"
+    COMPATIBILITY_OWNER_ROOT / "tracker" / "verify_tracker.py"
 )
 
 

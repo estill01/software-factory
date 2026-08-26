@@ -20,18 +20,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import tomllib
 
 from .catalog import ProjectRecord
+from .runtime_owners import COMPATIBILITY_OWNER_ROOT
 
 DASHBOARD_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_SUPERVISION_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
 DEFAULT_AUTOMATIONS_ROOT = Path.home() / ".codex" / "automations"
 DEFAULT_SUPERVISION_OWNER = (
-    DASHBOARD_REPOSITORY_ROOT
-    / "runtime"
-    / "src"
-    / "software_factory"
-    / "compatibility_owners"
-    / "supervision"
-    / "supervision_log.py"
+    COMPATIBILITY_OWNER_ROOT / "supervision" / "supervision_log.py"
 )
 DEFAULT_WEEKLY_OWNER = DEFAULT_SUPERVISION_OWNER.with_name("weekly_report.py")
 DEFAULT_TERMINAL_OWNER = DEFAULT_SUPERVISION_OWNER.with_name("terminal_report.py")
