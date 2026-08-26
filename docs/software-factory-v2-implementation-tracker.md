@@ -2866,16 +2866,32 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   The rejected revision, artifacts, review, and subsequent failed
   qualification attempts remain preserved. No review finding was treated as
   acceptance.
+- Preserved rejected exact-install evidence: distinct review returned `REVISE`
+  on exact pushed evidence revision
+  `e4956b72a753591ec98f05b2417587b1822686e6`, tree
+  `898d292d5d5a0d2370edc705296d226dac185b50`, over frozen source parent
+  `8d04a043b07a6f98f5fdd181d9b9f519ef7550d2`. Although that candidate fixed
+  installed owner discovery, one P1 showed its dashboard receipt was not bound
+  to the exact source revision, 16-wheel manifest, offline qualification root,
+  or installed artifact set and could be reproduced with stale or incomplete
+  inputs. The revision, artifacts, review, and remediation history remain
+  preserved and unaccepted.
 - Corrected frozen source candidate: exact pushed revision
-  `8d04a043b07a6f98f5fdd181d9b9f519ef7550d2`, tree
-  `80d8d355e6359a32d962db376e7c0279aa3ca6e9`, at remote divergence `0/0`.
+  `40f686cb5e6b3f9edeb773ea4ad6aab026373aa0`, tree
+  `66f4288537e6680fb98d1d88a91c854b2f579b09`, at remote divergence `0/0`.
   It retains the terminal dashboard, migration, router, and installer fixes,
   resolves all dashboard compatibility owners from the exact installed
-  `software_factory` package, adds the isolated-wheel functional smoke, and
-  emits a location-independent receipt. Ten focused tracker, supervision,
-  server, health, and one-writer cutover tests pass after the correction. The
-  evidence record is a documentation-only successor; every build, install,
-  and operator proof below is bound to this unchanged source revision and tree.
+  `software_factory` package, and strengthens the isolated-wheel functional
+  smoke so it verifies the exact clean source revision/tree, manifest bytes,
+  offline qualification root and receipt material, source archive, all 16
+  manifest artifact hashes and installed distribution versions, and every
+  installed RECORD content/inventory root. Ten focused tracker, supervision,
+  server, health, and one-writer cutover tests pass after the owner correction;
+  Ruff, formatting, and compileall pass for the strengthened smoke. An
+  incomplete artifact directory and a dirty or different source checkout are
+  both rejected. The evidence record is a documentation-only successor; every
+  build, install, and operator proof below is bound to this unchanged source
+  revision and tree.
 - Broad-once matrix: the runtime run recorded `284 passed, 1 failed` because
   one test still expected migration schema 25; after correcting only that
   assertion, the exact affected file passed all 3 tests and runtime production
@@ -2889,22 +2905,29 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   build passed, the locked dependency audit has zero advisories, and maintained
   Ruff, formatting, mypy, compilation, and tracker-verifier scopes are green.
 - Reproducible artifacts: two independent clean Git archives using
-  `SOURCE_DATE_EPOCH=1787740286` produced byte-identical source archive
-  `daa44ee320a01d430ba2333d9ea605e0e2116b78d02bb0c807ba4980a22a6eb7`,
+  `SOURCE_DATE_EPOCH=1787741036` produced byte-identical source archive
+  `8167ef1c0f6ed8aaf85cee8dab8d8c177438702e5225c7366bf802a4b8af275a`,
   runtime wheel
-  `01238e6b2d99a6871f7292bf80f02f3d45aae581e24e56f70a7063b0f217c3c6`,
+  `5e5d25c9c25530728520341e9f1dcdcfd41d61a7c3d5f2e74b313601d2247dec`,
   and dashboard server wheel
-  `4fabb3ad24c4c8ec5e7057f23381d548f38e1afb33b3b628985ebf585c97e2c9`.
+  `0b7e2a0095da37bc84a6753149495f6e2e4022d8d55045377d213b55a3ac7e94`.
   Exact no-index/no-deps installation of all 16 declared wheels passed twice
   with qualification root
-  `d60f08dfc4ec94897d86ad937626fdf03af962edf1df520e282f5da44c810d12`;
+  `7c41f80674c97f6edf1c6136ec406c51f41ad25f2b72945a328f5b5bc43bbfe2`;
   every installed RECORD inventory/content root and all three entrypoints were
   verified. Two fresh isolated Python 3.13 wheel environments also returned
-  byte-identical installed-dashboard receipts: tracker, runs, and health HTTP
-  routes returned 200 while the tracker verifier and all four supervision
-  owners resolved below the installed runtime package. The dashboard server
-  wheel does not embed the separately built web dist: the qualified runs
-  supplied the exact 31-file, 1,271,349-byte static projection with root
+  byte-identical installed-dashboard receipts bound to source revision
+  `40f686cb5e6b3f9edeb773ea4ad6aab026373aa0`, manifest
+  `2d7c3ad1c08644e591470119d27f5a1cbe4f1d6b0877fd0fda36e05cb531159c`,
+  offline qualification root above, offline receipt material
+  `f0e580b628564f833a8edb3ea1fa375cd2cc5f1cbeec640957f5bbec3d25c7e7`,
+  and installed artifact projection root
+  `044d31c39130b88b3b555c8e24268005e249ac3d225a6e54d454035eea10f1cc`.
+  Tracker, runs, and health HTTP routes returned 200 while the tracker verifier
+  and all four supervision owners resolved below the installed runtime package.
+  The dashboard server wheel does not embed the separately built web dist: the
+  qualified runs supplied the exact 31-file, 1,271,349-byte static projection
+  with root
   `bdfb99f9cac08606719ca773b2db05284901a6a4750c15aee403cd14d5242db1`
   through the documented `--static-dir` boundary. No standalone UI-wheel claim
   is made.
@@ -2916,13 +2939,13 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   `app_server_artifact_required`. No simulated provider result was labeled
   live, and no generative provider diagnostic was authorized or run.
 - Terminal evidence: `docs/sfv2-b12-install-manifest.json`, SHA-256
-  `7ad20b8a5e2bbcd56146aac0ebdbcdb3d5b9c045fd9cfd5ecb3fd16bd0bc9b7f`;
+  `2d7c3ad1c08644e591470119d27f5a1cbe4f1d6b0877fd0fda36e05cb531159c`;
   `docs/sfv2-b12-offline-install-receipt.json`, SHA-256
-  `cc5cec61a8e18bad65c65da90db68d93aa02731ea18c7269b070b37452951687`;
+  `97e96e71161b7a0b74e10d71f55cee1df0f466878ed48e0c7c60eeaa3c4da078`;
   `docs/sfv2-b12-installed-dashboard-receipt.json`, SHA-256
-  `013a41ce299f6bee1a39f4987f210238821970b840076f6346c750823f2648e6`;
+  `7b7d8a6652039f09bc4aa304fec4713806f59a69ceaf0f8e93f197cd3aaf5945`;
   and `docs/sfv2-b12-terminal-evidence.json`, SHA-256
-  `7ad2b07651f786175a0751d59c6427f455444910e0fa644764c8c9dda2b8b7e8`,
+  `1f64d8ef13f955390793c66c911d8d9415d11ded90682bad72535de1b7865483`,
   bind the source candidate, artifact checksums, broad/focused currentness,
   operator outcome, exact utility package identities, and Stop boundaries.
   The full terminal candidate is assembled but remains `in-progress` pending

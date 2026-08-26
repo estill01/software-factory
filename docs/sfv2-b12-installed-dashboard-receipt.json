@@ -3,9 +3,38 @@
   "kind": "sfv2-b12-installed-dashboard-qualification",
   "result": "passed",
   "python": "3.13.13",
-  "installed_distributions": {
-    "software-factory": "2.0.0.dev6",
-    "software-factory-dashboard": "0.1.0"
+  "exact_install": {
+    "source_revision": "40f686cb5e6b3f9edeb773ea4ad6aab026373aa0",
+    "source_tree": "66f4288537e6680fb98d1d88a91c854b2f579b09",
+    "manifest_sha256": "2d7c3ad1c08644e591470119d27f5a1cbe4f1d6b0877fd0fda36e05cb531159c",
+    "offline_qualification_root_sha256": "7c41f80674c97f6edf1c6136ec406c51f41ad25f2b72945a328f5b5bc43bbfe2",
+    "offline_receipt_material_sha256": "f0e580b628564f833a8edb3ea1fa375cd2cc5f1cbeec640957f5bbec3d25c7e7",
+    "installed_artifact_projection_root_sha256": "044d31c39130b88b3b555c8e24268005e249ac3d225a6e54d454035eea10f1cc",
+    "source_archive": {
+      "filename": "software-factory-40f686cb5e6b3f9edeb773ea4ad6aab026373aa0.tar.gz",
+      "sha256": "8167ef1c0f6ed8aaf85cee8dab8d8c177438702e5225c7366bf802a4b8af275a"
+    },
+    "artifacts_verified": 16,
+    "installed_distributions": {
+      "attrs": "26.1.0",
+      "charset-normalizer": "3.4.9",
+      "codex-app-server-client": "0.1.0",
+      "embedded-service-contract": "0.1.0",
+      "jsonschema": "4.26.0",
+      "jsonschema-specifications": "2025.9.1",
+      "libRSI": "0.2.0",
+      "pillow": "12.3.0",
+      "pypdf": "6.15.0",
+      "referencing": "0.37.0",
+      "reportlab": "5.0.0",
+      "rpds-py": "2026.6.3",
+      "runtime-manifest": "0.1.0",
+      "software-factory": "2.0.0.dev6",
+      "software-factory-dashboard": "0.1.0",
+      "typing-extensions": "4.16.0"
+    },
+    "installed_record_roots_verified": true,
+    "registry_resolution_allowed": false
   },
   "installed_package_paths": {
     "software-factory": "software_factory",
