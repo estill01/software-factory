@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+import os
+import stat
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +55,22 @@ class ObservationCardExtensionProfile:
             raise InvalidTransition("external extension is already registered")
         self.authority = authority
 
+    @contextmanager
+    def _currentness_fence(self, authority: object, target_id: str) -> Iterator[None]:
+        if authority is not self.authority or target_id != "field-summary":
+            raise AuthorityDenied("external currentness fence requires registry authority")
+        lock_path = self.root.parent / f".{self.root.name}.observation-card.lock"
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lock_path, flags, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise InvalidTransition("external currentness lock is not regular")
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
     def snapshot(self, target_id: str) -> TargetSnapshot:
         if target_id != "field-summary":
             raise AuthorityDenied("external observation target is not registered")
@@ -82,14 +102,18 @@ class ObservationCardExtensionProfile:
         target_id: str,
         *,
         expected_revision: str,
+        expected_currentness_root: str,
         arguments: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         if authority is not self.authority:
             raise AuthorityDenied("external effects require registry authority")
         if target_id != "field-summary" or set(arguments) != {"operation"}:
             raise AuthorityDenied("external effect contract is closed")
-        if self.snapshot(target_id).revision != expected_revision:
+        observed = self.snapshot(target_id)
+        if observed.revision != expected_revision:
             raise InvalidTransition("external extension revision changed")
+        if observed.currentness_root != expected_currentness_root:
+            raise InvalidTransition("external extension currentness changed")
         operation = arguments["operation"]
         state = self._state()
         if (effect_class, operation) == (EffectClass.WORKSPACE, "collect"):

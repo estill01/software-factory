@@ -55,7 +55,7 @@ def runtime(tmp_path: Path) -> tuple[Database, CoreService, str, str, str, str]:
     )
     with store.transaction() as db:
         db.execute(
-            "UPDATE work_items SET candidate_revision=? WHERE id=?",
+            "UPDATE work_items SET candidate_revision=?,qa_status='passed' WHERE id=?",
             (REVISION, work),
         )
     return store, core, mission, work, implementer, reviewer
@@ -576,6 +576,8 @@ def test_process_pass_actual_outcome_disagreement_reopens_only_narrow_owner(
         evidence_ids=[effectiveness_evidence],
         observations=effectiveness_observations,
     )
+    with store.transaction() as db:
+        db.execute("UPDATE work_items SET qa_status='passed' WHERE id=?", (work,))
     accepted = core.acceptance_lifecycle.accept_stage(
         prepared["id"],
         acceptor_session_id=reviewer,

@@ -197,6 +197,11 @@ class CoreService:
 
         self._content_profile.register_target(target_id, **configuration)
 
+    def reopen_content_target(self, root: str) -> str:
+        """Reconstruct one durable content target after a host-process restart."""
+
+        return self._content_profile.reopen_target(root)
+
     def close(self) -> None:
         """Close provider-owned resources exactly once through the registry owner."""
 

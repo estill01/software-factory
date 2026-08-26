@@ -2402,15 +2402,23 @@ reuse of the real engine.
   acceptance, or arbitrary content. Rendering requires all three current quality
   reviews; delivery and verification reject changed bytes, receipts, definitions,
   symlinks, non-regular members, stale roots, and out-of-order effects.
+  Its complete definition is stored with the target state, and a restarted
+  CoreService can reopen and resume that exact registration. The shared registry
+  holds one target-local lock plus the profile-owned currentness context from its
+  last pre-effect observation through the adapter effect and post-effect snapshot;
+  the maintained content profile implements that context with a cross-process
+  regular lock outside the target tree. Every profile rechecks both expected roots
+  inside its authorized effect, and the maintained content revision includes every
+  physical target member.
 - Real content mission: the maintained operations-brief fixture uses the actual
   CoreService mission, program, capability, obligation, selected work, leased
   execution, target registry, QA, governance, independent
   candidate/integrated/installed/terminal acceptance, program-range closure,
   continuation, and terminal mission-completion owners. Its deterministic final
   target revision is
-  `d8b77e0406d862ccfcbffec1f50ec1f0f6e3a88a1c6c3a54324fee8bde2fd67c`,
+  `126e2ff39b99c62bb748de009e64b5967614861d9f8c7fd7eecaf3098cdfde10`,
   currentness root
-  `30a428d6d3cd53cf3a416305ea09197615cc2ddef0ea381bc0cbb28463f95597`,
+  `77deff99120bb2a2c99e5f30368b33d2780b5648ad49c0147dcf8b2f65f87545`,
   and delivered HTML SHA-256
   `b9844f519ffc5a0b1737c9b70223a211a318d062c7576dd899297948eaf62206`.
   Assertions inspect the delivered title, factual statement, exact source
@@ -2420,8 +2428,12 @@ reuse of the real engine.
   registered snapshot revision/currentness and attributes, acceptance spec, and
   current program revision. Profile or target substitution, a workspace
   candidate, stale target bytes, failed/unbound execution, or changed work
-  version fails before submission. This bridge creates QA input only; the
-  existing staged lifecycle remains the sole work-acceptance owner.
+  version fails before submission. `record_profile_currentness`, independent
+  review, and `complete_candidate_qa` then produce and consume real requirement
+  results while holding the same target fence. The two real missions perform
+  those steps before candidate acceptance. Work promotion now requires the
+  already-passed QA state and no longer writes `qa_status='passed'`; the existing
+  staged lifecycle remains the sole work-acceptance owner.
 - External extension proof: `runtime/tests/external_extension_fixture.py` owns
   its sample observation key, target ID, schema, snapshots, and physical effects
   outside `runtime/src/software_factory`. It registers through the unchanged
@@ -2438,22 +2450,33 @@ reuse of the real engine.
 - Contract and packaging: the maintained external registration, ownership, and
   negative boundary is
   `docs/software-factory-v2-content-extension-contract.md`, SHA-256
-  `4892c7d9fda1c90176de25913a2ef2d365b28b9d2b261c7e659ab1db1681dfd0`.
+  `5d07c1c4e724c0f26a71f16887a7916fc3cfefef6d49ebd0a8385f0c8e152633`.
   The corrected repository-native build envelope is `uv build`; the initial
   no-isolation diagnostic was invalid because the selected development venv did
   not contain the declared setuptools backend and was not reused as proof. The
   isolated wheel and sdist SHA-256 values are respectively
-  `e25228e28c431e7c17f1be0b8782cf3ceee7a1f98c3e4b6a3f51fdf39abbaf78`
+  `703693ff1c9c2944952017dd5383af50d98bdd8407fd81c695e7dbac55174ae1`
   and
-  `a72c6af1070639999bd0a879e83f8f6d5c82e432af64e15ace990a159f8461ca`.
+  `c1c3995c2c9db8615121e86b789a5facdfaf702140d365b1a671144c5961edb3`.
   A target-directory installation imported version `2.0.0.dev6` from the built
   wheel, exposed the content profile, and composed profile keys `content` and
   `software`; the sdist contains both maintained Block 10 test modules.
-- Focused and mapped proof: `61 passed` across content/external profiles, target
+- Preserved rejected candidate: exact pushed commit
+  `e60b9990a2453888dfff991dc8c46fb5ca251d58`, tree
+  `2e301540f53dae67e5f2c55e1980ce1351c348f1`, remains immutable and
+  unaccepted. Distinct exact-revision review returned three P1 findings: target
+  profile candidates could not complete canonical QA and the dogfoods advanced
+  acceptance without it; maintained target definitions could not be reconstructed
+  after restart; and target/QA currentness checks did not hold one physical-effect
+  fence through their authoritative action. The successor retains every earlier
+  capability while adding the canonical non-workspace QA path, durable reopen,
+  physical-tree-bound revisions, shared target locks, and adapter-internal dual-root
+  rechecks. No rejected history was amended or removed.
+- Focused and mapped proof: `63 passed` across content/external profiles, target
   profiles, execution/QA, acceptance lifecycle, core, composition, operational
   boundaries, engine hosts, and v2 entrypoints. Ruff format/check are clean over
   108 files, mypy is clean over 72 source files, compilation is clean, and full
-  runtime collection is 260 tests with the seven documented legacy `TestStore`
+  runtime collection is 262 tests with the seven documented legacy `TestStore`
   collection warnings. Per the range economy contract, the broad runtime suite
   remains deferred to Block 12.
 - Product-capability review:
@@ -2471,7 +2494,9 @@ reuse of the real engine.
     domain schema/effects; existing generic services own every operational and
     acceptance transition.
   - Protected-capability result: profile completion, rendered bytes, execution
-    success, or registration cannot manufacture QA or acceptance, and no
+    success, or registration cannot manufacture QA or acceptance; a host restart
+    retains the target's exact definition and progress; physical effect and QA
+    recording share one target-local and cross-process currentness fence; and no
     consumer-domain code, identifier, schema, or Git-only field enters generic
     runtime contracts.
   - Rejected alternatives: generic content schemas would overgeneralize the core;
@@ -2481,10 +2506,11 @@ reuse of the real engine.
     deterministic cited-document contract rather than a universal document
     platform. New domains remain external extensions until another accepted
     shared need justifies a bounded core contract.
-- Candidate posture: implementation, docs, focused/mapped proof, static audit,
-  collection, and isolated build/import proof are complete. Exact candidate
-  commit/push and distinct exact-revision review remain required before Block 10
-  acceptance or Block 11 effects.
+- Candidate posture: rejected exact candidate `e60b999` and all three review
+  findings are preserved. The bounded remediation, docs, focused/mapped proof,
+  static audit, collection, durable-restart proof, and isolated build/import proof
+  are complete. A new exact candidate commit/push and distinct exact-revision
+  review remain required before Block 10 acceptance or Block 11 effects.
 
 ### Stop
 

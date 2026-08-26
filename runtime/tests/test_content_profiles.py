@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
@@ -13,6 +16,7 @@ from software_factory import (
     ContentSource,
     CoreService,
     EffectClass,
+    EvidenceInvalid,
     InvalidTransition,
     Store,
 )
@@ -303,6 +307,23 @@ def _complete_profile_mission(
         "independent_review",
         "profile_currentness",
     }
+    requirements = {item["qa_type"]: item for item in submitted["requirements"]}
+    work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+    with pytest.raises(EvidenceInvalid, match="QA remains incomplete"):
+        core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
+    currentness_result = core.qa.record_profile_currentness(
+        requirements["profile_currentness"]["id"]
+    )
+    assert currentness_result["passed"] is True
+    review_result = core.qa.record_independent_review(
+        requirements["independent_review"]["id"],
+        reviewer_session_id=reviewer_id,
+        disposition="accept",
+    )
+    assert review_result["disposition"] == "accept"
+    work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+    completed_qa = core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
+    assert completed_qa["qa_status"] == "passed"
     outcome = {
         "operator_visible": {
             "profile_key": profile_key,
@@ -531,6 +552,7 @@ def test_content_profile_enforces_closed_effects_currentness_and_quality(tmp_pat
             EffectClass.WORKSPACE,
             target_id,
             expected_revision=initial.revision,
+            expected_currentness_root=initial.currentness_root,
             arguments={"operation": "collect_sources"},
         )
 
@@ -539,7 +561,7 @@ def test_content_profile_enforces_closed_effects_currentness_and_quality(tmp_pat
     tampered = tmp_path / "content" / "workspace" / "sources.json"
     original = tampered.read_text(encoding="utf-8")
     tampered.write_text(original + " ", encoding="utf-8")
-    with pytest.raises(InvalidTransition, match="currentness changed"):
+    with pytest.raises(InvalidTransition, match="revision changed|currentness changed"):
         core.target_profiles.execute(
             "content",
             EffectClass.COMMAND,
@@ -565,6 +587,57 @@ def test_content_profile_rejects_symlink_target_root(tmp_path: Path) -> None:
             sources=(ContentSource("source", "Source", "One maintained statement."),),
             sections=(ContentSection("Section", "Summarize the source.", ("source",)),),
         )
+
+
+def test_content_profile_reopens_and_resumes_exact_durable_target(tmp_path: Path) -> None:
+    database = tmp_path / "factory.sqlite3"
+    root = tmp_path / "content"
+    first = CoreService(Store(database))
+    target_id = _register_content(first, root)
+    _execute(first, "content", target_id, EffectClass.WORKSPACE, "collect_sources")
+    _execute(first, "content", target_id, EffectClass.COMMAND, "plan")
+    before_restart = first.target_profiles.snapshot("content", target_id)
+
+    restarted = CoreService(Store(database))
+    assert restarted.reopen_content_target(str(root)) == target_id
+    reopened = restarted.target_profiles.snapshot("content", target_id)
+    assert reopened == before_restart
+    for effect_class, operation in _content_steps()[2:]:
+        _execute(restarted, "content", target_id, effect_class, operation)
+    assert restarted.target_profiles.snapshot("content", target_id).attributes["phase"] == (
+        "delivered_verified"
+    )
+
+
+def test_content_profile_cross_host_fence_serializes_physical_effect(tmp_path: Path) -> None:
+    database = tmp_path / "factory.sqlite3"
+    root = tmp_path / "content"
+    first = CoreService(Store(database))
+    target_id = _register_content(first, root)
+    second = CoreService(Store(database))
+    second.reopen_content_target(str(root))
+    snapshot = second.target_profiles.snapshot("content", target_id)
+    started = Event()
+
+    def execute_from_second_host() -> dict[str, Any]:
+        started.set()
+        return _execute(second, "content", target_id, EffectClass.WORKSPACE, "collect_sources")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with first.target_profiles.currentness_fence(
+            "content",
+            target_id,
+            expected_revision=snapshot.revision,
+            expected_currentness_root=snapshot.currentness_root,
+        ):
+            pending = executor.submit(execute_from_second_host)
+            assert started.wait(timeout=1)
+            with pytest.raises(FutureTimeout):
+                pending.result(timeout=0.05)
+        assert pending.result(timeout=1)["source_count"] == 3
+    assert second.target_profiles.snapshot("content", target_id).attributes["phase"] == (
+        "sources_collected"
+    )
 
 
 def test_neutral_content_mission_reaches_current_delivered_outcome(tmp_path: Path) -> None:

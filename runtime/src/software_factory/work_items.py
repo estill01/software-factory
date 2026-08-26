@@ -366,6 +366,8 @@ class WorkItemService:
                 raise InvalidTransition(
                     "candidate acceptance revision is not the submitted revision"
                 )
+            if work["qa_status"] != "passed":
+                raise InvalidTransition("work acceptance requires completed passing QA")
             if stage in {"integrated", "installed"}:
                 integrated = work["integrated_revision"]
                 if integrated is not None and integrated != exact_revision:
@@ -384,8 +386,8 @@ class WorkItemService:
                 else work["integrated_revision"]
             )
             db.execute(
-                """UPDATE work_items SET acceptance_status=?,qa_status='passed',
-                   integrated_revision=?,state_version=?,updated_at=? WHERE id=?""",
+                """UPDATE work_items SET acceptance_status=?,integrated_revision=?,
+                   state_version=?,updated_at=? WHERE id=?""",
                 (
                     target,
                     integrated_revision,

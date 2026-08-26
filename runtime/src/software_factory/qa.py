@@ -177,6 +177,7 @@ class QAService:
 
         if self.target_profiles is None:
             raise InvalidTransition("target-profile candidate submission is not configured")
+        target_profiles = self.target_profiles
         execution = self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
         if execution["status"] != "succeeded" or not execution["work_item_id"]:
             raise InvalidTransition(
@@ -184,15 +185,15 @@ class QAService:
             )
         if execution["workspace_id"]:
             raise InvalidTransition("workspace candidates must use the software QA submission")
-        snapshot = self.target_profiles.snapshot(profile_key, target_id)
-        if snapshot.revision != expected_revision:
-            raise InvalidTransition("target-profile candidate revision changed before submission")
-        if snapshot.currentness_root != expected_currentness_root:
-            raise InvalidTransition(
-                "target-profile candidate currentness changed before submission"
-            )
-
-        with self.store.transaction() as db:
+        with (
+            target_profiles.currentness_fence(
+                profile_key,
+                target_id,
+                expected_revision=expected_revision,
+                expected_currentness_root=expected_currentness_root,
+            ) as snapshot,
+            self.store.transaction() as db,
+        ):
             work = self.store.check_version(
                 db,
                 table="work_items",
@@ -254,6 +255,16 @@ class QAService:
                 ]
                 for item in requirements:
                     qa_type = str(item.get("type") or "predicate")
+                    predicate = dict(item.get("predicate", {}))
+                    if qa_type == "profile_currentness":
+                        predicate = {
+                            "profile_key": profile_key,
+                            "target_id": target_id,
+                            "revision": snapshot.revision,
+                            "currentness_root": snapshot.currentness_root,
+                            "attributes": dict(snapshot.attributes),
+                            "execution_id": execution_id,
+                        }
                     db.execute(
                         """INSERT INTO qa_requirements(
                             id,work_item_id,phase,qa_type,required,independence_role,
@@ -268,7 +279,7 @@ class QAService:
                             int(item.get("required", True)),
                             item.get("role"),
                             canonical_json({"argv": item.get("command", [])}),
-                            canonical_json(item.get("predicate", {})),
+                            canonical_json(predicate),
                             "pending",
                             snapshot.revision,
                             utc_now(),
@@ -315,6 +326,68 @@ class QAService:
                 (execution["work_item_id"],),
             ),
         }
+
+    def record_profile_currentness(self, requirement_id: str) -> dict[str, Any]:
+        """Observe and pass one exact non-workspace currentness requirement."""
+
+        requirement = self.store.one("SELECT * FROM qa_requirements WHERE id=?", (requirement_id,))
+        if requirement["qa_type"] != "profile_currentness":
+            raise InvalidTransition("QA requirement is not a profile-currentness check")
+        predicate = json_load(requirement["predicate_json"], {})
+        required = {
+            "profile_key",
+            "target_id",
+            "revision",
+            "currentness_root",
+            "attributes",
+            "execution_id",
+        }
+        if set(predicate) != required:
+            raise EvidenceInvalid("profile-currentness requirement has no exact target binding")
+        profile_key = str(predicate["profile_key"])
+        target_id = str(predicate["target_id"])
+        revision = str(predicate["revision"])
+        currentness_root = str(predicate["currentness_root"])
+        target_profiles = self.target_profiles
+        if target_profiles is None:
+            raise InvalidTransition("target-profile currentness QA is not configured")
+        with target_profiles.currentness_fence(
+            profile_key,
+            target_id,
+            expected_revision=revision,
+            expected_currentness_root=currentness_root,
+        ) as snapshot:
+            if dict(snapshot.attributes) != predicate["attributes"]:
+                raise EvidenceInvalid("profile target attributes changed before QA observation")
+            work = self.store.one(
+                "SELECT * FROM work_items WHERE id=?", (requirement["work_item_id"],)
+            )
+            result = {
+                "profile_key": profile_key,
+                "target_id": target_id,
+                "revision": snapshot.revision,
+                "currentness_root": snapshot.currentness_root,
+                "attributes": dict(snapshot.attributes),
+                "passed": True,
+            }
+            evidence_id = self.store.record_evidence(
+                mission_id=work["mission_id"],
+                evidence_type="profile_currentness",
+                subject_type="work_item",
+                subject_id=work["id"],
+                revision=snapshot.revision,
+                execution_id=str(predicate["execution_id"]),
+                payload={"requirement_id": requirement_id, **result},
+            )
+            self._record_qa_result(
+                requirement_id=requirement_id,
+                execution_id=str(predicate["execution_id"]),
+                status="passed",
+                revision=snapshot.revision,
+                evidence_id=evidence_id,
+                result=result,
+            )
+        return {"evidence_id": evidence_id, **result}
 
     def _record_qa_result(
         self,
@@ -478,7 +551,18 @@ class QAService:
                  AND status IN ('accepted','active','completed','released')""",
             (work["id"],),
         )
-        if reviewer_session_id in {row["agent_session_id"] for row in implementers}:
+        execution_implementers = self.store.all(
+            """SELECT DISTINCT agent_session_id FROM executions
+               WHERE work_item_id=? AND agent_session_id IS NOT NULL
+                 AND execution_type NOT IN (
+                   'independent_review','validation','program_review','terminal_verification'
+                 )""",
+            (work["id"],),
+        )
+        implementer_ids = {
+            row["agent_session_id"] for row in (*implementers, *execution_implementers)
+        }
+        if reviewer_session_id in implementer_ids:
             raise RoleConflict("implementer cannot review its own candidate")
         result = {
             "work_item_id": work["id"],
@@ -551,9 +635,135 @@ class QAService:
                         )
         return {"execution_id": execution_id, "evidence_id": evidence_id, **result}
 
+    def _complete_profile_candidate_qa(
+        self,
+        work_item_id: str,
+        *,
+        profile_key: str,
+        target_id: str,
+        expected_work_version: int,
+    ) -> dict[str, Any]:
+        initial = self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+        if not initial["candidate_revision"]:
+            raise InvalidTransition("work has no submitted profile candidate")
+        requirements = self.store.all(
+            """SELECT * FROM qa_requirements WHERE work_item_id=? AND phase='candidate'
+               AND candidate_revision=? AND status<>'stale' ORDER BY created_at""",
+            (work_item_id, initial["candidate_revision"]),
+        )
+        currentness = [row for row in requirements if row["qa_type"] == "profile_currentness"]
+        if len(currentness) != 1:
+            raise EvidenceInvalid("profile candidate requires one exact currentness check")
+        predicate = json_load(currentness[0]["predicate_json"], {})
+        expected_currentness_root = str(predicate.get("currentness_root") or "")
+        if (
+            predicate.get("profile_key") != profile_key
+            or predicate.get("target_id") != target_id
+            or predicate.get("revision") != initial["candidate_revision"]
+            or not expected_currentness_root
+        ):
+            raise EvidenceInvalid("profile-currentness requirement is not bound to the candidate")
+
+        target_profiles = self.target_profiles
+        if target_profiles is None:
+            raise InvalidTransition("target-profile candidate completion is not configured")
+        with (
+            target_profiles.currentness_fence(
+                profile_key,
+                target_id,
+                expected_revision=initial["candidate_revision"],
+                expected_currentness_root=expected_currentness_root,
+            ) as snapshot,
+            self.store.transaction() as db,
+        ):
+            work = self.store.check_version(
+                db,
+                table="work_items",
+                row_id=work_item_id,
+                expected_version=expected_work_version,
+            )
+            if work["execution_status"] != "submitted":
+                raise InvalidTransition("work has no submitted profile candidate")
+            expected_effect = json_load(work["expected_effect_json"], {})
+            if (
+                expected_effect.get("target_profile") != profile_key
+                or expected_effect.get("target_id") != target_id
+            ):
+                raise InvalidTransition("profile candidate target binding changed")
+            if dict(snapshot.attributes) != predicate.get("attributes"):
+                raise EvidenceInvalid("profile target attributes changed after QA observation")
+            current_requirements = db.execute(
+                """SELECT * FROM qa_requirements WHERE work_item_id=? AND phase='candidate'
+                   AND candidate_revision=? AND status<>'stale'""",
+                (work_item_id, work["candidate_revision"]),
+            ).fetchall()
+            if not current_requirements:
+                raise EvidenceInvalid("profile candidate has no QA requirements")
+            missing = [
+                row["id"]
+                for row in current_requirements
+                if row["required"] and row["status"] != "passed"
+            ]
+            if missing:
+                raise EvidenceInvalid(f"profile candidate QA remains incomplete: {missing}")
+            reviews = db.execute(
+                """SELECT qr.reviewer_session_id FROM qa_results qr
+                   JOIN qa_requirements q ON q.id=qr.requirement_id
+                   WHERE q.work_item_id=? AND q.phase='candidate'
+                     AND q.candidate_revision=? AND q.qa_type IN (
+                       'independent_review','review','architecture_review'
+                     ) AND qr.status='passed' AND qr.stale_at IS NULL""",
+                (work_item_id, work["candidate_revision"]),
+            ).fetchall()
+            execution = db.execute(
+                "SELECT work_item_id,agent_session_id FROM executions WHERE id=?",
+                (str(predicate.get("execution_id") or ""),),
+            ).fetchone()
+            if execution is None or execution["work_item_id"] != work_item_id:
+                raise EvidenceInvalid("profile candidate implementation execution is missing")
+            implementer_id = execution["agent_session_id"]
+            if reviews and any(row["reviewer_session_id"] == implementer_id for row in reviews):
+                raise RoleConflict("profile candidate review is not independent")
+            new_version = expected_work_version + 1
+            db.execute(
+                """UPDATE work_items SET qa_status='passed',acceptance_status='pending',
+                   state_version=?,updated_at=? WHERE id=?""",
+                (new_version, utc_now(), work_item_id),
+            )
+            self.store.append_event(
+                db,
+                mission_id=work["mission_id"],
+                stream_key="qa",
+                event_type="profile_candidate.qa_completed",
+                subject_type="work_item",
+                subject_id=work_item_id,
+                prior_version=expected_work_version,
+                new_version=new_version,
+                payload={
+                    "profile_key": profile_key,
+                    "target_id": target_id,
+                    "candidate_revision": work["candidate_revision"],
+                    "currentness_root": snapshot.currentness_root,
+                    "qa_requirement_ids": [row["id"] for row in current_requirements],
+                    "reviewer_session_ids": [row["reviewer_session_id"] for row in reviews],
+                },
+            )
+        return self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+
     def complete_candidate_qa(
         self, work_item_id: str, *, expected_work_version: int
     ) -> dict[str, Any]:
+        initial = self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+        expected_effect = json_load(initial["expected_effect_json"], {})
+        profile_key = expected_effect.get("target_profile")
+        target_id = expected_effect.get("target_id")
+        if isinstance(profile_key, str) and isinstance(target_id, str):
+            return self._complete_profile_candidate_qa(
+                work_item_id,
+                profile_key=profile_key,
+                target_id=target_id,
+                expected_work_version=expected_work_version,
+            )
         with self.store.transaction() as db:
             work = self.store.check_version(
                 db,

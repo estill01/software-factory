@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import subprocess
 import sys
@@ -181,6 +182,10 @@ def test_registry_rejects_unowned_effects_self_acceptance_and_worktree_authority
         def snapshot(self, target_id: str):
             return snapshot
 
+        def _currentness_fence(self, authority, target_id):
+            assert authority is self.authority
+            return contextlib.nullcontext()
+
         def _execute_effect(self, authority, *args, **kwargs):
             assert authority is self.authority
             raise AssertionError("unowned effect reached profile")
@@ -202,6 +207,7 @@ def test_registry_rejects_unowned_effects_self_acceptance_and_worktree_authority
             EffectClass.WORKSPACE,
             repository_id,
             expected_revision=snapshot.revision,
+            expected_currentness_root=snapshot.currentness_root,
             arguments={
                 "operation": "create",
                 "mission_id": "unreachable",

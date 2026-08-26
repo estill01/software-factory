@@ -34,6 +34,11 @@ and delivers an exact artifact, and verifies its receipt. A consumer-owned exter
 fixture registers through the same public profile contract without placing its
 identifiers, schema, or effects in the Factory package. Both complete real missions
 through the ordinary program, work, QA, independent acceptance, and terminal owners.
+Profile effects hold one target-local exact-currentness fence across the physical
+effect, and adapters recheck both the revision and currentness root inside that
+boundary. The maintained content profile backs the fence with a cross-process regular
+lock outside the target tree. Its definition and state are durable and can be reopened
+and resumed after a host restart.
 
 ## State and evidence
 
@@ -54,8 +59,10 @@ accepted its probes and review and a different independent session has reconstru
 the operator-visible and protected-capability outcome at the same currentness root.
 Outcome reconstruction consumes an exact bounded reviewer grant and verifies the
 reviewer's recorded provider identity. Work acceptance is capability-token fenced to
-the lifecycle coordinator; legacy QA can record a passed probe but cannot promote a
-candidate.
+the lifecycle coordinator; it requires an already-passed canonical QA state and never
+manufactures one. Non-workspace profile candidates record exact currentness and
+independent review through the same QA owner before staged acceptance can begin;
+provider completion or a successful render cannot substitute for that proof.
 
 If the process record is green but the observed outcome disagrees, the runtime records
 the mismatch, reopens only the named work/capability/mission owner, and routes an

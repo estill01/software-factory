@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
+from threading import RLock
 from typing import Any, Protocol
 
 from ..errors import AuthorityDenied, InvalidTransition
@@ -48,6 +50,10 @@ class TargetProfile(Protocol):
 
     def _bind_registry_authority(self, authority: object) -> None: ...
 
+    def _currentness_fence(
+        self, authority: object, target_id: str
+    ) -> AbstractContextManager[None]: ...
+
     def _execute_effect(
         self,
         authority: object,
@@ -55,6 +61,7 @@ class TargetProfile(Protocol):
         target_id: str,
         *,
         expected_revision: str,
+        expected_currentness_root: str,
         arguments: Mapping[str, Any],
     ) -> Mapping[str, Any]: ...
 
@@ -65,6 +72,7 @@ class TargetProfileRegistry:
     def __init__(self) -> None:
         self._profiles: dict[str, TargetProfile] = {}
         self._authorities: dict[str, object] = {}
+        self._target_locks: dict[tuple[str, str], RLock] = {}
 
     def register(self, profile: TargetProfile) -> None:
         key = profile.key.strip()
@@ -90,8 +98,43 @@ class TargetProfileRegistry:
     def keys(self) -> tuple[str, ...]:
         return tuple(sorted(self._profiles))
 
+    def _target_lock(self, profile_key: str, target_id: str) -> RLock:
+        key = (profile_key, target_id)
+        lock = self._target_locks.get(key)
+        if lock is None:
+            lock = RLock()
+            self._target_locks[key] = lock
+        return lock
+
     def snapshot(self, profile_key: str, target_id: str) -> TargetSnapshot:
-        return self._get(profile_key).snapshot(target_id)
+        with self._target_lock(profile_key, target_id):
+            profile = self._get(profile_key)
+            with profile._currentness_fence(self._authorities[profile_key], target_id):
+                return profile.snapshot(target_id)
+
+    @contextmanager
+    def currentness_fence(
+        self,
+        profile_key: str,
+        target_id: str,
+        *,
+        expected_revision: str | None = None,
+        expected_currentness_root: str | None = None,
+    ) -> Iterator[TargetSnapshot]:
+        """Hold one target stable while a caller validates and records its snapshot."""
+
+        with self._target_lock(profile_key, target_id):
+            profile = self._get(profile_key)
+            with profile._currentness_fence(self._authorities[profile_key], target_id):
+                snapshot = profile.snapshot(target_id)
+                if expected_revision is not None and snapshot.revision != expected_revision:
+                    raise InvalidTransition("target revision changed inside currentness fence")
+                if (
+                    expected_currentness_root is not None
+                    and snapshot.currentness_root != expected_currentness_root
+                ):
+                    raise InvalidTransition("target currentness changed inside currentness fence")
+                yield snapshot
 
     def execute(
         self,
@@ -103,26 +146,31 @@ class TargetProfileRegistry:
         expected_currentness_root: str,
         arguments: Mapping[str, Any] | None = None,
     ) -> ProfileEffectResult:
-        if not isinstance(effect_class, EffectClass):
-            raise AuthorityDenied("target effect must use a registered fixed effect class")
-        profile = self._get(profile_key)
-        if effect_class not in profile.effect_classes:
-            raise AuthorityDenied(
-                f"target profile {profile_key} does not own effect {effect_class.value}"
-            )
-        before = profile.snapshot(target_id)
-        if before.revision != expected_revision:
-            raise InvalidTransition("target revision changed before authoritative effect")
-        if before.currentness_root != expected_currentness_root:
-            raise InvalidTransition("target currentness changed before authoritative effect")
-        result = profile._execute_effect(
-            self._authorities[profile_key],
-            effect_class,
-            target_id,
-            expected_revision=expected_revision,
-            arguments=dict(arguments or {}),
-        )
-        after = profile.snapshot(target_id)
+        with self._target_lock(profile_key, target_id):
+            if not isinstance(effect_class, EffectClass):
+                raise AuthorityDenied("target effect must use a registered fixed effect class")
+            profile = self._get(profile_key)
+            if effect_class not in profile.effect_classes:
+                raise AuthorityDenied(
+                    f"target profile {profile_key} does not own effect {effect_class.value}"
+                )
+            with profile._currentness_fence(self._authorities[profile_key], target_id):
+                before = profile.snapshot(target_id)
+                if before.revision != expected_revision:
+                    raise InvalidTransition("target revision changed before authoritative effect")
+                if before.currentness_root != expected_currentness_root:
+                    raise InvalidTransition(
+                        "target currentness changed before authoritative effect"
+                    )
+                result = profile._execute_effect(
+                    self._authorities[profile_key],
+                    effect_class,
+                    target_id,
+                    expected_revision=expected_revision,
+                    expected_currentness_root=expected_currentness_root,
+                    arguments=dict(arguments or {}),
+                )
+                after = profile.snapshot(target_id)
         return ProfileEffectResult(
             profile_key=profile_key,
             effect_class=effect_class,

@@ -43,9 +43,15 @@ the completed program materially changes Software Factory.
   runtime now includes a maintained invention-neutral content profile for
   source collection, planning, drafting/revision, factual/structural/style
   review, deterministic rendering, exact internal delivery, and receipt
-  verification. Non-workspace profile output enters the existing QA owner only
+  verification. Its exact definition is persisted with target state so a host
+  restart can reopen and resume the same target, and target effects hold both a
+  registry fence and profile-owned cross-process lock while adapters recheck
+  revision and physical-tree currentness. Non-workspace profile output enters
+  the existing QA owner only
   when a successful work execution, declared profile/target, exact revision,
-  and exact currentness root agree; it still traverses independent
+  and exact currentness root agree. Currentness and independent review then
+  complete through canonical QA before the lifecycle can promote any stage;
+  acceptance cannot manufacture a passed QA state. The output still traverses independent
   candidate/integrated/installed/terminal acceptance and cannot self-accept. A
   consumer-owned example profile lives outside the Factory package, registers
   through the public profile registry, and completes the same real mission,

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import html
 import json
+import os
 import re
-from collections.abc import Mapping, Sequence
+import stat
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -85,6 +89,30 @@ class ContentTargetProfile:
             raise InvalidTransition("content profile is already bound to a registry")
         self._registry_authority = authority
 
+    @contextmanager
+    def _currentness_fence(self, authority: object, target_id: str) -> Iterator[None]:
+        if authority is not self._registry_authority:
+            raise AuthorityDenied("content currentness fence requires registry authority")
+        config = self._config(target_id)
+        lock_name = (
+            f".{config.root.name}.software-factory-content-"
+            f"{digest_json({'target_id': target_id, 'root': str(config.root)})[:16]}.lock"
+        )
+        lock_path = config.root.parent / lock_name
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(lock_path, flags, 0o600)
+        except OSError as exc:
+            raise InvalidTransition("content target currentness lock is unavailable") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise InvalidTransition("content target currentness lock is not regular")
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
     @staticmethod
     def _definition_material(
         *,
@@ -155,13 +183,6 @@ class ContentTargetProfile:
         if unused:
             raise ValueError(f"content target contains unused sources: {unused}")
 
-        requested_root = Path(root)
-        if requested_root.is_symlink():
-            raise InvalidTransition("content target root cannot be a symlink")
-        target_root = requested_root.resolve()
-        target_root.mkdir(parents=True, exist_ok=True)
-        if any(target_root.iterdir()):
-            raise InvalidTransition("content target root must be empty at registration")
         material = self._definition_material(
             target_id=target_id,
             title=title.strip(),
@@ -170,6 +191,17 @@ class ContentTargetProfile:
             sections=section_values,
         )
         definition_root = digest_json(material)
+        requested_root = Path(root)
+        if requested_root.is_symlink():
+            raise InvalidTransition("content target root cannot be a symlink")
+        target_root = requested_root.resolve()
+        target_root.mkdir(parents=True, exist_ok=True)
+        if any(target_root.iterdir()):
+            existing = self._read_registration(target_root)
+            if existing != material or digest_json(existing) != definition_root:
+                raise InvalidTransition(
+                    "existing content target differs from the requested registration"
+                )
         config = _ContentTargetConfig(
             target_id=target_id,
             root=target_root,
@@ -179,19 +211,72 @@ class ContentTargetProfile:
             sections=section_values,
             definition_root=definition_root,
         )
-        self._targets[target_id] = config
+        if any(target_root.iterdir()):
+            self._read_state(config)
+            self._targets[target_id] = config
+            return
         self._write_json(
             target_root / _STATE_FILE,
             {
                 "schema_version": "software-factory-content-target/v1",
                 "target_id": target_id,
                 "definition_root": definition_root,
+                "definition": material,
                 "sequence": 0,
                 "phase": "registered",
                 "reviews": {},
                 "outputs": {},
             },
         )
+        self._targets[target_id] = config
+
+    @staticmethod
+    def _read_registration(root: Path) -> dict[str, Any]:
+        try:
+            state = json.loads((root / _STATE_FILE).read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            raise InvalidTransition("existing content target has no durable registration") from exc
+        material = state.get("definition")
+        if (
+            state.get("schema_version") != "software-factory-content-target/v1"
+            or not isinstance(material, dict)
+            or state.get("definition_root") != digest_json(material)
+        ):
+            raise InvalidTransition("existing content target registration is invalid")
+        return material
+
+    def reopen_target(self, root: str | Path) -> str:
+        """Reconstruct one exact durable target after a host-process restart."""
+
+        requested_root = Path(root)
+        if requested_root.is_symlink():
+            raise InvalidTransition("content target root cannot be a symlink")
+        target_root = requested_root.resolve()
+        material = self._read_registration(target_root)
+        try:
+            target_id = str(material["target_id"])
+            sources = tuple(ContentSource(**item) for item in material["sources"])
+            sections = tuple(
+                ContentSection(
+                    heading=str(item["heading"]),
+                    purpose=str(item["purpose"]),
+                    source_keys=tuple(str(key) for key in item["source_keys"]),
+                )
+                for item in material["sections"]
+            )
+            title = str(material["title"])
+            audience = str(material["audience"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise InvalidTransition("durable content target definition is invalid") from exc
+        self.register_target(
+            target_id,
+            root=target_root,
+            title=title,
+            audience=audience,
+            sources=sources,
+            sections=sections,
+        )
+        return target_id
 
     def _config(self, target_id: str) -> _ContentTargetConfig:
         try:
@@ -217,6 +302,14 @@ class ContentTargetProfile:
             state.get("schema_version") != "software-factory-content-target/v1"
             or state.get("target_id") != config.target_id
             or state.get("definition_root") != config.definition_root
+            or state.get("definition")
+            != ContentTargetProfile._definition_material(
+                target_id=config.target_id,
+                title=config.title,
+                audience=config.audience,
+                sources=config.sources,
+                sections=config.sections,
+            )
         ):
             raise InvalidTransition("content target state differs from its registration")
         return state
@@ -244,6 +337,7 @@ class ContentTargetProfile:
     def snapshot(self, target_id: str) -> TargetSnapshot:
         config = self._config(target_id)
         state = self._read_state(config)
+        tree = self._tree(config)
         revision = digest_json(
             {
                 "profile": self.key,
@@ -253,13 +347,14 @@ class ContentTargetProfile:
                 "phase": state.get("phase"),
                 "reviews": state.get("reviews", {}),
                 "outputs": state.get("outputs", {}),
+                "tree": tree,
             }
         )
         attributes = {
             "definition_root": config.definition_root,
             "phase": state.get("phase"),
             "sequence": state.get("sequence"),
-            "tree": self._tree(config),
+            "tree": tree,
         }
         return TargetSnapshot(
             profile_key=self.key,
@@ -631,6 +726,7 @@ class ContentTargetProfile:
         target_id: str,
         *,
         expected_revision: str,
+        expected_currentness_root: str,
         arguments: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         if authority is not self._registry_authority:
@@ -638,8 +734,13 @@ class ContentTargetProfile:
         if set(arguments) != {"operation"} or not isinstance(arguments.get("operation"), str):
             raise AuthorityDenied("content effect contains unregistered arguments")
         config = self._config(target_id)
-        if self.snapshot(target_id).revision != expected_revision:
+        observed = self.snapshot(target_id)
+        if observed.revision != expected_revision:
             raise InvalidTransition("content target revision changed before authoritative effect")
+        if observed.currentness_root != expected_currentness_root:
+            raise InvalidTransition(
+                "content target currentness changed before authoritative effect"
+            )
         state = self._read_state(config)
         operation = str(arguments["operation"])
         dispatch = {

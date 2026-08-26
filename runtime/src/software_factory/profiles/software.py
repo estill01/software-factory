@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -180,6 +181,15 @@ class SoftwareTargetProfile:
         if self._registry_authority is not None:
             raise InvalidTransition("software profile is already bound to a registry")
         self._registry_authority = authority
+
+    @contextmanager
+    def _currentness_fence(self, authority: object, target_id: str) -> Iterator[None]:
+        if authority is not self._registry_authority:
+            raise AuthorityDenied("software currentness fence requires registry authority")
+        self._config(target_id)
+        # Software effects acquire their durable repository/release owner locks and
+        # exact compare-and-swap fences inside the registered operation.
+        yield
 
     def register_target(
         self,
@@ -612,10 +622,18 @@ class SoftwareTargetProfile:
         target_id: str,
         *,
         expected_revision: str,
+        expected_currentness_root: str,
         arguments: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         if authority is not self._registry_authority:
             raise AuthorityDenied("software target effects require registry authority")
+        observed = self.snapshot(target_id)
+        if observed.revision != expected_revision:
+            raise InvalidTransition("software target revision changed before authoritative effect")
+        if observed.currentness_root != expected_currentness_root:
+            raise InvalidTransition(
+                "software target currentness changed before authoritative effect"
+            )
         config = self._config(target_id)
         if effect_class is EffectClass.WORKSPACE:
             return self._workspace_effect(config, expected_revision, arguments)
