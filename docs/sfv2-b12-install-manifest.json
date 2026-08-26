@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "python": "3.13.13",
+  "artifacts": [
+    {
+      "filename": "attrs-26.1.0-py3-none-any.whl",
+      "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "charset_normalizer-3.4.9-cp313-cp313-macosx_10_13_universal2.whl",
+      "sha256": "440eede837960000d74978f0eba527be106b5b9aee0daf779d395276ed0b0614",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "codex_app_server_client-0.1.0-py3-none-any.whl",
+      "sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+      "source": "utils a5659745a7cbcbb002b5f06051f6ed9826f721a7 accepted internal artifact"
+    },
+    {
+      "filename": "embedded_service_contract-0.1.0-py3-none-any.whl",
+      "sha256": "2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d",
+      "source": "utils a5659745a7cbcbb002b5f06051f6ed9826f721a7 accepted internal artifact"
+    },
+    {
+      "filename": "jsonschema-4.26.0-py3-none-any.whl",
+      "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "jsonschema_specifications-2025.9.1-py3-none-any.whl",
+      "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "librsi-0.2.0-py3-none-any.whl",
+      "sha256": "baf5fb7309045b52f7f30f5308dd170c37aeac16999aed6ba8d168df8738af91",
+      "source": "libRSI 1d81f6180b40435e10145756a2d99e6f334d31bc with SOURCE_DATE_EPOCH=1787602056"
+    },
+    {
+      "filename": "pillow-12.3.0-cp313-cp313-macosx_11_0_arm64.whl",
+      "sha256": "d69141514cc30b774ceea5e3ed3a6635c8d8a96edf664689b890f4089111fb35",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "pypdf-6.15.0-py3-none-any.whl",
+      "sha256": "14e001d6504822cb1ca9c7ed9a69bccb320f59b320730f55af804361abe4d5ee",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "referencing-0.37.0-py3-none-any.whl",
+      "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "reportlab-5.0.0-py3-none-any.whl",
+      "sha256": "9d5a3affa84919e1111ede580031266a570e93b1ce388219621347965ff1d93c",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "rpds_py-2026.6.3-cp313-cp313-macosx_11_0_arm64.whl",
+      "sha256": "f4d78253f6996be4901669ad25319f842f740eccf4d58e3c7f3dd39e6dde1d8f",
+      "source": "dashboard/server/uv.lock"
+    },
+    {
+      "filename": "runtime_manifest-0.1.0-py3-none-any.whl",
+      "sha256": "f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac",
+      "source": "utils a5659745a7cbcbb002b5f06051f6ed9826f721a7 accepted internal artifact"
+    },
+    {
+      "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
+      "sha256": "63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e",
+      "source": "exact SFV2 Block 12 source revision 2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27 with SOURCE_DATE_EPOCH=1787739202"
+    },
+    {
+      "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
+      "sha256": "a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5",
+      "source": "exact SFV2 Block 12 source revision 2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27 with SOURCE_DATE_EPOCH=1787739202"
+    },
+    {
+      "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "source": "dashboard/server/uv.lock"
+    }
+  ],
+  "distributions": {
+    "attrs": "26.1.0",
+    "charset-normalizer": "3.4.9",
+    "codex-app-server-client": "0.1.0",
+    "embedded-service-contract": "0.1.0",
+    "jsonschema": "4.26.0",
+    "jsonschema-specifications": "2025.9.1",
+    "libRSI": "0.2.0",
+    "pillow": "12.3.0",
+    "pypdf": "6.15.0",
+    "referencing": "0.37.0",
+    "reportlab": "5.0.0",
+    "rpds-py": "2026.6.3",
+    "runtime-manifest": "0.1.0",
+    "software-factory": "2.0.0.dev6",
+    "software-factory-dashboard": "0.1.0",
+    "typing-extensions": "4.16.0"
+  },
+  "imports": [
+    "attrs",
+    "codex_app_server_client",
+    "embedded_service_contract",
+    "jsonschema",
+    "librsi",
+    "pypdf",
+    "reportlab",
+    "runtime_manifest",
+    "software_factory",
+    "software_factory_dashboard"
+  ],
+  "entrypoints": [
+    "software-factory",
+    "software-factory-dashboard",
+    "sf-skill"
+  ],
+  "block": "SFV2/B12",
+  "source_revision": "2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27",
+  "source_tree": "5398c352678016d25f5c461c87db0cc5324ecab9",
+  "source_date_epoch": 1787739202,
+  "source_archive": {
+    "filename": "software-factory-2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27.tar.gz",
+    "sha256": "7bc3021cc8b52022c47c595a0e740d6ede4897a5e2f54ce2a025147125d813d3"
+  },
+  "release_posture": "internal qualification candidate only; not activated or deployed"
+}

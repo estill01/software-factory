@@ -2856,6 +2856,62 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   hash. The producer remains unpublished and no-license-selected; this Block
   cannot deploy, publish, redistribute, copy utils source, or grant release or
   reuse authority.
+- Frozen source candidate: exact pushed revision
+  `2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27`, tree
+  `5398c352678016d25f5c461c87db0cc5324ecab9`, at remote divergence `0/0`.
+  The terminal product delta reconciles the dashboard cutover contracts,
+  closes the final browser qualification failures, updates the stale migration
+  assertion to schema 26, clears the router advisory, and gives the offline
+  installer a distinct closed Block 12 receipt kind. The evidence record is a
+  documentation-only successor; every build, install, and operator proof is
+  bound to this unchanged source revision and tree.
+- Broad-once matrix: the runtime run recorded `284 passed, 1 failed` because
+  one test still expected migration schema 25; after correcting only that
+  assertion, the exact affected file passed all 3 tests and runtime production
+  sources remained unchanged. The dashboard server matrix passed 137 tests and
+  29 subtests; the active skill-release matrix passed 28 tests and 11 subtests.
+  The complete Playwright matrix initially recorded `83 passed, 13 failed`;
+  focused desktop/tablet/mobile reruns closed all 13 affected report-history,
+  terminal-reporting, Factory-evolution, live-drill-down, accessibility,
+  responsive-containment, and mobile-contrast boundaries. Unaffected broad
+  results were reused. `npm run check` passed 20 files and 117 tests, the web
+  build passed, the locked dependency audit has zero advisories, and maintained
+  Ruff, formatting, mypy, compilation, and tracker-verifier scopes are green.
+- Reproducible artifacts: two independent clean Git archives using
+  `SOURCE_DATE_EPOCH=1787739202` produced byte-identical source archive
+  `7bc3021cc8b52022c47c595a0e740d6ede4897a5e2f54ce2a025147125d813d3`,
+  runtime wheel
+  `63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e`,
+  and dashboard server wheel
+  `a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5`.
+  Exact no-index/no-deps installation of all 16 declared wheels passed twice
+  with qualification root
+  `bb158a1cfe9a0ae19cc80af317074748d2566a9c432176b26e5f05b362786f74`;
+  every installed RECORD inventory/content root and all three entrypoints were
+  verified. The dashboard server wheel does not embed the separately built web
+  dist: the qualified operator run supplied the exact 31-file, 1,271,349-byte
+  static projection with root
+  `27bdda5b7fbc77a1dd5a8df74b41f5ffa8bac2561acce550a7ca48141cafb131`
+  through the documented `--static-dir` boundary. No standalone UI-wheel claim
+  is made.
+- Operator-visible outcome: a real loopback dashboard run projected 20
+  untruncated Factory Floor rows across 3 registered projects, with 6 amber, 2
+  neutral, and 12 red operating lights. Coverage was truthfully partial: the
+  exact Codex App Server client artifact path was not supplied, so task
+  integration remained `unavailable` with
+  `app_server_artifact_required`. No simulated provider result was labeled
+  live, and no generative provider diagnostic was authorized or run.
+- Terminal evidence: `docs/sfv2-b12-install-manifest.json`, SHA-256
+  `fa4e3be9e6b56339e52240b05e74b5cc91fa4b76ec1bfcaf1e39ea4807ae0130`;
+  `docs/sfv2-b12-offline-install-receipt.json`, SHA-256
+  `72b808101e4bf94fbc7e274210d00e5e7ecae8a98391e39f7b25c8ba1bd3ced8`;
+  and `docs/sfv2-b12-terminal-evidence.json`, SHA-256
+  `135bcdd75bdff5f20c21690aa195f6750ef32cedabd11f0140efe798effc61c6`,
+  bind the source candidate, artifact checksums, broad/focused currentness,
+  operator outcome, exact utility package identities, and Stop boundaries.
+  The full terminal candidate is assembled but remains `in-progress` pending
+  distinct exact-revision outcome review. Nothing was deployed, activated,
+  published, redistributed, licensed, or granted consumer-domain authority.
 
 ### Stop
 

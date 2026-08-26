@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B12",
+  "purpose": "terminal exact-revision qualification and truthful non-activating handoff",
+  "candidate": {
+    "source_revision": "2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27",
+    "source_tree": "5398c352678016d25f5c461c87db0cc5324ecab9",
+    "source_date_epoch": 1787739202,
+    "branch": "agent/software-factory-v2-native-refactor",
+    "remote": "origin/agent/software-factory-v2-native-refactor",
+    "remote_divergence_at_freeze": {
+      "ahead": 0,
+      "behind": 0
+    },
+    "evidence_relation": "This record is a documentation-only successor to the frozen source candidate. Every product, build, install, and operator proof below is bound to the exact source revision and tree above."
+  },
+  "artifacts": {
+    "source_archive": {
+      "filename": "software-factory-2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27.tar.gz",
+      "sha256": "7bc3021cc8b52022c47c595a0e740d6ede4897a5e2f54ce2a025147125d813d3"
+    },
+    "runtime_wheel": {
+      "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
+      "sha256": "63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e"
+    },
+    "dashboard_server_wheel": {
+      "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
+      "sha256": "a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5"
+    },
+    "install_manifest": {
+      "path": "docs/sfv2-b12-install-manifest.json",
+      "sha256": "fa4e3be9e6b56339e52240b05e74b5cc91fa4b76ec1bfcaf1e39ea4807ae0130"
+    },
+    "offline_install_receipt": {
+      "path": "docs/sfv2-b12-offline-install-receipt.json",
+      "sha256": "72b808101e4bf94fbc7e274210d00e5e7ecae8a98391e39f7b25c8ba1bd3ced8",
+      "qualification_root_sha256": "bb158a1cfe9a0ae19cc80af317074748d2566a9c432176b26e5f05b362786f74"
+    },
+    "web_static_projection": {
+      "source": "dashboard/web/dist built from the exact source candidate",
+      "files": 31,
+      "bytes": 1271349,
+      "projection_root_sha256": "27bdda5b7fbc77a1dd5a8df74b41f5ffa8bac2561acce550a7ca48141cafb131",
+      "packaging_boundary": "The dashboard server wheel does not embed the web dist. The qualified operator run supplies this exact static directory through the documented --static-dir boundary; no standalone UI-wheel claim is made."
+    },
+    "reproducibility": {
+      "result": "passed",
+      "method": "two independent clean git archives built with the same SOURCE_DATE_EPOCH",
+      "byte_identical": [
+        "source archive",
+        "runtime wheel",
+        "dashboard server wheel"
+      ]
+    },
+    "install": {
+      "result": "passed twice with the same qualification root",
+      "python": "3.13.13",
+      "flags": [
+        "--no-index",
+        "--no-deps"
+      ],
+      "registry_resolution_allowed": false,
+      "artifacts_verified": 16,
+      "record_inventories_complete": true,
+      "entrypoints": [
+        "software-factory",
+        "software-factory-dashboard",
+        "sf-skill"
+      ]
+    }
+  },
+  "verification_matrix": {
+    "runtime_broad_once": {
+      "scope": "runtime/tests",
+      "initial_result": "284 passed, 1 failed",
+      "preserved_failure": "test_real_database_discovers_only_the_active_migration_lineage expected stale schema 25 while the exact runtime reported schema 26",
+      "remediation": "the assertion was corrected from 25 to 26; no runtime production source changed after the broad run",
+      "currentness_rerun": "runtime/tests/test_advanced_integration.py: 3 passed"
+    },
+    "dashboard_server_broad_once": {
+      "scope": "dashboard/server tests",
+      "result": "137 tests passed and 29 subtests passed",
+      "later_source_currentness": "only dashboard operations/tracker-owned deltas changed afterward; their focused affected tests passed"
+    },
+    "active_skill_release": {
+      "scope": "active skill-release tests",
+      "result": "28 tests passed and 11 subtests passed"
+    },
+    "web_static_and_unit": {
+      "command": "npm run check",
+      "result": "20 files and 117 tests passed",
+      "build": "passed",
+      "security_audit": "zero advisories after the exact react-router 8.3.0 lock update"
+    },
+    "web_e2e_broad_once": {
+      "scope": "complete Playwright project matrix",
+      "initial_result": "83 passed, 13 failed",
+      "preserved_failure_families": [
+        "terminal report delta/full projection schema",
+        "current Factory evolution terminal projection",
+        "live project/run/supervisor/task drill-down currentness",
+        "loading-status accessibility",
+        "mobile report selector containment",
+        "mobile active-navigation contrast"
+      ],
+      "focused_currentness": [
+        "report history desktop/tablet/mobile: 3 passed",
+        "terminal reporting desktop/tablet/mobile: 3 passed",
+        "Factory evolution desktop/tablet/mobile: 3 passed",
+        "live project/run/supervisor/task drill-down desktop/tablet/mobile: 3 passed",
+        "tracker mobile theme/semantic row: 1 passed"
+      ],
+      "result": "all 13 affected boundaries passed after remediation; unaffected broad results reused"
+    },
+    "offline_install_qualifier": {
+      "result": "6 passed",
+      "closed_receipt_kinds": [
+        "sfv2-b11-offline-install-qualification",
+        "sfv2-b12-offline-install-qualification"
+      ]
+    },
+    "static_proofs": {
+      "ruff": "passed across maintained runtime, dashboard server, and installer-qualifier scopes",
+      "format": "passed across maintained runtime, dashboard server, and installer-qualifier scopes",
+      "mypy": "passed across maintained source scopes",
+      "compileall": "passed",
+      "tracker_verifier": "Blocks 0-12, zero errors, zero warnings"
+    },
+    "economy": "The broad runtime, dashboard, and web matrices ran once. Later proof was delta-focused and reused unchanged accepted or broad results."
+  },
+  "operator_visible_outcome": {
+    "transport": "loopback-only dashboard service with the exact web static projection",
+    "health": {
+      "status": "available with explicit partial dependencies",
+      "service": "ok",
+      "frontend": "available",
+      "project_catalog": "available",
+      "tracker_projection": "available",
+      "supervision_projection": "available",
+      "codex_app_server": "unavailable because an exact qualified shared-client wheel path was not supplied"
+    },
+    "factory_floor": {
+      "rows": 20,
+      "rows_truncated": false,
+      "registered_projects": 3,
+      "coverage": "partial",
+      "missing": [
+        "operations",
+        "tasks"
+      ],
+      "postures": {
+        "amber": 6,
+        "green": 0,
+        "neutral": 2,
+        "red": 12
+      },
+      "active_implementations": 10,
+      "action_required": 68
+    },
+    "task_integration": {
+      "status": "unavailable",
+      "protocol_status": "disconnected",
+      "error_code": "app_server_artifact_required",
+      "reason": "An exact qualified shared-client wheel path is required.",
+      "simulated_live_claim": false
+    },
+    "responsive_and_accessible": "desktop, tablet, and mobile affected-boundary Playwright proofs passed; loading status uses live ARIA status and the qualified mobile route has no overflowing report selector or transition-only contrast failure"
+  },
+  "utility_provenance": {
+    "producer_revision": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+    "producer_tree": "f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1",
+    "accepted_blocks": "0-16",
+    "qualification_matrix_sha256": "0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849",
+    "technical_qualification_root_sha256": "9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068",
+    "packages": [
+      {
+        "distribution": "codex-app-server-client",
+        "version": "0.1.0",
+        "accepted_source_commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+        "accepted_source_tree": "794650275e9a583c9f47276a271f65cc1020c4e8",
+        "package_tree": "17772f61da62b41d6d3551deebc474792aafe922",
+        "artifact_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+        "content_root_sha256": "6ecc26e75197d06682fe9d8d0612edb1e56ead6d04c3a41cde1132e2618efd8f"
+      },
+      {
+        "distribution": "embedded-service-contract",
+        "version": "0.1.0",
+        "accepted_source_commit": "401f87a64349c636a66be2da656498e7d9cb58e3",
+        "accepted_source_tree": "3f208324277bcd51b29dde8c394ccca3fb64a017",
+        "package_tree": "203c809f3d1ab2588df5ed83c08affde99f8010c",
+        "artifact_sha256": "2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d",
+        "content_root_sha256": "c53432ff83c6b80483a95384af3c9058a3cd82c56ac774126f123a93dbff7113"
+      },
+      {
+        "distribution": "runtime-manifest",
+        "version": "0.1.0",
+        "accepted_source_commit": "6f7a7ea3c105c7461e6cb4c83944dd094883f187",
+        "accepted_source_tree": "13aad3d7299095b02893e55356b1959929b525ca",
+        "package_tree": "42cb7171d3de021a99f75ac741ea0a0cf97c84ae",
+        "artifact_sha256": "f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac",
+        "content_root_sha256": "db8f7f7d0b0105361f9b1380ff1d1cc432e720be02def65880a9ef484ad112a2"
+      }
+    ],
+    "resolution": "trusted producer revision plus exact artifact hash only; bare registry name/version and copied source are prohibited",
+    "rights_boundary": "unpublished with no selected license; this handoff grants no public installability, reuse, redistribution, publication, or release authority",
+    "utils_repository_modified": false
+  },
+  "negative_and_stop_boundaries": {
+    "mixed_revision_artifact": "rejected by exact manifest hashes and installed RECORD/content roots",
+    "missing_provenance": "rejected by the exact utility and Factory artifact manifests",
+    "simulated_provider_labeled_live": "not performed; the unavailable provider boundary is explicit",
+    "stale_migration_proof": "corrected and rerun at schema 26",
+    "missing_operator_outcome": "closed by loopback browser and API projection evidence",
+    "release_activation": false,
+    "deployment": false,
+    "public_release": false,
+    "hosted_multi_tenant_implementation": false,
+    "consumer_domain_mutation": false
+  },
+  "handoff": {
+    "posture": "internal qualification candidate only; not deployed, activated, published, or licensed",
+    "independent_review_required": true,
+    "recommended_successor": "After distinct exact-revision acceptance, preserve this artifact set for authorized internal integration; any deployment, activation, redistribution, or public release requires separate authority."
+  }
+}
