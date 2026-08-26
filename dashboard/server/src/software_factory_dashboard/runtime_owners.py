@@ -18,7 +18,7 @@ def _installed_package_root() -> Path:
         metadata = resolved.lstat()
     except OSError as exc:
         raise RuntimeError("software_factory package root is unavailable") from exc
-    if root.is_symlink() or resolved != root or not stat.S_ISDIR(metadata.st_mode):
+    if root.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
         raise RuntimeError(
             "software_factory package root must be a canonical directory"
         )
