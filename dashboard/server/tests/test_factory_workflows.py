@@ -12,10 +12,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from test_server import FAKE_APP_SERVER, NONCE_PLACEHOLDER, response, running_server
+from test_server import FAKE_SHARED_CLIENT, NONCE_PLACEHOLDER, response, running_server
 from test_tracker import FULL_TRACKER
 
-from dashboard.server.tests.fake_app_server import write_contract
 from software_factory_dashboard.admin_operations import (
     OperationError,
     OperationOwnerError,
@@ -104,8 +103,6 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         (self.repository / "README.md").write_text("# Workflow fixture\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(self.repository), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repository), "commit", "-qm", "initial"], check=True)
-        self.compatibility = self.root / "compatibility.json"
-        write_contract(self.compatibility)
         self.catalog_path = self.root / "catalog" / "projects.json"
         self.supervision_root = self.root / "supervision"
         self.automations_root = self.root / "automations"
@@ -116,7 +113,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
     def command(self, mode: str = "normal") -> tuple[str, ...]:
         return (
             sys.executable,
-            str(FAKE_APP_SERVER),
+            str(FAKE_SHARED_CLIENT),
             "--mode",
             mode,
             "--cwd",
@@ -157,14 +154,13 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 if cwd is None
                 else (
                     sys.executable,
-                    str(FAKE_APP_SERVER),
+                    str(FAKE_SHARED_CLIENT),
                     "--mode",
                     mode,
                     "--cwd",
                     str(cwd),
                 )
             ),
-            codex_compatibility_path=self.compatibility,
         )
 
     def head(self) -> str:

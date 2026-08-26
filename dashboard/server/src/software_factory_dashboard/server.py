@@ -18,7 +18,7 @@ from typing import Any, Sequence
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .admin_operations import OperationCoordinator, OperationError, OperationRegistry
-from .app_server import COMPATIBILITY_PATH, AppServerError, CodexAppServerClient
+from .app_server import AppServerError, CodexAppServerClient
 
 from .catalog import (
     CatalogError,
@@ -67,8 +67,9 @@ class ServerConfig:
     catalog_path: Path | None = None
     supervision_root: Path = DEFAULT_SUPERVISION_ROOT
     automations_root: Path = DEFAULT_AUTOMATIONS_ROOT
-    codex_command: tuple[str, ...] | None = None
-    codex_compatibility_path: Path = COMPATIBILITY_PATH
+    codex_client_wheel: Path | None = None
+    codex_executable: Path | None = None
+    codex_home: Path | None = None
     codex_auto_start: bool = True
     quiet: bool = False
 
@@ -91,8 +92,11 @@ class ServerConfig:
             catalog_path=catalog_path,
             supervision_root=self.supervision_root.expanduser().resolve(),
             automations_root=self.automations_root.expanduser().resolve(),
-            codex_command=self.codex_command,
-            codex_compatibility_path=self.codex_compatibility_path.expanduser().resolve(),
+            codex_client_wheel=(
+                self.codex_client_wheel.expanduser() if self.codex_client_wheel else None
+            ),
+            codex_executable=(self.codex_executable.expanduser() if self.codex_executable else None),
+            codex_home=(self.codex_home.expanduser() if self.codex_home else None),
             codex_auto_start=self.codex_auto_start,
             quiet=self.quiet,
         )
@@ -129,8 +133,9 @@ class DashboardHTTPServer(ThreadingHTTPServer):
         self.floor_cache: tuple[float, dict[str, Any]] | None = None
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
         self.app_server_client = CodexAppServerClient(
-            command=self.config.codex_command,
-            compatibility_path=self.config.codex_compatibility_path,
+            wheel_path=self.config.codex_client_wheel,
+            codex_executable=self.config.codex_executable,
+            codex_home=self.config.codex_home,
             auto_start=self.config.codex_auto_start,
         )
         registry = operation_registry or build_factory_operation_registry(
@@ -379,8 +384,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                         else "Maintained supervision/report owners are unavailable."
                     ),
                     (
-                        "Codex App Server compatibility root: "
-                        f"{app_server_state['schema']['semantic_manifest_sha256']}."
+                        "Qualified shared-client schema root: "
+                        f"{app_server_state['schema']['schema_tree_root_sha256']}."
                         if app_server_available
                         else "Codex App Server task controls are unavailable and file-backed monitoring remains independent."
                     ),
@@ -2205,6 +2210,12 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--supervision-root", type=Path, default=DEFAULT_SUPERVISION_ROOT)
     command.add_argument("--automations-root", type=Path, default=DEFAULT_AUTOMATIONS_ROOT)
     command.add_argument("--codex-binary", type=Path)
+    command.add_argument(
+        "--codex-client-wheel",
+        type=Path,
+        help="Exact internal codex-app-server-client wheel accepted by the Factory pin.",
+    )
+    command.add_argument("--codex-home", type=Path)
     command.add_argument("--quiet", action="store_true")
     return command
 
@@ -2220,7 +2231,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 catalog_path=args.catalog_path,
                 supervision_root=args.supervision_root,
                 automations_root=args.automations_root,
-                codex_command=(str(args.codex_binary),) if args.codex_binary else None,
+                codex_client_wheel=args.codex_client_wheel,
+                codex_executable=args.codex_binary,
+                codex_home=args.codex_home,
                 quiet=args.quiet,
             )
         )

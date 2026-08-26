@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -17,12 +17,12 @@ import unittest
 from unittest.mock import patch
 
 from test_tracker import FULL_TRACKER
-from dashboard.server.tests.fake_app_server import write_contract
+from fake_shared_client import fake_client_binding
 from test_admin_operations import (
     DeterministicOwner,
     execute_payload,
     preview_payload,
-    test_definition,
+    operation_test_definition,
 )
 
 from software_factory_dashboard.server import (
@@ -36,10 +36,7 @@ from software_factory_dashboard.operations import (
     DEFAULT_SUPERVISION_OWNER,
     OperationsProjectionService,
 )
-from software_factory_dashboard.app_server import COMPATIBILITY_PATH
-
-
-FAKE_APP_SERVER = Path(__file__).with_name("fake_app_server.py")
+FAKE_SHARED_CLIENT = Path(__file__).with_name("fake_shared_client.py")
 
 
 @contextmanager
@@ -50,53 +47,67 @@ def running_server(
     supervision_root: Path | None = None,
     automations_root: Path | None = None,
     codex_command: tuple[str, ...] = (),
-    codex_compatibility_path: Path | None = None,
     operation_registry: OperationRegistry | None = None,
 ) -> Iterator[str]:
-    server = create_server(
-        ServerConfig(
-            host="127.0.0.1",
-            port=0,
-            static_dir=static_dir,
-            catalog_path=catalog_path or static_dir / ".catalog" / "projects.json",
-            supervision_root=supervision_root or static_dir / ".supervision",
-            automations_root=automations_root or static_dir / ".automations",
-            codex_command=codex_command,
-            codex_compatibility_path=(
-                codex_compatibility_path
-                if codex_compatibility_path is not None
-                else COMPATIBILITY_PATH
+    client_values: dict[str, object] = {}
+    loader_context = nullcontext()
+    if codex_command:
+        values = list(codex_command)
+        mode = values[values.index("--mode") + 1] if "--mode" in values else "normal"
+        cwd = Path(values[values.index("--cwd") + 1]) if "--cwd" in values else static_dir
+        wheel, codex_home, loader, _module = fake_client_binding(
+            static_dir,
+            cwd,
+            mode=mode,
+        )
+        client_values = {
+            "codex_client_wheel": wheel,
+            "codex_home": codex_home,
+        }
+        loader_context = patch(
+            "software_factory_dashboard.app_server._qualified_client_loader",
+            loader,
+        )
+    with loader_context:
+        server = create_server(
+            ServerConfig(
+                host="127.0.0.1",
+                port=0,
+                static_dir=static_dir,
+                catalog_path=catalog_path or static_dir / ".catalog" / "projects.json",
+                supervision_root=supervision_root or static_dir / ".supervision",
+                automations_root=automations_root or static_dir / ".automations",
+                quiet=True,
+                **client_values,
             ),
-            quiet=True,
-        ),
-        nonce="test-launch-nonce",
-        operation_registry=operation_registry,
-    )
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_address[1]}"
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=2)
+            nonce="test-launch-nonce",
+            operation_registry=operation_registry,
+        )
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_address[1]}"
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
 
 
 @dataclass(frozen=True)
-class TestResponse:
+class HTTPResponse:
     status: int
     headers: dict[str, str]
     body: bytes
 
 
-def response(request: Request | str) -> TestResponse:
+def response(request: Request | str) -> HTTPResponse:
     try:
         opened = urlopen(request, timeout=3)
     except HTTPError as error:
         opened = error
 
     try:
-        return TestResponse(
+        return HTTPResponse(
             status=opened.status,
             headers=dict(opened.headers.items()),
             body=opened.read(),
@@ -136,7 +147,7 @@ class DashboardServerTests(unittest.TestCase):
         path: str,
         payload: dict[str, object],
         method: str = "POST",
-    ) -> TestResponse:
+    ) -> HTTPResponse:
         return response(
             Request(
                 f"{origin}{path}",
@@ -173,20 +184,17 @@ class DashboardServerTests(unittest.TestCase):
         self.assertRegex(payload["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertNotIn(self.temporary.name, json.dumps(payload))
 
-    def test_task_api_uses_exact_fake_protocol_and_registered_cwd(self) -> None:
+    def test_task_api_uses_typed_fake_client_and_registered_cwd(self) -> None:
         root = self.make_repo("task-api")
-        compatibility = self.static_dir / "fake-app-server-compatibility.json"
-        write_contract(compatibility)
         command = (
             sys.executable,
-            str(FAKE_APP_SERVER),
+            str(FAKE_SHARED_CLIENT),
             "--cwd",
             str(root),
         )
         with running_server(
             self.static_dir,
             codex_command=command,
-            codex_compatibility_path=compatibility,
         ) as origin:
             initial_catalog = json.loads(
                 response(f"{origin}/api/v1/projects?include_archived=true").body
@@ -240,11 +248,9 @@ class DashboardServerTests(unittest.TestCase):
 
     def test_factory_floor_composes_live_owners_and_preserves_query_boundary(self) -> None:
         root = self.make_repo("factory-floor")
-        compatibility = self.static_dir / "factory-floor-compatibility.json"
-        write_contract(compatibility)
         command = (
             sys.executable,
-            str(FAKE_APP_SERVER),
+            str(FAKE_SHARED_CLIENT),
             "--mode",
             "active",
             "--cwd",
@@ -253,7 +259,6 @@ class DashboardServerTests(unittest.TestCase):
         with running_server(
             self.static_dir,
             codex_command=command,
-            codex_compatibility_path=compatibility,
         ) as origin:
             initial_catalog = json.loads(
                 response(f"{origin}/api/v1/projects?include_archived=true").body
@@ -368,7 +373,7 @@ class DashboardServerTests(unittest.TestCase):
 
     def test_operation_api_binds_preview_origin_nonce_request_and_postcondition(self) -> None:
         owner = DeterministicOwner()
-        registry = OperationRegistry((test_definition(owner),))
+        registry = OperationRegistry((operation_test_definition(owner),))
         request_payload = preview_payload()
         with running_server(self.static_dir, operation_registry=registry) as origin:
             framework = json.loads(response(f"{origin}/api/v1/operations").body)
@@ -441,11 +446,9 @@ class DashboardServerTests(unittest.TestCase):
 
     def test_task_request_is_visible_without_premature_response_control(self) -> None:
         root = self.make_repo("approval-api")
-        compatibility = self.static_dir / "fake-approval-compatibility.json"
-        write_contract(compatibility)
         command = (
             sys.executable,
-            str(FAKE_APP_SERVER),
+            str(FAKE_SHARED_CLIENT),
             "--mode",
             "approval",
             "--cwd",
@@ -454,7 +457,6 @@ class DashboardServerTests(unittest.TestCase):
         with running_server(
             self.static_dir,
             codex_command=command,
-            codex_compatibility_path=compatibility,
         ) as origin:
             tasks = json.loads(response(f"{origin}/api/v1/tasks").body)
             request_record = tasks["data"]["pending_requests"][0]
@@ -475,18 +477,15 @@ class DashboardServerTests(unittest.TestCase):
         )
 
     def test_app_server_failure_does_not_suppress_file_backed_health(self) -> None:
-        compatibility = self.static_dir / "fake-malformed-compatibility.json"
-        write_contract(compatibility)
         command = (
             sys.executable,
-            str(FAKE_APP_SERVER),
+            str(FAKE_SHARED_CLIENT),
             "--mode",
             "malformed",
         )
         with running_server(
             self.static_dir,
             codex_command=command,
-            codex_compatibility_path=compatibility,
         ) as origin:
             health = json.loads(response(f"{origin}/api/v1/health").body)
             projects = response(f"{origin}/api/v1/projects")

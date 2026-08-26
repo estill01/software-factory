@@ -11,7 +11,8 @@ it does not keep a second operational ledger or infer completion.
 
 - Python 3.11 or newer and `uv`
 - Node.js 24 and npm 11
-- Codex CLI 0.145.0 for the frozen App Server compatibility contract
+- Codex CLI 0.147.0 and the exact internal `codex-app-server-client` 0.1.0 wheel
+  accepted by the Factory pin
 
 No global frontend package installation is required.
 
@@ -231,21 +232,18 @@ unavailable with its owner-local reason.
 
 ## Inspect and control Codex tasks
 
-At process start the server resolves the configured `codex` executable,
-requires exact `codex-cli 0.145.0`, generates the non-experimental App Server
-JSON schemas into a temporary directory, and verifies all 273 files against the
-frozen semantic manifest root
-`757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`.
-Only then does it start one long-lived stdio child and perform the required
-initialize/initialized handshake. A version, schema, handshake, transport, or
-message failure disables every task mutation without affecting file-backed
-project, tracker, supervision, report, or metric reads.
-
-Selected request parameters, success results, notifications, callbacks, and
-JSON-RPC errors are all validated against that generated bundle. Response IDs
-must match exactly. Timeout, disconnect, malformed/oversized message, duplicate
-response, and compatibility failures terminate the child, expose a capped
-reconnect delay, and never synthesize task state.
+At process start the server requires `--codex-client-wheel` and loads it only
+through the Factory verifier. The verifier binds producer revision
+`a5659745a7cbcbb002b5f06051f6ed9826f721a7`, package version 0.1.0, accepted
+source/tree identities, and wheel SHA-256
+`1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9`.
+Bare registry name/version resolution and copied client source are rejected.
+The shared package owns binary inspection, schema compatibility, JSON-RPC,
+stdio lifecycle, correlation, event/callback coordination, bounds, and cleanup.
+The dashboard retains only Factory projections and owner-gated workflow policy.
+A package, version, schema, handshake, transport, or message failure disables
+every task mutation without affecting file-backed project, tracker,
+supervision, report, or metric reads.
 
 The narrowed read surface is:
 
@@ -270,15 +268,18 @@ The adapter implements typed task start/resume, turn start/steer/interrupt, and
 current approval/input response. The UI exposes only the corresponding closed
 operation definitions, bounded prompt builders, current task/request
 fingerprints, specific confirmation, and canonical postcondition checks. Admin
-also exposes the exact same-origin, nonce-gated adapter-child restart and shows
-resolved CLI version, protocol/schema posture, capability matrix, last error,
-pending request count, and reconnect state. Raw protocol methods, arbitrary
+also exposes the exact same-origin, nonce-gated shared-client restart and shows
+the qualified package identity, resolved CLI version, protocol/schema posture,
+capability matrix, last error, pending request count, and reconnect state. Raw
+protocol methods, arbitrary
 prompts or payloads, model settings, general tools, remote transports, task
 forking, and permission-profile grants are not exposed.
 
-The compatibility artifact and deterministic regeneration metadata are in
-`server/src/software_factory_dashboard/app_server_compatibility.json`. Override
-only the executable path, not protocol arguments, with `--codex-binary`.
+Supply the exact accepted wheel with `--codex-client-wheel`. Override only the
+executable path, not protocol arguments, with `--codex-binary`; use
+`--codex-home` when the canonical session owner root is not `~/.codex`. The
+qualified artifact is unpublished and has no selected license, so this internal
+pin is not public installability, reuse, redistribution, or release authority.
 
 ## Operation and recovery guidance
 
