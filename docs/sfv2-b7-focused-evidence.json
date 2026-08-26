@@ -1,0 +1,157 @@
+{
+  "block": "SFV2/B7",
+  "baseline_revision": "93dc761e1383d3b897f614aa3e9d16a57337f794",
+  "preserved_rejected_candidate": {
+    "commit": "79374642bdad3581b5a631d228330548489c68c3",
+    "tree": "5fc629b012bb9355c5399c3b69271e4d1a3c67e5",
+    "review_disposition": "REVISE",
+    "findings": [
+      "P1: semantic cutover was narrowed to two reflection slices while Learning, Evolution, and ProblemSolving remained duplicate semantic owners",
+      "P1: arbitrary, unrelated, and cross-mission terminal executions could update an experiment hypothesis",
+      "P1: shadow parity derived its expected projection from the candidate adapter and could not detect mutated semantic content",
+      "P1: same-name/version installs without exact PEP 610 provenance were admitted"
+    ]
+  },
+  "preserved_rejected_successor": {
+    "commit": "bb1bd62af14f12af82b8dd3a55711e7b5cc4c70e",
+    "tree": "01308e2e7fae4f1c73f62d85d20b64fdc26e7020",
+    "review_disposition": "REVISE",
+    "findings": [
+      "P1: experiment evidence accepted a cached snapshot after live mission currentness advanced",
+      "P1: comparison and operational selection accepted a stale baseline after live mission currentness advanced",
+      "P1: Learning could bind a mission-A hypothesis into a mission-B experiment",
+      "P1: ProblemSolving and Adaptive retained local generic improvement and epistemic-next-action decisions",
+      "P1: the Factory-floor API read only the retired reflections_v2 table and omitted canonical reflections"
+    ]
+  },
+  "preserved_rejected_atomicity_candidate": {
+    "commit": "c5bfce2b3fabcc89c22d96572f9c8c0193aa9e36",
+    "tree": "78449d51ac291bec8e4b0b5b4b92568ba4ac079a",
+    "evidence_sha256": "ead2009b2191de6642ff81c37a9f1af143fe4383a5551d99349905e2f58256eb",
+    "review_disposition": "REVISE",
+    "findings": [
+      "P1: live currentness could advance after validation but before semantic persistence or operational selection",
+      "P1: one selected candidate root could authorize multiple unrelated caller-authored operational projections"
+    ]
+  },
+  "scope": {
+    "included": [
+      "exact immutable libRSI dependency admission and fail-closed PEP 610 verification",
+      "canonical target, snapshot, observation, evidence, hypothesis, experiment, comparison, improvement-result, and governed-RSI-result records",
+      "immutable semantic record cache and explicit operational bindings",
+      "failed and unexpected-success authoritative semantic slices",
+      "independent full-content legacy shadow parity before any semantic or operational effect",
+      "same-mission assigned-experiment and immutable-hypothesis-lineage admission",
+      "live mission/work/execution currentness revalidation at every semantic ingress",
+      "transaction-held double currentness gates around semantic and operational effects",
+      "same-mission Learning hypothesis and experiment admission",
+      "Learning hypothesis and experiment policy convergence",
+      "Evolution checkpoint, program, portfolio, and selector policy convergence",
+      "evidence-bound comparison without operational authorization",
+      "complete ImprovementResult consumption with Factory-only scheduling gates",
+      "byte-matched one-to-one Factory operational projection per selected candidate",
+      "direct Adaptive delegation and canonical reflection API projection",
+      "single semantic lifecycle owner and deletion/preservation map"
+    ],
+    "excluded": [
+      "delivery or release cutover",
+      "utils artifact consumption",
+      "public libRSI installability, licensing, redistribution, or release claims",
+      "broad runtime pytest execution before SFV2/B12"
+    ]
+  },
+  "producer_handoff": {
+    "acceptance_revision": "dbcb60edfbcab53ff7e5cc25403bfbc33b458329",
+    "source_commit": "1d81f6180b40435e10145756a2d99e6f334d31bc",
+    "repository_tree": "d9ff421192e3582a6b8e908bf8a02cf2d7678acc",
+    "package_tree_and_content_root": "2653cb551e69bf2f45c95216982f70b50258c92e",
+    "version": "0.2.0",
+    "wheel_sha256": "6b06612150d2f3a11b23de14870738ea9cd6b704574c8cea2c8e811392454659",
+    "sdist_sha256": "e3ca4a817b80043ea59ba153e4d3ba105c86ad74183cb28816d66dd6d0f813c0",
+    "adapter_contract": "software-factory.librsi/v1",
+    "artifact_boundary": "unpublished internal exact-revision artifacts; no public installability, license, redistribution, or release authority claimed"
+  },
+  "producer_conformance": {
+    "source": "preserved exact isolated-archive proof from rejected candidate; producer source and pin identity are unchanged by this correction",
+    "command": "uv run --directory <isolated-exact-archive> --with pytest pytest -q tests/test_block23_consumer_conformance.py tests/test_canonical_records.py tests/test_hypotheses_experiments.py",
+    "result": "22 passed with 16 producer-owned compatibility deprecation warnings"
+  },
+  "focused_runtime": {
+    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_librsi_integration.py runtime/tests/test_librsi_semantic_workflows.py runtime/tests/test_learning.py runtime/tests/test_evolution.py runtime/tests/test_reflection.py runtime/tests/test_operational_boundaries.py runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_api.py",
+    "result": "69 passed with one pre-existing TestStore collection warning",
+    "negative_cases": [
+      "missing PEP 610 provenance fails closed",
+      "libRSI cannot reverse-import Software Factory and no producer source is copied",
+      "only integrations.librsi.service is a current semantic lifecycle owner",
+      "legacy v2 reflection, hypothesis, hypothesis-evidence, and selection-outcome tables have no runtime writer or owner claim",
+      "mutated canonical content fails parity before persistence, work, binding, receipt, or cutover event",
+      "unassigned and cross-mission terminal executions cannot become experiment evidence",
+      "only an exact bound hypothesis or immutable descendant can receive experiment evidence",
+      "live mission currentness advance rejects cached experiment evidence, comparison, and operational selection",
+      "an injected version advance between the first gate and commit rolls back every semantic binding, work item, receipt, and selection effect",
+      "a mission-A hypothesis cannot enter a mission-B experiment",
+      "a forged hypothesis that merely names the expected root in lineage is rejected without a same-work host-admission binding",
+      "failed experiments remain zero-weight null evidence",
+      "canonical candidate comparison creates no Factory work or authority transition",
+      "a locally reviewed candidate cannot advance without the exact same-group selected root and currentness-matched canonical selection binding",
+      "ProblemSolving cannot propose or select without exact bound libRSI candidate and ImprovementResult roots",
+      "a selected root cannot authorize caller-authored bytes or more than one active operational projection",
+      "Adaptive cannot choose local diagnosis, architecture, alternate-strategy, or success-generalization semantics",
+      "canonical reflections remain visible after the legacy reflection writer is retired",
+      "semantic results cannot accept, dispatch, apply, or close Factory obligations"
+    ]
+  },
+  "mapped_runtime": {
+    "command": "runtime/.venv/bin/pytest -q runtime/tests/test_advanced_integration.py runtime/tests/test_composition.py runtime/tests/test_core.py runtime/tests/test_controller.py runtime/tests/test_problem_solving.py runtime/tests/test_supervision.py runtime/tests/test_api.py",
+    "result": "63 passed"
+  },
+  "static_and_collection": [
+    {
+      "command": "runtime/.venv/bin/ruff format runtime/src/software_factory <focused tests>",
+      "result": "formatted"
+    },
+    {
+      "command": "runtime/.venv/bin/ruff check runtime/src/software_factory <focused tests>",
+      "result": "clean"
+    },
+    {
+      "command": "runtime/.venv/bin/mypy runtime/src/software_factory",
+      "result": "69 source files clean"
+    },
+    {
+      "command": "runtime/.venv/bin/pytest --collect-only -q runtime/tests",
+      "result": "211 tests collected with seven pre-existing TestStore collection warnings"
+    },
+    {
+      "command": "python3 -m compileall -q runtime/src/software_factory <focused tests>",
+      "result": "clean"
+    },
+    {
+      "command": "python3 /Users/ethanstillman/.codex/skills/author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "result": "0 errors, 0 warnings"
+    }
+  ],
+  "build": {
+    "command": "runtime/.venv/bin/python -m build --outdir <isolated-temp> runtime",
+    "wheel_sha256": "3ffcd65c8822a59487c471a8a0dde189e96675b8c3f0d4e26a93b75190b773e4",
+    "sdist_sha256": "d60eb4492be18064e806c574eb263569fa815ebddbd096ab8ad2cb79f16848bf"
+  },
+  "source_sha256": {
+    "adapter": "8fa6104c82e4ec6b656b5dcd48905cefee705daed0e720c1f9b91f99fd15d5f6",
+    "legacy_shadow": "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644",
+    "pin_verifier": "76a97d4962e98ca7c97a079cc8e064f8e3b6794130870ee48c0926a388c5766a",
+    "learning_projection": "738910aecc9235c4620ec95d15b3bf6e3fda5364fef4971558a799e28eff8d4f",
+    "evolution_projection": "a799b337311efe62771d7020768abf127379e9047e9686e3bff3d7a7e55f77f3",
+    "problem_solving_projection": "2045afe022af1c2e2fd19a97840ea6ff781ee16ae5e633f67bb44ae466efdba6",
+    "adaptive_projection": "30bbf807845517e477f132e4da2ff7ca222746878dc9a4be73b787665683011f",
+    "composition": "4f42f3b81502c7edcfb433cb4e2e91c51a25312fc473cb772704b0f969ccceca",
+    "api_projection": "bdd305e5ef548b0ea23f44a533d1048ce4d2caf5b8ce401701a16c1ede721d8a",
+    "ownership": "da029ce49dda021b25559f0c08e16d59ea266ba86b53893f1a4ea63b2ff5d889",
+    "migration": "1e2dc94f54373a4e7e0cb840d38149f8d8ced59aaad1d1d4851ad70aa6b5e555",
+    "pin_manifest": "d2256f97722136f1c06184b82d82cc0b666e99f1751f86afd58a5e91387c7986",
+    "cutover_map": "e4022ccc34ee98e22d8e3f2a624be16b8327048d18af465a69e41ea211f16965",
+    "lock": "b6f50819d363c1404358a6722a65cb87e33910526a5f891a3f1e352c8b0b8d76",
+    "project": "77407d1c7bfa0b7dba5c9786f964a23f0bdc1729515bc66085b2c65d97b20425"
+  },
+  "broad_suite_posture": "deferred to the tracker-mandated SFV2/B12 terminal qualification"
+}

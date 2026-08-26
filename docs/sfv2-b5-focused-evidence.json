@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B5",
+  "purpose": "target profile, content-bound currentness, strict release review, and root-isolated authoritative effect proof",
+  "pytest": {
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_target_profiles.py runtime/tests/test_composition.py runtime/tests/test_operations.py runtime/tests/test_execution_qa.py runtime/tests/test_governance.py runtime/tests/test_governed_release.py runtime/tests/test_reconciliation.py runtime/tests/test_recovery_coordinator.py runtime/tests/test_advanced_integration.py runtime/tests/test_entrypoints.py runtime/tests/test_v2_entrypoints.py",
+    "selected_files": [
+      "runtime/tests/test_target_profiles.py",
+      "runtime/tests/test_composition.py",
+      "runtime/tests/test_operations.py",
+      "runtime/tests/test_execution_qa.py",
+      "runtime/tests/test_governance.py",
+      "runtime/tests/test_reconciliation.py",
+      "runtime/tests/test_governed_release.py",
+      "runtime/tests/test_recovery_coordinator.py",
+      "runtime/tests/test_advanced_integration.py",
+      "runtime/tests/test_entrypoints.py",
+      "runtime/tests/test_v2_entrypoints.py"
+    ],
+    "result": "44 passed; five recorded legacy TestStore collection warnings"
+  },
+  "collection": "185 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "static_proofs": [
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
+      "result": "pass"
+    },
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff format --check runtime/src runtime/tests",
+      "result": "91 files already formatted"
+    },
+    {
+      "command": "uv run --no-project --with 'mypy>=1.11' mypy runtime/src",
+      "result": "Success: no issues found in 62 source files"
+    },
+    {
+      "command": "python3 -m compileall -q runtime/src",
+      "result": "pass"
+    },
+    {
+      "command": "python3 author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "result": "Blocks 0-12, zero errors, zero warnings"
+    }
+  ],
+  "contract": {
+    "path": "docs/software-factory-v2-target-profile-contract.md",
+    "sha256": "14a1720804271e6caf746acc977b4ad3ca703420e056b2029770d5a81d80a0e2"
+  },
+  "runtime_wheel_proof": {
+    "version": "2.0.0.dev6",
+    "sha256": "75b51e2405c0ff179b17f313684788e8decb783c0e339203a895ee4dd1eef895",
+    "posture": "ephemeral local qualification artifact, not a release artifact",
+    "required_members": [
+      "software_factory/profiles/__init__.py",
+      "software_factory/profiles/contracts.py",
+      "software_factory/profiles/software.py"
+    ]
+  },
+  "capabilities": {
+    "snapshot": "primary-checkout target branch commit, tree, checked-out branch, status root, tracked diff bytes, untracked path/content roots, repository state version, and exact currentness root",
+    "workspace": "registered create and freeze operations at the exact target base",
+    "command_test_build": "fixed registered argv, timeout, exit codes, leased execution, and exact workspace base",
+    "integration": "registered validation and compare-and-swap publication against the exact target head",
+    "release": "clean unchanged frozen target-candidate staging through strict governed acceptance, activation only after an exact granted independent review and accepted decision, exact source-workspace binding, and registered release-root ownership",
+    "cleanup": "configured no-loss preservation, active-writer guards, and clean workspace retirement",
+    "rollback": "evidence-required immutable release rollback"
+  },
+  "negative_proofs": {
+    "arbitrary_command": "unknown command keys and caller-supplied argv are rejected",
+    "path_injection": "caller-supplied workspace, integration, release, and preservation roots are outside effect contracts; Core exposes neither raw physical owners nor raw effect facade methods",
+    "worktree_authority": "a linked Git worktree is rejected as target authority",
+    "stale_apply": "target revision/currentness drift, same-status dirty-byte drift, checked-out branch drift, or workspace changes after freeze reject the effect before the physical owner runs",
+    "unowned_effect": "the registry rejects a fixed effect class not owned by the selected profile, direct adapter invocation without its bound authority, and a release bound to another target root",
+    "cross_target_release": "two simultaneously active target roots retain independent predecessor chains; activation and rollback reject foreign roots and predecessors",
+    "self_acceptance": "accept is not an EffectClass, no profile acceptance method exists, and activation requires the exact decision emitted by governed acceptance"
+  },
+  "remediation": {
+    "rejected_candidate": "ccdd3eb4f4d32c05ee8ed35f16de4c97877e1acc",
+    "rejected_tree": "7f1adb26d867b2214fc6164bd0b48b0c959eb258",
+    "rejected_successor": "55663ef29e8696ebbf60cc73a0b688c3f3e761d7",
+    "rejected_successor_tree": "acfd613aa9516dcad59e4191c30d265be95bb1e4",
+    "review_disposition": "REVISE twice",
+    "bounded_causal_review": {
+      "causal_level": "service boundary",
+      "mechanism": "activate_and_verify duplicated the physical activation call instead of reusing the strict governed activation predicate",
+      "correction": "all public governed activation entrypoints delegate to one exact contract and decision gate",
+      "recurrence_invariant": "an accepted physical review with no governed decision cannot create an active pointer through activate or activate_and_verify"
+    },
+    "closed_findings": [
+      "P1 dirty bytes were absent from target currentness",
+      "P1 registry and caller-owned workspace root were bypassable",
+      "P1 release predecessor and rollback state crossed target roots",
+      "P1 arbitrary reviewer identity could manufacture release acceptance",
+      "P2 prior evidence omitted the reproduced attacks",
+      "P1 activate_and_verify bypassed the strict decision predicate",
+      "P2 first successor evidence omitted the accepted-without-decision convenience-path case"
+    ]
+  },
+  "scope_boundary": {
+    "universal_domain_schema_added": false,
+    "profile_acceptance_authority_added": false,
+    "production_target_used": false,
+    "utils_repository_modified": false,
+    "block_9_utils_artifacts_consumed": [],
+    "block_6_qa_supervision_acceptance_integration_started": false,
+    "broad_runtime_suite_run": false
+  }
+}

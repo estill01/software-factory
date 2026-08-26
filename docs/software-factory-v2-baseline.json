@@ -1,0 +1,668 @@
+{
+  "schema_version": "software-factory-v2-baseline/v1",
+  "source": {
+    "branch": "agent/software-factory-v2-native-refactor",
+    "commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4",
+    "tree": "79d758db7e36aa45a34d0af96b676344321e953b",
+    "remote_ref": "origin/agent/software-factory-v2-native-refactor",
+    "remote_commit_at_freeze": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4",
+    "tracked_file_count": 366,
+    "worktree_at_freeze": "clean",
+    "remote_divergence_at_freeze": {
+      "ahead": 0,
+      "behind": 0
+    },
+    "main_integration": "deferred-until-complete-v2-acceptance"
+  },
+  "product_frame": {
+    "tracker": "docs/software-factory-v2-implementation-tracker.md",
+    "tracker_sha256": "c67862c146ca9bf7a620300dbd0f3e140aab8a26514a999c9ae5ddfd7db6f29a",
+    "architecture_plan": "docs/software-factory-v2-implementation-plan.md",
+    "architecture_plan_sha256": "0dc5d28f097b2660fce9c8b4857f0992b6bd5fe37813f8e16c396e80a85054af",
+    "canonical_tracker": "docs/tracker.md",
+    "canonical_tracker_sha256": "3692c0fa696d1a2c0cc456b4dfc73741a61c6375b83cb2342db1ae602a28fcac",
+    "frame_line_range": [52, 84],
+    "frame_sha256": "c2b8110d2cf11edc3d7f52ecc0c6112f0f60ba9d091b6cbeb2e15e9b6bbb3851",
+    "block_line_range": [262, 274],
+    "block_sha256": "bffa8499665bf537a8422912611c96dc315d85f63fae728e98a7445c4d47c80d",
+    "selected_implementation_level": "bounded-general-evidence-seam",
+    "selection_reason": "A machine-checkable frozen manifest plus a readable migration map satisfies the reusable source-to-target capability. Prose alone cannot reject omissions; a runtime registry or database would be speculative and is not authorized."
+  },
+  "path_inventory": {
+    "effective_owner_contract": {
+      "schema_version": "software-factory-v2-effective-path-owner/v1",
+      "base_rule_cardinality": "exactly-one",
+      "override_selector": "exact-module-path",
+      "override_cardinality": "zero-or-one",
+      "precedence": "module-treatment-overrides-base-rule",
+      "result_cardinality": "exactly-one-effective-owner-and-disposition"
+    },
+    "rules": [
+      {
+        "id": "repository-metadata",
+        "exact": [".gitattributes", ".gitignore", "CHANGELOG.md", "README.md"],
+        "target_owner": "release-and-repository-contract",
+        "disposition": "adapt",
+        "block": 12
+      },
+      {
+        "id": "ci-workflows",
+        "prefix": ".github/",
+        "target_owner": "qualification-and-release",
+        "disposition": "adapt",
+        "block": 12
+      },
+      {
+        "id": "upload-residue",
+        "prefix": ".sf-upload/",
+        "target_owner": "migration-cleanup",
+        "disposition": "retire",
+        "block": 11
+      },
+      {
+        "id": "pending-marker-residue",
+        "glob": ".v2-*-pending",
+        "target_owner": "migration-cleanup",
+        "disposition": "retire",
+        "block": 11
+      },
+      {
+        "id": "assets",
+        "prefix": "assets/",
+        "target_owner": "operator-surface",
+        "disposition": "retain",
+        "block": 9
+      },
+      {
+        "id": "tracker-authoring-skill",
+        "prefix": "author-implementation-trackers/",
+        "target_owner": "tracker-authoring-capability",
+        "disposition": "adapt",
+        "block": 4
+      },
+      {
+        "id": "dashboard",
+        "prefix": "dashboard/",
+        "target_owner": "service-api-and-operator-surface",
+        "disposition": "adapt",
+        "block": 9
+      },
+      {
+        "id": "architecture-and-evidence",
+        "prefix": "docs/",
+        "target_owner": "architecture-and-acceptance-evidence",
+        "disposition": "evidence-only",
+        "block": 12
+      },
+      {
+        "id": "product-evolution-skill",
+        "prefix": "evolve-product-program/",
+        "target_owner": "program-evolution-capability",
+        "disposition": "adapt",
+        "block": 7
+      },
+      {
+        "id": "examples",
+        "prefix": "examples/",
+        "target_owner": "profile-and-integration-examples",
+        "disposition": "adapt",
+        "block": 10
+      },
+      {
+        "id": "tracker-implementation-skill",
+        "prefix": "implement-tracker-blocks/",
+        "target_owner": "tracker-execution-capability",
+        "disposition": "adapt",
+        "block": 4
+      },
+      {
+        "id": "mission-runtime",
+        "prefix": "runtime/",
+        "target_owner": "mission-runtime-and-software-profile",
+        "disposition": "adapt",
+        "block": 1
+      },
+      {
+        "id": "qualification-scripts",
+        "prefix": "scripts/",
+        "target_owner": "qualification-and-release",
+        "disposition": "adapt",
+        "block": 12
+      },
+      {
+        "id": "supervision-skill",
+        "prefix": "supervise-tracker-runs/",
+        "target_owner": "supervision-capability",
+        "disposition": "adapt",
+        "block": 6
+      }
+    ],
+    "module_treatments": [
+      {
+        "path": "runtime/src/software_factory/reflection.py",
+        "current_role": "local reflection and hypothesis semantics",
+        "target_owner": "librsi-integration",
+        "disposition": "replace",
+        "cutover_block": 7,
+        "removal_condition": "Pinned libRSI reflection conformance passes and the old writer is disabled."
+      },
+      {
+        "path": "runtime/src/software_factory/learning.py",
+        "current_role": "event ingestion, detector execution, and local interpretation",
+        "target_owner": "mission-runtime-signal-execution",
+        "disposition": "adapt",
+        "cutover_block": 7,
+        "removal_condition": "Interpretation moves to libRSI while the governed operational detector remains local."
+      },
+      {
+        "path": "runtime/src/software_factory/evolution.py",
+        "current_role": "program change selection and host effects",
+        "target_owner": "mission-runtime-evolution-adapter",
+        "disposition": "adapt",
+        "cutover_block": 7,
+        "removal_condition": "Generic selection policy is removed after libRSI parity; Git and tracker effects remain host-owned."
+      },
+      {
+        "path": "runtime/src/software_factory/problem_solving.py",
+        "current_role": "local semantic problem-solving sequence",
+        "target_owner": "librsi-integration",
+        "disposition": "replace",
+        "cutover_block": 7,
+        "removal_condition": "Accepted libRSI workflow drives the same operational obligations and restart proof passes."
+      },
+      {
+        "path": "runtime/src/software_factory/governance.py",
+        "current_role": "roles, scopes, authorization, and acceptance mutation",
+        "target_owner": "mission-runtime-governance",
+        "disposition": "retain",
+        "cutover_block": 6,
+        "removal_condition": "No removal; only generic review policy may be consumed from libRSI."
+      },
+      {
+        "path": "runtime/src/software_factory/workspaces.py",
+        "current_role": "software-specific workspace effects",
+        "target_owner": "software-profile",
+        "disposition": "move",
+        "cutover_block": 5,
+        "removal_condition": "Generic core calls the typed profile capability without reverse imports."
+      },
+      {
+        "path": "runtime/src/software_factory/providers.py",
+        "current_role": "provider lifecycle and callbacks",
+        "target_owner": "provider-adapter-boundary",
+        "disposition": "adapt",
+        "cutover_block": 3,
+        "removal_condition": "One outer host owns provider processes and restart correlation is proven."
+      },
+      {
+        "path": "dashboard/server/src/software_factory_dashboard/app_server.py",
+        "current_role": "dashboard-local Codex app-server process and RPC client",
+        "target_owner": "utils-codex-app-client-adapter",
+        "disposition": "replace",
+        "cutover_block": 4,
+        "removal_condition": "Accepted utils Block 9 client is pinned, conformance passes, and the local client is deleted."
+      }
+    ]
+  },
+  "production_surfaces": [
+    {
+      "path": "runtime/src/software_factory",
+      "tracked_files": 71,
+      "path_set_sha256": "cf095aa7be46da31a0f5ee3249af4005b95751e108e25fcf39dca769a96fa89d",
+      "tree": "1dc57ccb4895877be0c03156688a5f68507e73f8"
+    },
+    {
+      "path": "dashboard/server/src/software_factory_dashboard",
+      "tracked_files": 12,
+      "path_set_sha256": "0ac6e930d64d1eebb07cbfc343f646d2654d4670a71469c1bbd44285d4e94f7f",
+      "tree": "41b5e290dcb5477c326e3f1708a543727a328f82"
+    },
+    {
+      "path": "dashboard/web/src",
+      "tracked_files": 71,
+      "path_set_sha256": "64bfe214881719f4883770604b25ec27b0cee450087d0a1953223a986c7b8f21",
+      "tree": "4a57c20b18c1c8f3e5e04a76ffe9ba531cb5b440"
+    },
+    {
+      "path": "author-implementation-trackers",
+      "tracked_files": 11,
+      "path_set_sha256": "ba2c275b810869d62f0c13d8b6d8715637b09f18c997be9b4019d44e7bc9bcfb",
+      "tree": "40fbab768523885b5f41760a1a6d6021470a2e97"
+    },
+    {
+      "path": "implement-tracker-blocks",
+      "tracked_files": 27,
+      "path_set_sha256": "3fbc27d12723fa3ef97a41e03254226710c5cab16c7854a101036474e092d75d",
+      "tree": "c14486749a74aad87a1de6b2b744981f64504496"
+    },
+    {
+      "path": "supervise-tracker-runs",
+      "tracked_files": 26,
+      "path_set_sha256": "28ac07d72d904bfbf45543adc28735337070f457d833bc9fffa0822d07718819",
+      "tree": "87e5f1fcd4a4781b95c3933b5131d75eb5c38dc8"
+    },
+    {
+      "path": "evolve-product-program",
+      "tracked_files": 30,
+      "path_set_sha256": "2fce4e6e3ce919c8fdf42e2c7e7663f222eb6f251602465aeae465a99f3a21fa",
+      "tree": "b8789328fe9d90fcd64c5ae75a73c5edc93605bd"
+    },
+    {
+      "path": "scripts",
+      "tracked_files": 14,
+      "path_set_sha256": "5a5abc22f369d4a717f5709c72594bfebe8de09256b1f3b7d9219c9faf5957f3",
+      "tree": "4825164851e2161a4d7ce36430e673967ea31f7a"
+    },
+    {
+      "path": ".github/workflows",
+      "tracked_files": 13,
+      "path_set_sha256": "9faa88a3ebbb8e7bf11064c998e05499008f43c9a5e85ae681e475690453d6cc",
+      "tree": "e6c2767db4916ccd56f58d434aa7eea388b6be1f"
+    }
+  ],
+  "configuration_roots": [
+    {"path": "runtime/pyproject.toml", "sha256": "1b438384b29353e05cf9452e64054f54267babef6e31429515564011d239c7d8"},
+    {"path": "runtime/acceptance-matrix.json", "sha256": "729b5b1b71f62008587c629beb843d0cce884e8382de8530eaaa8d790c98e3f5"},
+    {"path": "runtime/README.md", "sha256": "58792b4cbd6ee795088cb58e32a5c5725e2aadd329d231b391cc37885772bbd9"},
+    {"path": "dashboard/server/pyproject.toml", "sha256": "d2732928ab8f4a0e87ff9ff238403a82915b9dcd59c51f9c4349dd0936e3fc82"},
+    {"path": "dashboard/server/uv.lock", "sha256": "4351a90ad2a3136c8fda2dbcd9520df16f43ba42a654f0f17023532a06b81035"},
+    {"path": "dashboard/web/package.json", "sha256": "6a0302d37b9928ccb9c7cd17f31a1996b0d552ed9e410d96d9c34a0f974ab12f"},
+    {"path": "dashboard/web/package-lock.json", "sha256": "a6bf523de250dd03c719cd42ab7a9d704e6f16656138ac1d37a4af5485504ef7"},
+    {"path": "dashboard/server/src/software_factory_dashboard/app_server_compatibility.json", "sha256": "8b53cd4e6b14fbe7bcfbaff766c1c4264d542614a5c95257e8a8458e24baf0e6"}
+  ],
+  "migration_inventory": {
+    "active_migration_files": [
+      "0001_core.sql",
+      "0002_execution.sql",
+      "0003_learning.sql",
+      "0004_operations.sql",
+      "0005_foundation_hardening.sql",
+      "0006_execution_runtime.sql",
+      "0007_controller_runtime.sql",
+      "0008_supervision_runtime.sql",
+      "0009_learning_runtime.sql"
+    ],
+    "defined_not_applied_migration_files": [
+      "0008_supervision.sql",
+      "0010_evolution_runtime.sql",
+      "0011_release_recovery_cleanup.sql",
+      "0012_operability_runtime.sql",
+      "0013_migration_cutover.sql",
+      "0014_governance_effects.sql",
+      "0015_problem_solving.sql",
+      "0016_problem_solving_hardening.sql",
+      "0017_reconciliation_runtime.sql",
+      "0018_governed_release.sql",
+      "0020_acceptance_fencing.sql"
+    ],
+    "missing_sequence_versions": [19],
+    "table_groups": [
+      {
+        "id": "active-schema-v9",
+        "state": "active",
+        "target_owner": "software-factory-operational-store",
+        "disposition": "adapt",
+        "block": 1,
+        "tables": [
+          "adaptive_actions", "agent_sessions", "artifacts", "authority_records",
+          "capabilities", "classifications", "classifiers", "cleanup_runs", "commands",
+          "events", "evidence_records", "executions", "experiments", "hypotheses",
+          "incidents", "leases", "meta", "missions", "notifications",
+          "obligation_dependencies", "obligations", "policies", "program_revisions",
+          "programs", "projects", "provider_callbacks", "qa_requirements", "qa_results",
+          "recovery_cases", "releases", "repositories", "route_effectiveness", "rules",
+          "schedules", "schema_migrations", "selection_outcomes", "selections",
+          "signal_candidates", "signal_evaluations", "signal_route_invocations",
+          "strategy_outcomes", "supervision_assignments", "supervision_checks",
+          "work_assignments", "work_dependencies", "work_items", "workspaces"
+        ]
+      },
+      {
+        "id": "defined-but-not-applied",
+        "state": "defined-not-applied",
+        "target_owner": "v2-schema-reconciliation",
+        "disposition": "adapt",
+        "block": 1,
+        "tables": [
+          "acceptance_contracts_v2", "acceptance_decisions_v2",
+          "acceptance_probe_results_v2", "active_selector_policies_v2",
+          "cleanup_effects_v2", "cleanup_items_v2", "cutover_effects_v2",
+          "cutover_path_effects_v2", "evolution_checkpoints_v2",
+          "external_effect_intents_v2", "factory_recovery_cases_v2",
+          "immutable_releases_v2", "independent_review_executions_v2",
+          "integration_candidates_v2", "migration_items_v2", "migration_runs_v2",
+          "next_action_decisions_v2", "notification_attempts_v2",
+          "notification_report_links_v2", "notifications_v2", "operator_action_tokens_v2",
+          "operator_decisions_v2", "parity_cases_v2", "preservation_bundles_v2",
+          "problem_cycle_verifications_v2", "problem_experiment_designs_v2",
+          "problem_solving_cycles_v2", "program_change_candidates_v2",
+          "program_portfolios_v2", "recovery_resume_tokens_v2",
+          "release_agent_refreshes_v2", "release_reviews_v2", "release_verifications_v2",
+          "reports_v2", "repository_inventories_v2", "restart_workspaces_v2",
+          "retained_adaptive_cases", "role_grants_v2", "schedules_v2",
+          "selection_outcomes_v2", "selection_records_v2", "selection_reviews_v2",
+          "selector_policy_candidates_v2", "selector_policy_evaluations_v2",
+          "strategy_attempts_v2", "strategy_candidates_v2", "supervision_actions",
+          "supervision_effectiveness_reviews", "supervision_incidents",
+          "supervision_monitors", "supervision_observations"
+        ]
+      },
+      {
+        "id": "referenced-without-definition",
+        "state": "referenced-no-definition",
+        "target_owner": "v2-schema-reconciliation",
+        "disposition": "replace",
+        "block": 1,
+        "tables": [
+          "acceptance_case_results", "acceptance_runs", "active_signal_bundles",
+          "experiment_runs_v2", "experiments_v2", "hypotheses_v2",
+          "hypothesis_evidence_v2", "learned_signal_candidates", "observed_stream_events",
+          "reflections_v2", "signal_effectiveness_reviews", "signal_occurrences"
+        ]
+      }
+    ]
+  },
+  "authority_domains": [
+    {
+      "domain": "mission-and-work-state",
+      "current_authoritative_writer": "runtime core/store/database",
+      "duplicate_or_shadow_implementations": [],
+      "target_owner": "mission-runtime",
+      "disposition": "retain",
+      "block": 1
+    },
+    {
+      "domain": "reflection-hypothesis-and-experiment-semantics",
+      "current_authoritative_writer": "runtime reflection/problem_solving/learning",
+      "duplicate_or_shadow_implementations": ["planned libRSI integration", "unapplied v2 tables"],
+      "target_owner": "librsi-integration",
+      "disposition": "replace",
+      "block": 7
+    },
+    {
+      "domain": "signal-execution-and-operational-effects",
+      "current_authoritative_writer": "runtime learning/controller",
+      "duplicate_or_shadow_implementations": ["local semantic promotion policy"],
+      "target_owner": "mission-runtime-signal-execution",
+      "disposition": "adapt",
+      "block": 7
+    },
+    {
+      "domain": "governance-and-acceptance-mutation",
+      "current_authoritative_writer": "runtime governance/acceptance",
+      "duplicate_or_shadow_implementations": ["unapplied v2 governance tables"],
+      "target_owner": "mission-runtime-governance",
+      "disposition": "adapt",
+      "block": 6
+    },
+    {
+      "domain": "provider-process-lifecycle",
+      "current_authoritative_writer": "runtime providers/controller",
+      "duplicate_or_shadow_implementations": ["dashboard-local app-server client"],
+      "target_owner": "outer-host-provider-adapter",
+      "disposition": "adapt",
+      "block": 3
+    },
+    {
+      "domain": "release-recovery-and-cleanup",
+      "current_authoritative_writer": "runtime release/recovery/reconciliation",
+      "duplicate_or_shadow_implementations": ["unapplied v2 release and recovery tables"],
+      "target_owner": "mission-runtime-delivery",
+      "disposition": "adapt",
+      "block": 8
+    }
+  ],
+  "compatibility_routes": [
+    {
+      "id": "python-entrypoints",
+      "current": "software-factory, software-factoryd, and sf-skill legacy scripts",
+      "target_owner": "typed-engine-hosts",
+      "disposition": "adapt",
+      "cutover_block": 2,
+      "removal_condition": "Installed v2 CLI, daemon, API, and legacy compatibility commands pass entrypoint parity."
+    },
+    {
+      "id": "dashboard-codex-app-client",
+      "current": "dashboard-local subprocess and JSON-RPC implementation",
+      "target_owner": "utils-codex-app-client-adapter",
+      "disposition": "replace",
+      "cutover_block": 4,
+      "removal_condition": "Accepted utils Block 9 source is pinned and compatibility plus restart tests pass."
+    },
+    {
+      "id": "embedded-and-service-runtime",
+      "current": "multiple partially overlapping CLI, daemon, and API hosts",
+      "target_owner": "single-typed-engine-contract",
+      "disposition": "replace",
+      "cutover_block": 2,
+      "removal_condition": "Embedded and standalone service hosts pass the same contract suite."
+    },
+    {
+      "id": "sqlite-migrations",
+      "current": "schema.py applies versions 1-9 while later SQL files are inert",
+      "target_owner": "database-migration-authority",
+      "disposition": "adapt",
+      "cutover_block": 1,
+      "removal_condition": "One monotonic migration sequence produces every runtime-required table and rejects drift."
+    },
+    {
+      "id": "local-semantic-runtime",
+      "current": "reflection, learning interpretation, evolution policy, and problem solving are locally owned",
+      "target_owner": "librsi-integration",
+      "disposition": "replace",
+      "cutover_block": 7,
+      "removal_condition": "Pinned libRSI conformance, shadow comparison, one-writer cutover, and restart proof pass."
+    }
+  ],
+  "external_inputs": [
+    {
+      "repository": "/Users/ethanstillman/code/utils",
+      "distribution": "utils",
+      "initial_observation": {
+        "branch": "main",
+        "commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+        "tree": "794650275e9a583c9f47276a271f65cc1020c4e8",
+        "worktree": "clean",
+        "tracker_sha256": "92b9bfff5aa2ee36d4a7e429c078780179fc0dd32101fcb2c06131d959f4cc87",
+        "completed_blocks": "0-8",
+        "next_block": 9
+      },
+      "accepted_handoff": {
+        "branch": "main",
+        "completion_commit": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+        "completion_tree": "f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1",
+        "remote_ref": "origin/main",
+        "remote_commit_at_verification": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+        "remote_divergence_at_verification": {"ahead": 0, "behind": 0},
+        "tracker_git_blob": "910ef685dfb95f9a6803dee31000072eb40af257",
+        "tracker_sha256": "149202d90a6b389ca0204f9ecbe26c5799c4c86f8a18ab26e407cbe802bdfe7a",
+        "completed_blocks": "0-16",
+        "qualification_matrix_git_blob": "53414e20421716b207b2296b312ededbbb6d8782",
+        "qualification_matrix_sha256": "0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849",
+        "technical_candidate_commit": "2150966402474bb633c01d04eca0a1bc8309d941",
+        "technical_qualification_root_sha256": "9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068",
+        "release_posture": "no-license-selected/unpublished",
+        "artifacts": [
+          {
+            "distribution": "codex-app-server-client",
+            "version": "0.1.0",
+            "accepted_source_commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+            "package_tree": "17772f61da62b41d6d3551deebc474792aafe922",
+            "artifact_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+            "content_root_sha256": "6ecc26e75197d06682fe9d8d0612edb1e56ead6d04c3a41cde1132e2618efd8f"
+          },
+          {
+            "distribution": "embedded-service-contract",
+            "version": "0.1.0",
+            "accepted_source_commit": "401f87a64349c636a66be2da656498e7d9cb58e3",
+            "package_tree": "203c809f3d1ab2588df5ed83c08affde99f8010c",
+            "artifact_sha256": "2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d",
+            "content_root_sha256": "c53432ff83c6b80483a95384af3c9058a3cd82c56ac774126f123a93dbff7113"
+          },
+          {
+            "distribution": "runtime-manifest",
+            "version": "0.1.0",
+            "accepted_source_commit": "6f7a7ea3c105c7461e6cb4c83944dd094883f187",
+            "package_tree": "42cb7171d3de021a99f75ac741ea0a0cf97c84ae",
+            "artifact_sha256": "f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac",
+            "content_root_sha256": "db8f7f7d0b0105361f9b1380ff1d1cc432e720be02def65880a9ef484ad112a2"
+          }
+        ]
+      },
+      "consumption_rule": "Consume only from the trusted exact producer revision and exact artifact hash in the owning Factory Block. Never resolve the client by bare registry name/version. The handoff grants no public installability, reuse, redistribution, publication, or release authority; Factory retains every downstream adapter, pin, fixture, test, cutover, and acceptance decision."
+    },
+    {
+      "repository": "/Users/ethanstillman/code/libRSI",
+      "distribution": "libRSI",
+      "import": "librsi",
+      "observed_branch": "codex/block-20-cli-protocol",
+      "observed_commit": "f7ccd7bbc98e335c09df1f5f3779ee4261f5b352",
+      "observed_tree": "30ff35e620f4ff57df0ce6ad39590a50da709974",
+      "worktree": "dirty",
+      "commit_tracker_sha256": "c43f9b1ebb5965ee0a13580b57312fe0235c9698667f3a7e59718133595fe791",
+      "observed_worktree_tracker_sha256": "b4a55a035e38989fbe9aa0bb23f6e2de761c8d3eab00005a4ec02af492db2c99",
+      "tracker_status_observation": "Blocks 0-19 completed; Block 20 not-started while uncommitted Block 20 work is present",
+      "plan_baseline_commit": "ecef9b671463ab9f70c91e82b7c39acfe8b5661a",
+      "plan_baseline_tree": "ece83009d82336d696d9335dc557eea0f36d2a1e",
+      "consumption_rule": "Do not consume a mutable or dirty checkout. Block 7 resolves and pins one accepted immutable revision before any authoritative semantic cutover."
+    }
+  ],
+  "generated_residue": [
+    {
+      "selector": ".v2-*-pending",
+      "count": 12,
+      "classification": "tracked-integration-marker-residue",
+      "disposition": "retire",
+      "block": 11
+    },
+    {
+      "selector": ".sf-upload/**",
+      "count": 4,
+      "classification": "tracked-upload-chunk-residue",
+      "disposition": "retire",
+      "block": 11
+    }
+  ],
+  "baseline_gates": [
+    {
+      "id": "runtime-pytest",
+      "command": "uv run --isolated --python 3.13 --with-editable runtime pytest -q runtime/tests",
+      "status": "fail",
+      "result": "collection stopped with 4 import errors: missing Database and missing IncidentEnvelope",
+      "target_block": 1
+    },
+    {
+      "id": "runtime-ruff",
+      "command": "uv run --isolated --python 3.13 --with-editable runtime ruff check runtime/src runtime/tests",
+      "status": "fail",
+      "result": "27 errors; 22 fixable, including undefined subprocess in migration.py and undefined json in recovery.py",
+      "target_block": 1
+    },
+    {
+      "id": "runtime-format",
+      "command": "uv run --isolated --python 3.13 --with-editable runtime ruff format --check runtime/src runtime/tests",
+      "status": "fail",
+      "result": "32 files would be reformatted and 43 were already formatted",
+      "target_block": 1
+    },
+    {
+      "id": "runtime-mypy",
+      "command": "uv run --isolated --python 3.13 --with-editable runtime mypy runtime/src",
+      "status": "fail",
+      "result": "325 errors in 14 files; 51 source files checked",
+      "target_block": 1
+    },
+    {
+      "id": "runtime-compileall",
+      "command": "uv run --isolated --python 3.13 --with-editable runtime python -m compileall runtime/src runtime/tests",
+      "status": "pass",
+      "result": "all source and test modules compiled",
+      "target_block": 1
+    },
+    {
+      "id": "runtime-package-build",
+      "command": "uv build runtime --out-dir /tmp/software-factory-b0-dist",
+      "status": "pass",
+      "result": "wheel sha256 116c0940592cd1acc92c442a0107d9606844b2ccd1b73ab263a6f102cfbdffe0; sdist sha256 8c5641ab944363cbb046f97a13a4ac5bced1ef1ffcb6773849f07fca34d225b5",
+      "target_block": 12
+    },
+    {
+      "id": "dashboard-server-pytest",
+      "command": "uv run --isolated --python 3.13 --with pytest --with-editable dashboard/server python -m pytest -q dashboard/server/tests",
+      "status": "fail",
+      "result": "143 passed and 29 subtests passed; 2 collection errors because helper test_definition is collected as a fixture test; 1 warning",
+      "target_block": 9
+    },
+    {
+      "id": "dashboard-web-vitest",
+      "command": "npm test",
+      "status": "unstable",
+      "result": "116 passed and 1 timed out; the 7-test floor-page file passed in isolation on immediate rerun",
+      "target_block": 9
+    },
+    {
+      "id": "dashboard-web-build",
+      "command": "npm run build",
+      "status": "pass",
+      "result": "TypeScript and Vite production build completed",
+      "target_block": 9
+    },
+    {
+      "id": "dashboard-web-dependency-audit",
+      "command": "npm ci",
+      "status": "fail",
+      "result": "install completed; npm audit reported 1 high-severity vulnerability",
+      "target_block": 9
+    },
+    {
+      "id": "dashboard-e2e",
+      "command": "npm run test:e2e",
+      "status": "not-run",
+      "result": "real browser and provider prerequisites are reserved for service/operator and terminal qualification",
+      "target_block": 12
+    }
+  ],
+  "changed_test_plan": [
+    {"block": 1, "tests": ["migration monotonicity and checksum drift", "fresh/upgrade schema parity", "one-writer authority and transactional concurrency", "current runtime suite"]},
+    {"block": 2, "tests": ["typed engine contract parity", "embedded/service equivalence", "idempotent mission submit/cancel/restart", "installed entrypoints"]},
+    {"block": 3, "tests": ["atomic scheduler/lease/provider reservation", "authenticated callback correlation", "crash and restart injection"]},
+    {"block": 4, "tests": ["utils Codex app-client conformance", "single outer process owner", "skill route parity and rejection cases"]},
+    {"block": 5, "tests": ["profile dependency direction", "workspace isolation", "Git effect authorization and rollback"]},
+    {"block": 6, "tests": ["QA identity separation", "false-completion rejection", "supervision containment and safe-frontier continuation"]},
+    {"block": 7, "tests": ["pinned libRSI contract", "canonical record round trip", "shadow parity", "one-writer semantic cutover and duplicate removal"]},
+    {"block": 8, "tests": ["immutable release", "refresh/rollback/recovery", "no-loss cleanup and repository reconciliation"]},
+    {"block": 9, "tests": ["API contract", "dashboard integration", "utils runtime-manifest adoption", "operator token and notification behavior"]},
+    {"block": 10, "tests": ["invention-neutral content mission", "external extension registration", "no software-domain imports in generic core"]},
+    {"block": 11, "tests": ["real-state migration", "compatibility parity", "one-time cutover", "legacy and generated-residue absence"]},
+    {"block": 12, "tests": ["complete acceptance matrix", "historical regressions", "real software/content missions", "reproducible artifacts and exact-source handoff"]}
+  ],
+  "accepted_evidence": [
+    {
+      "id": "pre-v2-runtime-and-skill-trackers",
+      "classification": "accepted-input",
+      "currentness": "historical-evidence-not-current-implementation",
+      "reuse_rule": "Reuse until the mapped owner changes; rerun affected proof after each owner cutover.",
+      "sources": [
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md", "git_blob": "a7b28ab5f861972c1af8f510d0637fc99800b00a", "sha256": "d746e5af9b32ac67b0bc0e2fa20c67dc92130a2176fa4dea335f18f53b716b77"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md", "git_blob": "98fb3bf34e042e7bcd0ec11db94da75a7e4e980b", "sha256": "d629cd091f5d24915e423d0511636f3ab33f9739d7d239724451f12490384282"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-cleanup-and-reconciliation-skill-implementation-tracker.md", "git_blob": "e600f59c7cbb912022477f19734500f035f0a6bb", "sha256": "78e69c9df7c98ba60e4c5363f0a353edf8711abc7744a14872352e26a8bcedf9"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md", "git_blob": "7b0f6d5f826a80f5013b5e2df1c22cf903cbdb97", "sha256": "8b92bf1885cc7940a79e40f8186ffc89b279bfb50c144d4cfd1f99d100ffe0c1"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-operations-dashboard-implementation-tracker.md", "git_blob": "9f14bd0259e919e152e1ca51a897cf615f263132", "sha256": "e801e268b8796341f5f7a64372389a35a10dba3e85644bdb0a1ad504ece9dd31"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-recursive-product-program-evolution-implementation-tracker.md", "git_blob": "325fea5dc85be968f6a2ebc8b2aff52ca5fc2f45", "sha256": "a32838c1e5afced5942d678cc4e03462c45e548ba4c529d6a46dc2738bf62fdf"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-repository-consolidation-implementation-tracker.md", "git_blob": "2ec83bfc2145cabe351f8ba9dc606df8eb0ed75b", "sha256": "d4ec64edda18cd09fcb57fa62710c8586bae8827980608a37c38a8dca05ddcea"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-selection-quality-rsi-implementation-tracker.md", "git_blob": "5c980a9ca1e565afeecfdeff1cdf78720c8838bc", "sha256": "e4a33fcb636980a6e99a99fd31ffb6d58f72cf7636234bb919971dd39776fd75"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-systemic-supervision-recovery-implementation-tracker.md", "git_blob": "78afc6a0d8e785f453bb4b9d3e37ac8e966ae185", "sha256": "c539a9a9ee7437869bcc3e4f11301b9985408d4b8b5684dfc6586fe324781786"},
+        {"commit": "63bb9f3a69bcb5dba0e4b2fe652dce5af7169ae4", "path": "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md", "git_blob": "999122a15dec33ea44a799b34f8b46ab7e43b030", "sha256": "55f8632fa79d45c85a7ec1506ffca646e5fc4b1dd95a227570c8aa22eca1a40e"}
+      ]
+    },
+    {
+      "id": "source-plan-commit-b34cdd9",
+      "classification": "accepted-input",
+      "currentness": "historical-evidence-not-current-implementation",
+      "reuse_rule": "The plan is architecture evidence; only the frozen source commit describes current implementation.",
+      "sources": [
+        {"commit": "b34cdd9fab6830bf2ee5b9ac457e48914082e660", "path": "docs/software-factory-v2-implementation-plan.md", "git_blob": "99bf2fc6f1597c0191f73d299da405083ec55077", "sha256": "ce69b96397dabdd86c80499cd4aa2d1bb59562cbe54151fef946aeb997205860"}
+      ]
+    }
+  ]
+}

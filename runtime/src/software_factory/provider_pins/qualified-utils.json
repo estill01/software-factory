@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "producer_repository": "estill01/utils",
+  "qualified_producer_revision": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+  "qualified_producer_tree": "f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1",
+  "qualification_matrix_sha256": "0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849",
+  "technical_qualification_root_sha256": "9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068",
+  "packages": {
+    "embedded-service-contract": {
+      "capability_id": "embedded-service-contract-package",
+      "distribution": "embedded-service-contract",
+      "import_root": "embedded_service_contract",
+      "version": "0.1.0",
+      "accepted_source_commit": "401f87a64349c636a66be2da656498e7d9cb58e3",
+      "accepted_source_tree": "3f208324277bcd51b29dde8c394ccca3fb64a017",
+      "package_tree_object": "203c809f3d1ab2588df5ed83c08affde99f8010c",
+      "wheel": "embedded_service_contract-0.1.0-py3-none-any.whl",
+      "wheel_sha256": "2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d",
+      "wheel_content_root_sha256": "c53432ff83c6b80483a95384af3c9058a3cd82c56ac774126f123a93dbff7113",
+      "wheel_member_count": 10,
+      "wheel_uncompressed_bytes": 36778,
+      "public_contracts": {
+        "embedded_service_contract/_contract/structural-contract.json": "c59856708a4ac80a266a83c382e6541da2afc78a920379f654dd2af20211facd",
+        "embedded_service_contract/_contract/conformance-fixtures.json": "31b33341b51c48b1e552f19600238b3dffd44c197cbfed5c1dd370e08de71ed4",
+        "embedded_service_contract/_contract/supported-python.json": "ffd6652354d681053411ad82de6e7e8c8a687cdf873514c773fbad03ad834d73"
+      }
+    },
+    "runtime-manifest": {
+      "capability_id": "runtime-manifest-package",
+      "distribution": "runtime-manifest",
+      "import_root": "runtime_manifest",
+      "version": "0.1.0",
+      "accepted_source_commit": "6f7a7ea3c105c7461e6cb4c83944dd094883f187",
+      "accepted_source_tree": "13aad3d7299095b02893e55356b1959929b525ca",
+      "package_tree_object": "42cb7171d3de021a99f75ac741ea0a0cf97c84ae",
+      "wheel": "runtime_manifest-0.1.0-py3-none-any.whl",
+      "wheel_sha256": "f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac",
+      "wheel_content_root_sha256": "db8f7f7d0b0105361f9b1380ff1d1cc432e720be02def65880a9ef484ad112a2",
+      "wheel_member_count": 12,
+      "wheel_uncompressed_bytes": 33954,
+      "public_contracts": {
+        "runtime_manifest/_contract/public-api.json": "ab4c1d7fd98b6b405dc0a2f0fd2f31957dae8fb0872796f46ba4b448c34e0c37",
+        "runtime_manifest/_contract/manifest-schema.json": "1f6a7c0a46e69600d0ec3ee0917da1be185fba0097e845e99f6152cd1a31ad18",
+        "runtime_manifest/_contract/compatibility-fixtures.json": "326aa3d0b865f24c12b385c5a6ac8b161cd1fa0c984ac9f7dadd7c2b05b0c7f9",
+        "runtime_manifest/_contract/supported-python.json": "ffd6652354d681053411ad82de6e7e8c8a687cdf873514c773fbad03ad834d73"
+      }
+    }
+  },
+  "resolution": {
+    "registry_allowed": false,
+    "copied_source_allowed": false,
+    "required_identity": "qualified producer revision plus package source/tree and exact wheel SHA-256"
+  },
+  "release_posture": "no-license-selected/unpublished",
+  "rights_boundary": "internal exact-revision qualification only; no public installability, reuse, redistribution, or release authority"
+}

@@ -20,8 +20,11 @@ application and `/api/v1` from one loopback origin. Use another unused port if
 
 Before relying on task controls, open **Admin** and confirm that the Codex App
 Server row is `Available` and `Compatible`. The frozen contract requires
-`codex-cli 0.145.0`, 273 generated non-experimental schemas, and semantic root
-`757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`.
+the exact internal `codex-app-server-client` 0.1.0 wheel, Codex 0.147.0, and
+the pinned schema root
+`eb325d394d19f2f8d133203885b3d1c2f74dbc5a176f22078a4f99aae5926faa`
+and selected-surface root
+`9a773e75f2e5aa827b4cc711345bd9ca1bc2a037f19d114284a04f306097a42f`.
 
 ## Register a project
 
@@ -95,8 +98,8 @@ head, and receipt gates all agree.
 | Symptom | Response |
 |---|---|
 | Frontend unavailable | Run `npm --prefix dashboard/web run build`, then restart the Python service. |
-| App Server incompatible | Install/select exact Codex CLI 0.145.0, restart the dashboard, and recheck Admin. File-backed project/tracker/run/report reads remain usable. |
-| App Server disconnected | Use the bounded adapter restart in Admin. In-flight task requests fail; they are not replayed automatically. |
+| App Server incompatible | Supply the exact hash-verified internal client wheel and Codex CLI 0.147.0, restart the dashboard, and recheck Admin. Never resolve the client by bare registry name/version. File-backed project/tracker/run/report reads remain usable. |
+| App Server disconnected | Use the bounded shared-client restart in Admin. In-flight task requests fail; they are not replayed automatically. |
 | Project or tracker unavailable | Inspect the source-local path, permissions, Git posture, verifier diagnostics, and coverage. Other projects remain visible. |
 | Stale or expired operation preview | Discard it and preview again. Never reuse a token after source drift or restart. |
 | Operation requested but not applied | Read the named owner and canonical postcondition. Preserve partial state; do not infer success or retry automatically. |

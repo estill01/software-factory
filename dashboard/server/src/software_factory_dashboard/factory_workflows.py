@@ -7485,7 +7485,7 @@ class FactoryWorkflowOwner:
                     result.links,
                 )
             policy = control.get("policy")
-            runtime = control.get("runtime")
+            runtime = policy.get("runtime") if isinstance(policy, Mapping) else None
             history = control.get("policy_history_records")
             normalized = (
                 json.loads(json.dumps(policy))

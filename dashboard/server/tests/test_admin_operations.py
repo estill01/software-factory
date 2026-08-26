@@ -209,7 +209,9 @@ class DeterministicOwner:
         )
 
 
-def test_definition(owner: DeterministicOwner, *, timeout: float = 0.1) -> OperationDefinition:
+def operation_test_definition(
+    owner: DeterministicOwner, *, timeout: float = 0.1
+) -> OperationDefinition:
     return OperationDefinition(
         operation_type="test.fixture-set",
         target_kind="test-fixture",
@@ -278,7 +280,7 @@ class AdministrativeOperationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.clock = FakeClock()
         self.owner = DeterministicOwner()
-        self.registry = OperationRegistry((test_definition(self.owner),))
+        self.registry = OperationRegistry((operation_test_definition(self.owner),))
         self.coordinator = OperationCoordinator(
             self.registry,
             preview_ttl_seconds=2,
@@ -344,7 +346,9 @@ class AdministrativeOperationTests(unittest.TestCase):
             )
 
         coordinator = OperationCoordinator(
-            OperationRegistry((replace(test_definition(self.owner), describe_effect=effect),)),
+            OperationRegistry(
+                (replace(operation_test_definition(self.owner), describe_effect=effect),)
+            ),
             preview_ttl_seconds=2,
             monotonic_clock=self.clock.monotonic,
             wall_clock=self.clock.wall,
@@ -402,7 +406,12 @@ class AdministrativeOperationTests(unittest.TestCase):
 
         unsafe_coordinator = OperationCoordinator(
             OperationRegistry(
-                (replace(test_definition(self.owner), describe_effect=unsafe_effect),)
+                (
+                    replace(
+                        operation_test_definition(self.owner),
+                        describe_effect=unsafe_effect,
+                    ),
+                )
             ),
             preview_ttl_seconds=2,
             monotonic_clock=self.clock.monotonic,
@@ -525,7 +534,7 @@ class AdministrativeOperationTests(unittest.TestCase):
         self.assertEqual(self.owner.dispatches, 0)
 
     def test_cross_thread_recipient_cannot_bypass_or_disagree_with_route_gate(self) -> None:
-        definition = test_definition(self.owner)
+        definition = operation_test_definition(self.owner)
         missing_gate = replace(definition, route_gate_request=None, route_gate=None)
         with self.assertRaises(OperationError) as required:
             OperationCoordinator(OperationRegistry((missing_gate,))).preview(preview_payload())

@@ -1,0 +1,18 @@
+{
+  "accepted_factory_revision": "56d2a22bf2a0df53d5bf2c3212187dc1cc9c67a2",
+  "accepted_factory_tree": "d58f2a408e59a01bcbaa86825d8c3f3f31aa22c2",
+  "contract": "software-factory.librsi-shadow-retirement/v1",
+  "focused_evidence_path": "docs/sfv2-b7-focused-evidence.json",
+  "focused_evidence_sha256": "af63ce0aed84275882b4ce7dd0810719e0bc873422392568fcaf0b00e8c00d7e",
+  "legacy_comparator_path": "runtime/src/software_factory/integrations/librsi/legacy_shadow.py",
+  "legacy_comparator_sha256": "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644",
+  "parity_dimensions": [
+    "hypothesis_roles",
+    "statements",
+    "predictions",
+    "recommended_next_action",
+    "experiment_kind"
+  ],
+  "preserved_legacy_path": "legacy/v1/runtime/src/software_factory/integrations/librsi/legacy_shadow.py",
+  "retirement_disposition": "retired-after-exact-independent-acceptance"
+}

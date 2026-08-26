@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B4",
+  "purpose": "replaceable provider lifecycle and exact shared-client consumer proof",
+  "pytest": {
+    "command": "SFV2_CODEX_CLIENT_WHEEL=<exact-qualified-wheel> PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_provider_runtime.py runtime/tests/test_controller.py runtime/tests/test_core.py runtime/tests/test_engine_hosts.py runtime/tests/test_execution_qa.py",
+    "selected_files": [
+      "runtime/tests/test_provider_runtime.py",
+      "runtime/tests/test_controller.py",
+      "runtime/tests/test_core.py",
+      "runtime/tests/test_engine_hosts.py",
+      "runtime/tests/test_execution_qa.py"
+    ],
+    "result": "46 passed"
+  },
+  "collection": "179 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "static_proofs": [
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
+      "result": "pass"
+    },
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff format --check runtime/src runtime/tests",
+      "result": "87 files already formatted"
+    },
+    {
+      "command": "MYPYPATH=runtime/src uv run --no-project --with 'mypy>=1.11' mypy runtime/src/software_factory",
+      "result": "Success: no issues found in 59 source files"
+    },
+    {
+      "command": "PYTHONPATH=runtime/src python3 -m compileall -q runtime/src/software_factory",
+      "result": "pass"
+    },
+    {
+      "command": "python3 author-implementation-trackers/scripts/verify_tracker.py --profile full --json docs/software-factory-v2-implementation-tracker.md",
+      "result": "Blocks 0-12, zero errors, zero warnings"
+    }
+  ],
+  "accepted_client": {
+    "producer_revision": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+    "accepted_source_commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+    "accepted_source_tree": "794650275e9a583c9f47276a271f65cc1020c4e8",
+    "package_tree_object": "17772f61da62b41d6d3551deebc474792aafe922",
+    "distribution": "codex-app-server-client",
+    "version": "0.1.0",
+    "wheel_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+    "wheel_content_root_sha256": "6ecc26e75197d06682fe9d8d0612edb1e56ead6d04c3a41cde1132e2618efd8f",
+    "qualification_matrix_sha256": "0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849",
+    "technical_qualification_root_sha256": "9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068",
+    "release_posture": "no-license-selected/unpublished",
+    "resolution": "exact trusted revision and artifact only; registry and copied-source resolution prohibited"
+  },
+  "bounded_real_diagnostic": {
+    "operation": "thread/list",
+    "limit": 1,
+    "generative_turn_started": false,
+    "observed_thread_count": 1,
+    "codex_version": "0.147.0",
+    "binary_sha256": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477",
+    "schema_tree_root_sha256": "eb325d394d19f2f8d133203885b3d1c2f74dbc5a176f22078a4f99aae5926faa",
+    "selected_surface_root_sha256": "9a773e75f2e5aa827b4cc711345bd9ca1bc2a037f19d114284a04f306097a42f",
+    "target_repository_read_or_write": false
+  },
+  "runtime_wheel_proof": {
+    "version": "2.0.0.dev6",
+    "sha256": "cb8487ebdb14ff52d05a59f76fd9f41d7ce1836db025c1959a5e798d5de44787",
+    "posture": "ephemeral local qualification artifact, not a release artifact",
+    "required_members": [
+      "software_factory/app_server_provider.py",
+      "software_factory/providers.py",
+      "software_factory/provider_provenance.py",
+      "software_factory/provider_pins/codex-app-server-client.json"
+    ]
+  },
+  "invariant_proofs": {
+    "one_process_owner": "duplicate composition owner keys are rejected and replacement closes the previous owner before installation",
+    "restart_reattachment": "a new adapter instance reattaches from exact durable execution, thread, turn, workspace, and producer identity without persisting client objects or callback tokens",
+    "approval_boundary": "unrouted command and file approvals are declined; external input interrupts and fails closed",
+    "cancellation": "engine cancellation durably fences dispatch, cancels each exact provider handle, releases its leases only after terminal cancellation, and then cancels the mission; the local-process lane waits for process-group exit and escalates from SIGTERM to SIGKILL before reporting cancelled",
+    "recovery_order": "lease-expired provider authority remains active until cancellation succeeds; cancellation failure blocks overlapping replacement dispatch",
+    "callback_secret": "callback authentication material remains controller-local and is absent from every ProviderRequest and durable provider handle",
+    "acceptance_separation": "completed app-server turn records provider_success_only while work acceptance remains pending",
+    "pin_currentness": "tampered wheels and stale durable producer roots fail before provider I/O"
+  },
+  "review_history": [
+    {
+      "candidate": "ca101691d8bd8c5300bf40e46c045ad8fa7d4487",
+      "tree": "307826a17a56eae0de478d1a32c779a4b61fce05",
+      "disposition": "REVISE",
+      "findings": [
+        "engine cancellation did not reach active provider work",
+        "lease-expiry recovery released authority before provider cancellation",
+        "ProviderRequest exposed the controller callback secret to external dispatch"
+      ]
+    },
+    {
+      "candidate": "aea15d082638bf1d23b4c42822b2024aad6f6320",
+      "tree": "b554865b413bdf214265a16b4c9dc051d2ee1547",
+      "disposition": "REVISE",
+      "findings": [
+        "ProcessProvider and CodexCLIProvider reported terminal cancellation immediately after SIGTERM without observing process-group exit"
+      ]
+    }
+  ],
+  "scope_boundary": {
+    "utils_repository_modified": false,
+    "copied_utils_source": false,
+    "registry_resolution": false,
+    "block_9_structural_artifacts_consumed": [],
+    "dashboard_duplicate_retired": false,
+    "target_profile_effects_implemented": false,
+    "live_model_turn_started": false
+  }
+}

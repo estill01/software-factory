@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B1",
+  "purpose": "focused correction candidate proof",
+  "pytest": {
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_core.py runtime/tests/test_composition.py runtime/tests/test_controller.py runtime/tests/test_execution_qa.py runtime/tests/test_supervision.py runtime/tests/test_acceptance.py runtime/tests/test_advanced_integration.py runtime/tests/test_learning.py runtime/tests/test_migration.py runtime/tests/test_operational_boundaries.py runtime/tests/test_api.py runtime/tests/test_reporting.py runtime/tests/test_entrypoints.py",
+    "selected_files": [
+      "runtime/tests/test_core.py",
+      "runtime/tests/test_composition.py",
+      "runtime/tests/test_controller.py",
+      "runtime/tests/test_execution_qa.py",
+      "runtime/tests/test_supervision.py",
+      "runtime/tests/test_acceptance.py",
+      "runtime/tests/test_advanced_integration.py",
+      "runtime/tests/test_learning.py",
+      "runtime/tests/test_migration.py",
+      "runtime/tests/test_operational_boundaries.py",
+      "runtime/tests/test_api.py",
+      "runtime/tests/test_reporting.py",
+      "runtime/tests/test_entrypoints.py"
+    ],
+    "result": "83 passed, 1 PytestCollectionWarning",
+    "warning": "runtime/tests/test_reporting.py TestStore has an __init__ constructor and is not a test class"
+  },
+  "scope_boundary": {
+    "excluded": "runtime/tests/test_v2_entrypoints.py",
+    "reason": "legacy console-script cutover belongs to SFV2/B2 host exposure and is prohibited by the SFV2/B1 Stop"
+  },
+  "static_proofs": [
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff check runtime/src runtime/tests",
+      "result": "pass"
+    },
+    {
+      "command": "uv run --no-project --with 'ruff>=0.6' ruff format --check runtime/src runtime/tests",
+      "result": "78 files already formatted"
+    },
+    {
+      "command": "MYPYPATH=runtime/src uv run --no-project --with 'mypy>=1.11' mypy runtime/src/software_factory",
+      "result": "Success: no issues found in 52 source files"
+    }
+  ]
+}

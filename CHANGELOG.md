@@ -39,6 +39,64 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Neutral content production and external target-profile extension.** The v2
+  runtime now includes a maintained invention-neutral content profile for
+  source collection, planning, drafting/revision, factual/structural/style
+  review, deterministic rendering, exact internal delivery, and receipt
+  verification. Its exact definition is persisted with target state so a host
+  restart can reopen and resume the same target, and target effects hold both a
+  registry fence and profile-owned cross-process lock while adapters recheck
+  revision and physical-tree currentness. Non-workspace profile output enters
+  the existing QA owner only
+  when a successful work execution, declared profile/target, exact revision,
+  and exact currentness root agree. Canonical profile QA always adds required
+  currentness and independent-review requirements even when a caller supplies a
+  weaker acceptance specification, and every requirement/result is bound to the
+  exact submitting execution and candidate root. A same-revision resubmission
+  therefore stales the prior execution's QA lineage and must be reviewed again.
+  Currentness and independent review complete through canonical QA before the
+  lifecycle can promote any stage; acceptance cannot manufacture a passed QA
+  state, and every staged promotion binds the active execution-derived candidate
+  root, re-observes, and holds the profile-owned physical currentness fence
+  through the authoritative acceptance write. Same-revision resubmission also
+  stales the prior candidate's prepared/accepted stages and their governed
+  contracts, reviews, and decisions. Stale profile QA calls fail before adding
+  an execution, evidence, or result. Terminal acceptance derives one composite
+  scope from every selected, non-cancelled, installed profile target and its
+  exact candidate, revision, and currentness roots, holds all corresponding
+  physical fences through promotion, and revalidates that same set at mission
+  completion. Multiple work bindings for one physical target remain distinct in
+  terminal identity but share one fence acquisition, while conflicting roots
+  reject before acquisition; proposed and cancelled work remain outside terminal
+  authority.
+  The output still traverses independent
+  candidate/integrated/installed/terminal acceptance and cannot self-accept. A
+  consumer-owned example profile lives outside the Factory package, registers
+  through the public profile registry, and completes the same real mission,
+  program, obligation, work, capability, and terminal-outcome path without
+  importing its identifiers, schema, or effect code into the OSS core. The
+  maintained content profile contains no Git/repository schema, and neither
+  proof introduces Patent Studio, OMNI, or Celltonomy behavior.
+
+- **Qualified internal service and exact shared-utils boundary.** The v2
+  loopback host now separates minimal public liveness/readiness from
+  bearer-authenticated operator projections and a closed engine operation set.
+  Mutating HTTP requests bind the exact current service-protocol root; governed
+  cancellation additionally requires the existing scoped, expiring, one-time
+  operator authority. Request/response sizes, event pages, error detail, DOM
+  rendering, credential files, and dashboard content are bounded. Event cursors
+  are contiguous per mission, the runtime manifest recomputes its component
+  root from the imported Factory package bytes. `SIGINT`/`SIGTERM` use bounded
+  request deadlines and a finite drain; an interrupted operator action remains
+  durably resumable only by replaying its exact accepted request with the same
+  consumed token. Factory-owned adapters consume
+  only the accepted `embedded-service-contract` and `runtime-manifest` wheels
+  from utils revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, after exact
+  filename, artifact, content, source/tree, and public-contract verification.
+  The shared packages own no Factory state or authority, and remain unpublished
+  internal artifacts with no license selected; the service remains
+  loopback-only and is not a hosted or multi-tenant product.
+
 - **Exact-acceptance-triggered release orchestration.** The supervision owner
   now consumes one reviewer-signed canonical acceptance for the exact
   clean source HEAD/tree, invokes only the flagless `skill_release.py promote`

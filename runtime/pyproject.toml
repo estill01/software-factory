@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "software-factory"
+version = "2.0.0.dev6"
+description = "Native SQL-backed autonomous multi-agent software factory"
+requires-python = ">=3.11"
+dependencies = [
+  "libRSI @ git+https://github.com/estill01/libRSI.git@1d81f6180b40435e10145756a2d99e6f334d31bc",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "coverage>=7",
+  "mypy>=1.11",
+  "pytest>=8",
+  "pytest-cov>=5",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+software-factory = "software_factory.cli:main"
+software-factoryd = "software_factory.daemon:main"
+software-factory-api = "software_factory.api_main:main"
+sf-skill = "software_factory.skill_bridge:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+software_factory = [
+  "web/*",
+  "migrations/*.sql",
+  "provider_pins/*.json",
+  "semantic_pins/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = ["runtime/src/software_factory.egg-info"]

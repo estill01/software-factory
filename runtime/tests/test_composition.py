@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+import operator
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from software_factory import CoreService, Store
+from software_factory.acceptance_lifecycle import AcceptanceLifecycleService
+from software_factory.agents import AgentService
+from software_factory.continuation import ContinuationService
+from software_factory.execution import ExecutionService
+from software_factory.profiles import SoftwareTargetProfile
+from software_factory.qa import QAService
+from software_factory.work_items import WorkItemService
+from software_factory.workspaces import WorkspaceService
+
+
+def test_core_uses_explicit_composition_not_service_mro() -> None:
+    assert CoreService.__bases__ == (object,)
+    with tempfile.TemporaryDirectory() as temp:
+        core = CoreService(Store(Path(temp) / "factory.db"))
+        assert isinstance(core.agents, AgentService)
+        assert isinstance(core.work_items, WorkItemService)
+        assert isinstance(core._workspace_owner, WorkspaceService)
+        assert isinstance(core._software_profile, SoftwareTargetProfile)
+        assert isinstance(core._executions, ExecutionService)
+        assert not hasattr(core, "workspace_owner")
+        assert not hasattr(core, "software_profile")
+        assert not hasattr(core, "executions")
+        assert not hasattr(core, "workspaces")
+        assert isinstance(core.qa, QAService)
+        assert isinstance(core.continuation, ContinuationService)
+        assert isinstance(core.acceptance_lifecycle, AcceptanceLifecycleService)
+        assert core.qa.workspaces is core._software_profile
+        assert core.qa.executions is core._executions
+        assert core.continuation.work_items is core.work_items
+
+
+def test_facade_delegates_unique_public_methods() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        core = CoreService(Store(Path(temp) / "factory.db"))
+        project = core.create_project("composition")
+        mission = core.create_mission(
+            project_id=project,
+            title="Mission",
+            objective="Verify composed facade",
+        )
+        assert mission.startswith("mis_")
+        assert core.next_action(mission)["action"] == "run_terminal_verification"
+        with pytest.raises(AttributeError):
+            operator.attrgetter("not_a_runtime_method")(core)

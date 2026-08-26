@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B3",
+  "purpose": "work graph, bounded scheduling, continuation, and concurrency candidate proof",
+  "pytest": {
+    "command": "PYTHONPATH=runtime/src uv run --no-project --with 'pytest>=8' pytest -q runtime/tests/test_controller.py runtime/tests/test_core.py runtime/tests/test_engine_hosts.py runtime/tests/test_execution_qa.py",
+    "selected_files": [
+      "runtime/tests/test_controller.py",
+      "runtime/tests/test_core.py",
+      "runtime/tests/test_engine_hosts.py",
+      "runtime/tests/test_execution_qa.py"
+    ],
+    "result": "39 passed"
+  },
+  "collection": "172 tests collected; eight recorded legacy TestStore collection warnings occur only in collection mode",
+  "static_proofs": [
+    {
+      "command": "ruff check runtime/src runtime/tests",
+      "result": "pass"
+    },
+    {
+      "command": "ruff format --check runtime/src runtime/tests",
+      "result": "84 files already formatted"
+    },
+    {
+      "command": "PYTHONPATH=runtime/src uv run --no-project --with 'mypy>=1.11' mypy --config-file runtime/pyproject.toml runtime/src/software_factory",
+      "result": "Success: no issues found in 57 source files"
+    }
+  ],
+  "wheel_proof": {
+    "version": "2.0.0.dev6",
+    "sha256": "38182c2befc00bc1b29213172ec605d5ba4673053879a1598747f608d50b8f9b",
+    "posture": "ephemeral local qualification artifact, not a release artifact",
+    "required_members": [
+      "software_factory/scheduling.py",
+      "software_factory/work_items.py",
+      "software_factory/controller.py",
+      "software_factory/continuation.py",
+      "software_factory/program.py"
+    ]
+  },
+  "invariant_proofs": {
+    "atomic_parallel_limit": "two disjoint concurrent direct dispatchers under max_parallel=1 create one active execution and one provider request",
+    "restart_continuation": "a second CoreService observes zero remaining capacity, then dispatches the next disjoint work only after the first execution releases capacity",
+    "attempt_budget": "an expired final allowed attempt is not repeated and its obligation remains open for diagnosis or replanning",
+    "mixed_frontier": "an exhausted high-priority item is excluded before scope selection, so a conflicting lower-priority unattempted item remains dispatchable",
+    "accepted_history": "a successor program revision cannot omit accepted work and the requested range remains byte-equivalent"
+  },
+  "scope_boundary": {
+    "utils_consumed": [],
+    "live_provider_effects_started": false,
+    "provider_fixtures": [
+      "DeterministicProvider"
+    ],
+    "agent_provider_lifecycle_implemented": false,
+    "public_hosting_implemented": false
+  }
+}

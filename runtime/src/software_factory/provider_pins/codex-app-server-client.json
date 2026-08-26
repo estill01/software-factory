@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "capability_id": "codex-app-server-client-package",
+  "producer_repository": "estill01/utils",
+  "qualified_producer_revision": "a5659745a7cbcbb002b5f06051f6ed9826f721a7",
+  "qualified_producer_tree": "f6b5cd45b6692c98c93bb3f19b2d4f2ddf361ec1",
+  "qualification_revision": "7f1674aa31dd64a1621bf1a746ba78e8f4c51305",
+  "qualification_matrix_sha256": "0888bed363b63842c37baa8187c9883cdddff73d936596e497e4e013341cd849",
+  "technical_qualification_root_sha256": "9ab96149f63a45429a44ae07e309b68bb4204b4e2e6f4da6a7a93acbd5547068",
+  "distribution": "codex-app-server-client",
+  "import_root": "codex_app_server_client",
+  "version": "0.1.0",
+  "accepted_source_commit": "08c416da4202b7036110e33e43d34ea590054e2e",
+  "accepted_source_tree": "794650275e9a583c9f47276a271f65cc1020c4e8",
+  "package_tree_object": "17772f61da62b41d6d3551deebc474792aafe922",
+  "wheel": "codex_app_server_client-0.1.0-py3-none-any.whl",
+  "wheel_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+  "wheel_content_root_sha256": "6ecc26e75197d06682fe9d8d0612edb1e56ead6d04c3a41cde1132e2618efd8f",
+  "wheel_member_count": 302,
+  "wheel_uncompressed_bytes": 3206562,
+  "public_api_sha256": "7a032cfe32425aae9166217bae18e59202afe509a465e34c8c74794b6b1fdf93",
+  "compatibility_fixture_sha256": "82e97c4564c04790d03750397d65b6989df529fbb21aedc14ae67cf96d759651",
+  "protocol": {
+    "codex_version": "0.147.0",
+    "source_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
+    "schema_tree_root_sha256": "eb325d394d19f2f8d133203885b3d1c2f74dbc5a176f22078a4f99aae5926faa",
+    "semantic_schema_root_sha256": "4e5c64213673b670d2575d7b7670d2089d49f92a92c56f2d16618e4a8857813e",
+    "selected_surface_root_sha256": "9a773e75f2e5aa827b4cc711345bd9ca1bc2a037f19d114284a04f306097a42f"
+  },
+  "resolution": {
+    "registry_allowed": false,
+    "copied_source_allowed": false,
+    "required_identity": "trusted producer revision plus exact wheel SHA-256",
+    "registry_collision_sha256": "8e2c9d322beb99702f3661c5366afede7fe89294c571ef5260fd9db23f597593"
+  },
+  "release_posture": "no-license-selected/unpublished",
+  "rights_boundary": "internal exact-revision qualification only; no public installability, reuse, redistribution, or release authority"
+}
