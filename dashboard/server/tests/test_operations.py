@@ -1946,6 +1946,7 @@ class OperationsProjectionTests(unittest.TestCase):
             patch.object(
                 loaded_owner,
                 "terminal_delivery_is_current",
+                autospec=True,
                 return_value=False,
             ),
         ):
@@ -1967,6 +1968,7 @@ class OperationsProjectionTests(unittest.TestCase):
             patch.object(
                 loaded_owner,
                 "terminal_delivery_is_current",
+                autospec=True,
                 return_value=True,
             ),
         ):

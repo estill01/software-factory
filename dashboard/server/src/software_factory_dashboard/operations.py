@@ -4925,7 +4925,11 @@ class OperationsProjectionService:
         delivery_current = bool(
             verified
             and isinstance(delivery_record, Mapping)
-            and owner.terminal_delivery_is_current(delivery_record, verification)
+            and owner.terminal_delivery_is_current(
+                delivery_record,
+                verification,
+                policy=evidence.policy,
+            )
             and delivery_record.get("state_fingerprint") == state_fingerprint
         )
         if delivery_current:
