@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -40,6 +42,7 @@ def test_cutover_moves_exact_legacy_bytes_and_installs_thin_native_wrappers(
     expected = make_repository(tmp_path)
     service = SourceCutoverService(tmp_path)
     marker = service.apply()
+    assert service.apply() == marker
     assert marker["one_writer"] is True
     verified = service.verify()
     assert verified == {
@@ -80,6 +83,9 @@ def test_rollback_restores_original_skill_bytes_exactly(tmp_path: Path) -> None:
         assert digest(tmp_path / relative) == expected_hash
     for name in SKILL_NAMES:
         assert (tmp_path / name / "scripts" / "owner.py").is_file()
+    reapplied = service.apply()
+    assert reapplied["one_writer"] is True
+    assert service.verify()["status"] == "verified"
 
 
 def test_verification_rejects_competing_root_owner_file(tmp_path: Path) -> None:
@@ -114,3 +120,65 @@ def test_incompatible_second_cutover_is_rejected(tmp_path: Path) -> None:
     marker.write_text(content.replace('"plan_root":"', '"plan_root":"different-'), encoding="utf-8")
     with pytest.raises(RuntimeError, match="incompatible"):
         service.apply()
+
+
+def test_plan_rejects_symlinked_source_bytes(tmp_path: Path) -> None:
+    make_repository(tmp_path)
+    source = tmp_path / "implement-tracker-blocks"
+    (source / "linked-owner.py").symlink_to(source / "scripts" / "owner.py")
+    with pytest.raises(RuntimeError, match="symlink"):
+        SourceCutoverService(tmp_path).plan()
+
+
+def test_apply_resumes_from_frozen_pre_mutation_journal(tmp_path: Path) -> None:
+    make_repository(tmp_path)
+    service = SourceCutoverService(tmp_path)
+    plan = service.plan()
+    marker = plan | {
+        "status": "applying",
+        "active_runtime": "runtime/src/software_factory",
+        "legacy_runtime": "legacy/v1",
+        "one_writer": True,
+    }
+    service.marker.write_text(json.dumps(marker), encoding="utf-8")
+    first = SKILL_NAMES[0]
+    destination = service.skills_legacy_root / first
+    destination.parent.mkdir(parents=True)
+    (tmp_path / first).replace(destination)
+
+    applied = service.apply()
+
+    assert applied["status"] == "applied"
+    assert service.verify()["status"] == "verified"
+    assert (tmp_path / first / "SKILL.md").is_file()
+    assert (destination / "scripts" / "owner.py").is_file()
+
+
+def test_rollback_rejects_changed_wrapper_before_deleting_it(tmp_path: Path) -> None:
+    make_repository(tmp_path)
+    service = SourceCutoverService(tmp_path)
+    service.apply()
+    wrapper = tmp_path / "implement-tracker-blocks" / "SKILL.md"
+    wrapper.write_text("changed\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="wrapper differs"):
+        service.rollback()
+
+    assert wrapper.read_text(encoding="utf-8") == "changed\n"
+    assert (service.skills_legacy_root / "implement-tracker-blocks").is_dir()
+
+
+def test_rollback_resumes_from_rolling_back_journal(tmp_path: Path) -> None:
+    expected = make_repository(tmp_path)
+    service = SourceCutoverService(tmp_path)
+    marker = service.apply() | {"status": "rolling_back"}
+    service.marker.write_text(json.dumps(marker), encoding="utf-8")
+    first = SKILL_NAMES[-1]
+    shutil.rmtree(tmp_path / first)
+    (service.skills_legacy_root / first).replace(tmp_path / first)
+
+    rolled_back = service.rollback()
+
+    assert rolled_back == {"status": "rolled_back", "restored_skills": 5}
+    for relative, expected_hash in expected.items():
+        assert digest(tmp_path / relative) == expected_hash

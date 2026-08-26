@@ -76,6 +76,16 @@ def test_inventory_and_backup_preserve_exact_complete_source(tmp_path: Path) -> 
     assert backed_up["backup_root"]
 
 
+def test_inventory_rejects_symlinked_source_bytes(tmp_path: Path) -> None:
+    migration, _ = services()
+    source = tmp_path / "v1"
+    source.mkdir()
+    make_source(source)
+    (source / "linked-tracker").symlink_to(source / "docs" / "tracker.md")
+    with pytest.raises(ValueError, match="symlink"):
+        migration.inventory_source(source)
+
+
 def test_historical_event_import_cannot_trigger_live_signal_route(tmp_path: Path) -> None:
     migration, learning = services()
     source = tmp_path / "v1"
@@ -216,6 +226,8 @@ def test_actual_cutover_moves_legacy_owner_and_rolls_back_exact_bytes(
     before = (repository / "v1-source" / "docs" / "tracker.md").read_bytes()
     applied = migration.apply_cutover(cutover["id"])
     assert applied["status"] == "verified"
+    replayed = migration.apply_cutover(cutover["id"])
+    assert replayed["status"] == "verified"
     assert not (repository / "v1-source").exists()
     assert (
         repository / "legacy" / "v1" / "v1-source" / "docs" / "tracker.md"
@@ -225,8 +237,43 @@ def test_actual_cutover_moves_legacy_owner_and_rolls_back_exact_bytes(
     assert marker["one_writer"] is True
     rolled_back = migration.rollback_cutover(cutover["id"])
     assert rolled_back["status"] == "rolled_back"
+    assert migration.rollback_cutover(cutover["id"])["status"] == "rolled_back"
     assert (repository / "v1-source" / "docs" / "tracker.md").read_bytes() == before
     assert not (repository / ".software-factory-runtime.json").exists()
+    reapplied = migration.apply_cutover(cutover["id"])
+    assert reapplied["status"] == "verified"
+    assert (
+        repository / "legacy" / "v1" / "v1-source" / "docs" / "tracker.md"
+    ).read_bytes() == before
+
+
+def test_verified_cutover_replay_rejects_physical_or_marker_drift(tmp_path: Path) -> None:
+    migration, cutover, repository = prepared_cutover(tmp_path)
+    migration.apply_cutover(cutover["id"])
+    archived = repository / "legacy" / "v1" / "v1-source" / "docs" / "tracker.md"
+    archived.write_text("changed after verification\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="archive differs"):
+        migration.apply_cutover(cutover["id"])
+
+    archived.write_text("# Tracker\n", encoding="utf-8")
+    marker = repository / ".software-factory-runtime.json"
+    marker_value = json.loads(marker.read_text(encoding="utf-8"))
+    marker_value["active_runtime"] = "other-runtime"
+    marker.write_text(json.dumps(marker_value), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="marker differs"):
+        migration.apply_cutover(cutover["id"])
+
+
+def test_verified_cutover_rollback_rejects_changed_archive_before_mutation(
+    tmp_path: Path,
+) -> None:
+    migration, cutover, repository = prepared_cutover(tmp_path)
+    migration.apply_cutover(cutover["id"])
+    archived = repository / "legacy" / "v1" / "v1-source" / "docs" / "tracker.md"
+    archived.write_text("changed after verification\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="archive differs"):
+        migration.rollback_cutover(cutover["id"])
+    assert not (repository / "v1-source").exists()
 
 
 def test_interrupted_cutover_reconciles_already_moved_path(tmp_path: Path) -> None:

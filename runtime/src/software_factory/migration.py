@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import subprocess
 import tarfile
 from collections.abc import Mapping, Sequence
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .errors import InvalidTransition, StoreError
+from .repository_lock import repository_effect_lock
 from .store import Store
 from .util import new_id, utc_now
 
@@ -31,10 +33,14 @@ def _file_digest(path: Path) -> str:
 
 
 def _tree_digest(path: Path) -> str:
+    if path.is_symlink():
+        raise ValueError("migration trees cannot contain symlinks")
     if path.is_file():
         return _file_digest(path)
     entries = []
     for child in sorted(path.rglob("*")):
+        if child.is_symlink():
+            raise ValueError("migration trees cannot contain symlinks")
         if child.is_file() and not child.is_symlink():
             entries.append(
                 {
@@ -44,6 +50,23 @@ def _tree_digest(path: Path) -> str:
                 }
             )
     return _digest(entries)
+
+
+def _write_atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{new_id('write')}")
+    try:
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(_canonical(dict(value)) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _loads(value: Any, default: Any) -> Any:
@@ -108,6 +131,8 @@ class MigrationService:
         root = Path(source_root).resolve()
         if not root.is_dir():
             raise ValueError("migration source root does not exist")
+        if any(path.is_symlink() for path in root.rglob("*")):
+            raise ValueError("migration source contains a symlink")
         items: list[dict[str, Any]] = []
         for path in sorted(root.rglob("*")):
             if not path.is_file() or path.is_symlink():
@@ -582,6 +607,14 @@ class MigrationService:
 
     def apply_cutover(self, cutover_id: str) -> dict[str, Any]:
         cutover = self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
+        with repository_effect_lock(str(cutover["repository_root"]), "migration-cutover"):
+            return self._apply_cutover_locked(cutover_id)
+
+    def _apply_cutover_locked(self, cutover_id: str) -> dict[str, Any]:
+        cutover = self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
+        if cutover["status"] == "verified":
+            self._verify_applied_cutover(cutover)
+            return cutover
         if cutover["status"] not in {"planned", "failed", "rolled_back"}:
             raise InvalidTransition("cutover is not awaiting application")
         if not cutover["one_writer_verified"]:
@@ -601,6 +634,8 @@ class MigrationService:
             for effect in effects:
                 source = root / effect["source_path"]
                 destination = root / effect["destination_path"]
+                if source.is_symlink() or destination.is_symlink():
+                    raise RuntimeError("cutover path contains an unsafe symlink")
                 if destination.exists() and not source.exists():
                     if _tree_digest(destination) != effect["source_sha256"]:
                         raise RuntimeError("interrupted cutover destination differs")
@@ -620,17 +655,27 @@ class MigrationService:
                         (utc_now(), effect["id"]),
                     )
             marker = root / ".software-factory-runtime.json"
-            marker.write_text(
-                _canonical(
-                    {
-                        "active_runtime": cutover["native_runtime_root"],
-                        "legacy_archive": cutover["legacy_archive_root"],
-                        "cutover_id": cutover_id,
-                        "one_writer": True,
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
+            marker_value = {
+                "active_runtime": cutover["native_runtime_root"],
+                "legacy_archive": cutover["legacy_archive_root"],
+                "cutover_id": cutover_id,
+                "one_writer": True,
+            }
+            if marker.exists() or marker.is_symlink():
+                if marker.is_symlink():
+                    raise RuntimeError("cutover marker is unsafe")
+                try:
+                    existing_marker = json.loads(marker.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    raise RuntimeError("cutover marker is unreadable") from exc
+                if existing_marker != marker_value:
+                    raise RuntimeError("cutover marker differs from the frozen effect")
+            else:
+                _write_atomic_json(marker, marker_value)
+            self._verify_applied_cutover(
+                cutover,
+                effects=effects,
+                allowed_statuses={"planned", "running", "failed", "rolled_back"},
             )
         except BaseException as exc:
             with self.store.transaction() as db:
@@ -664,11 +709,71 @@ class MigrationService:
             )
         return self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
 
+    def _verify_applied_cutover(
+        self,
+        cutover: Mapping[str, Any],
+        *,
+        effects: Sequence[Mapping[str, Any]] | None = None,
+        allowed_statuses: set[str] | None = None,
+    ) -> None:
+        accepted_statuses = allowed_statuses or {"verified"}
+        if str(cutover["status"]) not in accepted_statuses:
+            raise InvalidTransition("cutover is not in an applied verification posture")
+        root = Path(str(cutover["repository_root"]))
+        selected_effects = (
+            list(effects)
+            if effects is not None
+            else self.store.all(
+                "SELECT * FROM cutover_path_effects_v2 WHERE cutover_id=? ORDER BY source_path",
+                (cutover["id"],),
+            )
+        )
+        for effect in selected_effects:
+            source = root / str(effect["source_path"])
+            destination = root / str(effect["destination_path"])
+            if source.exists() or source.is_symlink() or not destination.exists():
+                raise RuntimeError("verified cutover path is not exclusively archived")
+            if destination.is_symlink():
+                raise RuntimeError("verified cutover archive is unsafe")
+            if _tree_digest(destination) != effect["source_sha256"]:
+                raise RuntimeError("verified cutover archive differs from its frozen source")
+        marker = root / ".software-factory-runtime.json"
+        if not marker.is_file() or marker.is_symlink():
+            raise RuntimeError("verified cutover marker is missing or unsafe")
+        try:
+            marker_value = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("verified cutover marker is unreadable") from exc
+        expected_marker = {
+            "active_runtime": cutover["native_runtime_root"],
+            "legacy_archive": cutover["legacy_archive_root"],
+            "cutover_id": cutover["id"],
+            "one_writer": True,
+        }
+        if marker_value != expected_marker:
+            raise RuntimeError("verified cutover marker differs from its frozen effect")
+        native = root / str(cutover["native_runtime_root"])
+        if not native.exists() or native.is_symlink():
+            raise RuntimeError("verified native runtime is missing or unsafe")
+
     def rollback_cutover(self, cutover_id: str) -> dict[str, Any]:
         cutover = self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
-        if cutover["status"] not in {"verified", "applied", "failed"}:
+        with repository_effect_lock(str(cutover["repository_root"]), "migration-cutover"):
+            return self._rollback_cutover_locked(cutover_id)
+
+    def _rollback_cutover_locked(self, cutover_id: str) -> dict[str, Any]:
+        cutover = self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
+        if cutover["status"] == "rolled_back":
+            self._verify_rolled_back_cutover(cutover)
+            return cutover
+        if cutover["status"] not in {"verified", "applied", "failed", "rolling_back"}:
             raise InvalidTransition("cutover is not rollback-eligible")
         root = Path(cutover["repository_root"])
+        if cutover["status"] == "verified":
+            self._verify_applied_cutover(cutover)
+        marker = root / ".software-factory-runtime.json"
+        if marker.is_symlink():
+            raise RuntimeError("cutover marker is unsafe")
         effects = list(
             reversed(
                 self.store.all(
@@ -686,6 +791,8 @@ class MigrationService:
         for effect in effects:
             source = root / effect["source_path"]
             destination = root / effect["destination_path"]
+            if source.is_symlink() or destination.is_symlink():
+                raise RuntimeError("rollback path contains an unsafe symlink")
             if source.exists():
                 if _tree_digest(source) != effect["source_sha256"]:
                     raise RuntimeError("restored legacy source differs")
@@ -700,7 +807,8 @@ class MigrationService:
                        SET effect_status='restored',updated_at=? WHERE id=?""",
                     (utc_now(), effect["id"]),
                 )
-        (root / ".software-factory-runtime.json").unlink(missing_ok=True)
+        marker.unlink(missing_ok=True)
+        self._verify_rolled_back_cutover(cutover)
         now = utc_now()
         with self.store.transaction() as db:
             db.execute(
@@ -715,7 +823,30 @@ class MigrationService:
             )
         return self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
 
+    def _verify_rolled_back_cutover(self, cutover: Mapping[str, Any]) -> None:
+        root = Path(str(cutover["repository_root"]))
+        for effect in self.store.all(
+            "SELECT * FROM cutover_path_effects_v2 WHERE cutover_id=? ORDER BY source_path",
+            (cutover["id"],),
+        ):
+            source = root / str(effect["source_path"])
+            destination = root / str(effect["destination_path"])
+            if not source.exists() or source.is_symlink() or destination.exists():
+                raise RuntimeError("rolled-back cutover path is not exclusively restored")
+            if destination.is_symlink():
+                raise RuntimeError("rolled-back cutover archive path is unsafe")
+            if _tree_digest(source) != effect["source_sha256"]:
+                raise RuntimeError("rolled-back source differs from its frozen bytes")
+        marker = root / ".software-factory-runtime.json"
+        if marker.exists() or marker.is_symlink():
+            raise RuntimeError("rolled-back cutover marker still exists")
+
     def recover_interrupted_cutover(self, cutover_id: str) -> dict[str, Any]:
+        cutover = self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
+        with repository_effect_lock(str(cutover["repository_root"]), "migration-cutover"):
+            return self._recover_interrupted_cutover_locked(cutover_id)
+
+    def _recover_interrupted_cutover_locked(self, cutover_id: str) -> dict[str, Any]:
         cutover = self.store.one("SELECT * FROM cutover_effects_v2 WHERE id=?", (cutover_id,))
         if cutover["status"] not in {"running", "failed"}:
             return cutover
@@ -727,6 +858,8 @@ class MigrationService:
         for effect in effects:
             source = root / effect["source_path"]
             destination = root / effect["destination_path"]
+            if source.is_symlink() or destination.is_symlink():
+                return self._rollback_cutover_locked(cutover_id)
             if destination.exists() and _tree_digest(destination) == effect["source_sha256"]:
                 with self.store.transaction() as db:
                     db.execute(
@@ -735,10 +868,10 @@ class MigrationService:
                         (utc_now(), effect["id"]),
                     )
             elif not source.exists():
-                return self.rollback_cutover(cutover_id)
+                return self._rollback_cutover_locked(cutover_id)
         with self.store.transaction() as db:
             db.execute(
                 "UPDATE cutover_effects_v2 SET status='planned',updated_at=? WHERE id=?",
                 (utc_now(), cutover_id),
             )
-        return self.apply_cutover(cutover_id)
+        return self._apply_cutover_locked(cutover_id)
