@@ -32,6 +32,8 @@ SERVICE_ENGINE_OPERATIONS = frozenset({"start", "status", "continue", "outcome",
 SERVICE_MAX_REQUEST_BYTES = 1024 * 1024
 SERVICE_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 SERVICE_MAX_REQUEST_TARGET_BYTES = 4096
+SERVICE_REQUEST_TIMEOUT_SECONDS = 5.0
+SERVICE_SHUTDOWN_DRAIN_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,8 @@ def service_api_protocol_root() -> str:
                 "request_body_bytes": SERVICE_MAX_REQUEST_BYTES,
                 "request_target_bytes": SERVICE_MAX_REQUEST_TARGET_BYTES,
                 "response_body_bytes": SERVICE_MAX_RESPONSE_BYTES,
+                "request_timeout_seconds": SERVICE_REQUEST_TIMEOUT_SECONDS,
+                "shutdown_drain_seconds": SERVICE_SHUTDOWN_DRAIN_SECONDS,
             },
         }
     )

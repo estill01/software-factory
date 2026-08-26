@@ -3,7 +3,9 @@ from __future__ import annotations
 import datetime as dt
 import http.client
 import json
+import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -373,6 +375,75 @@ def test_graceful_shutdown_drains_an_accepted_operator_action(
     assert not close_thread.is_alive()
     assert result[0][0] == 200
     assert result[0][1]["status"] == "applied"
+    assert server.shutdown_drained is True
+    assert store.one("SELECT status FROM schedules_v2 WHERE id=?", (schedule["id"],)) == {
+        "status": "paused"
+    }
+
+
+@pytest.mark.parametrize("partial_request", [False, True])
+def test_shutdown_is_bounded_for_idle_or_partial_clients(partial_request: bool) -> None:
+    server = APIServer(
+        FactoryAPI(_store()),
+        service_token=SERVICE_TOKEN,
+        request_timeout_seconds=1.0,
+        shutdown_drain_seconds=1.5,
+    )
+    server.start()
+    connection = socket.create_connection(server.address, timeout=1)
+    if partial_request:
+        connection.sendall(
+            (
+                "POST /api/engine/start HTTP/1.1\r\n"
+                f"Host: {server.address[0]}\r\n"
+                f"Authorization: Bearer {SERVICE_TOKEN}\r\n"
+                "Content-Type: application/json\r\n"
+                f"X-Software-Factory-Workflow-Root: {WORKFLOW_ROOT}\r\n"
+                "Content-Length: 100\r\n\r\n{"
+            ).encode()
+        )
+    deadline = time.monotonic() + 1
+    while server.httpd.active_request_count() == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert server.httpd.active_request_count() == 1
+    close_thread = threading.Thread(target=server.close)
+    close_thread.start()
+    close_thread.join(timeout=3)
+    connection.close()
+    assert not close_thread.is_alive()
+    assert server.shutdown_drained is True
+
+
+def test_consumed_operator_token_replays_its_exact_accepted_decision() -> None:
+    store = _store()
+    api = FactoryAPI(store)
+    schedule = api.reporting.create_schedule(
+        schedule_type="interval",
+        specification={"seconds": 60},
+        action={"kind": "tick"},
+        next_run_at="2026-01-01T00:00:00Z",
+        mission_id="mission-1",
+    )
+    expires = (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    token, _ = api.reporting.issue_operator_token(
+        allowed_actions=["pause_schedule"],
+        scope={"target_type": "schedule", "target_ids": [schedule["id"]]},
+        expires_at=expires,
+        mission_id="mission-1",
+    )
+    request = {
+        "action": "pause_schedule",
+        "target_type": "schedule",
+        "target_id": schedule["id"],
+        "payload": {},
+    }
+    accepted = api.reporting.accept_operator_action(token, **request)
+    assert accepted["status"] == "accepted"
+
+    replayed = api.apply_operator_action(token, request)
+
+    assert replayed["id"] == accepted["id"]
+    assert replayed["status"] == "applied"
     assert store.one("SELECT status FROM schedules_v2 WHERE id=?", (schedule["id"],)) == {
         "status": "paused"
     }

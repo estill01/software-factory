@@ -604,20 +604,13 @@ class ReportingService:
         payload: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-        candidates = self.store.all("SELECT * FROM operator_action_tokens_v2 WHERE status='active'")
+        candidates = self.store.all("SELECT * FROM operator_action_tokens_v2")
         token = next(
             (row for row in candidates if hmac.compare_digest(str(row["token_hash"]), token_hash)),
             None,
         )
         if token is None:
             raise StoreError("operator token is invalid")
-        if _parse_time(token["expires_at"]) <= dt.datetime.now(dt.UTC):
-            with self.store.transaction() as db:
-                db.execute(
-                    "UPDATE operator_action_tokens_v2 SET status='expired',updated_at=? WHERE id=?",
-                    (utc_now(), token["id"]),
-                )
-            raise StoreError("operator token is expired")
         if action not in _loads(token["allowed_actions_json"], []):
             raise StoreError("operator token does not authorize this action")
         scope = _loads(token["scope_json"], {})
@@ -642,6 +635,15 @@ class ReportingService:
         )
         if existing is not None:
             return existing
+        if _parse_time(token["expires_at"]) <= dt.datetime.now(dt.UTC):
+            with self.store.transaction() as db:
+                db.execute(
+                    "UPDATE operator_action_tokens_v2 SET status='expired',updated_at=? WHERE id=?",
+                    (utc_now(), token["id"]),
+                )
+            raise StoreError("operator token is expired")
+        if token["status"] != "active":
+            raise StoreError("operator token is invalid")
         decision_id = new_id("operator-decision")
         now = utc_now()
         with self.store.transaction() as db:

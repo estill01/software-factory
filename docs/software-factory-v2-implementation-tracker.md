@@ -2196,7 +2196,7 @@ equivalence, and false authority.
   database, engine, and loopback-service protocol/schema roots are respectively
   `17883bbecd3e7fd78ff5b2873c0d64d43a46f1e8830f2d6424ee0fc3e7cb3143`,
   `26f1c662aa04418241487c668f8948d1463ab19ab9fcb4037415f4f7ea611725`,
-  and `80c08e1dcee99509d2178fbb5bcee0c1bfd4bb33476a15c2d404ec3b4e32794b`.
+  and `4a755f9c02b51e522540ebaa725523f453603bf49e9e6eddb5df801c1a032cb4`.
   Recursive validation rejects authorization, acceptance, permission, or
   release-authority fields, and the manifest is never consumed as operational
   authority.
@@ -2219,12 +2219,15 @@ equivalence, and false authority.
   private SQL ledger retains a global insertion sequence. The declared
   component root is recomputed from every authoritative member of the imported
   Factory package and any caller-supplied mismatch fails before readiness.
-  `SIGINT`/`SIGTERM` stop request admission, drain every non-daemon request
-  handler, and only then close the listener, so an accepted one-time operator
-  decision cannot be stranded between token consumption and its durable owner
-  effect. Durable mission state survives restart. The runbook records the
-  internal/loopback-only posture and exact credential, probe, restart, and
-  artifact requirements.
+  Each accepted socket has a five-second request-read deadline.
+  `SIGINT`/`SIGTERM` stop request admission, close the listener, and allow a
+  finite ten-second drain, so an idle/partial client or stuck internal handler
+  cannot hang process shutdown. An operator decision is durably accepted before
+  its effect; if interruption occurs afterward, only a byte-equivalent replay
+  with the same consumed token can resume that exact decision. The token cannot
+  authorize a different request. Durable mission state survives restart. The
+  runbook records the internal/loopback-only posture and exact credential,
+  probe, restart, and artifact requirements.
 - Product-capability review:
   - Trigger: consequential Block posture; an operator/service interface and two
     accepted shared utility packages become active runtime inputs.
@@ -2268,32 +2271,42 @@ equivalence, and false authority.
   interleaved missions retain contiguous shared-contract cursors, false
   component roots reject, and shutdown blocks until the already accepted
   operator action reaches durable `applied` state.
-- Focused and mapped proof: `47 passed` across API, engine hosts, exact qualified
+- Exact successor `9c76fc8f96a066eefbe34abb5df4c094fd9b543a`, tree
+  `956b416dfb220954bdcfddb9b7f44dead0651fe1`, is also preserved and unaccepted.
+  Fresh independent review closed the event-cursor and component-identity
+  findings, and confirmed completing operator handlers drain, but returned one
+  P1 because idle/partial sockets and an indefinitely blocked handler could make
+  graceful shutdown unbounded. The current bounded successor adds exact
+  request-read and drain ceilings plus consumed-token replay limited to the
+  already accepted request root. Regression coverage admits real idle/partial
+  sockets before shutdown and proves the exact accepted decision resumes
+  idempotently while a different request remains unauthorized.
+- Focused and mapped proof: `50 passed` across API, engine hosts, exact qualified
   utils, reporting/operator authority, operational ownership boundaries,
   entrypoints, and composition; one documented legacy `TestStore` collection
-  warning. The final affected exact-root utility regression adds `7 passed`.
-  Negative fixtures cover session-as-authority, absent/wrong service
+  warning. Negative fixtures cover session-as-authority, absent/wrong service
   credentials, stale service roots, general-route cancel/complete, arbitrary
   command keys, oversized bodies, secret/unbounded projection fields, insecure
   token files, renamed/modified utility artifacts, manifest authority fields,
   shared-package state ownership, cross-mission cursor gaps, arbitrary component
-  identities, and graceful-shutdown operator stranding. Full runtime collection
-  is 252 tests with seven documented legacy collection warnings. Ruff
+  identities, graceful-shutdown operator stranding, idle/partial socket hangs,
+  and consumed-token request substitution. Full runtime collection is 255 tests
+  with seven documented legacy collection warnings. Ruff
   format/check are clean across 105 files, mypy is clean across 71 source files,
   compilation is clean,
   and detailed-tracker verification passes. Per the range's economy rule, the
   broad runtime suite remains deferred to Block 12.
 - Isolated build and installed-artifact proof: the successor wheel SHA-256 is
-  `029165b0222eb96ebab83ecbc95f4f085845b7b2ad27ce8117a3f48fc66ccf64`
+  `7ac9fa4b746d2374ceb1291f9a6f2ab4126891f2d948120243f9ac5ae77d48ec`
   and the sdist SHA-256 is
-  `f762b432a285ad97f3aaa4bc1e0127cb167e0086a6e2ee2692b16fcc55f9f6e6`.
+  `b5f42764d4b6243c5ff7d2539573f71347a07427a5df18f23d51a58571ef26b7`.
   The isolated wheel import loaded Factory from its installed wheel path,
   reloaded both exact accepted utils artifacts, recomputed installed component
-  root `ec91c7965fbe5d19dcaf8a054abb16b188ccff72f532407454bf607842b6d196`,
+  root `9683cadba6fa25e6f1e4bbfd4ebdcc6263ed14cd1aa3c1b2a2df54a56b4c8baf`,
   reproduced current engine and service protocol roots, and retained the
   Factory wheel as the actual import source.
-- Candidate posture: the rejected candidate and all three findings are
-  preserved. The bounded successor implementation, focused/mapped proof, static
+- Candidate posture: both rejected candidates and all four findings are
+  preserved. The current bounded successor implementation, focused/mapped proof, static
   audit, collection, detailed-tracker verification, and isolated build/import
   proof are complete; exact successor commit/push and fresh independent
   exact-revision review remain required before Block 9 acceptance or Block 10

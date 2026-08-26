@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 import threading
+import time
 from collections.abc import Mapping
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -21,6 +22,8 @@ from .utility_contracts import (
     SERVICE_MAX_REQUEST_BYTES,
     SERVICE_MAX_REQUEST_TARGET_BYTES,
     SERVICE_MAX_RESPONSE_BYTES,
+    SERVICE_REQUEST_TIMEOUT_SECONDS,
+    SERVICE_SHUTDOWN_DRAIN_SECONDS,
     QualifiedUtilityRuntime,
     RuntimeIdentity,
     service_api_protocol_root,
@@ -509,11 +512,61 @@ def make_handler(api: FactoryAPI, service_token: str) -> type[BaseHTTPRequestHan
     return Handler
 
 
-class _DrainingThreadingHTTPServer(ThreadingMixIn, HTTPServer):
-    """Stop admission, then join every in-flight request before closing."""
+class _BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Track active requests and provide a finite graceful-drain boundary."""
 
-    daemon_threads = False
-    block_on_close = True
+    daemon_threads = True
+    block_on_close = False
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler: type[BaseHTTPRequestHandler],
+        *,
+        request_timeout_seconds: float,
+    ) -> None:
+        self._request_timeout_seconds = request_timeout_seconds
+        self._active_requests = 0
+        self._active_condition = threading.Condition()
+        super().__init__(server_address, handler)
+
+    def get_request(self) -> tuple[Any, Any]:
+        connection, address = super().get_request()
+        connection.settimeout(self._request_timeout_seconds)
+        return connection, address
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        with self._active_condition:
+            self._active_requests += 1
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            with self._active_condition:
+                self._active_requests -= 1
+                self._active_condition.notify_all()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self._active_condition:
+                self._active_requests -= 1
+                self._active_condition.notify_all()
+
+    def drain(self, timeout_seconds: float) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        with self._active_condition:
+            while self._active_requests:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._active_condition.wait(timeout=remaining)
+            return True
+
+    def active_request_count(self) -> int:
+        with self._active_condition:
+            return self._active_requests
 
 
 class APIServer:
@@ -524,15 +577,27 @@ class APIServer:
         service_token: str,
         host: str = "127.0.0.1",
         port: int = 0,
+        request_timeout_seconds: float = SERVICE_REQUEST_TIMEOUT_SECONDS,
+        shutdown_drain_seconds: float = SERVICE_SHUTDOWN_DRAIN_SECONDS,
     ):
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("reference API binds only to loopback")
         if not 32 <= len(service_token) <= 512 or not service_token.isprintable():
             raise ValueError("service token must contain 32 to 512 printable characters")
-        self.httpd = _DrainingThreadingHTTPServer((host, port), make_handler(api, service_token))
+        if not 0 < request_timeout_seconds <= SERVICE_REQUEST_TIMEOUT_SECONDS:
+            raise ValueError("request timeout must be positive and no greater than the default")
+        if not 0 < shutdown_drain_seconds <= SERVICE_SHUTDOWN_DRAIN_SECONDS:
+            raise ValueError("shutdown drain must be positive and no greater than the default")
+        self.httpd = _BoundedThreadingHTTPServer(
+            (host, port),
+            make_handler(api, service_token),
+            request_timeout_seconds=request_timeout_seconds,
+        )
+        self._shutdown_drain_seconds = shutdown_drain_seconds
         self.thread: threading.Thread | None = None
         self._closed = threading.Event()
         self._close_lock = threading.Lock()
+        self.shutdown_drained: bool | None = None
 
     @property
     def address(self) -> tuple[str, int]:
@@ -559,10 +624,8 @@ class APIServer:
             self._closed.set()
             if self.thread is not None:
                 self.httpd.shutdown()
-            # ThreadingMixIn.server_close blocks until every non-daemon request
-            # handler has returned, so a gracefully signalled process cannot
-            # strand an accepted one-time operator decision mid-application.
             self.httpd.server_close()
+            self.shutdown_drained = self.httpd.drain(self._shutdown_drain_seconds)
             if self.thread is not None:
                 self.thread.join(timeout=5)
                 self.thread = None

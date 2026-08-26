@@ -98,18 +98,23 @@ branch name, or floating version. The process refuses non-loopback binds.
 Requests are JSON objects with an explicit content length of at most one MiB;
 request targets and response bodies are also bounded. Chunked transfer,
 arbitrary commands, arbitrary paths, unknown effects, and raw exception detail
-are rejected.
+are rejected. Each accepted socket has a five-second request-read deadline, so
+an idle or partial client cannot hold shutdown open indefinitely.
 
 ## Restart and shutdown
 
-`SIGINT` and `SIGTERM` stop request admission, drain all active request handlers,
-and then close the listener. In particular, an accepted one-time operator
-decision is applied or durably failed before graceful shutdown returns; it is
-not stranded in a daemon request thread. All mission truth remains in the
-existing durable Factory database. A new process opened on the same home
-observes the same mission status, mission-local event cursor, and outcomes. It
-must re-verify the exact Factory package and utilities and receive the service
-token file again.
+`SIGINT` and `SIGTERM` stop request admission, close the listener, and allow up
+to ten seconds for active request handlers to drain. Idle and partial clients
+are released by the shorter socket deadline; an internal owner that exceeds the
+drain ceiling cannot hang process shutdown indefinitely. A one-time operator
+decision is committed as `accepted` before its owner effect. If shutdown
+interrupts that later effect, retry the byte-equivalent action with the same
+token: the consumed token may resolve only its exact accepted request root, and
+the canonical decision resumes idempotently. It cannot authorize a different
+request. All mission truth remains in the existing durable Factory database. A
+new process opened on the same home observes the same mission status,
+mission-local event cursor, and outcomes. It must re-verify the exact Factory
+package and utilities and receive the service token file again.
 
 After restart, check `/health`, then `/ready`, then authenticated `/api/health`.
 Do not infer Factory completion from process uptime, transport success, an HTTP
