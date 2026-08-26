@@ -273,6 +273,11 @@ def test_every_operational_table_has_one_primary_owner_and_only_declared_writers
     runtime_writes: set[str] = set()
     for source in PACKAGE_ROOT.rglob("*.py"):
         text = source.read_text(encoding="utf-8")
+        if "compatibility_owners" in source.parts:
+            assert "sqlite3" not in text
+            assert ".execute(" not in text
+            assert "executescript(" not in text
+            continue
         module = source.relative_to(PACKAGE_ROOT).with_suffix("").as_posix().replace("/", ".")
         if module.endswith(".__init__"):
             module = module.removesuffix(".__init__")

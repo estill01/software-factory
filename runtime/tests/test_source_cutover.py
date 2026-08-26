@@ -41,8 +41,10 @@ def test_cutover_moves_exact_legacy_bytes_and_installs_thin_native_wrappers(
 ) -> None:
     expected = make_repository(tmp_path)
     service = SourceCutoverService(tmp_path)
+    plan = service.plan()
     marker = service.apply()
     assert service.apply() == marker
+    assert service.plan() == plan
     assert marker["one_writer"] is True
     verified = service.verify()
     assert verified == {

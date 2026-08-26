@@ -117,6 +117,12 @@ class SourceCutoverService:
         self.marker = self.root / ".software-factory-source-cutover.json"
 
     def plan(self) -> dict[str, Any]:
+        if self.marker.exists() or self.marker.is_symlink():
+            marker = self._read_marker()
+            self._validate_plan_material(marker)
+            return {
+                key: marker[key] for key in ("schema_version", "runtime", "skills", "plan_root")
+            }
         if not (self.root / "runtime" / "src" / "software_factory").is_dir():
             raise ValueError("native runtime source is missing")
         skills: list[dict[str, Any]] = []
