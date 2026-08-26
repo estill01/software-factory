@@ -157,7 +157,7 @@ def qualify(*, project_root: Path, static_dir: Path) -> dict[str, Any]:
         "owners": {
             "tracker": {
                 "path": str(DEFAULT_VERIFIER_PATH),
-                "sha256": trackers["data"]["verifier"]["sha256"],
+                "sha256": trackers["data"]["verifier_owner"]["sha256"],
             },
             "supervision": owner_revisions,
         },
