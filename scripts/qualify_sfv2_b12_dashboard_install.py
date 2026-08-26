@@ -138,7 +138,16 @@ def qualify(*, project_root: Path, static_dir: Path) -> dict[str, Any]:
         raise RuntimeError(f"installed health projection failed: {health}")
 
     static_files, static_bytes, static_root = _content_projection(static_dir)
-    owner_revisions = runs["data"]["owners"]
+    owner_revisions: dict[str, dict[str, Any]] = {}
+    for key, raw_owner in runs["data"]["owners"].items():
+        owner = dict(raw_owner)
+        owner_path = Path(owner["path"]).resolve(strict=True)
+        if not owner_path.is_relative_to(expected_runtime_package):
+            raise RuntimeError(
+                "supervision owner escaped the installed runtime package"
+            )
+        owner["path"] = owner_path.relative_to(expected_runtime_package).as_posix()
+        owner_revisions[key] = owner
     return {
         "schema_version": 1,
         "kind": "sfv2-b12-installed-dashboard-qualification",
@@ -150,13 +159,21 @@ def qualify(*, project_root: Path, static_dir: Path) -> dict[str, Any]:
                 "software-factory-dashboard"
             ).version,
         },
-        "distribution_roots": {
-            "software-factory": str(runtime_distribution_root),
-            "software-factory-dashboard": str(dashboard_distribution_root),
+        "installed_package_paths": {
+            "software-factory": expected_runtime_package.relative_to(
+                runtime_distribution_root
+            ).as_posix(),
+            "software-factory-dashboard": (
+                dashboard_distribution_root / "software_factory_dashboard"
+            )
+            .relative_to(dashboard_distribution_root)
+            .as_posix(),
         },
         "owners": {
             "tracker": {
-                "path": str(DEFAULT_VERIFIER_PATH),
+                "path": DEFAULT_VERIFIER_PATH.relative_to(
+                    expected_runtime_package
+                ).as_posix(),
                 "sha256": trackers["data"]["verifier_owner"]["sha256"],
             },
             "supervision": owner_revisions,
