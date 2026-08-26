@@ -36621,9 +36621,31 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
+READ_ONLY_COMPATIBILITY_COMMANDS = {
+    "gmail-cadence": None,
+    "lifecycle-gate": None,
+    "resume-gate": None,
+    "successor-transition-gate": None,
+    "status": None,
+    "thread-route-gate": None,
+    "weekly-report": {"status"},
+    "terminal-report": {"verify"},
+    "factory-evolution": {"verify"},
+}
+
+
 def main() -> int:
     args = parser().parse_args()
     try:
+        permitted_actions = READ_ONLY_COMPATIBILITY_COMMANDS.get(args.command)
+        if args.command not in READ_ONLY_COMPATIBILITY_COMMANDS or (
+            permitted_actions is not None
+            and getattr(args, "action", None) not in permitted_actions
+        ):
+            raise SupervisionLogError(
+                "The v1 compatibility owner is projection-only after SFV2 cutover; "
+                "invoke sf-skill supervise-tracker-runs for native supervision effects"
+            )
         args.func(args)
     except (SupervisionLogError, OSError, json.JSONDecodeError) as exc:
         print(json.dumps({"error": str(exc)}, sort_keys=True))

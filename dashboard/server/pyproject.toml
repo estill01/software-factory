@@ -11,6 +11,7 @@ dependencies = [
     "jsonschema>=4.25,<5",
     "pypdf>=6.14,<7",
     "reportlab>=5,<6",
+    "software-factory==2.0.0.dev6",
 ]
 
 [project.scripts]
@@ -21,3 +22,6 @@ packages = ["src/software_factory_dashboard"]
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+software-factory = { path = "../../runtime", editable = true }

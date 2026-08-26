@@ -113,6 +113,11 @@ wheels = [
 ]
 
 [[package]]
+name = "librsi"
+version = "0.2.0"
+source = { git = "https://github.com/estill01/libRSI.git?rev=1d81f6180b40435e10145756a2d99e6f334d31bc#1d81f6180b40435e10145756a2d99e6f334d31bc" }
+
+[[package]]
 name = "pillow"
 version = "12.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -357,6 +362,26 @@ wheels = [
 ]
 
 [[package]]
+name = "software-factory"
+version = "2.0.0.dev6"
+source = { editable = "../../runtime" }
+dependencies = [
+    { name = "librsi" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
+    { name = "coverage", marker = "extra == 'dev'", specifier = ">=7" },
+    { name = "librsi", git = "https://github.com/estill01/libRSI.git?rev=1d81f6180b40435e10145756a2d99e6f334d31bc" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "software-factory-dashboard"
 version = "0.1.0"
 source = { editable = "." }
@@ -364,6 +389,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "pypdf" },
     { name = "reportlab" },
+    { name = "software-factory" },
 ]
 
 [package.metadata]
@@ -371,6 +397,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.25,<5" },
     { name = "pypdf", specifier = ">=6.14,<7" },
     { name = "reportlab", specifier = ">=5,<6" },
+    { name = "software-factory", editable = "../../runtime" },
 ]
 
 [[package]]

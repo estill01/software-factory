@@ -1,25 +1,25 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
-from datetime import UTC, datetime
-from hashlib import sha256
 import json
 import mimetypes
-from pathlib import Path, PurePosixPath
+import os
 import re
 import secrets
 import sys
-from threading import Lock
-from time import monotonic
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from hashlib import sha256
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path, PurePosixPath
+from threading import Lock
+from time import monotonic
 from typing import Any, Sequence
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .admin_operations import OperationCoordinator, OperationError, OperationRegistry
 from .app_server import AppServerError, CodexAppServerClient
-
 from .catalog import (
     CatalogError,
     CatalogStore,
@@ -31,8 +31,8 @@ from .catalog import (
     validate_project_id,
 )
 from .contract import API_VERSION, PACKAGE_VERSION, envelope
-from .floor import compose_factory_floor
 from .factory_workflows import build_factory_operation_registry
+from .floor import compose_factory_floor
 from .operations import (
     DEFAULT_AUTOMATIONS_ROOT,
     DEFAULT_SUPERVISION_ROOT,
@@ -45,7 +45,6 @@ from .tracker import (
     tracker_identity,
     unavailable_tracker,
 )
-
 
 MAX_BODY_BYTES = 64 * 1024
 NONCE_PLACEHOLDER = "__SOFTWARE_FACTORY_MUTATION_NONCE__"
@@ -2213,6 +2212,11 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument(
         "--codex-client-wheel",
         type=Path,
+        default=(
+            Path(os.environ["SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL"])
+            if os.environ.get("SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL")
+            else None
+        ),
         help="Exact internal codex-app-server-client wheel accepted by the Factory pin.",
     )
     command.add_argument("--codex-home", type=Path)

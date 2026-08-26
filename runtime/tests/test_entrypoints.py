@@ -6,7 +6,7 @@ from pathlib import Path
 
 from software_factory.cli import main as cli_main
 from software_factory.daemon import main as daemon_main
-from software_factory.skill_bridge import main as skill_main
+from software_factory.native_skills import main as skill_main
 
 
 def test_cli_init_health_and_create_mission(capsys) -> None:
@@ -72,5 +72,83 @@ def test_daemon_once_and_skill_bridge(capsys) -> None:
             == 0
         )
         output = json.loads(capsys.readouterr().out)
-        assert output["role"] == "program_author"
         assert output["mission_id"] == mission_id
+        assert output["boundary_type"] == "checkpoint"
+
+
+def test_all_native_skill_wrappers_dispatch_real_runtime_services(capsys) -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        home = root / "state"
+        source = root / "migration-source"
+        source.mkdir()
+        (source / "evidence.json").write_text('{"status":"historical"}\n')
+        assert (
+            cli_main(
+                [
+                    "--home",
+                    str(home),
+                    "create-mission",
+                    "Native skills",
+                    "Exercise every installed wrapper against the canonical runtime",
+                ]
+            )
+            == 0
+        )
+        mission_id = json.loads(capsys.readouterr().out)["mission_id"]
+
+        assert (
+            skill_main(
+                [
+                    "implement-tracker-blocks",
+                    "--home",
+                    str(home),
+                    "--mission",
+                    mission_id,
+                    "--payload",
+                    '{"max_dispatch":1}',
+                ]
+            )
+            == 0
+        )
+        implementation = json.loads(capsys.readouterr().out)
+        assert implementation["mission_id"] == mission_id
+        assert "controller" in implementation
+        assert "continuation" in implementation
+
+        for skill in ("supervise-tracker-runs", "evolve-product-program"):
+            assert (
+                skill_main(
+                    [
+                        skill,
+                        "--home",
+                        str(home),
+                        "--mission",
+                        mission_id,
+                    ]
+                )
+                == 0
+            )
+            reconciled = json.loads(capsys.readouterr().out)
+            assert reconciled["mission_id"] == mission_id
+            assert "evolution_checkpoint" in reconciled
+
+        payload = json.dumps({"action": "migration_inventory", "source_root": str(source)})
+        assert (
+            skill_main(
+                [
+                    "clean-software-factory",
+                    "--home",
+                    str(home),
+                    "--mission",
+                    mission_id,
+                    "--payload",
+                    payload,
+                ]
+            )
+            == 0
+        )
+        cleanup = json.loads(capsys.readouterr().out)
+        assert cleanup["source_root"] == str(source.resolve())
+        assert cleanup["status"] == "inventoried"
+        assert len(cleanup["source_inventory_root"]) == 64

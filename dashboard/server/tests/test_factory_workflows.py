@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-from hashlib import sha256
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
 import sys
+import unittest
+from hashlib import sha256
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import RLock
 from types import SimpleNamespace
-import unittest
 from unittest.mock import patch
-
-from test_server import FAKE_SHARED_CLIENT, NONCE_PLACEHOLDER, response, running_server
-from test_tracker import FULL_TRACKER
 
 from software_factory_dashboard.admin_operations import (
     OperationError,
@@ -31,6 +28,10 @@ from software_factory_dashboard.factory_workflows import (
     _policy_after_changes,
 )
 from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
+from test_server import FAKE_SHARED_CLIENT, NONCE_PLACEHOLDER, response, running_server
+from test_tracker import FULL_TRACKER
+
+FIXTURE_SUPERVISION_OWNER = Path(__file__).with_name("supervision_fixture_owner.py")
 
 
 def post(origin: str, path: str, payload: dict[str, object]):
@@ -216,7 +217,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             completed = subprocess.run(
                 [
                     sys.executable,
-                    str(DEFAULT_SUPERVISION_OWNER),
+                    str(FIXTURE_SUPERVISION_OWNER),
                     "--root",
                     str(self.supervision_root),
                     *arguments,
@@ -283,37 +284,37 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 25)
+        self.assertEqual(len(supported), 14)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
-        self.assertIn("factory.supervision-adjust", supported)
-        self.assertIn("factory.supervision-repair-mission-binding", supported)
-        self.assertIn("factory.supervision-repair-role-task-binding", supported)
-        self.assertIn("factory.supervision-pause", supported)
-        self.assertIn("factory.supervision-resume", supported)
-        self.assertIn("factory.supervision-mission-successor", supported)
-        self.assertIn("factory.successor-task-transition", supported)
-        self.assertIn("factory.weekly-supervision-report", supported)
-        self.assertIn("factory.terminal-supervision-report", supported)
-        self.assertIn("factory.terminal-supervision-shutdown", supported)
-        self.assertIn("factory.evolution-evaluate", supported)
-        automation_repair = next(
-            item
-            for item in unavailable
-            if item["type"] == "factory.supervision-repair-automation-binding"
-        )
-        self.assertIn("target-query provider", automation_repair["reason"])
         self.assertIn("factory.supervision-review-checkpoint", supported)
         self.assertIn("factory.supervision-review-meta", supported)
         self.assertIn("factory.supervision-review-issue", supported)
         self.assertIn("task.input-respond", supported)
+        retired = {
+            "factory.supervision-adjust",
+            "factory.supervision-repair-mission-binding",
+            "factory.supervision-repair-role-task-binding",
+            "factory.supervision-repair-automation-binding",
+            "factory.supervision-pause",
+            "factory.supervision-resume",
+            "factory.supervision-mission-successor",
+            "factory.successor-task-transition",
+            "factory.weekly-supervision-report",
+            "factory.terminal-supervision-report",
+            "factory.terminal-supervision-shutdown",
+            "factory.evolution-evaluate",
+        }
+        unavailable_by_type = {item["type"]: item for item in unavailable}
         self.assertEqual(
-            {item["type"] for item in unavailable},
-            {
-                "factory.supervision-repair-automation-binding",
-                "factory.tracker-authoring-supervision",
-            },
+            set(unavailable_by_type),
+            retired | {"factory.tracker-authoring-supervision"},
         )
+        for operation_type in retired:
+            self.assertIn(
+                "sf-skill supervise-tracker-runs",
+                unavailable_by_type[operation_type]["reason"],
+            )
         prompt = task["turns"][0]["items"][0]["summary"]
         self.assertTrue(prompt.startswith("SOFTWARE_FACTORY_DASHBOARD_MISSION "))
         self.assertIn("$author-implementation-trackers", prompt)
@@ -3348,36 +3349,17 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 response(f"{origin}/api/v1/tasks/{candidate_id}?include_turns=true").body
             )["data"]["task"]
             preview_status, previewed = preview(origin, request_payload)
-            self.assertEqual(preview_status, 201, previewed)
-            execute_status, executed = execute(origin, request_payload, previewed)
             task_after = json.loads(
                 response(f"{origin}/api/v1/tasks/{candidate_id}?include_turns=true").body
             )["data"]["task"]
 
-        self.assertEqual(execute_status, 200, executed)
-        operation = executed["data"]["operation"]
-        self.assertEqual(operation["state"], "applied", executed)
-        self.assertEqual(
-            operation["preview"]["source_evidence"]["expected_task_id"],
-            candidate_id,
-        )
-        self.assertEqual(
-            operation["preview"]["source_evidence"]["identity_source"],
-            "canonical-policy-history-exact-task-id",
-        )
-        self.assertTrue(
-            operation["verification_evidence"]["task_postcondition_current"]
-        )
-        self.assertTrue(
-            operation["verification_evidence"]["policy_postcondition_current"]
-        )
-        self.assertTrue(operation["verification_evidence"]["route_gate_accepted"])
+        self.assertEqual(preview_status, 409, previewed)
+        self.assertEqual(previewed["error"]["code"], "operation_unavailable")
+        self.assertIn("sf-skill supervise-tracker-runs", previewed["error"]["message"])
         self.assertEqual(task_before, task_after)
         current = owner.read_json(directory / "policy.json")
-        self.assertEqual(
-            current["runtime"]["notice_reviewer_thread_id"],
-            candidate_id,
-        )
+        self.assertIsNone(current["runtime"]["notice_reviewer_thread_id"])
+        self.assertEqual(current["policy_sha256"], missing["policy_sha256"])
         self.assertEqual(current["runtime"]["watcher_thread_id"], initial["runtime"]["watcher_thread_id"])
         self.assertEqual(current["runtime"]["reviewer_thread_id"], initial["runtime"]["reviewer_thread_id"])
 

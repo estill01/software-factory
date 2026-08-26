@@ -1,49 +1,13 @@
-from __future__ import annotations
+"""Compatibility import for the retired projection-only skill bridge.
 
-import argparse
-import json
-from collections.abc import Sequence
-from pathlib import Path
+The installed ``sf-skill`` command targets :mod:`software_factory.native_skills`
+directly.  This module remains only so older imports reach the same native
+dispatcher instead of retaining a second, non-operative command path.
+"""
 
-from .bootstrap import open_runtime
+from .native_skills import SKILLS, build_parser, invoke, main
 
-SKILLS = {
-    "author-implementation-trackers": "program_author",
-    "implement-tracker-blocks": "implementer",
-    "supervise-tracker-runs": "supervisor",
-    "evolve-product-program": "program_evolver",
-    "clean-software-factory": "cleanup_owner",
-}
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="sf-skill")
-    parser.add_argument("skill", choices=sorted(SKILLS))
-    parser.add_argument("--home", type=Path)
-    parser.add_argument("--mission", required=True)
-    parser.add_argument("--payload", default="{}", help="JSON command payload.")
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    context = open_runtime(args.home)
-    mission = context.store.one(
-        "SELECT * FROM missions WHERE id=?", (args.mission,), required=False
-    )
-    if mission is None:
-        raise RuntimeError(f"mission not found: {args.mission}")
-    payload = json.loads(args.payload)
-    result = {
-        "skill": args.skill,
-        "role": SKILLS[args.skill],
-        "mission_id": args.mission,
-        "mission_version": mission["state_version"],
-        "next_action": context.core.next_action(args.mission),
-        "payload": payload,
-    }
-    print(json.dumps(result, indent=2, sort_keys=True))
-    return 0
+__all__ = ["SKILLS", "build_parser", "invoke", "main"]
 
 
 if __name__ == "__main__":

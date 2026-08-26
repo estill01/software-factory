@@ -92,11 +92,26 @@
       "verified"
     ],
     "focused_parity": {
-      "command": "runtime/.venv/bin/python -m pytest -q runtime/tests/test_merge_readiness.py runtime/tests/test_migration.py runtime/tests/test_source_cutover.py",
-      "result": "24 passed",
+      "command": "runtime/.venv/bin/python -m pytest -q runtime/tests/test_merge_readiness.py runtime/tests/test_migration.py runtime/tests/test_source_cutover.py && uv run --isolated --python 3.13 --with pytest --with-editable dashboard/server python -m pytest -q dashboard/server/tests/test_cutover_compatibility.py",
+      "result": "24 passed; 3 passed",
       "exit_code": 0,
-      "parity_case_count": 0,
-      "evidence_root": "7c5272f79756a9a44f2216aa97e79985a89099f77877c3759b7fdeebafea122c"
+      "parity_case_count": 1,
+      "evidence_root": "3a0fa142cebc7cc30d531cc49a864ec05b2f8f1d2a91491fd030069fc41a8e42"
+    },
+    "supervision_state_migration": {
+      "representative_legacy_inputs": [
+        "state/events.jsonl",
+        "tests/test_supervision.py"
+      ],
+      "historical_only": true,
+      "imported_event_count": 1,
+      "parity_case_count": 1,
+      "replacement_owner": "software_factory.native_skills",
+      "legacy_writers": 0,
+      "native_writers": 1,
+      "projection_owner": "runtime/src/software_factory/compatibility_owners/supervision/supervision_log.py",
+      "effect_entrypoint": "sf-skill supervise-tracker-runs",
+      "proof": "runtime/tests/test_migration.py::test_unmapped_legacy_test_fails_closed_until_explicitly_adjudicated"
     },
     "effects": [
       {
@@ -169,6 +184,30 @@
     "archived_generated_residue_present": true,
     "source_and_archive_roots_equal": true
   },
+  "dashboard_install_qualification": {
+    "isolated_python": "3.13.13",
+    "dashboard_version": "0.1.0",
+    "runtime_version": "2.0.0.dev6",
+    "dashboard_wheel_sha256": "44e62cb9ed2e8aab2f3625a10c6af76ca4c474a594bf2d164894610e208f4367",
+    "runtime_wheel_sha256": "5f707c34e07db19042659496a5f7be2d6e1c8458388e2e825ed0d5e7ed92d95c",
+    "runtime_requirement": "software-factory==2.0.0.dev6",
+    "semantic_requirement": "libRSI @ git+https://github.com/estill01/libRSI.git@1d81f6180b40435e10145756a2d99e6f334d31bc",
+    "client_wheel_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
+    "client_resolution": "explicit exact wheel through SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL or --codex-client-wheel",
+    "installed_help_exposes_client_wheel": true,
+    "installed_loader_verified_client_pin": true,
+    "registry_resolution_allowed": false,
+    "release_posture": "no-license-selected/unpublished"
+  },
+  "validation": {
+    "focused_runtime": "57 passed with the exact client, embedded-contract, and runtime-manifest wheels; one existing collection warning",
+    "dashboard": "135 passed and 29 subtests passed",
+    "runtime_ruff": "all checks passed",
+    "runtime_format": "111 files formatted",
+    "runtime_mypy": "75 source files clean",
+    "compileall": "runtime and dashboard sources clean",
+    "dashboard_lock": "current with exact local software-factory composition"
+  },
   "deletion_and_compatibility_ledger": [
     {
       "concern": "root skill control-plane owners",
@@ -179,10 +218,10 @@
     },
     {
       "concern": "dashboard tracker and supervision helper consumers",
-      "active_disposition": "moved-to-single-factory-owned-runtime-compatibility-owner-tree",
+      "active_disposition": "read-only-projection-tree-with-effects-retired-to-native-sf-skill",
       "active_path": "runtime/src/software_factory/compatibility_owners",
       "active_file_count": 12,
-      "active_file_hash_set_sha256": "9f1a234024431f5a6e5e8c731ab96235b30996ac7c041fac14e9b6286be6eab6",
+      "active_file_hash_set_sha256": "c9c82e348de7279b7ce7d3773bf84880479e3d6d828285cb39aaf890e10a95fe",
       "legacy_execution": false,
       "second_active_writer": false
     },

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from hashlib import sha256
 import json
 import os
-from pathlib import Path
 import re
 import stat
 import subprocess
 import sys
+from dataclasses import dataclass
+from datetime import datetime
+from hashlib import sha256
+from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Mapping, Sequence
 
@@ -48,7 +48,6 @@ from .tracker import (
     tracker_block_is_complete,
     tracker_identity,
 )
-
 
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 OWNER_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,79}\Z")
@@ -1365,20 +1364,67 @@ class FactoryWorkflowOwner:
                 self._semantic_review_definition("checkpoint"),
                 self._semantic_review_definition("meta"),
                 self._semantic_review_definition("issue"),
-                self._adjust_supervision_definition(),
-                self._mission_binding_repair_definition(),
-                self._role_binding_repair_definition(),
-                self._automation_binding_repair_definition(),
-                self._supervision_pause_definition(),
-                self._supervision_resume_definition(),
-                self._mission_successor_definition(),
-                self._successor_transition_definition(),
-                self._weekly_report_definition(),
-                self._terminal_report_definition(),
-                self._terminal_shutdown_definition(),
-                self._factory_evolution_definition(),
+                *self._retired_legacy_supervision_definitions(),
                 self._unavailable_authoring_supervision_definition(),
             )
+        )
+
+    def _retired_legacy_supervision_definitions(self) -> tuple[OperationDefinition, ...]:
+        """Keep old dashboard action identities visible without retaining a writer.
+
+        Read projections and exact gate/verification helpers remain available.
+        Consequential supervision effects now enter through the installed native
+        ``sf-skill`` owner, so the v1 file-ledger workflows are intentionally not
+        dispatchable from the dashboard registry.
+        """
+
+        operation_types = (
+            "factory.supervision-adjust",
+            "factory.supervision-repair-mission-binding",
+            "factory.supervision-repair-role-task-binding",
+            "factory.supervision-repair-automation-binding",
+            "factory.supervision-pause",
+            "factory.supervision-resume",
+            "factory.supervision-mission-successor",
+            "factory.successor-task-transition",
+            "factory.weekly-supervision-report",
+            "factory.terminal-supervision-report",
+            "factory.terminal-supervision-shutdown",
+            "factory.evolution-evaluate",
+        )
+        source = SourceSnapshot(
+            fingerprint=sha256(b"sfv2-native-supervision-cutover").hexdigest(),
+            evidence={"owner": "software_factory.native_skills"},
+        )
+        return tuple(
+            OperationDefinition(
+                operation_type=operation_type,
+                target_kind="run",
+                input_schema=_object_schema({}, required=()),
+                owner="software_factory.native_skills",
+                authority=("native mission and supervision authority",),
+                ordinary_consequences=(),
+                failure_consequences=("No legacy supervision file is mutated.",),
+                confirmation=ConfirmationContract("unavailable", "Unavailable", "UNAVAILABLE"),
+                idempotency="Unavailable through the retired compatibility route.",
+                expected_postcondition="A native Software Factory supervision effect is recorded.",
+                timeout_seconds=0,
+                limitations=(
+                    "Read-only v1 projections remain available for migration and historical inspection.",
+                ),
+                resolve_source=lambda target, inputs, selected=source: selected,
+                describe_effect=lambda target, inputs, resolved: PreviewEffect(
+                    "Unavailable", "Legacy supervision mutation is retired."
+                ),
+                dispatch=lambda target, inputs, resolved: DispatchResult(),
+                verify=lambda target, inputs, resolved, result: VerificationResult("unverified"),
+                supported=False,
+                unavailable_reason=(
+                    "SFV2 cutover retired the legacy file-ledger writer. Use "
+                    "sf-skill supervise-tracker-runs against the native mission."
+                ),
+            )
+            for operation_type in operation_types
         )
 
     def _active_projects(self) -> tuple[tuple[ProjectRecord, ...], str]:

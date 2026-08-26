@@ -35,4 +35,4 @@ def test_block2_entrypoints_preserve_effect_boundaries_and_add_service_host() ->
     assert scripts["software-factory"] == "software_factory.cli:main"
     assert scripts["software-factoryd"] == "software_factory.daemon:main"
     assert scripts["software-factory-api"] == "software_factory.api_main:main"
-    assert scripts["sf-skill"] == "software_factory.skill_bridge:main"
+    assert scripts["sf-skill"] == "software_factory.native_skills:main"

@@ -1,27 +1,27 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import UTC, datetime
 import base64
-from hashlib import sha256
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
 import textwrap
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.operations import (
     AUTOMATION_TARGET_QUERY_VERSION,
-    AutomationTargetQueryResult,
     DEFAULT_EVOLUTION_OWNER,
     DEFAULT_SUPERVISION_OWNER,
     DEFAULT_TERMINAL_OWNER,
     DEFAULT_WEEKLY_OWNER,
+    AutomationTargetQueryResult,
     OperationsProjectionError,
     OperationsProjectionService,
     TargetEvidence,
@@ -30,13 +30,13 @@ from software_factory_dashboard.operations import (
     _factory_evolution_comparison,
 )
 
-
 TARGET = "target-thread-0001"
 BROKEN_TARGET = "target-thread-0002"
 WATCHER = "watcher-thread-001"
 REVIEWER = "reviewer-thread-01"
 OLD_MISSION = sha256(b"Implement the tracker.").hexdigest()
 NEW_MISSION = "b" * 64
+FIXTURE_SUPERVISION_OWNER = Path(__file__).with_name("supervision_fixture_owner.py")
 
 
 def owner_module():
@@ -300,7 +300,7 @@ class OperationsProjectionTests(unittest.TestCase):
         result = subprocess.run(
             [
                 sys.executable,
-                str(DEFAULT_SUPERVISION_OWNER),
+                str(FIXTURE_SUPERVISION_OWNER),
                 "--root",
                 str(self.supervision_root),
                 *arguments,
@@ -1050,7 +1050,7 @@ class OperationsProjectionTests(unittest.TestCase):
                 "expected_normalized_policy_sha256"
             ],
         }
-        with self.assertRaises(OperationsProjectionError) as stale:
+        with self.assertRaises(OperationsProjectionError) as retired_stale_plan:
             self.service.apply_role_bind(
                 TARGET,
                 **{
@@ -1061,25 +1061,16 @@ class OperationsProjectionTests(unittest.TestCase):
                     + 1,
                 },
             )
-        self.assertEqual(stale.exception.code, "role_binding_source_stale")
+        self.assertEqual(
+            retired_stale_plan.exception.code,
+            "legacy_supervision_writer_retired",
+        )
         self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
 
-        applied = self.service.apply_role_bind(TARGET, **apply_arguments)
-
-        current = applied["control"]
-        self.assertEqual(
-            current["runtime"]["base_reviewer_thread_id"],
-            candidate,
-        )
-        self.assertEqual(current["policy_version"], preview["expected_policy_version"])
-        self.assertEqual(
-            current["policy_history_head_record"]["kind"],
-            "policy-bind",
-        )
-        self.assertEqual(current["policy_history_head_record"]["evidence"], [])
-        with self.assertRaises(OperationsProjectionError) as healthy:
-            self.service.preview_role_bind(TARGET, role="base_reviewer")
-        self.assertEqual(healthy.exception.code, "role_binding_owner_cannot_replace")
+        with self.assertRaises(OperationsProjectionError) as retired:
+            self.service.apply_role_bind(TARGET, **apply_arguments)
+        self.assertEqual(retired.exception.code, "legacy_supervision_writer_retired")
+        self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
 
     def test_role_bind_preview_rejects_predecessor_mission_task(self) -> None:
         directory = self.supervision_root / TARGET

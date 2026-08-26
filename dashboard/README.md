@@ -14,6 +14,11 @@ it does not keep a second operational ledger or infer completion.
 - Codex CLI 0.147.0 and the exact internal `codex-app-server-client` 0.1.0 wheel
   accepted by the Factory pin
 
+The dashboard is not an independently resolvable public package. Its server is
+composed with the sibling `runtime` package by `dashboard/server/pyproject.toml`'s
+local uv source. The shared client is an unpublished, no-license internal artifact;
+never resolve either dependency from a bare registry name/version.
+
 No global frontend package installation is required.
 
 The frozen frontend family is React 19.2, TypeScript 7.0, Vite 8.1, React
@@ -37,7 +42,8 @@ Run the API on a free loopback port, then start Vite. Both defaults deliberately
 avoid port 5173.
 
 ```bash
-uv run --project dashboard/server software-factory-dashboard --port 8787
+SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL=/absolute/qualified/codex_app_server_client-0.1.0-py3-none-any.whl \
+  uv run --project dashboard/server software-factory-dashboard --port 8787
 SOFTWARE_FACTORY_DASHBOARD_PORT=8787 npm --prefix dashboard/web run dev
 ```
 
@@ -47,7 +53,8 @@ Open `http://127.0.0.1:5188`. Vite proxies `/api` to the Python service.
 
 ```bash
 npm --prefix dashboard/web run build
-uv run --project dashboard/server software-factory-dashboard --port 8787
+SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL=/absolute/qualified/codex_app_server_client-0.1.0-py3-none-any.whl \
+  uv run --project dashboard/server software-factory-dashboard --port 8787
 ```
 
 Open `http://127.0.0.1:8787`. Choose another free port with `--port`; the
@@ -57,6 +64,13 @@ plumbing. Project, tracker, supervision, report, metrics, task, operation, and
 Factory Floor APIs share that origin. Read projections remain distinct from
 mutation: every consequential request uses the nonce-protected operation
 boundary and a maintained external owner.
+
+Startup loads `software_factory.provider_provenance` from the exact sibling
+runtime composition and verifies the configured client wheel's filename, SHA-256,
+content root, member count, byte count, version, protocol identity, and accepted
+utils producer roots before import. `--codex-client-wheel` may be used instead of
+the environment variable. Omitting the exact artifact leaves app-server features
+unavailable; it never falls back to a package registry.
 
 ## Register projects
 

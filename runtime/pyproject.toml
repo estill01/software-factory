@@ -25,7 +25,7 @@ dev = [
 software-factory = "software_factory.cli:main"
 software-factoryd = "software_factory.daemon:main"
 software-factory-api = "software_factory.api_main:main"
-sf-skill = "software_factory.skill_bridge:main"
+sf-skill = "software_factory.native_skills:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

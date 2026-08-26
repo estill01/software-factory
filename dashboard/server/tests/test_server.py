@@ -1,42 +1,42 @@
 from __future__ import annotations
 
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
-from hashlib import sha256
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+import unittest
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import Iterator
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-import unittest
-from unittest.mock import patch
 
-from test_tracker import FULL_TRACKER
 from fake_shared_client import fake_client_binding
-from test_admin_operations import (
-    DeterministicOwner,
-    execute_payload,
-    preview_payload,
-    operation_test_definition,
+from software_factory_dashboard.admin_operations import OperationRegistry
+from software_factory_dashboard.operations import (
+    OperationsProjectionService,
 )
-
 from software_factory_dashboard.server import (
-    DashboardConfigurationError,
     NONCE_PLACEHOLDER,
+    DashboardConfigurationError,
     ServerConfig,
     create_server,
 )
-from software_factory_dashboard.admin_operations import OperationRegistry
-from software_factory_dashboard.operations import (
-    DEFAULT_SUPERVISION_OWNER,
-    OperationsProjectionService,
+from test_admin_operations import (
+    DeterministicOwner,
+    execute_payload,
+    operation_test_definition,
+    preview_payload,
 )
+from test_tracker import FULL_TRACKER
+
 FAKE_SHARED_CLIENT = Path(__file__).with_name("fake_shared_client.py")
+FIXTURE_SUPERVISION_OWNER = Path(__file__).with_name("supervision_fixture_owner.py")
 
 
 @contextmanager
@@ -856,7 +856,7 @@ class DashboardServerTests(unittest.TestCase):
         init = subprocess.run(
             [
                 sys.executable,
-                str(DEFAULT_SUPERVISION_OWNER),
+                str(FIXTURE_SUPERVISION_OWNER),
                 "--root",
                 str(supervision_root),
                 "init",
@@ -881,7 +881,7 @@ class DashboardServerTests(unittest.TestCase):
         recorded = subprocess.run(
             [
                 sys.executable,
-                str(DEFAULT_SUPERVISION_OWNER),
+                str(FIXTURE_SUPERVISION_OWNER),
                 "--root",
                 str(supervision_root),
                 "record",

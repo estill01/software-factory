@@ -294,7 +294,14 @@ def test_every_operational_table_has_one_primary_owner_and_only_declared_writers
 def test_dependency_direction_rejects_persistence_to_service_and_service_to_host() -> None:
     persistence = {"audit", "database", "schema", "store"}
     support = {"audit", "database", "errors", "schema", "store", "util"}
-    hosts = {"api", "api_main", "native_skills", "runtime_daemon", "v2_cli"}
+    hosts = {
+        "api",
+        "api_main",
+        "native_skills",
+        "runtime_daemon",
+        "skill_bridge",
+        "v2_cli",
+    }
 
     for source in PACKAGE_ROOT.glob("*.py"):
         imports: set[str] = set()

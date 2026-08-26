@@ -1,28 +1,28 @@
 from __future__ import annotations
 
+import argparse
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
 from collections import Counter, OrderedDict
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-import argparse
-import importlib.util
 from io import StringIO
-import json
-import os
 from pathlib import Path
-import re
-import subprocess
-import sys
 from tempfile import TemporaryDirectory
 from threading import RLock
-import tomllib
 from types import ModuleType
 from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .catalog import ProjectRecord
+import tomllib
 
+from .catalog import ProjectRecord
 
 DASHBOARD_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_SUPERVISION_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
@@ -53,6 +53,17 @@ MAX_REPORT_SETS = 250
 MAX_CACHE_ENTRIES = 256
 MAX_METRIC_HISTORY_ROWS = 1_000
 OWNER_TIMEOUT_SECONDS = 30
+READ_ONLY_SUPERVISION_COMMANDS = {
+    "gmail-cadence": None,
+    "lifecycle-gate": None,
+    "resume-gate": None,
+    "successor-transition-gate": None,
+    "status": None,
+    "thread-route-gate": None,
+    "weekly-report": frozenset({"status"}),
+    "terminal-report": frozenset({"verify"}),
+    "factory-evolution": frozenset({"verify"}),
+}
 AUTOMATION_CALENDAR_TIMEZONE = "America/Los_Angeles"
 AUTOMATION_TARGET_QUERY_VERSION = 1
 AUTOMATION_TARGET_QUERY_UNAVAILABLE_REASON = (
@@ -3345,99 +3356,25 @@ class OperationsProjectionService:
         expected_owner_sha256: str,
         expected_normalized_policy_sha256: str,
     ) -> dict[str, Any]:
-        """Invoke one exact maintained bind assignment after revalidating its plan."""
+        """Reject the retired v1 role writer after exposing its read-only plan."""
 
-        with self._lock:
-            binding = ROLE_BIND_FIELDS.get(role)
-            if binding is None:
-                raise OperationsProjectionError(
-                    "role_binding_owner_unavailable",
-                    "The maintained bind owner cannot assign the selected role.",
-                    status=409,
-                )
-            field, _ = binding
-            control = self.policy_control_snapshot(target_thread_id)
-            policy = control.get("policy")
-            runtime = control.get("runtime")
-            history = control.get("policy_history_records")
-            models = policy.get("models") if isinstance(policy, Mapping) else None
-            current_role_ids = {
-                value
-                for role_field in ROLE_THREAD_KEYS
-                if isinstance(runtime, Mapping)
-                and isinstance((value := runtime.get(role_field)), str)
-                and value
-            }
-            if (
-                not isinstance(policy, Mapping)
-                or not isinstance(runtime, Mapping)
-                or not isinstance(history, list)
-                or control.get("policy_sha256") != prior_policy_sha256
-                or control.get("policy_version") != prior_policy_version
-                or control.get("policy_history_head") != prior_policy_history_head
-                or len(history) != prior_policy_history_count
-                or control.get("owner_sha256") != expected_owner_sha256
-                or control.get("lifecycle_status") in {"completed", "stopped"}
-                or runtime.get(field) is not None
-                or candidate_task_id == target_thread_id
-                or candidate_task_id in current_role_ids
-                or not isinstance(models, Mapping)
-                or models.get(role) != ROLE_MODEL_CONTRACTS[role]
-            ):
-                raise OperationsProjectionError(
-                    "role_binding_source_stale",
-                    "The role, candidate task, or policy head changed before assignment.",
-                    status=409,
-                    retryable=True,
-                )
-            owner = self._module("supervision")
-            output = StringIO()
-            try:
-                arguments = self._role_bind_arguments(
-                    target_thread_id,
-                    role=role,
-                    candidate_task_id=candidate_task_id,
-                    root=self.supervision_root,
-                )
-                with redirect_stdout(output):
-                    owner.cmd_bind(arguments)
-                result = json.loads(output.getvalue())
-            except Exception as error:
-                raise OperationsProjectionError(
-                    "role_binding_owner_failed",
-                    "The maintained bind owner rejected the exact role assignment.",
-                    status=409,
-                ) from error
-            current = self.policy_control_snapshot(target_thread_id)
-            current_policy = current.get("policy")
-            normalized = (
-                json.loads(json.dumps(current_policy))
-                if isinstance(current_policy, Mapping)
-                else None
-            )
-            if isinstance(normalized, dict):
-                normalized.pop("policy_sha256", None)
-                normalized.pop("updated_at", None)
-            if (
-                result.get("changed") is not True
-                or current.get("policy_version") != prior_policy_version + 1
-                or not isinstance(normalized, dict)
-                or _digest(normalized) != expected_normalized_policy_sha256
-                or current.get("runtime", {}).get(field) != candidate_task_id
-            ):
-                raise OperationsProjectionError(
-                    "role_binding_owner_postcondition_unverified",
-                    "The maintained owner returned without the exact expected role assignment.",
-                    status=409,
-                )
-            return {
-                "owner_result": result,
-                "control": current,
-                "plan": {
-                    "runtime_field": field,
-                    "expected_policy_version": prior_policy_version + 1,
-                },
-            }
+        del (
+            target_thread_id,
+            role,
+            candidate_task_id,
+            prior_policy_sha256,
+            prior_policy_version,
+            prior_policy_history_head,
+            prior_policy_history_count,
+            expected_owner_sha256,
+            expected_normalized_policy_sha256,
+        )
+        raise OperationsProjectionError(
+            "legacy_supervision_writer_retired",
+            "Dashboard role assignment is retired; invoke the native "
+            "sf-skill supervise-tracker-runs owner for supervision effects.",
+            status=409,
+        )
 
     def _module(self, family: str) -> ModuleType:
         paths = {
@@ -4230,6 +4167,22 @@ class OperationsProjectionService:
         return transitions
 
     def _owner_command(self, arguments: Sequence[str]) -> dict[str, Any]:
+        command_name = arguments[0] if arguments else ""
+        allowed_actions = READ_ONLY_SUPERVISION_COMMANDS.get(command_name)
+        selected_action = (
+            arguments[arguments.index("--action") + 1]
+            if "--action" in arguments and arguments.index("--action") + 1 < len(arguments)
+            else None
+        )
+        if command_name not in READ_ONLY_SUPERVISION_COMMANDS or (
+            allowed_actions is not None and selected_action not in allowed_actions
+        ):
+            raise OperationsProjectionError(
+                "legacy_supervision_writer_retired",
+                "The v1 supervision compatibility owner is read-only after SFV2 cutover; "
+                "use the native sf-skill supervision owner for effects.",
+                status=409,
+            )
         command = [sys.executable, str(self.supervision_owner), "--root", str(self.supervision_root), *arguments]
         try:
             result = subprocess.run(
