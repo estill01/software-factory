@@ -46,7 +46,7 @@ const tableSchema = z
 
 const verifierOwnerSchema = z
   .object({
-    identity: z.literal("author-implementation-trackers/verify_tracker.py"),
+    identity: z.literal("runtime/compatibility_owners/tracker/verify_tracker.py"),
     path: z.string().min(1),
     sha256: fingerprintSchema,
     owning_revision: gitObjectIdSchema.nullable(),

@@ -23,25 +23,25 @@ const observedAt = "2026-08-09T11:30:00.000Z"
 
 const owners = {
   supervision: {
-    identity: "supervise-tracker-runs/scripts/supervision_log.py",
+    identity: "runtime/compatibility_owners/supervision/supervision_log.py",
     path: "/owner/supervision_log.py",
     sha256: hash("a"),
     owning_revision: revision("1"),
   },
   weekly_report: {
-    identity: "supervise-tracker-runs/scripts/weekly_report.py",
+    identity: "runtime/compatibility_owners/supervision/weekly_report.py",
     path: "/owner/weekly_report.py",
     sha256: hash("b"),
     owning_revision: revision("2"),
   },
   terminal_report: {
-    identity: "supervise-tracker-runs/scripts/terminal_report.py",
+    identity: "runtime/compatibility_owners/supervision/terminal_report.py",
     path: "/owner/terminal_report.py",
     sha256: hash("c"),
     owning_revision: revision("3"),
   },
   factory_evolution: {
-    identity: "supervise-tracker-runs/scripts/factory_evolution.py",
+    identity: "runtime/compatibility_owners/supervision/factory_evolution.py",
     path: "/owner/factory_evolution.py",
     sha256: hash("d"),
     owning_revision: revision("4"),
@@ -164,7 +164,7 @@ const availableSummary = {
   light,
   topology,
   source: {
-    identity: "supervise-tracker-runs/scripts/supervision_log.py",
+    identity: "runtime/compatibility_owners/supervision/supervision_log.py",
     root: "/supervision/target-thread-1",
     revision: hash("a"),
     event_head_sha256: hash("3"),
@@ -805,7 +805,7 @@ const detail = {
   factory_evolution_workflow: factoryEvolutionWorkflow,
   metrics: {
     status: "available",
-    definition_owner: "supervise-tracker-runs/scripts/weekly_report.py",
+    definition_owner: "runtime/compatibility_owners/supervision/weekly_report.py",
     metrics,
     error: null,
   },

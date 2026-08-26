@@ -54,15 +54,55 @@ DEFAULT_VERIFIER_PATH = (
     / "tracker"
     / "verify_tracker.py"
 )
+
+
+def _repository_compatibility_roots() -> tuple[Path, ...]:
+    roots = {DASHBOARD_REPOSITORY_ROOT}
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(DASHBOARD_REPOSITORY_ROOT),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+        common_directory = Path(result.stdout.strip()).resolve(strict=True)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return tuple(roots)
+    if (
+        result.returncode == 0
+        and common_directory.name == ".git"
+        and common_directory.is_dir()
+        and (common_directory.parent / ".git").resolve(strict=True) == common_directory
+    ):
+        roots.add(common_directory.parent)
+    return tuple(sorted(roots))
+
+
+_CORE_COMPATIBILITY_BY_PATH = {
+    "docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md": frozenset(
+        {
+            "ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6",
+            "8b92bf1885cc7940a79e40f8186ffc89b279bfb50c144d4cfd1f99d100ffe0c1",
+        }
+    ),
+    "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md": frozenset(
+        {
+            "dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424",
+            "55f8632fa79d45c85a7ec1506ffca646e5fc4b1dd95a227570c8aa22eca1a40e",
+        }
+    ),
+}
 DEFAULT_CORE_COMPATIBILITY: dict[str, dict[str, frozenset[str]]] = {
-    str(DASHBOARD_REPOSITORY_ROOT): {
-        "docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md": frozenset(
-            {"ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6"}
-        ),
-        "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md": frozenset(
-            {"dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424"}
-        ),
-    }
+    str(root): dict(_CORE_COMPATIBILITY_BY_PATH)
+    for root in _repository_compatibility_roots()
 }
 
 

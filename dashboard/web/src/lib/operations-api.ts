@@ -222,7 +222,7 @@ const nestedCoverageSchema = z
 
 const runSourceSchema = z
   .object({
-    identity: z.literal("supervise-tracker-runs/scripts/supervision_log.py"),
+    identity: z.literal("runtime/compatibility_owners/supervision/supervision_log.py"),
     root: z.string().min(1),
     revision: fingerprintSchema,
     event_head_sha256: fingerprintSchema.nullable(),
@@ -757,7 +757,7 @@ const reportMetricSummarySchema = supervisionMetricsSchema
   })
   .strict()
 
-const metricsOwner = z.literal("supervise-tracker-runs/scripts/weekly_report.py")
+const metricsOwner = z.literal("runtime/compatibility_owners/supervision/weekly_report.py")
 const metricsProjectionSchema = z.discriminatedUnion("status", [
   z
     .object({

@@ -109,7 +109,7 @@ const run = {
     binding_integrity: "valid",
     anomalies: ["CURRENT-ANOMALY"],
   },
-  source: { identity: "supervise-tracker-runs/scripts/supervision_log.py", root: "/current", revision: hash("2"), event_head_sha256: hash("3"), policy_head_sha256: hash("4"), cache_status: "hit" },
+  source: { identity: "runtime/compatibility_owners/supervision/supervision_log.py", root: "/current", revision: hash("2"), event_head_sha256: hash("3"), policy_head_sha256: hash("4"), cache_status: "hit" },
   coverage: { status: "complete", observed: ["CURRENT-COVERAGE"], missing: [] },
   limitations: ["CURRENT-LIMITATION"],
   error: null,
@@ -288,7 +288,7 @@ const run = {
     recovery: { posture: "blocked", guidance: "Retain the review while exact implementation evidence is produced.", preserved_roots: [hash("8"), hash("9")] },
     error: null,
   },
-  metrics: { status: "unavailable", definition_owner: "supervise-tracker-runs/scripts/weekly_report.py", metrics: null, error: { code: "CURRENT-METRICS", message: "CURRENT-METRICS", retryable: false } },
+  metrics: { status: "unavailable", definition_owner: "runtime/compatibility_owners/supervision/weekly_report.py", metrics: null, error: { code: "CURRENT-METRICS", message: "CURRENT-METRICS", retryable: false } },
 }
 
 describe("run mission-history boundary", () => {

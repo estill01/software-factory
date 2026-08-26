@@ -38,7 +38,7 @@ const verifier = {
   warnings: [],
   command: ["python", "/owner/verify_tracker.py", "/work/docs/tracker.md", "--json"],
   owner: {
-    identity: "author-implementation-trackers/verify_tracker.py",
+    identity: "runtime/compatibility_owners/tracker/verify_tracker.py",
     path: "/owner/verify_tracker.py",
     sha256: fingerprint("b"),
     owning_revision: revision("c"),

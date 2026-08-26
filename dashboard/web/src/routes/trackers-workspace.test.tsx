@@ -52,7 +52,7 @@ const tracker = {
     errors: [],
     warnings: [],
     command: ["python", "verify_tracker.py"],
-    owner: { identity: "author-implementation-trackers/verify_tracker.py", path: "/owner/verify_tracker.py", sha256: fingerprint("4"), owning_revision: revision("5") },
+    owner: { identity: "runtime/compatibility_owners/tracker/verify_tracker.py", path: "/owner/verify_tracker.py", sha256: fingerprint("4"), owning_revision: revision("5") },
   },
   counts: { total: 2, by_status: { accepted: 1, "not-started": 1 }, accepted: 1, open: 1, with_completion_evidence: 1, evidence_by_posture: { recorded: 1, open: 1 } },
   current_blocks: [],

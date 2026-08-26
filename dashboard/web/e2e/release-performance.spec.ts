@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test"
 
 const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
 
-test("current Block 31 outcome projections preserve terminal counts, task provenance, and lifecycle currentness", async ({ page, request }) => {
+test("completed dashboard outcome projections preserve terminal counts, task-integration posture, and lifecycle currentness", async ({ page, request }) => {
   test.setTimeout(90_000)
   const trackerList = await request.get("/api/v1/trackers")
   expect(trackerList.ok()).toBeTruthy()
@@ -13,26 +13,33 @@ test("current Block 31 outcome projections preserve terminal counts, task proven
       candidate.relative_path === "docs/software-factory-operations-dashboard-implementation-tracker.md",
   )
   expect(tracker).toBeTruthy()
-  expect(tracker.counts).toMatchObject({ total: 32, accepted: 31, open: 1 })
-  expect(tracker.counts.by_status).toMatchObject({ completed: 31, "in-progress": 1 })
-  expect(tracker.current_block_details).toEqual([
-    expect.objectContaining({ number: 31, status: "in-progress" }),
-  ])
+  expect(tracker.counts).toMatchObject({ total: 32, accepted: 32, open: 0 })
+  expect(tracker.counts.by_status).toEqual({ completed: 32 })
+  expect(tracker.current_block_details).toEqual([])
 
   await page.goto("/trackers")
   const trackerRow = page.locator(".tracker-index-row").filter({ hasText: tracker.title })
   await expect(trackerRow).toContainText("32 Blocks")
-  await expect(trackerRow).toContainText("31/32 accepted")
-  await expect(trackerRow).toContainText("Block 31 — Integrated outcome validation and operator handoff")
+  await expect(trackerRow).toContainText("32/32 accepted")
+  await expect(trackerRow).toContainText("Tracker statusnoneNone active")
 
+  const healthResponse = await request.get("/api/v1/health")
+  expect(healthResponse.ok()).toBeTruthy()
+  const codexIntegration = (await healthResponse.json()).data.integrations.codex_app_server
   await page.goto(`/tasks/${target}`)
-  await expect(
-    page.locator(`.task-workspace .workspace-identity-strip code[title="${target}"]`),
-  ).toBeVisible()
-  await expect(page.getByText(/Turn detail unavailable:/)).toHaveCount(0)
-  await expect(page.locator(".task-turns details")).not.toHaveCount(0)
-  await page.locator(".task-turns details").last().click()
-  await expect(page.locator(".task-turns details").last().locator("article")).not.toHaveCount(0)
+  if (codexIntegration.status === "available") {
+    await expect(
+      page.locator(`.task-workspace .workspace-identity-strip code[title="${target}"]`),
+    ).toBeVisible()
+    await expect(page.getByText(/Turn detail unavailable:/)).toHaveCount(0)
+    await expect(page.locator(".task-turns details")).not.toHaveCount(0)
+    await page.locator(".task-turns details").last().click()
+    await expect(page.locator(".task-turns details").last().locator("article")).not.toHaveCount(0)
+  } else {
+    expect(codexIntegration.status).toBe("unavailable")
+    expect(codexIntegration.reason).toBeTruthy()
+    await expect(page.getByRole("alert")).toContainText(codexIntegration.reason)
+  }
 
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
