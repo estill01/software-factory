@@ -3,9 +3,9 @@
   "block": "SFV2/B12",
   "purpose": "terminal exact-revision qualification and truthful non-activating handoff",
   "candidate": {
-    "source_revision": "40f686cb5e6b3f9edeb773ea4ad6aab026373aa0",
-    "source_tree": "66f4288537e6680fb98d1d88a91c854b2f579b09",
-    "source_date_epoch": 1787741036,
+    "source_revision": "86720234d09c59e663588baa92854f11d8dd4b7d",
+    "source_tree": "f40e8ba30ffdf4f0b15e3377955e701ee3aa839e",
+    "source_date_epoch": 1787741622,
     "branch": "agent/software-factory-v2-native-refactor",
     "remote": "origin/agent/software-factory-v2-native-refactor",
     "remote_divergence_at_freeze": {
@@ -16,33 +16,36 @@
   },
   "artifacts": {
     "source_archive": {
-      "filename": "software-factory-40f686cb5e6b3f9edeb773ea4ad6aab026373aa0.tar.gz",
-      "sha256": "8167ef1c0f6ed8aaf85cee8dab8d8c177438702e5225c7366bf802a4b8af275a"
+      "filename": "software-factory-86720234d09c59e663588baa92854f11d8dd4b7d.tar.gz",
+      "sha256": "de2e27d1dfc6dfe9cdfccecd68fa2bb856a7a363e85a9fd973a47839de4c17ef"
     },
     "runtime_wheel": {
       "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
-      "sha256": "5e5d25c9c25530728520341e9f1dcdcfd41d61a7c3d5f2e74b313601d2247dec"
+      "sha256": "5fa5f8348881483d1953152f9ce4abb4fa0a8d2e1abf46f95d83c667da3c0d9a"
     },
     "dashboard_server_wheel": {
       "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
-      "sha256": "0b7e2a0095da37bc84a6753149495f6e2e4022d8d55045377d213b55a3ac7e94"
+      "sha256": "200fdc9385cc9454b0b6ec6029fa6056f3fa041c23e9816a3c208b355ca2d7ee"
     },
     "install_manifest": {
       "path": "docs/sfv2-b12-install-manifest.json",
-      "sha256": "2d7c3ad1c08644e591470119d27f5a1cbe4f1d6b0877fd0fda36e05cb531159c"
+      "sha256": "15b1715ed9c66052cc8fe4182966844c6ab4894c62888758033cfafb560cdbe3"
     },
     "offline_install_receipt": {
       "path": "docs/sfv2-b12-offline-install-receipt.json",
-      "sha256": "97e96e71161b7a0b74e10d71f55cee1df0f466878ed48e0c7c60eeaa3c4da078",
-      "qualification_root_sha256": "7c41f80674c97f6edf1c6136ec406c51f41ad25f2b72945a328f5b5bc43bbfe2"
+      "sha256": "67ab6888f744c90aba1ef33f339b1f42002a50367489914ee0ceed602a4c8cac",
+      "qualification_root_sha256": "293c160f63964d7d9073dfc1cb9f8fbdd17cf4fc75d3360ca42489083e88b457"
     },
     "installed_dashboard_receipt": {
       "path": "docs/sfv2-b12-installed-dashboard-receipt.json",
-      "sha256": "7b7d8a6652039f09bc4aa304fec4713806f59a69ceaf0f8e93f197cd3aaf5945",
+      "sha256": "88d2f5ec394b47c8b7cfbf6bdecd793fe6bdda3b924a45a2cbdf97178ca99594",
       "result": "passed byte-identically in two fresh isolated wheel environments",
       "exact_install_bindings": {
-        "offline_receipt_material_sha256": "f0e580b628564f833a8edb3ea1fa375cd2cc5f1cbeec640957f5bbec3d25c7e7",
-        "installed_artifact_projection_root_sha256": "044d31c39130b88b3b555c8e24268005e249ac3d225a6e54d454035eea10f1cc",
+        "offline_qualifier_path": "scripts/qualify_sfv2_b11_install.py",
+        "offline_qualifier_git_blob": "185a2483671eae16b0199b2fa742d479d6223f43",
+        "offline_qualifier_sha256": "07924e1200372dd093be9b555c4c3149ee192da4e86e986645da17cded8f94f2",
+        "offline_receipt_material_sha256": "ea5ef9b2e0e8b35b094597eed7394f95b2c4897c2205be11bab8404d8cc925e1",
+        "installed_artifact_projection_root_sha256": "d00cf177feab8f8b6761522e1031ce7d357337e052d1f81b5a760c94ea456d23",
         "artifacts_verified": 16,
         "installed_record_roots_verified": true
       }
@@ -133,7 +136,7 @@
     "installed_dashboard_artifact_smoke": {
       "result": "passed byte-identically in two fresh Python 3.13 wheel environments",
       "install": "all 16 exact wheels installed with --no-index --no-deps",
-      "binding": "verified the exact clean source revision/tree, manifest bytes, offline qualification root and receipt material, source archive, all 16 manifest artifact hashes and installed distribution versions, and every installed RECORD content/inventory root",
+      "binding": "verified the exact clean source revision/tree, source-bound offline-qualifier Git blob and content hash, manifest bytes, offline qualification root and receipt material, source archive, all 16 manifest artifact hashes and installed distribution versions, and every installed RECORD content/inventory root",
       "http": {
         "trackers": 200,
         "runs": 200,
@@ -148,6 +151,8 @@
       ],
       "static_dir": "31 files, 1,271,349 bytes, supplied through --static-dir",
       "negative_probes": [
+        "a caller-supplied offline qualifier option was rejected",
+        "a helper substitution differing from the exact source Git blob was rejected",
         "an incomplete artifact directory was rejected",
         "a dirty or different source checkout was rejected"
       ]
@@ -268,6 +273,16 @@
       "disposition": "REVISE",
       "findings": [
         "P1: the installed-dashboard receipt was not bound to the exact source revision, 16-wheel manifest, offline qualification root, or installed artifact set and could be reproduced with stale or incomplete inputs"
+      ],
+      "preservation": "revision, evidence, artifacts, and review remain pushed and unmodified"
+    },
+    {
+      "evidence_revision": "e55a0d18bae1dc9d7f1941acdfcbadf0d8a410ed",
+      "evidence_tree": "82789f7cf1cc7cef62c2000f2269c4f1d988b424",
+      "source_revision": "40f686cb5e6b3f9edeb773ea4ad6aab026373aa0",
+      "disposition": "REVISE",
+      "findings": [
+        "P1: the exact-install verifier accepted a caller-supplied offline qualifier whose path and content identity were absent from the receipt, permitting forged manifest, wheel, and installed-RECORD verification"
       ],
       "preservation": "revision, evidence, artifacts, and review remain pushed and unmodified"
     }

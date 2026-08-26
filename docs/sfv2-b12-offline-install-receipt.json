@@ -83,13 +83,13 @@
       "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
       "installed_content_root_sha256": "72968f13a1b227124673cd1b5a5b9c1e7533bcae3536c936ad7d931ce92e3952",
       "installed_inventory_root_sha256": "e29defbe04dea2c790d8881cbd700cdabefa1f15a36a5f1025f44b67f6aab3db",
-      "sha256": "5e5d25c9c25530728520341e9f1dcdcfd41d61a7c3d5f2e74b313601d2247dec"
+      "sha256": "5fa5f8348881483d1953152f9ce4abb4fa0a8d2e1abf46f95d83c667da3c0d9a"
     },
     {
       "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
       "installed_content_root_sha256": "0a281e2586b55f456c160bd22a520b037833d94bd68f274d9c32705d9befa936",
       "installed_inventory_root_sha256": "f54d69d6cd9336199f5a3bdfe1bc72d7791c0d608f4f05f80b225d4122e094f0",
-      "sha256": "0b7e2a0095da37bc84a6753149495f6e2e4022d8d55045377d213b55a3ac7e94"
+      "sha256": "200fdc9385cc9454b0b6ec6029fa6056f3fa041c23e9816a3c208b355ca2d7ee"
     },
     {
       "filename": "typing_extensions-4.16.0-py3-none-any.whl",
@@ -141,9 +141,9 @@
   "installed_record_complete_inventory_verified": true,
   "installed_record_roots_verified": true,
   "kind": "sfv2-b12-offline-install-qualification",
-  "manifest_sha256": "2d7c3ad1c08644e591470119d27f5a1cbe4f1d6b0877fd0fda36e05cb531159c",
+  "manifest_sha256": "15b1715ed9c66052cc8fe4182966844c6ab4894c62888758033cfafb560cdbe3",
   "python": "3.13.13",
-  "qualification_root_sha256": "7c41f80674c97f6edf1c6136ec406c51f41ad25f2b72945a328f5b5bc43bbfe2",
+  "qualification_root_sha256": "293c160f63964d7d9073dfc1cb9f8fbdd17cf4fc75d3360ca42489083e88b457",
   "registry_resolution_allowed": false,
   "result": "passed",
   "schema_version": 1
