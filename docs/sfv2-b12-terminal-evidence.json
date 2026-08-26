@@ -3,9 +3,9 @@
   "block": "SFV2/B12",
   "purpose": "terminal exact-revision qualification and truthful non-activating handoff",
   "candidate": {
-    "source_revision": "2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27",
-    "source_tree": "5398c352678016d25f5c461c87db0cc5324ecab9",
-    "source_date_epoch": 1787739202,
+    "source_revision": "8d04a043b07a6f98f5fdd181d9b9f519ef7550d2",
+    "source_tree": "80d8d355e6359a32d962db376e7c0279aa3ca6e9",
+    "source_date_epoch": 1787740286,
     "branch": "agent/software-factory-v2-native-refactor",
     "remote": "origin/agent/software-factory-v2-native-refactor",
     "remote_divergence_at_freeze": {
@@ -16,31 +16,36 @@
   },
   "artifacts": {
     "source_archive": {
-      "filename": "software-factory-2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27.tar.gz",
-      "sha256": "7bc3021cc8b52022c47c595a0e740d6ede4897a5e2f54ce2a025147125d813d3"
+      "filename": "software-factory-8d04a043b07a6f98f5fdd181d9b9f519ef7550d2.tar.gz",
+      "sha256": "daa44ee320a01d430ba2333d9ea605e0e2116b78d02bb0c807ba4980a22a6eb7"
     },
     "runtime_wheel": {
       "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
-      "sha256": "63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e"
+      "sha256": "01238e6b2d99a6871f7292bf80f02f3d45aae581e24e56f70a7063b0f217c3c6"
     },
     "dashboard_server_wheel": {
       "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
-      "sha256": "a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5"
+      "sha256": "4fabb3ad24c4c8ec5e7057f23381d548f38e1afb33b3b628985ebf585c97e2c9"
     },
     "install_manifest": {
       "path": "docs/sfv2-b12-install-manifest.json",
-      "sha256": "fa4e3be9e6b56339e52240b05e74b5cc91fa4b76ec1bfcaf1e39ea4807ae0130"
+      "sha256": "7ad20b8a5e2bbcd56146aac0ebdbcdb3d5b9c045fd9cfd5ecb3fd16bd0bc9b7f"
     },
     "offline_install_receipt": {
       "path": "docs/sfv2-b12-offline-install-receipt.json",
-      "sha256": "72b808101e4bf94fbc7e274210d00e5e7ecae8a98391e39f7b25c8ba1bd3ced8",
-      "qualification_root_sha256": "bb158a1cfe9a0ae19cc80af317074748d2566a9c432176b26e5f05b362786f74"
+      "sha256": "cc5cec61a8e18bad65c65da90db68d93aa02731ea18c7269b070b37452951687",
+      "qualification_root_sha256": "d60f08dfc4ec94897d86ad937626fdf03af962edf1df520e282f5da44c810d12"
+    },
+    "installed_dashboard_receipt": {
+      "path": "docs/sfv2-b12-installed-dashboard-receipt.json",
+      "sha256": "013a41ce299f6bee1a39f4987f210238821970b840076f6346c750823f2648e6",
+      "result": "passed byte-identically in two fresh isolated wheel environments"
     },
     "web_static_projection": {
       "source": "dashboard/web/dist built from the exact source candidate",
       "files": 31,
       "bytes": 1271349,
-      "projection_root_sha256": "27bdda5b7fbc77a1dd5a8df74b41f5ffa8bac2561acce550a7ca48141cafb131",
+      "projection_root_sha256": "bdfb99f9cac08606719ca773b2db05284901a6a4750c15aee403cd14d5242db1",
       "packaging_boundary": "The dashboard server wheel does not embed the web dist. The qualified operator run supplies this exact static directory through the documented --static-dir boundary; no standalone UI-wheel claim is made."
     },
     "reproducibility": {
@@ -80,7 +85,7 @@
     "dashboard_server_broad_once": {
       "scope": "dashboard/server tests",
       "result": "137 tests passed and 29 subtests passed",
-      "later_source_currentness": "only dashboard operations/tracker-owned deltas changed afterward; their focused affected tests passed"
+      "later_source_currentness": "the installed-owner correction passed 10 focused tracker, supervision, server, health, and cutover tests; unchanged broad results were reused"
     },
     "active_skill_release": {
       "scope": "active skill-release tests",
@@ -118,6 +123,23 @@
         "sfv2-b11-offline-install-qualification",
         "sfv2-b12-offline-install-qualification"
       ]
+    },
+    "installed_dashboard_artifact_smoke": {
+      "result": "passed byte-identically in two fresh Python 3.13 wheel environments",
+      "install": "all 16 exact wheels installed with --no-index --no-deps",
+      "http": {
+        "trackers": 200,
+        "runs": 200,
+        "health": 200
+      },
+      "installed_owner_paths": [
+        "software_factory/compatibility_owners/tracker/verify_tracker.py",
+        "software_factory/compatibility_owners/supervision/supervision_log.py",
+        "software_factory/compatibility_owners/supervision/weekly_report.py",
+        "software_factory/compatibility_owners/supervision/terminal_report.py",
+        "software_factory/compatibility_owners/supervision/factory_evolution.py"
+      ],
+      "static_dir": "31 files, 1,271,349 bytes, supplied through --static-dir"
     },
     "static_proofs": {
       "ruff": "passed across maintained runtime, dashboard server, and installer-qualifier scopes",
@@ -217,6 +239,18 @@
     "hosted_multi_tenant_implementation": false,
     "consumer_domain_mutation": false
   },
+  "review_history": [
+    {
+      "evidence_revision": "0176ef7db7ef9322cd7a37e6d96dcbd24ecd2f65",
+      "evidence_tree": "a45df96c020685f786893555a945c7d6cf4951d0",
+      "source_revision": "2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27",
+      "disposition": "REVISE",
+      "findings": [
+        "P1: the installed dashboard derived tracker and supervision owners from the dashboard wheel root, so those projections were unavailable from wheels"
+      ],
+      "preservation": "revision, evidence, artifacts, and review remain pushed and unmodified"
+    }
+  ],
   "handoff": {
     "posture": "internal qualification candidate only; not deployed, activated, published, or licensed",
     "independent_review_required": true,

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "sfv2-b12-installed-dashboard-qualification",
+  "result": "passed",
+  "python": "3.13.13",
+  "installed_distributions": {
+    "software-factory": "2.0.0.dev6",
+    "software-factory-dashboard": "0.1.0"
+  },
+  "installed_package_paths": {
+    "software-factory": "software_factory",
+    "software-factory-dashboard": "software_factory_dashboard"
+  },
+  "owners": {
+    "tracker": {
+      "path": "compatibility_owners/tracker/verify_tracker.py",
+      "sha256": "cc74da3c6bfe53a257f5a1fb33f1b15bfb02aa6815344cff939df616c90be6de"
+    },
+    "supervision": {
+      "factory_evolution": {
+        "identity": "runtime/compatibility_owners/supervision/factory_evolution.py",
+        "owning_revision": null,
+        "path": "compatibility_owners/supervision/factory_evolution.py",
+        "sha256": "5dba12af900246f58dca72736d42554f45f67d544f723b4c84128bc3f704dbfd"
+      },
+      "supervision": {
+        "identity": "runtime/compatibility_owners/supervision/supervision_log.py",
+        "owning_revision": null,
+        "path": "compatibility_owners/supervision/supervision_log.py",
+        "sha256": "aca31c8802e76f88dafbfa5ed5d2253e50d6b4417a2facd28ea829a4358a9201"
+      },
+      "terminal_report": {
+        "identity": "runtime/compatibility_owners/supervision/terminal_report.py",
+        "owning_revision": null,
+        "path": "compatibility_owners/supervision/terminal_report.py",
+        "sha256": "7198f36824646c87aa40ecd729a5adebd167166fc6922f855b70e6006fcfd5a7"
+      },
+      "weekly_report": {
+        "identity": "runtime/compatibility_owners/supervision/weekly_report.py",
+        "owning_revision": null,
+        "path": "compatibility_owners/supervision/weekly_report.py",
+        "sha256": "566ff5f2397eebe0042fb0d433fe63e0c757238544a4581877dd3c9fcc2e8709"
+      }
+    }
+  },
+  "http": {
+    "trackers": 200,
+    "runs": 200,
+    "health": 200,
+    "projected_trackers": 11,
+    "projected_runs": 0
+  },
+  "static_projection": {
+    "files": 31,
+    "bytes": 1271349,
+    "root_sha256": "bdfb99f9cac08606719ca773b2db05284901a6a4750c15aee403cd14d5242db1",
+    "supplied_by": "--static-dir"
+  },
+  "posture": "isolated no-index/no-deps installed-wheel smoke; read-only loopback service"
+}

@@ -2856,15 +2856,26 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   hash. The producer remains unpublished and no-license-selected; this Block
   cannot deploy, publish, redistribute, copy utils source, or grant release or
   reuse authority.
-- Frozen source candidate: exact pushed revision
-  `2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27`, tree
-  `5398c352678016d25f5c461c87db0cc5324ecab9`, at remote divergence `0/0`.
-  The terminal product delta reconciles the dashboard cutover contracts,
-  closes the final browser qualification failures, updates the stale migration
-  assertion to schema 26, clears the router advisory, and gives the offline
-  installer a distinct closed Block 12 receipt kind. The evidence record is a
-  documentation-only successor; every build, install, and operator proof is
-  bound to this unchanged source revision and tree.
+- Preserved rejected terminal evidence: distinct review returned `REVISE` on
+  exact pushed evidence revision
+  `0176ef7db7ef9322cd7a37e6d96dcbd24ecd2f65`, tree
+  `a45df96c020685f786893555a945c7d6cf4951d0`, over frozen source parent
+  `2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27`. One P1 proved that the
+  installed dashboard derived tracker and supervision owner paths from the
+  dashboard wheel root, where the runtime compatibility owners were absent.
+  The rejected revision, artifacts, review, and subsequent failed
+  qualification attempts remain preserved. No review finding was treated as
+  acceptance.
+- Corrected frozen source candidate: exact pushed revision
+  `8d04a043b07a6f98f5fdd181d9b9f519ef7550d2`, tree
+  `80d8d355e6359a32d962db376e7c0279aa3ca6e9`, at remote divergence `0/0`.
+  It retains the terminal dashboard, migration, router, and installer fixes,
+  resolves all dashboard compatibility owners from the exact installed
+  `software_factory` package, adds the isolated-wheel functional smoke, and
+  emits a location-independent receipt. Ten focused tracker, supervision,
+  server, health, and one-writer cutover tests pass after the correction. The
+  evidence record is a documentation-only successor; every build, install,
+  and operator proof below is bound to this unchanged source revision and tree.
 - Broad-once matrix: the runtime run recorded `284 passed, 1 failed` because
   one test still expected migration schema 25; after correcting only that
   assertion, the exact affected file passed all 3 tests and runtime production
@@ -2878,20 +2889,23 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   build passed, the locked dependency audit has zero advisories, and maintained
   Ruff, formatting, mypy, compilation, and tracker-verifier scopes are green.
 - Reproducible artifacts: two independent clean Git archives using
-  `SOURCE_DATE_EPOCH=1787739202` produced byte-identical source archive
-  `7bc3021cc8b52022c47c595a0e740d6ede4897a5e2f54ce2a025147125d813d3`,
+  `SOURCE_DATE_EPOCH=1787740286` produced byte-identical source archive
+  `daa44ee320a01d430ba2333d9ea605e0e2116b78d02bb0c807ba4980a22a6eb7`,
   runtime wheel
-  `63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e`,
+  `01238e6b2d99a6871f7292bf80f02f3d45aae581e24e56f70a7063b0f217c3c6`,
   and dashboard server wheel
-  `a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5`.
+  `4fabb3ad24c4c8ec5e7057f23381d548f38e1afb33b3b628985ebf585c97e2c9`.
   Exact no-index/no-deps installation of all 16 declared wheels passed twice
   with qualification root
-  `bb158a1cfe9a0ae19cc80af317074748d2566a9c432176b26e5f05b362786f74`;
+  `d60f08dfc4ec94897d86ad937626fdf03af962edf1df520e282f5da44c810d12`;
   every installed RECORD inventory/content root and all three entrypoints were
-  verified. The dashboard server wheel does not embed the separately built web
-  dist: the qualified operator run supplied the exact 31-file, 1,271,349-byte
-  static projection with root
-  `27bdda5b7fbc77a1dd5a8df74b41f5ffa8bac2561acce550a7ca48141cafb131`
+  verified. Two fresh isolated Python 3.13 wheel environments also returned
+  byte-identical installed-dashboard receipts: tracker, runs, and health HTTP
+  routes returned 200 while the tracker verifier and all four supervision
+  owners resolved below the installed runtime package. The dashboard server
+  wheel does not embed the separately built web dist: the qualified runs
+  supplied the exact 31-file, 1,271,349-byte static projection with root
+  `bdfb99f9cac08606719ca773b2db05284901a6a4750c15aee403cd14d5242db1`
   through the documented `--static-dir` boundary. No standalone UI-wheel claim
   is made.
 - Operator-visible outcome: a real loopback dashboard run projected 20
@@ -2902,11 +2916,13 @@ dogfoods, limitations, and actual outcome rather than summaries alone.
   `app_server_artifact_required`. No simulated provider result was labeled
   live, and no generative provider diagnostic was authorized or run.
 - Terminal evidence: `docs/sfv2-b12-install-manifest.json`, SHA-256
-  `fa4e3be9e6b56339e52240b05e74b5cc91fa4b76ec1bfcaf1e39ea4807ae0130`;
+  `7ad20b8a5e2bbcd56146aac0ebdbcdb3d5b9c045fd9cfd5ecb3fd16bd0bc9b7f`;
   `docs/sfv2-b12-offline-install-receipt.json`, SHA-256
-  `72b808101e4bf94fbc7e274210d00e5e7ecae8a98391e39f7b25c8ba1bd3ced8`;
+  `cc5cec61a8e18bad65c65da90db68d93aa02731ea18c7269b070b37452951687`;
+  `docs/sfv2-b12-installed-dashboard-receipt.json`, SHA-256
+  `013a41ce299f6bee1a39f4987f210238821970b840076f6346c750823f2648e6`;
   and `docs/sfv2-b12-terminal-evidence.json`, SHA-256
-  `135bcdd75bdff5f20c21690aa195f6750ef32cedabd11f0140efe798effc61c6`,
+  `7ad2b07651f786175a0751d59c6427f455444910e0fa644764c8c9dda2b8b7e8`,
   bind the source candidate, artifact checksums, broad/focused currentness,
   operator outcome, exact utility package identities, and Stop boundaries.
   The full terminal candidate is assembled but remains `in-progress` pending

@@ -83,13 +83,13 @@
       "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
       "installed_content_root_sha256": "72968f13a1b227124673cd1b5a5b9c1e7533bcae3536c936ad7d931ce92e3952",
       "installed_inventory_root_sha256": "e29defbe04dea2c790d8881cbd700cdabefa1f15a36a5f1025f44b67f6aab3db",
-      "sha256": "63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e"
+      "sha256": "01238e6b2d99a6871f7292bf80f02f3d45aae581e24e56f70a7063b0f217c3c6"
     },
     {
       "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
-      "installed_content_root_sha256": "7602613567a49baf440a1a1c48c9f95efc44b8ce0a8e6dcac0d1294b43460935",
-      "installed_inventory_root_sha256": "340a6f63d08df11a048c26d7e7edcf2bafb9c3d0314576044a5b004ca8d5b6eb",
-      "sha256": "a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5"
+      "installed_content_root_sha256": "0a281e2586b55f456c160bd22a520b037833d94bd68f274d9c32705d9befa936",
+      "installed_inventory_root_sha256": "f54d69d6cd9336199f5a3bdfe1bc72d7791c0d608f4f05f80b225d4122e094f0",
+      "sha256": "4fabb3ad24c4c8ec5e7057f23381d548f38e1afb33b3b628985ebf585c97e2c9"
     },
     {
       "filename": "typing_extensions-4.16.0-py3-none-any.whl",
@@ -141,9 +141,9 @@
   "installed_record_complete_inventory_verified": true,
   "installed_record_roots_verified": true,
   "kind": "sfv2-b12-offline-install-qualification",
-  "manifest_sha256": "fa4e3be9e6b56339e52240b05e74b5cc91fa4b76ec1bfcaf1e39ea4807ae0130",
+  "manifest_sha256": "7ad20b8a5e2bbcd56146aac0ebdbcdb3d5b9c045fd9cfd5ecb3fd16bd0bc9b7f",
   "python": "3.13.13",
-  "qualification_root_sha256": "bb158a1cfe9a0ae19cc80af317074748d2566a9c432176b26e5f05b362786f74",
+  "qualification_root_sha256": "d60f08dfc4ec94897d86ad937626fdf03af962edf1df520e282f5da44c810d12",
   "registry_resolution_allowed": false,
   "result": "passed",
   "schema_version": 1

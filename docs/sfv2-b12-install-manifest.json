@@ -69,13 +69,13 @@
     },
     {
       "filename": "software_factory-2.0.0.dev6-py3-none-any.whl",
-      "sha256": "63b940354d21517b7add8983601259cc2ff2bfde1f45700e53103b73ec25169e",
-      "source": "exact SFV2 Block 12 source revision 2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27 with SOURCE_DATE_EPOCH=1787739202"
+      "sha256": "01238e6b2d99a6871f7292bf80f02f3d45aae581e24e56f70a7063b0f217c3c6",
+      "source": "exact SFV2 Block 12 source revision 8d04a043b07a6f98f5fdd181d9b9f519ef7550d2 with SOURCE_DATE_EPOCH=1787740286"
     },
     {
       "filename": "software_factory_dashboard-0.1.0-py3-none-any.whl",
-      "sha256": "a7c12d50bb9b6c2c12d255d49a54483558547504cd8523e7d9bea77f816af7c5",
-      "source": "exact SFV2 Block 12 source revision 2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27 with SOURCE_DATE_EPOCH=1787739202"
+      "sha256": "4fabb3ad24c4c8ec5e7057f23381d548f38e1afb33b3b628985ebf585c97e2c9",
+      "source": "exact SFV2 Block 12 source revision 8d04a043b07a6f98f5fdd181d9b9f519ef7550d2 with SOURCE_DATE_EPOCH=1787740286"
     },
     {
       "filename": "typing_extensions-4.16.0-py3-none-any.whl",
@@ -119,12 +119,12 @@
     "sf-skill"
   ],
   "block": "SFV2/B12",
-  "source_revision": "2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27",
-  "source_tree": "5398c352678016d25f5c461c87db0cc5324ecab9",
-  "source_date_epoch": 1787739202,
+  "source_revision": "8d04a043b07a6f98f5fdd181d9b9f519ef7550d2",
+  "source_tree": "80d8d355e6359a32d962db376e7c0279aa3ca6e9",
+  "source_date_epoch": 1787740286,
   "source_archive": {
-    "filename": "software-factory-2117dfe4d0c0a5828fdebb28e7f3105d1abd4e27.tar.gz",
-    "sha256": "7bc3021cc8b52022c47c595a0e740d6ede4897a5e2f54ce2a025147125d813d3"
+    "filename": "software-factory-8d04a043b07a6f98f5fdd181d9b9f519ef7550d2.tar.gz",
+    "sha256": "daa44ee320a01d430ba2333d9ea605e0e2116b78d02bb0c807ba4980a22a6eb7"
   },
   "release_posture": "internal qualification candidate only; not activated or deployed"
 }
