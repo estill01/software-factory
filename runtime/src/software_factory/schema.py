@@ -39,6 +39,7 @@ MIGRATIONS = (
     Migration(23, "0023_librsi_integration.sql"),
     Migration(24, "0024_delivery_reconciliation.sql"),
     Migration(25, "0025_publication_validation_intent.sql"),
+    Migration(26, "0026_librsi_shadow_retirement.sql"),
 )
 SCHEMA_VERSION = MIGRATIONS[-1].version
 

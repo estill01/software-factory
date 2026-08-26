@@ -53,8 +53,8 @@ def test_store_compatibility_names_are_the_same_persistence_owner() -> None:
 
 
 def test_migration_catalog_is_complete_contiguous_and_file_exact() -> None:
-    assert SCHEMA_VERSION == 25
-    assert [migration.version for migration in MIGRATIONS] == list(range(1, 26))
+    assert SCHEMA_VERSION == 26
+    assert [migration.version for migration in MIGRATIONS] == list(range(1, 27))
     names = [migration.name for migration in MIGRATIONS]
     assert len(names) == len(set(names))
     discovered = sorted(path.name for path in (PACKAGE_ROOT / "migrations").glob("*.sql"))
@@ -83,7 +83,7 @@ def test_publication_intent_migration_preserves_historical_validator_identity() 
             ("unfinished", "accepted", None),
         ],
     )
-    database.executescript(migration_sql(MIGRATIONS[-1]))
+    database.executescript(migration_sql(MIGRATIONS[24]))
     rows = {
         row["id"]: row["post_validation_command_json"]
         for row in database.execute(
@@ -97,13 +97,35 @@ def test_publication_intent_migration_preserves_historical_validator_identity() 
     }
 
 
+def test_librsi_shadow_retirement_migration_preserves_historical_receipt_basis() -> None:
+    database = sqlite3.connect(":memory:", isolation_level=None)
+    database.row_factory = sqlite3.Row
+    database.execute(
+        """CREATE TABLE librsi_cutover_receipts_v2(
+               receipt_root TEXT PRIMARY KEY,
+               authority_posture TEXT NOT NULL,
+               created_at TEXT NOT NULL
+           )"""
+    )
+    database.execute(
+        "INSERT INTO librsi_cutover_receipts_v2 VALUES('receipt','authoritative','now')"
+    )
+    database.executescript(migration_sql(MIGRATIONS[25]))
+    row = database.execute(
+        "SELECT parity_basis_root FROM librsi_cutover_receipts_v2 WHERE receipt_root='receipt'"
+    ).fetchone()
+    assert row["parity_basis_root"] == (
+        "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644"
+    )
+
+
 def test_database_upgrades_an_applied_v9_prefix_without_alternate_writers(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "factory.sqlite3"
     _applied_prefix(path, 9)
     database = Database(path)
-    assert database.health()["schema_version"] == 25
+    assert database.health()["schema_version"] == 26
     tables = {
         row["name"] for row in database.all("SELECT name FROM sqlite_master WHERE type='table'")
     }

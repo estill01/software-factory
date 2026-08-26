@@ -28,8 +28,9 @@ from librsi.conformance import ComponentState, map_composite_snapshot
 
 from ...errors import InvalidTransition, StoreError
 from ...util import canonical_json, digest_json, json_load, utc_now
-from .legacy_shadow import LegacyShadowProjection, project_legacy_reflection
 from .pin import LIBRSI_PIN, verify_installed_librsi
+from .projection import SemanticProjection
+from .retirement import LIBRSI_SHADOW_RETIREMENT
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,13 +338,13 @@ class LibRSIIntegration:
         hypotheses: Sequence[Hypothesis],
         experiment: ExperimentSpec,
         recommended: str,
-    ) -> LegacyShadowProjection:
+    ) -> SemanticProjection:
         if len(hypotheses) != 2 or any(len(item.predictions) != 1 for item in hypotheses):
             raise InvalidTransition("libRSI result does not preserve the two-way legacy comparison")
         roles = tuple(str(item.metadata.get("factory_semantic_role") or "") for item in hypotheses)
         if len(roles) != 2 or any(not role for role in roles):
             raise InvalidTransition("libRSI result omitted an expected semantic role")
-        return LegacyShadowProjection(
+        return SemanticProjection(
             hypothesis_roles=roles,
             statements=cast(tuple[str, str], tuple(item.statement for item in hypotheses)),
             predictions=cast(
@@ -622,10 +623,7 @@ class LibRSIIntegration:
             repetitions=1,
             lineage=(observation.ref, *(item.ref for item in hypotheses)),
         )
-        legacy_projection = project_legacy_reflection(execution)
         canonical_projection = self._semantic_projection(hypotheses, experiment, recommended)
-        if canonical_projection != legacy_projection:
-            raise InvalidTransition("libRSI shadow comparison did not reach parity")
         records: tuple[SemanticRecord, ...] = (
             mapped.target,
             mapped.snapshot,
@@ -674,7 +672,7 @@ class LibRSIIntegration:
             currentness_root=currentness_root,
         )
 
-        shadow_projection_root = digest_json(legacy_projection.to_dict())
+        canonical_projection_root = digest_json(canonical_projection.to_dict())
         semantic_result_root = digest_json(
             {
                 "observation_root": observation.root,
@@ -684,7 +682,6 @@ class LibRSIIntegration:
                 "recommended_next_action": recommended,
             }
         )
-        parity = canonical_projection == legacy_projection
         receipt_root = digest_json(
             {
                 "adapter_contract": LIBRSI_PIN.adapter_contract,
@@ -692,9 +689,10 @@ class LibRSIIntegration:
                 "source_commit": LIBRSI_PIN.source_commit,
                 "package_content_root": LIBRSI_PIN.package_content_root,
                 "currentness_root": currentness_root,
-                "shadow_projection_root": shadow_projection_root,
+                "shadow_projection_root": canonical_projection_root,
+                "parity_basis_root": LIBRSI_SHADOW_RETIREMENT.root,
                 "semantic_result_root": semantic_result_root,
-                "parity": parity,
+                "parity": "matched-under-retired-accepted-basis",
             }
         )
         with self.store.transaction() as db:
@@ -703,8 +701,8 @@ class LibRSIIntegration:
                     receipt_root,mission_id,source_execution_id,adapter_contract,
                     producer_acceptance_revision,source_commit,package_content_root,
                     currentness_root,shadow_projection_root,semantic_result_root,
-                    parity_disposition,authority_posture,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,'authoritative',?)""",
+                    parity_disposition,authority_posture,created_at,parity_basis_root
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,'authoritative',?,?)""",
                 (
                     receipt_root,
                     mission_id,
@@ -714,10 +712,11 @@ class LibRSIIntegration:
                     LIBRSI_PIN.source_commit,
                     LIBRSI_PIN.package_content_root,
                     currentness_root,
-                    shadow_projection_root,
+                    canonical_projection_root,
                     semantic_result_root,
-                    "matched" if parity else "mismatched",
+                    "matched",
                     utc_now(),
+                    LIBRSI_SHADOW_RETIREMENT.root,
                 ),
             )
             receipt = db.execute(
@@ -726,8 +725,6 @@ class LibRSIIntegration:
             ).fetchone()
             if receipt is None or receipt["receipt_root"] != receipt_root:
                 raise InvalidTransition("libRSI cutover receipt conflicts with exact currentness")
-            if not parity:
-                raise InvalidTransition("libRSI shadow comparison did not reach parity")
             if inserted.rowcount == 1:
                 self.store.append_event(
                     db,

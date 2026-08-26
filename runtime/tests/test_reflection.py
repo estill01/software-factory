@@ -4,9 +4,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from librsi import Hypothesis, HypothesisPolicy, TargetSnapshot, deserialize_record
+from librsi import Hypothesis, TargetSnapshot, deserialize_record
 
 from software_factory import CoreService, InvalidTransition, Store
+from software_factory.integrations.librsi.retirement import (
+    EXPECTED_LIBRSI_SHADOW_RETIREMENT_ROOT,
+    LIBRSI_SHADOW_RETIREMENT,
+)
 from software_factory.reflection import ReflectionService
 from software_factory.util import canonical_json, new_id, utc_now
 
@@ -148,6 +152,8 @@ def test_failure_reflection_is_idempotent_and_retains_competing_hypotheses() -> 
         assert receipt["parity_disposition"] == "matched"
         assert receipt["authority_posture"] == "authoritative"
         assert receipt["source_commit"] == "1d81f6180b40435e10145756a2d99e6f334d31bc"
+        assert receipt["parity_basis_root"] == LIBRSI_SHADOW_RETIREMENT.root
+        assert LIBRSI_SHADOW_RETIREMENT.root == EXPECTED_LIBRSI_SHADOW_RETIREMENT_ROOT
         assert execution not in first["hypothesis_roots"]
         assert (
             store.one(
@@ -157,37 +163,26 @@ def test_failure_reflection_is_idempotent_and_retains_competing_hypotheses() -> 
         )
 
 
-def test_shadow_parity_is_independent_and_fails_before_semantic_effects(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class MutatingPolicy(HypothesisPolicy):
-        def create(self, **kwargs: object) -> Hypothesis:
-            kwargs["statement"] = f"wrong semantic statement: {kwargs['statement']}"
-            return super().create(**kwargs)  # type: ignore[arg-type]
-
-    with tempfile.TemporaryDirectory() as directory:
-        store, core, reflection, mission = make_runtime(Path(directory))
-        obligation, work = add_selected_work(core, mission, strategy="incumbent")
-        execution = observed_execution(
-            store,
-            mission,
-            obligation,
-            work,
-            strategy="incumbent",
-            status="failed",
-            error="same failure",
-        )
-        monkeypatch.setattr(
-            "software_factory.integrations.librsi.service.HypothesisPolicy", MutatingPolicy
-        )
-        with pytest.raises(InvalidTransition, match="shadow comparison"):
-            reflection.reflect_execution(execution)
-        assert store.one("SELECT COUNT(*) AS count FROM librsi_records") == {"count": 0}
-        assert store.one(
-            "SELECT COUNT(*) AS count FROM work_items WHERE lane_key=?",
-            (f"librsi-experiment:{execution}",),
-        ) == {"count": 0}
-        assert store.one("SELECT COUNT(*) AS count FROM librsi_cutover_receipts_v2") == {"count": 0}
+def test_shadow_comparator_is_retired_under_exact_accepted_parity_basis() -> None:
+    assert LIBRSI_SHADOW_RETIREMENT.accepted_factory_revision == (
+        "56d2a22bf2a0df53d5bf2c3212187dc1cc9c67a2"
+    )
+    assert LIBRSI_SHADOW_RETIREMENT.accepted_factory_tree == (
+        "d58f2a408e59a01bcbaa86825d8c3f3f31aa22c2"
+    )
+    assert LIBRSI_SHADOW_RETIREMENT.legacy_comparator_sha256 == (
+        "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644"
+    )
+    assert LIBRSI_SHADOW_RETIREMENT.preserved_legacy_path == (
+        "legacy/v1/runtime/src/software_factory/integrations/librsi/legacy_shadow.py"
+    )
+    assert LIBRSI_SHADOW_RETIREMENT.parity_dimensions == (
+        "hypothesis_roles",
+        "statements",
+        "predictions",
+        "recommended_next_action",
+        "experiment_kind",
+    )
 
 
 def test_unexpected_success_and_ordinary_success_choose_different_routes() -> None:

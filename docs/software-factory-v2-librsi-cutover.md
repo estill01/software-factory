@@ -89,14 +89,17 @@ The following semantics are authoritative through libRSI:
    choose diagnosis, alternate implementation, architecture review, or success
    generalization semantics. No canonical hypothesis may cross mission identity.
 
-Before each failed/unexpected source execution becomes authoritative, a preserved
-pure legacy projection independently produces the exact roles, statements,
-predictions, route, and experiment kind. The adapter compares the complete canonical
-projection before any semantic persistence, work creation, binding, receipt, or
-cutover event. The content-rooted
-receipt in `librsi_cutover_receipts_v2` records exact dependency identity,
-currentness, shadow root, semantic-result root, matched parity, and authoritative
-posture. Mismatch fails closed.
+Block 7 established exact mapped parity for roles, statements, predictions, route,
+and experiment kind before any semantic persistence, work creation, binding,
+receipt, or cutover event. Block 11 retires that live comparator from the active
+runtime after preserving its exact bytes under `legacy/v1`. The packaged
+`librsi-shadow-retirement.json` binds the accepted Factory revision and tree,
+focused-evidence hash, comparator source hash, and all five parity dimensions.
+Migration 26 preserves the original comparator-source root on historical receipts;
+new receipts record the canonical projection root in the compatibility
+`shadow_projection_root` column and the exact accepted retirement root in
+`parity_basis_root`. The legacy projection is no longer imported or executed, so
+there is one active semantic writer and no shadow owner.
 
 ## Deletion and preservation map
 
@@ -105,6 +108,7 @@ posture. Mismatch fails closed.
 | `ReflectionService._create_hypothesis` and failed/unexpected local proposal logic | deleted | no local writer | replaced after mapped parity by `LibRSIIntegration` |
 | `ReflectionService.update_hypothesis` | deleted | no local writer | exact immutable libRSI evidence updates replace mutable local rows |
 | legacy `hypotheses` table | schema-history only | no runtime writer and no lifecycle-owner claim | retain bytes for migration/reconciliation; Block 11 may retire storage after preservation proof |
+| preserved legacy projection | exact source under `legacy/v1/runtime/src/software_factory/integrations/librsi/legacy_shadow.py` | no active writer/import | accepted parity evidence and source hash remain immutable; active execution is retired in Block 11 |
 | `librsi_records` | canonical semantic cache | `integrations.librsi.service` only | immutable by root; conflicting content fails closed |
 | `librsi_record_bindings` | explicit operational-to-semantic mapping | `integrations.librsi.service` only | never substitute a semantic root for an operational ID |
 | `reflections_v2`, `hypotheses_v2`, and `hypothesis_evidence_v2` | schema-history only | no runtime writer and no lifecycle-owner claim | canonical libRSI observations, hypotheses, evidence, and immutable versions replace local mutable semantics; Block 11 owns byte retirement after preservation proof |
