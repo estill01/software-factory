@@ -70,7 +70,7 @@ export function CodexIntegrationPanel() {
     return (
       <section className="panel integration-panel" aria-busy="true">
         <div className="panel-heading"><h2>Codex integration</h2><span className="data-state-label">Checking</span></div>
-        <div className="integration-loading" aria-label="Checking Codex integration" />
+        <div className="integration-loading" role="status" aria-label="Checking Codex integration" />
       </section>
     )
   }

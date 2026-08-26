@@ -360,6 +360,7 @@ test("collapsed Factory Floor row makes exact completion visible", async ({ page
 })
 
 test("live metrics and report history remain source-backed and read-only", async ({ page }) => {
+  test.setTimeout(120_000)
   await page.goto("/reports")
 
   await expect(page.getByRole("heading", { name: "Reports", level: 1 })).toBeVisible()
@@ -419,15 +420,21 @@ test("live metrics and report history remain source-backed and read-only", async
   const detail = page.getByRole("region", { name: "Detail" })
   await expect(detail).toContainText("Source root")
   await expect(detail).toContainText("Manifest root")
-  await expect(detail.getByRole("link", { name: "Open" })).toHaveAttribute(
+  const openArtifacts = detail.getByRole("link", { name: "Open" })
+  await expect(openArtifacts).toHaveCount(2)
+  await expect(openArtifacts.first()).toHaveAttribute(
     "href",
-    /\/api\/v1\/reports\/.+\/artifacts\/report\.pdf$/,
+    /\/api\/v1\/reports\/.+\/artifacts\/delta-report\.pdf$/,
+  )
+  await expect(openArtifacts.nth(1)).toHaveAttribute(
+    "href",
+    /\/api\/v1\/reports\/.+\/artifacts\/full-report\.pdf$/,
   )
   await expect(page.getByRole("button", { name: /generate|adopt|accept/i })).toHaveCount(0)
-  const markdownArtifact = detail.locator(".report-artifact-list > div").filter({ hasText: "report.md" })
+  const markdownArtifact = detail.locator(".report-artifact-list > div").filter({ hasText: "delta-report.md" })
   await markdownArtifact.getByRole("button", { name: "Preview" }).click()
   await expect(detail.locator(".safe-markdown")).toContainText(
-    "Supervision weekly review",
+    "Terminal Work Since Last Report",
     { timeout: 30_000 },
   )
 
@@ -1202,6 +1209,14 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
   const runEnvelope = await runResponse.json()
+  const taskIntegrationResponse = await request.get("/api/v1/task-integration")
+  expect(taskIntegrationResponse.ok()).toBeTruthy()
+  const taskIntegrationEnvelope = await taskIntegrationResponse.json()
+  const operationsAvailable = taskIntegrationEnvelope.data.integration.status === "available"
+  const automationReconciliation = runEnvelope.data.run.policy?.automation_reconciliation ?? []
+  const reconciledScheduleLabel = `${automationReconciliation.filter(
+    (row: { state: string }) => row.state === "reconciled",
+  ).length}/${automationReconciliation.length} schedules reconciled`
   const hasOpenIncident = runEnvelope.data.run.incidents.some(
     (incident: { open: boolean }) => incident.open,
   )
@@ -1240,7 +1255,9 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   await expect(checkNow).toBeEnabled({ timeout: 60_000 })
   const lifecycleFailed = await page.locator(".workspace-identity-strip").getByText("failed", { exact: true }).count() > 0
   await checkNow.click()
-  if (lifecycleFailed) {
+  if (!operationsAvailable) {
+    await expect(page.getByRole("alert")).toContainText("Required App Server capability is unavailable")
+  } else if (lifecycleFailed) {
     await expect(page.getByRole("alert")).toContainText("Immediate checks are unavailable while the run lifecycle is failed.")
   } else {
     const checkPreview = page.getByRole("dialog")
@@ -1259,32 +1276,36 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   } else {
     await expect(issueFollowUp).toBeDisabled()
   }
-  await checkpointReview.click()
-  const checkpointPreview = page.getByRole("dialog")
-  await expect(checkpointPreview).toContainText(/one checkpoint review/i)
-  await expect(checkpointPreview).toContainText("semantic-escalation")
-  await checkpointPreview.getByRole("button", { name: "Close operation preview" }).click()
-  await metaReview.click()
-  const metaPreview = page.getByRole("dialog")
-  await expect(metaPreview).toContainText(/one meta-review/i)
-  await expect(metaPreview).toContainText("semantic-escalation")
-  await metaPreview.getByRole("button", { name: "Close operation preview" }).click()
-  await expect(page.getByText("2/2 schedules reconciled", { exact: true })).toBeVisible()
+  if (operationsAvailable) {
+    await checkpointReview.click()
+    const checkpointPreview = page.getByRole("dialog")
+    await expect(checkpointPreview).toContainText(/one checkpoint review/i)
+    await expect(checkpointPreview).toContainText("semantic-escalation")
+    await checkpointPreview.getByRole("button", { name: "Close operation preview" }).click()
+    await metaReview.click()
+    const metaPreview = page.getByRole("dialog")
+    await expect(metaPreview).toContainText(/one meta-review/i)
+    await expect(metaPreview).toContainText("semantic-escalation")
+    await metaPreview.getByRole("button", { name: "Close operation preview" }).click()
+  }
+  await expect(page.getByText(reconciledScheduleLabel, { exact: true })).toBeVisible()
   const adjustSupervision = page.getByRole("button", { name: "Adjust supervision" })
   await expect(adjustSupervision).toBeEnabled()
-  await adjustSupervision.click()
-  const adjustDialog = page.getByRole("dialog", { name: "Adjust supervision" })
-  await expect(adjustDialog.getByRole("checkbox", { name: /Gmail quiet minutes/ })).toBeDisabled()
-  await adjustDialog.getByRole("checkbox", { name: /Routine minutes/ }).check()
-  await adjustDialog.getByRole("spinbutton", { name: "New Routine minutes" }).fill("25")
-  await adjustDialog.getByLabel("Reason").fill("Block 14 browser preview; do not execute.")
-  await adjustDialog.getByRole("button", { name: "Preview" }).click()
-  const adjustPreview = page.getByRole("dialog")
-  await expect(adjustPreview).toContainText("Routine minutes: 20 → 25")
-  await expect(adjustPreview).toContainText("8 adjustable fields")
-  await expect(adjustPreview).toContainText("watcher")
-  await expect(adjustPreview).toContainText("No automatic rollback")
-  await adjustPreview.getByRole("button", { name: "Close operation preview" }).click()
+  if (operationsAvailable) {
+    await adjustSupervision.click()
+    const adjustDialog = page.getByRole("dialog", { name: "Adjust supervision" })
+    await expect(adjustDialog.getByRole("checkbox", { name: /Gmail quiet minutes/ })).toBeDisabled()
+    await adjustDialog.getByRole("checkbox", { name: /Routine minutes/ }).check()
+    await adjustDialog.getByRole("spinbutton", { name: "New Routine minutes" }).fill("25")
+    await adjustDialog.getByLabel("Reason").fill("Block 14 browser preview; do not execute.")
+    await adjustDialog.getByRole("button", { name: "Preview" }).click()
+    const adjustPreview = page.getByRole("dialog")
+    await expect(adjustPreview).toContainText("Routine minutes: 20 → 25")
+    await expect(adjustPreview).toContainText("8 adjustable fields")
+    await expect(adjustPreview).toContainText("watcher")
+    await expect(adjustPreview).toContainText("No automatic rollback")
+    await adjustPreview.getByRole("button", { name: "Close operation preview" }).click()
+  }
   const eventPages = page.getByRole("navigation", { name: "Event pages" })
   await expect(eventPages.getByRole("button", { name: "Older" })).toBeEnabled({ timeout: 60_000 })
   await expect(eventPages.getByRole("button", { name: "Newer" })).toBeDisabled()

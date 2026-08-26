@@ -1065,8 +1065,25 @@ describe("operations API contracts", () => {
         full_pdf_sha256: hash("d"),
         delta_page_count: 2,
         full_page_count: 4,
+        delta_projection_root: hash("5"),
+        full_projection_root: hash("6"),
+        verification_record_id: "EVT-12",
+        factory_evolution_outcomes: {
+          schema_version: 1,
+          kind: "software-factory-evolution-outcome-projection",
+          history: [],
+          current_outcomes: [],
+          active_cycle_count: 0,
+          terminal_cycle_count: 0,
+          rolled_back_cycle_count: 0,
+          next_eligible_posture: "no-terminal-outcome-evidence",
+          projection_root: hash("7"),
+        },
       },
-    }).family).toBe("terminal")
+    }).verification).toMatchObject({
+      verification_record_id: "EVT-12",
+      factory_evolution_outcomes: { terminal_cycle_count: 0 },
+    })
     expect(reportArtifactSchema.parse({
       ...report,
       id: "evolution-demo",

@@ -1188,6 +1188,56 @@ const factoryEvolutionWorkflowSchema = z
   })
   .strict()
 
+const factoryEvolutionOutcomePostureSchema = z.enum([
+  "adopted-effective",
+  "rolled-back",
+  "advisory-retained",
+  "revision-required",
+  "candidate-retired",
+  "recommendation-retained",
+  "record-only",
+  "inconclusive",
+])
+
+const factoryEvolutionOutcomeRowSchema = z
+  .object({
+    record_id: z.string().min(1),
+    record_sha256: fingerprintSchema,
+    evolution_id: z.string().min(1),
+    outcome_id: z.string().min(1),
+    outcome_root: fingerprintSchema,
+    predecessor_outcome_root: fingerprintSchema.nullable(),
+    outcome_posture: factoryEvolutionOutcomePostureSchema,
+    observed_effect_root: fingerprintSchema.nullable(),
+    protected_regression_count: nonnegativeInteger,
+    rollback_release_id: nullableString,
+    recurrence_posture: z.literal("consumed-until-new-canonical-evidence"),
+    next_action: z.enum([
+      "continue-with-current-adopted-evidence",
+      "continue-after-normal-owner-rollback",
+      "continue-with-incumbent",
+    ]),
+    current: z.boolean(),
+  })
+  .strict()
+
+const factoryEvolutionOutcomeProjectionSchema = z
+  .object({
+    schema_version: z.literal(1),
+    kind: z.literal("software-factory-evolution-outcome-projection"),
+    history: z.array(factoryEvolutionOutcomeRowSchema),
+    current_outcomes: z.array(factoryEvolutionOutcomeRowSchema),
+    active_cycle_count: nonnegativeInteger,
+    terminal_cycle_count: nonnegativeInteger,
+    rolled_back_cycle_count: nonnegativeInteger,
+    next_eligible_posture: z.enum([
+      "new-canonical-evidence-required",
+      "no-terminal-outcome-evidence",
+    ]),
+    projection_root: fingerprintSchema,
+  })
+  .strict()
+
 const terminalVerificationSchema = z
   .object({
     valid: z.literal(true),
@@ -1203,6 +1253,10 @@ const terminalVerificationSchema = z
     full_pdf_sha256: fingerprintSchema,
     delta_page_count: nonnegativeInteger,
     full_page_count: nonnegativeInteger,
+    delta_projection_root: fingerprintSchema.optional(),
+    full_projection_root: fingerprintSchema.optional(),
+    verification_record_id: z.string().min(1).optional(),
+    factory_evolution_outcomes: factoryEvolutionOutcomeProjectionSchema.optional(),
   })
   .strict()
 
