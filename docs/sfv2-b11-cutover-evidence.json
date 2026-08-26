@@ -233,6 +233,7 @@
     "root_generated_residue_absent": true,
     "archived_generated_residue_present": true,
     "archived_chunks_revision_addressable": true,
+    "archived_chunks_source_revision": "d267ef71b44b37917ca98e5927d85a8de247c413",
     "archived_chunks": [
       {
         "path": "legacy/v1/.sf-upload/next-integration/part-000",
@@ -258,7 +259,7 @@
     "source_and_archive_roots_equal": true
   },
   "dashboard_install_qualification": {
-    "build_source_revision": "pending exact implementation successor",
+    "build_source_revision": "d267ef71b44b37917ca98e5927d85a8de247c413",
     "source_date_epoch": 1787732350,
     "isolated_python": "3.13.13",
     "dashboard_version": "0.1.0",
@@ -281,6 +282,8 @@
     "offline_install_receipt": "docs/sfv2-b11-offline-install-receipt.json",
     "offline_install_qualification_root_sha256": "aec38536d450cdb458d9046c45f4c8d72b6a289d7fae8b14cba86820104fbf5b",
     "offline_install_command": "scripts/qualify_sfv2_b11_install.py --manifest docs/sfv2-b11-install-manifest.json --artifact-directory <exact-artifact-directory> --environment <new-empty-environment>",
+    "clean_committed_tree_reproduction": true,
+    "clean_committed_tree_revision": "d267ef71b44b37917ca98e5927d85a8de247c413",
     "installed_help_exposes_client_wheel": true,
     "installed_loader_verified_client_pin": true,
     "installed_compatibility_projection_only": true,
@@ -295,7 +298,10 @@
     "runtime_format": "111 files formatted",
     "runtime_mypy": "75 source files clean",
     "compileall": "runtime and dashboard sources clean",
-    "dashboard_lock": "current with exact local software-factory composition"
+    "dashboard_lock": "current with exact local software-factory composition",
+    "clean_archive_compatibility": "5 passed from git archive of d267ef71b44b37917ca98e5927d85a8de247c413",
+    "clean_archive_wheel_rebuild": "runtime c819f31af2edca586cc60ec0132c147ee9fc1dda593f5092ed9188bbd58ae2e1 and dashboard e4d861284841fdec2fc0b15bdbfa1744cc798ded483850a3856a21ad4b5c0216 rebuilt byte-identically",
+    "clean_archive_offline_install": "passed with qualification root aec38536d450cdb458d9046c45f4c8d72b6a289d7fae8b14cba86820104fbf5b"
   },
   "deletion_and_compatibility_ledger": [
     {
