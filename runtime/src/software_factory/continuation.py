@@ -308,6 +308,19 @@ class ContinuationService:
                 raise InvalidTransition(
                     "mission completion requires accepted terminal-stage outcome reconciliation"
                 )
+            profile_work_ids = {
+                str(row["id"])
+                for row in db.execute(
+                    "SELECT id,expected_effect_json FROM work_items WHERE mission_id=?",
+                    (mission_id,),
+                ).fetchall()
+                if isinstance(json_load(row["expected_effect_json"], {}).get("target_profile"), str)
+                and isinstance(json_load(row["expected_effect_json"], {}).get("target_id"), str)
+            }
+            if profile_work_ids and terminal_stage["work_item_id"] not in profile_work_ids:
+                raise InvalidTransition(
+                    "profile mission completion requires its work-bound terminal stage"
+                )
             if json_load(terminal_stage["remaining_scope_json"], []):
                 raise InvalidTransition("mission cannot complete with remaining requested range")
             if evidence["revision"] != terminal_stage["target_revision"]:

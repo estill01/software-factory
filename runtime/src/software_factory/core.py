@@ -99,12 +99,6 @@ class CoreService:
         self.target_profiles.register(self._software_profile)
         self.target_profiles.register(self._content_profile)
         self._profile_workspaces = self._software_profile
-        self.qa = QAService(
-            store,
-            self._profile_workspaces,
-            self._executions,
-            target_profiles=self.target_profiles,
-        )
         self.continuation = ContinuationService(store, self.work_items)
         self.supervision = SupervisionService(
             store, work_items=self.work_items, continuation=self.continuation
@@ -124,6 +118,13 @@ class CoreService:
             capabilities=self.capabilities,
             supervision=self.supervision,
             target_profiles=self.target_profiles,
+        )
+        self.qa = QAService(
+            store,
+            self._profile_workspaces,
+            self._executions,
+            target_profiles=self.target_profiles,
+            acceptance_lifecycle=self.acceptance_lifecycle,
         )
         self.controller = ControllerService(
             store,

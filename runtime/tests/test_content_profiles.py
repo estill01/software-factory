@@ -336,9 +336,46 @@ def _complete_profile_mission(
     work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
     completed_qa = core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
     assert completed_qa["qa_status"] == "passed"
+    outcome = {
+        "operator_visible": {
+            "profile_key": profile_key,
+            "target_id": target_id,
+            "delivered": True,
+            "currentness_root": final_snapshot.currentness_root,
+        },
+        "protected_capabilities": {
+            "mission_continuation": "preserved",
+            "independent_acceptance": "required",
+        },
+    }
+    superseded_stage: dict[str, Any] | None = None
     if resubmit_same_revision:
         first_candidate_root = submitted["candidate_root"]
         first_requirement_ids = {item["id"] for item in submitted["requirements"]}
+        first_stage_evidence = store.record_evidence(
+            mission_id=mission_id,
+            evidence_type="installed_probe",
+            subject_type="work_item",
+            subject_id=work_id,
+            revision=final_snapshot.revision,
+            producer_session_id=reviewer_id,
+            payload={"outcome": outcome, "candidate_root": first_candidate_root},
+        )
+        superseded_stage = _accept_stage(
+            store,
+            core,
+            mission_id=mission_id,
+            work_item_id=work_id,
+            implementer_id=implementer_id,
+            reviewer_id=reviewer_id,
+            revision=final_snapshot.revision,
+            currentness_root=final_snapshot.currentness_root,
+            stage="candidate",
+            prior_stage_id=None,
+            outcome=outcome,
+            evidence_id=first_stage_evidence,
+        )
+        assert superseded_stage["scope_key"].endswith(first_candidate_root)
         second_execution_id = core.queue_execution(
             mission_id=mission_id,
             work_item_id=work_id,
@@ -390,6 +427,55 @@ def _complete_profile_mission(
             tuple(sorted(first_requirement_ids)),
         )
         assert old_results and all(row["stale_at"] for row in old_results)
+        stale_stage = store.one(
+            "SELECT status,contract_id,decision_id FROM acceptance_stage_records_v2 WHERE id=?",
+            (superseded_stage["id"],),
+        )
+        assert stale_stage["status"] == "stale"
+        assert (
+            store.one(
+                "SELECT status FROM acceptance_contracts_v2 WHERE id=?",
+                (stale_stage["contract_id"],),
+            )["status"]
+            == "stale"
+        )
+        assert (
+            store.one(
+                "SELECT decision FROM acceptance_decisions_v2 WHERE id=?",
+                (stale_stage["decision_id"],),
+            )["decision"]
+            == "stale"
+        )
+        assert {
+            row["status"]
+            for row in store.all(
+                "SELECT status FROM independent_review_executions_v2 WHERE contract_id=?",
+                (stale_stage["contract_id"],),
+            )
+        } == {"invalidated"}
+        before_stale_writes = {
+            table: store.one(f"SELECT COUNT(*) AS n FROM {table}")["n"]
+            for table in ("evidence_records", "executions", "qa_results")
+        }
+        with pytest.raises(InvalidTransition, match="stale"):
+            core.qa.record_profile_currentness(requirements["profile_currentness"]["id"])
+        with pytest.raises(InvalidTransition, match="stale"):
+            core.qa.record_independent_review(
+                requirements["independent_review"]["id"],
+                reviewer_session_id=reviewer_id,
+                disposition="accept",
+            )
+        assert {
+            table: store.one(f"SELECT COUNT(*) AS n FROM {table}")["n"]
+            for table in ("evidence_records", "executions", "qa_results")
+        } == before_stale_writes
+        with pytest.raises(InvalidTransition, match="not promotable"):
+            core.acceptance_lifecycle.accept_stage(
+                superseded_stage["id"],
+                acceptor_session_id=reviewer_id,
+                exact_revision=final_snapshot.revision,
+                currentness_root=final_snapshot.currentness_root,
+            )
         active_requirements = {
             item["qa_type"]: item
             for item in resubmitted["requirements"]
@@ -412,18 +498,6 @@ def _complete_profile_mission(
             work_id, expected_work_version=work["state_version"]
         )
         assert completed_qa["qa_status"] == "passed"
-    outcome = {
-        "operator_visible": {
-            "profile_key": profile_key,
-            "target_id": target_id,
-            "delivered": True,
-            "currentness_root": final_snapshot.currentness_root,
-        },
-        "protected_capabilities": {
-            "mission_continuation": "preserved",
-            "independent_acceptance": "required",
-        },
-    }
     stage_evidence = store.record_evidence(
         mission_id=mission_id,
         evidence_type="installed_probe",
@@ -457,7 +531,22 @@ def _complete_profile_mission(
                 else lambda stage=stage: before_stage_accept(stage)
             ),
         )
+        if stage == "candidate" and superseded_stage is not None:
+            assert prior["scope_key"] != superseded_stage["scope_key"]
     assert prior is not None
+    with pytest.raises(InvalidTransition, match="profile missions require a work-bound terminal"):
+        core.acceptance_lifecycle.prepare_stage(
+            mission_id=mission_id,
+            work_item_id=None,
+            stage="terminal",
+            target_revision=final_snapshot.revision,
+            currentness_root=final_snapshot.currentness_root,
+            implementer_session_id=implementer_id,
+            required_probes=[{"key": "terminal", "type": "test"}],
+            expected_outcome=outcome,
+            remaining_scope=[],
+            prior_stage_id=prior["id"],
+        )
 
     obligation_evidence = store.record_evidence(
         mission_id=mission_id,

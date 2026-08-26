@@ -83,6 +83,74 @@ class AcceptanceLifecycleService:
         except ValueError as exc:
             raise ValueError(f"unsupported acceptance stage: {stage}") from exc
 
+    @staticmethod
+    def _active_candidate_root(
+        db: Any,
+        *,
+        work_item_id: str,
+        target_revision: str,
+    ) -> str:
+        rows = db.execute(
+            """SELECT DISTINCT acceptance_contract_root FROM qa_requirements
+               WHERE work_item_id=? AND phase='candidate' AND candidate_revision=?
+                 AND status<>'stale'""",
+            (work_item_id, target_revision),
+        ).fetchall()
+        roots = {str(row["acceptance_contract_root"]) for row in rows if row[0]}
+        if len(roots) != 1:
+            raise EvidenceInvalid("acceptance stage requires one active QA candidate root")
+        return next(iter(roots))
+
+    @staticmethod
+    def _profile_work_items(db: Any, mission_id: str) -> list[tuple[str, str, str]]:
+        bindings: list[tuple[str, str, str]] = []
+        for row in db.execute(
+            "SELECT id,expected_effect_json FROM work_items WHERE mission_id=?",
+            (mission_id,),
+        ).fetchall():
+            expected_effect = json_load(row["expected_effect_json"], {})
+            profile_key = expected_effect.get("target_profile")
+            target_id = expected_effect.get("target_id")
+            if isinstance(profile_key, str) and isinstance(target_id, str):
+                bindings.append((str(row["id"]), profile_key, target_id))
+        return bindings
+
+    @staticmethod
+    def _profile_binding(db: Any, work_item_id: str) -> tuple[str, str] | None:
+        row = db.execute(
+            "SELECT expected_effect_json FROM work_items WHERE id=?", (work_item_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        expected_effect = json_load(row["expected_effect_json"], {})
+        profile_key = expected_effect.get("target_profile")
+        target_id = expected_effect.get("target_id")
+        if isinstance(profile_key, str) and isinstance(target_id, str):
+            return profile_key, target_id
+        return None
+
+    def invalidate_profile_candidate(self, *, work_item_id: str) -> None:
+        """Invalidate staged acceptance owned by a superseded profile candidate."""
+
+        now = utc_now()
+        with self.store.transaction() as db:
+            stages = db.execute(
+                """SELECT id,target_revision FROM acceptance_stage_records_v2
+                   WHERE work_item_id=? AND status IN ('prepared','accepted','reopened')""",
+                (work_item_id,),
+            ).fetchall()
+            for stage in stages:
+                self.governance.invalidate_target_revision(
+                    target_type="acceptance_stage",
+                    target_id=stage["id"],
+                    prior_revision=stage["target_revision"],
+                )
+                db.execute(
+                    """UPDATE acceptance_stage_records_v2
+                       SET status='stale',updated_at=? WHERE id=?""",
+                    (now, stage["id"]),
+                )
+
     @contextmanager
     def _currentness_fence(
         self,
@@ -161,7 +229,26 @@ class AcceptanceLifecycleService:
                 f"program:{program_id}:active" for program_id in active_program_ids
             )
         remaining = sorted(remaining_values)
-        scope_key = f"work:{work_item_id}" if work_item_id else f"mission:{mission_id}"
+        candidate_root: str | None = None
+        if work_item_id:
+            with self.store.transaction() as db:
+                if self._profile_binding(db, work_item_id) is not None:
+                    candidate_root = self._active_candidate_root(
+                        db,
+                        work_item_id=work_item_id,
+                        target_revision=target_revision,
+                    )
+            scope_key = f"work:{work_item_id}"
+            if candidate_root is not None:
+                scope_key += f":candidate:{candidate_root}"
+        else:
+            scope_key = f"mission:{mission_id}"
+            if stage == "terminal":
+                with self.store.transaction() as db:
+                    if self._profile_work_items(db, mission_id):
+                        raise InvalidTransition(
+                            "profile missions require a work-bound terminal acceptance stage"
+                        )
         material_root = digest_json(
             {
                 "mission_id": mission_id,
@@ -169,6 +256,7 @@ class AcceptanceLifecycleService:
                 "stage": stage,
                 "target_revision": target_revision,
                 "currentness_root": currentness_root,
+                "candidate_root": candidate_root,
                 "expected_outcome": expected,
                 "remaining_scope": remaining,
                 "required_probes": probes,
@@ -215,6 +303,15 @@ class AcceptanceLifecycleService:
                 ).fetchone()
                 if work is None or work["mission_id"] != mission_id:
                     raise InvalidTransition("acceptance work item belongs to another mission")
+                if candidate_root is not None and (
+                    self._active_candidate_root(
+                        db,
+                        work_item_id=work_item_id,
+                        target_revision=target_revision,
+                    )
+                    != candidate_root
+                ):
+                    raise InvalidTransition("active QA candidate changed during stage preparation")
             if index == 0 and prior_stage_id is not None:
                 raise InvalidTransition("candidate acceptance cannot have a prior stage")
             prior: Any | None = None
@@ -725,6 +822,19 @@ class AcceptanceLifecycleService:
                     or expected_effect.get("target_id") != profile_binding[1]
                 ):
                     raise InvalidTransition("profile acceptance target binding changed")
+            if profile_binding is not None:
+                candidate_root = self._active_candidate_root(
+                    db,
+                    work_item_id=stage["work_item_id"],
+                    target_revision=exact_revision,
+                )
+                expected_scope = f"work:{stage['work_item_id']}:candidate:{candidate_root}"
+                if stage["scope_key"] != expected_scope:
+                    raise InvalidTransition("acceptance stage belongs to a stale QA candidate")
+            elif stage["stage"] == "terminal" and self._profile_work_items(db, stage["mission_id"]):
+                raise InvalidTransition(
+                    "profile missions require a work-bound terminal acceptance stage"
+                )
             latest = self.store.one(
                 """SELECT * FROM outcome_reconciliations_v2
                    WHERE stage_record_id=? ORDER BY created_at DESC,id DESC LIMIT 1""",

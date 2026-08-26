@@ -2433,14 +2433,24 @@ reuse of the real engine.
   caller's acceptance specification omits them or marks them optional. Every
   requirement/result shares the exact execution-derived candidate root; a
   second execution submitting the same physical revision stales the complete
-  earlier QA/evidence lineage and starts new requirements. Completion requires
-  a passed review for that exact root by a non-implementer. The two real missions
-  perform those steps before candidate acceptance. Work promotion requires the
-  already-passed QA state and no longer writes `qa_status='passed'`; every
+  earlier QA/evidence lineage and starts new requirements. It also stales every
+  prepared or accepted lifecycle stage, governed contract, decision, and review
+  rooted in the superseded candidate. Each replacement stage identity and
+  material root binds the new execution-derived candidate root, so an accepted
+  stage from a same-revision prior execution cannot become the replacement
+  candidate's predecessor. Completion requires a passed review for that exact
+  root by a non-implementer. The two real missions perform those steps before
+  candidate acceptance. Profile-currentness evidence/result recording and
+  independent-review execution/evidence/result recording each occur in one
+  transaction that rechecks the non-stale exact requirement before any durable
+  child record. Work promotion requires the already-passed QA state and no
+  longer writes `qa_status='passed'`; every
   candidate/integrated/installed/terminal acceptance re-observes the registered
   physical target and holds its profile-owned fence through the authoritative
-  stage and work-promotion write. The existing staged lifecycle remains the sole
-  work-acceptance owner.
+  stage and work-promotion write. A mission containing profile work rejects an
+  unbound terminal stage, and continuation requires its accepted terminal stage
+  to remain bound to profile work. The existing staged lifecycle remains the
+  sole work-acceptance owner.
 - External extension proof: `runtime/tests/external_extension_fixture.py` owns
   its sample observation key, target ID, schema, snapshots, and physical effects
   outside `runtime/src/software_factory`. It registers through the unchanged
@@ -2462,9 +2472,9 @@ reuse of the real engine.
   no-isolation diagnostic was invalid because the selected development venv did
   not contain the declared setuptools backend and was not reused as proof. The
   isolated wheel and sdist SHA-256 values are respectively
-  `6cce22b5d4de49102937969cc5d5e169ded341f7f1f62c992f0792d457c5ccf1`
+  `3474b2afa2eebd76fcab23a96c84aee8e05c5b25f9c3120ff09f8c0a74136de4`
   and
-  `54ace850cfb16bc2d646e43aa6cd9dc062ad283ef70322d66c7ba4d04ed124dd`.
+  `62cbd757b6dc337744b97319c90fbe41bc3aa17609fe9567193aee676a52fc32`.
   A target-directory installation imported version `2.0.0.dev6` from the built
   wheel, exposed the content profile, and composed profile keys `content` and
   `software`; the sdist contains both maintained Block 10 test modules.
@@ -2494,11 +2504,29 @@ reuse of the real engine.
   acceptance write. Negative dogfood weakens the caller specification,
   resubmits the same revision from a new execution, and injects physical drift
   after outcome reconciliation. No rejected history was amended or removed.
+- Preserved third rejected candidate: exact pushed commit
+  `b408e179b7254ce54aec6ac396dd797159e27fe5`, tree
+  `0461453383e041f60ca53195ab8767b62b1e02be`, remains immutable and
+  unaccepted. Distinct exact-revision review returned two P1 findings and one P2:
+  acceptance-stage identity/material did not bind the active execution-derived
+  candidate root; a mission-scoped terminal stage could bypass profile
+  currentness; and stale currentness/review attempts could leave orphan durable
+  children before detecting the stale requirement. The current successor binds
+  every profile stage and predecessor chain to the exact candidate root, stales
+  its full staged governance lineage on resubmission, rejects mission-scoped
+  terminal bypass, and couples each QA observation to its final stale check in
+  one immediate transaction. Ownership remains explicit: the acceptance
+  lifecycle invalidates stage rows, governance invalidates its contracts,
+  reviews, and decisions, and QA owns only requirements/results. Negative proof
+  reuses a same-revision accepted candidate stage, resubmits through a second
+  execution, observes every old stage/governance record become stale or
+  invalidated, rejects both stale QA calls without adding evidence, executions,
+  or results, and completes only through a new candidate-root scope.
 - Focused and mapped proof: `65 passed` across content/external profiles, target
   profiles, execution/QA, acceptance lifecycle, core, composition, operational
   boundaries, engine hosts, and v2 entrypoints. Ruff format/check are clean over
   108 files, mypy is clean over 72 source files, compilation is clean, and full
-  runtime collection is 262 tests with the seven documented legacy `TestStore`
+  runtime collection is 264 tests with the seven documented legacy `TestStore`
   collection warnings. Per the range economy contract, the broad runtime suite
   remains deferred to Block 12.
 - Product-capability review:
@@ -2528,8 +2556,9 @@ reuse of the real engine.
     deterministic cited-document contract rather than a universal document
     platform. New domains remain external extensions until another accepted
     shared need justifies a bounded core contract.
-- Candidate posture: rejected exact candidates `e60b999` and `44f3e83` and all
-  six review findings are preserved. The second bounded remediation, docs,
+- Candidate posture: rejected exact candidates `e60b999`, `44f3e83`, and
+  `b408e17` and all nine review findings are preserved. The third bounded
+  remediation, docs,
   focused/mapped proof, static audit, collection, durable-restart proof, and
   isolated build/import proof are complete. A new exact candidate commit/push
   and distinct exact-revision review remain required before Block 10 acceptance

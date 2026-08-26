@@ -16,11 +16,13 @@ class QAService:
         executions: Any,
         *,
         target_profiles: Any | None = None,
+        acceptance_lifecycle: Any,
     ):
         self.store = store
         self.workspaces = workspaces
         self.executions = executions
         self.target_profiles = target_profiles
+        self.acceptance_lifecycle = acceptance_lifecycle
 
     def _candidate_context(
         self, db: Any, work_item_id: str
@@ -247,6 +249,7 @@ class QAService:
                        WHERE subject_type='work_item' AND subject_id=? AND status='current'""",
                     (utc_now(), work["id"]),
                 )
+                self.acceptance_lifecycle.invalidate_profile_candidate(work_item_id=work["id"])
             existing = db.execute(
                 """SELECT COUNT(*) AS n FROM qa_requirements
                    WHERE work_item_id=? AND phase='candidate' AND status<>'stale'
@@ -377,34 +380,52 @@ class QAService:
         ) as snapshot:
             if dict(snapshot.attributes) != predicate["attributes"]:
                 raise EvidenceInvalid("profile target attributes changed before QA observation")
-            work = self.store.one(
-                "SELECT * FROM work_items WHERE id=?", (requirement["work_item_id"],)
-            )
-            result = {
-                "profile_key": profile_key,
-                "target_id": target_id,
-                "revision": snapshot.revision,
-                "currentness_root": snapshot.currentness_root,
-                "attributes": dict(snapshot.attributes),
-                "passed": True,
-            }
-            evidence_id = self.store.record_evidence(
-                mission_id=work["mission_id"],
-                evidence_type="profile_currentness",
-                subject_type="work_item",
-                subject_id=work["id"],
-                revision=snapshot.revision,
-                execution_id=str(predicate["execution_id"]),
-                payload={"requirement_id": requirement_id, **result},
-            )
-            self._record_qa_result(
-                requirement_id=requirement_id,
-                execution_id=str(predicate["execution_id"]),
-                status="passed",
-                revision=snapshot.revision,
-                evidence_id=evidence_id,
-                result=result,
-            )
+            with self.store.transaction() as db:
+                current = db.execute(
+                    "SELECT * FROM qa_requirements WHERE id=?", (requirement_id,)
+                ).fetchone()
+                if (
+                    current is None
+                    or current["status"] == "stale"
+                    or current["qa_type"] != "profile_currentness"
+                    or current["acceptance_contract_root"]
+                    != requirement["acceptance_contract_root"]
+                    or json_load(current["predicate_json"], {}) != predicate
+                ):
+                    raise InvalidTransition(
+                        "profile-currentness requirement changed or became stale"
+                    )
+                work = self.store.one(
+                    "SELECT * FROM work_items WHERE id=?",
+                    (requirement["work_item_id"],),
+                    db=db,
+                )
+                result = {
+                    "profile_key": profile_key,
+                    "target_id": target_id,
+                    "revision": snapshot.revision,
+                    "currentness_root": snapshot.currentness_root,
+                    "attributes": dict(snapshot.attributes),
+                    "passed": True,
+                }
+                evidence_id = self.store.record_evidence(
+                    mission_id=work["mission_id"],
+                    evidence_type="profile_currentness",
+                    subject_type="work_item",
+                    subject_id=work["id"],
+                    revision=snapshot.revision,
+                    execution_id=str(predicate["execution_id"]),
+                    payload={"requirement_id": requirement_id, **result},
+                )
+                self._record_qa_result(
+                    requirement_id=requirement_id,
+                    execution_id=str(predicate["execution_id"]),
+                    status="passed",
+                    revision=snapshot.revision,
+                    evidence_id=evidence_id,
+                    result=result,
+                    db=db,
+                )
         return {"evidence_id": evidence_id, **result}
 
     def _record_qa_result(
@@ -418,17 +439,19 @@ class QAService:
         result: dict[str, Any],
         reviewer_session_id: str | None = None,
         reviewer_assignment_id: str | None = None,
+        db: Any | None = None,
     ) -> str:
         result_id = new_id("qrs")
-        with self.store.transaction() as db:
-            requirement = db.execute(
+
+        def write(connection: Any) -> None:
+            requirement = connection.execute(
                 "SELECT * FROM qa_requirements WHERE id=?", (requirement_id,)
             ).fetchone()
             if requirement is None or requirement["status"] == "stale":
                 raise InvalidTransition("QA requirement is missing or stale")
             if requirement["candidate_revision"] != revision:
                 raise EvidenceInvalid("QA result revision does not match requirement")
-            db.execute(
+            connection.execute(
                 """INSERT INTO qa_results(
                     id,requirement_id,execution_id,status,revision,evidence_id,result_json,
                     reviewer_session_id,observed_at,candidate_root,reviewer_assignment_id
@@ -447,11 +470,17 @@ class QAService:
                     reviewer_assignment_id,
                 ),
             )
-            db.execute(
+            connection.execute(
                 """UPDATE qa_requirements SET status=?,updated_at=?,state_version=state_version+1
                    WHERE id=?""",
                 ("passed" if status == "passed" else "failed", utc_now(), requirement_id),
             )
+
+        if db is not None:
+            write(db)
+        else:
+            with self.store.transaction() as connection:
+                write(connection)
         return result_id
 
     def run_qa_command(
@@ -553,77 +582,96 @@ class QAService:
     ) -> dict[str, Any]:
         if disposition not in {"accept", "changes_requested", "reject"}:
             raise ValueError("unsupported review disposition")
-        requirement = self.store.one("SELECT * FROM qa_requirements WHERE id=?", (requirement_id,))
-        work = self.store.one("SELECT * FROM work_items WHERE id=?", (requirement["work_item_id"],))
-        reviewer = self.store.one("SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,))
-        if reviewer["mission_id"] != work["mission_id"] or reviewer["role"] not in {
-            "independent_reviewer",
-            "reviewer",
-            "evaluator",
-            "terminal_reviewer",
-        }:
-            raise RoleConflict("reviewer does not hold an independent review role")
-        implementers = self.store.all(
-            """SELECT agent_session_id FROM work_assignments
-               WHERE work_item_id=? AND role='implementer'
-                 AND status IN ('accepted','active','completed','released')""",
-            (work["id"],),
-        )
-        execution_implementers = self.store.all(
-            """SELECT DISTINCT agent_session_id FROM executions
-               WHERE work_item_id=? AND agent_session_id IS NOT NULL
-                 AND execution_type NOT IN (
-                   'independent_review','validation','program_review','terminal_verification'
-                 )""",
-            (work["id"],),
-        )
-        implementer_ids = {
-            row["agent_session_id"] for row in (*implementers, *execution_implementers)
-        }
-        if reviewer_session_id in implementer_ids:
-            raise RoleConflict("implementer cannot review its own candidate")
-        result = {
-            "work_item_id": work["id"],
-            "revision": requirement["candidate_revision"],
-            "candidate_root": requirement["acceptance_contract_root"],
-            "disposition": disposition,
-            "findings": findings or [],
-        }
-        execution_id = self.executions.queue_execution(
-            mission_id=work["mission_id"],
-            execution_type="independent_review",
-            idempotency_key=f"review:{requirement_id}:{reviewer_session_id}:{digest_json(result)}",
-            work_item_id=work["id"],
-            agent_session_id=reviewer_session_id,
-            input_payload=result,
-        )
         with self.store.transaction() as db:
+            requirement = db.execute(
+                "SELECT * FROM qa_requirements WHERE id=?", (requirement_id,)
+            ).fetchone()
+            if (
+                requirement is None
+                or requirement["status"] == "stale"
+                or requirement["qa_type"] != "independent_review"
+                or not requirement["acceptance_contract_root"]
+            ):
+                raise InvalidTransition(
+                    "independent-review requirement is missing, changed, or stale"
+                )
+            work = self.store.one(
+                "SELECT * FROM work_items WHERE id=?",
+                (requirement["work_item_id"],),
+                db=db,
+            )
+            reviewer = self.store.one(
+                "SELECT * FROM agent_sessions WHERE id=?", (reviewer_session_id,), db=db
+            )
+            if reviewer["mission_id"] != work["mission_id"] or reviewer["role"] not in {
+                "independent_reviewer",
+                "reviewer",
+                "evaluator",
+                "terminal_reviewer",
+            }:
+                raise RoleConflict("reviewer does not hold an independent review role")
+            implementers = db.execute(
+                """SELECT agent_session_id FROM work_assignments
+                   WHERE work_item_id=? AND role='implementer'
+                     AND status IN ('accepted','active','completed','released')""",
+                (work["id"],),
+            ).fetchall()
+            execution_implementers = db.execute(
+                """SELECT DISTINCT agent_session_id FROM executions
+                   WHERE work_item_id=? AND agent_session_id IS NOT NULL
+                     AND execution_type NOT IN (
+                       'independent_review','validation','program_review','terminal_verification'
+                     )""",
+                (work["id"],),
+            ).fetchall()
+            implementer_ids = {
+                row["agent_session_id"] for row in (*implementers, *execution_implementers)
+            }
+            if reviewer_session_id in implementer_ids:
+                raise RoleConflict("implementer cannot review its own candidate")
+            result = {
+                "work_item_id": work["id"],
+                "revision": requirement["candidate_revision"],
+                "candidate_root": requirement["acceptance_contract_root"],
+                "disposition": disposition,
+                "findings": findings or [],
+            }
+            execution_id = self.executions.queue_execution(
+                mission_id=work["mission_id"],
+                execution_type="independent_review",
+                idempotency_key=(
+                    f"review:{requirement_id}:{reviewer_session_id}:{digest_json(result)}"
+                ),
+                work_item_id=work["id"],
+                agent_session_id=reviewer_session_id,
+                input_payload=result,
+            )
             db.execute(
                 """UPDATE executions SET status='succeeded',result_json=?,started_at=?,finished_at=?,
                    state_version=state_version+1 WHERE id=?""",
                 (canonical_json(result), utc_now(), utc_now(), execution_id),
             )
-        evidence_id = self.store.record_evidence(
-            mission_id=work["mission_id"],
-            evidence_type="independent_review",
-            subject_type="work_item",
-            subject_id=work["id"],
-            revision=requirement["candidate_revision"],
-            execution_id=execution_id,
-            producer_session_id=reviewer_session_id,
-            payload=result,
-        )
-        self._record_qa_result(
-            requirement_id=requirement_id,
-            execution_id=execution_id,
-            status="passed" if disposition == "accept" else "failed",
-            revision=requirement["candidate_revision"],
-            evidence_id=evidence_id,
-            result=result,
-            reviewer_session_id=reviewer_session_id,
-        )
-        if disposition != "accept":
-            with self.store.transaction() as db:
+            evidence_id = self.store.record_evidence(
+                mission_id=work["mission_id"],
+                evidence_type="independent_review",
+                subject_type="work_item",
+                subject_id=work["id"],
+                revision=requirement["candidate_revision"],
+                execution_id=execution_id,
+                producer_session_id=reviewer_session_id,
+                payload=result,
+            )
+            self._record_qa_result(
+                requirement_id=requirement_id,
+                execution_id=execution_id,
+                status="passed" if disposition == "accept" else "failed",
+                revision=requirement["candidate_revision"],
+                evidence_id=evidence_id,
+                result=result,
+                reviewer_session_id=reviewer_session_id,
+                db=db,
+            )
+            if disposition != "accept":
                 db.execute(
                     """UPDATE work_items SET qa_status='changes_requested',updated_at=?
                        WHERE id=?""",
