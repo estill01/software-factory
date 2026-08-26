@@ -2195,7 +2195,7 @@ equivalence, and false authority.
   for the exact Factory component and exact utility content roots. Current
   database, engine, and loopback-service protocol/schema roots are respectively
   `17883bbecd3e7fd78ff5b2873c0d64d43a46f1e8830f2d6424ee0fc3e7cb3143`,
-  `2052b5c4d4ce8624ab7c1c5fc9037d277aa2fbbceb31dd527d63d1b448035cd8`,
+  `26f1c662aa04418241487c668f8948d1463ab19ab9fcb4037415f4f7ea611725`,
   and `80c08e1dcee99509d2178fbb5bcee0c1bfd4bb33476a15c2d404ec3b4e32794b`.
   Recursive validation rejects authorization, acceptance, permission, or
   release-authority fields, and the manifest is never consumed as operational
@@ -2215,9 +2215,16 @@ equivalence, and false authority.
   columns and omit authority/resource/evidence JSON, external task/thread IDs,
   repository paths, commands, and other unbounded content. Browser rendering
   uses text nodes without HTML injection and keeps its transport token only in
-  memory. `SIGINT`/`SIGTERM` close the listener while durable mission state
-  survives restart. The runbook records the internal/loopback-only posture and
-  exact credential, probe, restart, and artifact requirements.
+  memory. Event cursors are contiguous within each mission even though the
+  private SQL ledger retains a global insertion sequence. The declared
+  component root is recomputed from every authoritative member of the imported
+  Factory package and any caller-supplied mismatch fails before readiness.
+  `SIGINT`/`SIGTERM` stop request admission, drain every non-daemon request
+  handler, and only then close the listener, so an accepted one-time operator
+  decision cannot be stranded between token consumption and its durable owner
+  effect. Durable mission state survives restart. The runbook records the
+  internal/loopback-only posture and exact credential, probe, restart, and
+  artifact requirements.
 - Product-capability review:
   - Trigger: consequential Block posture; an operator/service interface and two
     accepted shared utility packages become active runtime inputs.
@@ -2248,29 +2255,49 @@ equivalence, and false authority.
     protocol root. This is deliberate fail-closed local deployment friction;
     public distribution, licensing, multi-tenancy, and fleet operation remain
     out of scope.
-- Focused and mapped proof: `45 passed` across API, engine hosts, exact qualified
+- Rejected candidate and remediation closure: exact pushed candidate
+  `5a2f2260c7491bd2d82c74392087f67daee2eb32`, tree
+  `79453a2f608c98d2291f201c03a851d8a6b5aa67`, is preserved and unaccepted after
+  independent review returned three P1 findings: the shared adapter exposed the
+  global SQL event sequence instead of a run-local cursor; an arbitrary
+  syntactically valid component root could enter the runtime manifest; and
+  daemon request threads could outlive graceful shutdown after consuming an
+  operator token. The bounded successor projects per-mission event ordinals and
+  status counts, hashes and rechecks the installed Factory package bytes, and
+  uses a draining non-daemon request server. Focused regressions prove two
+  interleaved missions retain contiguous shared-contract cursors, false
+  component roots reject, and shutdown blocks until the already accepted
+  operator action reaches durable `applied` state.
+- Focused and mapped proof: `47 passed` across API, engine hosts, exact qualified
   utils, reporting/operator authority, operational ownership boundaries,
   entrypoints, and composition; one documented legacy `TestStore` collection
-  warning. Negative fixtures cover session-as-authority, absent/wrong service
+  warning. The final affected exact-root utility regression adds `7 passed`.
+  Negative fixtures cover session-as-authority, absent/wrong service
   credentials, stale service roots, general-route cancel/complete, arbitrary
   command keys, oversized bodies, secret/unbounded projection fields, insecure
   token files, renamed/modified utility artifacts, manifest authority fields,
-  and shared-package state ownership. Full runtime collection is 250 tests with
-  seven documented legacy collection warnings. Ruff format/check are clean
-  across 106 files, mypy is clean across 71 source files, compilation is clean,
+  shared-package state ownership, cross-mission cursor gaps, arbitrary component
+  identities, and graceful-shutdown operator stranding. Full runtime collection
+  is 252 tests with seven documented legacy collection warnings. Ruff
+  format/check are clean across 105 files, mypy is clean across 71 source files,
+  compilation is clean,
   and detailed-tracker verification passes. Per the range's economy rule, the
   broad runtime suite remains deferred to Block 12.
-- Isolated build and installed-artifact proof: the wheel SHA-256 is
-  `4fb4c28ba8911b8cf98b8aff431d64cf5dd39ccefbd79a2222befa7137436880`
+- Isolated build and installed-artifact proof: the successor wheel SHA-256 is
+  `029165b0222eb96ebab83ecbc95f4f085845b7b2ad27ce8117a3f48fc66ccf64`
   and the sdist SHA-256 is
-  `bf3995213203aa7d2348c5e793eec5bc5a9760d4c444e10136296e6e1b4fc22a`.
-  The wheel contains both Factory-owned adapters and the exact qualified pin;
-  an isolated wheel import reloaded both accepted utils artifacts, reproduced
-  the current service protocol root, and retained the Factory wheel as the
-  actual import source.
-- Candidate posture: implementation and producer audit are complete; exact
-  candidate commit/push and independent exact-revision review remain required
-  before Block 9 acceptance or Block 10 effects.
+  `f762b432a285ad97f3aaa4bc1e0127cb167e0086a6e2ee2692b16fcc55f9f6e6`.
+  The isolated wheel import loaded Factory from its installed wheel path,
+  reloaded both exact accepted utils artifacts, recomputed installed component
+  root `ec91c7965fbe5d19dcaf8a054abb16b188ccff72f532407454bf607842b6d196`,
+  reproduced current engine and service protocol roots, and retained the
+  Factory wheel as the actual import source.
+- Candidate posture: the rejected candidate and all three findings are
+  preserved. The bounded successor implementation, focused/mapped proof, static
+  audit, collection, detailed-tracker verification, and isolated build/import
+  proof are complete; exact successor commit/push and fresh independent
+  exact-revision review remain required before Block 9 acceptance or Block 10
+  effects.
 
 ### Stop
 

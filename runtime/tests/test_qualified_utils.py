@@ -22,6 +22,7 @@ from software_factory.hosts import EmbeddedFactoryHost, StandaloneFactoryService
 from software_factory.utility_contracts import (
     QualifiedUtilityRuntime,
     RuntimeIdentity,
+    installed_component_root,
     service_api_protocol_root,
 )
 from software_factory.utility_provenance import QualifiedUtilityPin
@@ -165,10 +166,11 @@ def test_both_factory_host_shapes_pass_exact_shared_structural_contract(
 def test_runtime_manifest_is_descriptive_exact_and_non_authoritative(
     qualified_utilities: QualifiedUtilityRuntime,
 ) -> None:
-    document = qualified_utilities.manifest_document(RuntimeIdentity("a" * 64))
+    component_root = installed_component_root()
+    document = qualified_utilities.manifest_document(RuntimeIdentity(component_root))
     parsed = qualified_utilities.runtime_manifest.parse_manifest(document)
     assert parsed.component.name == "software-factory"
-    assert parsed.component.content_root.value == "a" * 64
+    assert parsed.component.content_root.value == component_root
     dependencies = {item.name: item for item in parsed.dependencies}
     protocols = {item.name: item for item in parsed.protocols}
     pin = qualified_utilities.pin.record["packages"]
@@ -189,6 +191,11 @@ def test_runtime_manifest_is_descriptive_exact_and_non_authoritative(
         assert f'"{forbidden}"' not in lowered
 
 
+def test_runtime_identity_rejects_a_caller_supplied_root_not_bound_to_installed_bytes() -> None:
+    with pytest.raises(ValueError, match="installed Factory package bytes"):
+        RuntimeIdentity("a" * 64)
+
+
 def test_qualified_runtime_makes_real_service_ready_and_preserves_shared_state(
     qualified_utilities: QualifiedUtilityRuntime,
     tmp_path: Path,
@@ -196,6 +203,7 @@ def test_qualified_runtime_makes_real_service_ready_and_preserves_shared_state(
     runtime = open_runtime(tmp_path / "factory")
     embedded = EmbeddedFactoryHost(runtime.engine)
     service = StandaloneFactoryService(runtime.engine)
+    first = embedded.start(_request("real-shared-state-first", "active"))
     mission = embedded.start(_request("real-shared-state", "active"))
     embedded_adapter = qualified_utilities.lifecycle_adapter(embedded, mode="embedded")
     service_adapter = qualified_utilities.lifecycle_adapter(service, mode="service")
@@ -203,13 +211,19 @@ def test_qualified_runtime_makes_real_service_ready_and_preserves_shared_state(
     ref = shared.RunRef(mission.mission_id)
     assert embedded_adapter.status(ref) == service_adapter.status(ref)
     assert embedded_adapter.events(ref) == service_adapter.events(ref)
+    assert [event.sequence for event in embedded_adapter.events(ref)] == [1, 2]
+    first_ref = shared.RunRef(first.mission_id)
+    service.cancel(first.mission_id, reason="prove run-local continuation")
+    first_events = service_adapter.events(first_ref)
+    assert [event.sequence for event in first_events] == list(range(1, len(first_events) + 1))
+    assert service_adapter.events(first_ref, after_sequence=2) == first_events[2:]
     api = FactoryAPI(
         runtime.store,
         runtime.core.advanced,
         reporting=runtime.core.reporting,
         engine_service=service,
         utility_runtime=qualified_utilities,
-        runtime_identity=RuntimeIdentity("b" * 64),
+        runtime_identity=RuntimeIdentity(installed_component_root()),
     )
     assert api.readiness() == {"ok": True}
     assert api.runtime_manifest_record()["component"]["name"] == "software-factory"

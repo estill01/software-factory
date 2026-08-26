@@ -45,8 +45,11 @@ the completed program materially changes Software Factory.
   Mutating HTTP requests bind the exact current service-protocol root; governed
   cancellation additionally requires the existing scoped, expiring, one-time
   operator authority. Request/response sizes, event pages, error detail, DOM
-  rendering, credential files, and dashboard content are bounded, while
-  `SIGINT`/`SIGTERM` retain durable mission state. Factory-owned adapters consume
+  rendering, credential files, and dashboard content are bounded. Event cursors
+  are contiguous per mission, the runtime manifest recomputes its component
+  root from the imported Factory package bytes, and `SIGINT`/`SIGTERM` drain
+  active requests before returning so accepted operator actions are not
+  stranded. Factory-owned adapters consume
   only the accepted `embedded-service-contract` and `runtime-manifest` wheels
   from utils revision `a5659745a7cbcbb002b5f06051f6ed9826f721a7`, after exact
   filename, artifact, content, source/tree, and public-contract verification.

@@ -5,7 +5,8 @@ import secrets
 import threading
 from collections.abc import Mapping
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -508,6 +509,13 @@ def make_handler(api: FactoryAPI, service_token: str) -> type[BaseHTTPRequestHan
     return Handler
 
 
+class _DrainingThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    """Stop admission, then join every in-flight request before closing."""
+
+    daemon_threads = False
+    block_on_close = True
+
+
 class APIServer:
     def __init__(
         self,
@@ -521,9 +529,10 @@ class APIServer:
             raise ValueError("reference API binds only to loopback")
         if not 32 <= len(service_token) <= 512 or not service_token.isprintable():
             raise ValueError("service token must contain 32 to 512 printable characters")
-        self.httpd = ThreadingHTTPServer((host, port), make_handler(api, service_token))
+        self.httpd = _DrainingThreadingHTTPServer((host, port), make_handler(api, service_token))
         self.thread: threading.Thread | None = None
         self._closed = threading.Event()
+        self._close_lock = threading.Lock()
 
     @property
     def address(self) -> tuple[str, int]:
@@ -544,12 +553,16 @@ class APIServer:
         self.httpd.serve_forever()
 
     def close(self) -> None:
-        if self._closed.is_set():
-            return
-        self._closed.set()
-        if self.thread is not None:
-            self.httpd.shutdown()
-        self.httpd.server_close()
-        if self.thread is not None:
-            self.thread.join(timeout=5)
-            self.thread = None
+        with self._close_lock:
+            if self._closed.is_set():
+                return
+            self._closed.set()
+            if self.thread is not None:
+                self.httpd.shutdown()
+            # ThreadingMixIn.server_close blocks until every non-daemon request
+            # handler has returned, so a gracefully signalled process cannot
+            # strand an accepted one-time operator decision mid-application.
+            self.httpd.server_close()
+            if self.thread is not None:
+                self.thread.join(timeout=5)
+                self.thread = None

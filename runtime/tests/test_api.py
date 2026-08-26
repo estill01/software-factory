@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import http.client
 import json
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -293,6 +294,88 @@ def test_server_shutdown_is_idempotent_and_restart_is_rejected() -> None:
     server.close()
     with pytest.raises(RuntimeError, match="closed"):
         server.start()
+
+
+def test_graceful_shutdown_drains_an_accepted_operator_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _store()
+    api = FactoryAPI(store)
+    schedule = api.reporting.create_schedule(
+        schedule_type="interval",
+        specification={"seconds": 60},
+        action={"kind": "tick"},
+        next_run_at="2026-01-01T00:00:00Z",
+        mission_id="mission-1",
+    )
+    expires = (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+    token, _ = api.reporting.issue_operator_token(
+        allowed_actions=["pause_schedule"],
+        scope={"target_type": "schedule", "target_ids": [schedule["id"]]},
+        expires_at=expires,
+        mission_id="mission-1",
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    close_finished = threading.Event()
+    original = api.reporting.set_schedule_status
+
+    def paused_after_shutdown_starts(
+        schedule_id: str, *, status: str, operator_decision_id: str
+    ) -> dict[str, Any]:
+        entered.set()
+        assert release.wait(timeout=5)
+        return original(
+            schedule_id,
+            status=status,
+            operator_decision_id=operator_decision_id,
+        )
+
+    monkeypatch.setattr(api.reporting, "set_schedule_status", paused_after_shutdown_starts)
+    server = APIServer(api, service_token=SERVICE_TOKEN)
+    server.start()
+    host, port = server.address
+    result: list[tuple[int, dict[str, Any]]] = []
+    request_thread = threading.Thread(
+        target=lambda: result.append(
+            request_json(
+                f"http://{host}:{port}/api/operator-actions",
+                method="POST",
+                data={
+                    "action": "pause_schedule",
+                    "target_type": "schedule",
+                    "target_id": schedule["id"],
+                    "payload": {},
+                },
+                token=SERVICE_TOKEN,
+                operator_token=token,
+                workflow_root=WORKFLOW_ROOT,
+            )
+        )
+    )
+    request_thread.start()
+    assert entered.wait(timeout=5)
+
+    def close_server() -> None:
+        server.close()
+        close_finished.set()
+
+    close_thread = threading.Thread(target=close_server)
+    close_thread.start()
+    assert close_finished.wait(timeout=0.2) is False
+    assert store.one(
+        "SELECT status FROM operator_decisions_v2 WHERE target_id=?", (schedule["id"],)
+    ) == {"status": "accepted"}
+    release.set()
+    request_thread.join(timeout=5)
+    close_thread.join(timeout=5)
+    assert not request_thread.is_alive()
+    assert not close_thread.is_alive()
+    assert result[0][0] == 200
+    assert result[0][1]["status"] == "applied"
+    assert store.one("SELECT status FROM schedules_v2 WHERE id=?", (schedule["id"],)) == {
+        "status": "paused"
+    }
 
 
 def test_service_token_file_must_be_private_regular_and_not_a_symlink(tmp_path: Path) -> None:

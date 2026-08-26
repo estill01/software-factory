@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -34,7 +36,7 @@ SERVICE_MAX_REQUEST_TARGET_BYTES = 4096
 
 @dataclass(frozen=True)
 class RuntimeIdentity:
-    """Factory-owned exact roots supplied to the descriptive manifest adapter."""
+    """Factory-owned identity verified against the currently imported package bytes."""
 
     component_root: str
     version: str = "2.0.0.dev6"
@@ -44,12 +46,49 @@ class RuntimeIdentity:
             raise ValueError("component_root must be an exact lowercase SHA-256")
         if not self.version or len(self.version) > 128:
             raise ValueError("runtime version must be bounded non-empty text")
+        self.assert_current()
+
+    def assert_current(self) -> None:
+        observed = installed_component_root()
+        if not secrets.compare_digest(self.component_root, observed):
+            raise ValueError("component_root does not match the installed Factory package bytes")
+
+
+def installed_component_root() -> str:
+    """Hash every authoritative file shipped in the imported Factory package.
+
+    Interpreter caches are excluded because they are derived runtime residue.
+    Symlinked package members fail closed so the root always describes the bytes
+    actually opened from one regular installed package tree.
+    """
+
+    root = Path(__file__).resolve().parent
+    entries: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+        relative = path.relative_to(root)
+        if "__pycache__" in relative.parts or path.suffix == ".pyc" or not path.is_file():
+            continue
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise StoreError(f"installed Factory package member is not a regular file: {relative}")
+        content = path.read_bytes()
+        entries.append(
+            {
+                "path": relative.as_posix(),
+                "size": len(content),
+                "sha256": digest_bytes(content),
+            }
+        )
+    if not entries:
+        raise StoreError("installed Factory package contains no authoritative files")
+    return digest_json({"format": "software-factory-component/1", "files": entries})
 
 
 def engine_protocol_root() -> str:
     return digest_json(
         {
             "contract": ENGINE_CONTRACT_VERSION,
+            "event_sequence_scope": "mission",
             "operations": {
                 "cancel": ["mission_id", "reason"],
                 "continue": ["mission_id"],
@@ -225,6 +264,7 @@ class QualifiedUtilityRuntime:
         return FactoryLifecycleAdapter(host, self.embedded_contract, mode=mode)
 
     def manifest_document(self, identity: RuntimeIdentity) -> str:
+        identity.assert_current()
         module = self.runtime_manifest
         packages = self.pin.record["packages"]
         manifest = module.RuntimeManifest(

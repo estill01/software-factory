@@ -52,6 +52,7 @@ or service bearer token cannot substitute for that authority.
 From an installed exact Software Factory candidate, run:
 
 ```sh
+COMPONENT_ROOT="$(python -c 'from software_factory.utility_contracts import installed_component_root; print(installed_component_root())')"
 software-factory-api \
   --home /absolute/private/factory-home \
   --host 127.0.0.1 \
@@ -59,11 +60,13 @@ software-factory-api \
   --service-token-file /absolute/private/service-token \
   --embedded-contract-wheel /absolute/qualified/embedded_service_contract-0.1.0-py3-none-any.whl \
   --runtime-manifest-wheel /absolute/qualified/runtime_manifest-0.1.0-py3-none-any.whl \
-  --component-root <64-lowercase-hex-content-root>
+  --component-root "$COMPONENT_ROOT"
 ```
 
-The component root must identify the exact deployed Factory component content,
-not a branch name or floating version. The process refuses non-loopback binds.
+The process independently recomputes the component root from every regular
+authoritative member of the imported Factory package and rejects a supplied
+value that differs. It therefore cannot be replaced by an arbitrary hash,
+branch name, or floating version. The process refuses non-loopback binds.
 
 ## Probes and operational routes
 
@@ -86,6 +89,9 @@ not a branch name or floating version. The process refuses non-loopback binds.
   manifest) in
   `X-Software-Factory-Workflow-Root`; stale or missing roots fail closed.
   Cancellation is intentionally absent from this general route.
+- Engine event cursors are contiguous and scoped to one mission; the global SQL
+  insertion sequence is internal persistence metadata and never crosses the
+  host or shared lifecycle boundary.
 - `POST /api/operator-actions` requires both transport authentication and a
   distinct one-time operator token.
 
@@ -96,10 +102,14 @@ are rejected.
 
 ## Restart and shutdown
 
-`SIGINT` and `SIGTERM` stop request handling, close the listener, and retain all
-mission truth in the existing durable Factory database. A new process opened on
-the same home observes the same mission status, event cursor, and outcomes. It
-must re-verify the exact utilities and receive the service token file again.
+`SIGINT` and `SIGTERM` stop request admission, drain all active request handlers,
+and then close the listener. In particular, an accepted one-time operator
+decision is applied or durably failed before graceful shutdown returns; it is
+not stranded in a daemon request thread. All mission truth remains in the
+existing durable Factory database. A new process opened on the same home
+observes the same mission status, mission-local event cursor, and outcomes. It
+must re-verify the exact Factory package and utilities and receive the service
+token file again.
 
 After restart, check `/health`, then `/ready`, then authenticated `/api/health`.
 Do not infer Factory completion from process uptime, transport success, an HTTP

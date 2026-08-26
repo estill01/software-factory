@@ -152,10 +152,12 @@ class FactoryEngine:
 
     def status(self, mission_id: str) -> MissionSnapshot:
         mission = self.store.one("SELECT * FROM missions WHERE id=?", (mission_id,))
+        # The durable event table uses one global insertion sequence internally,
+        # but the public engine contract exposes a run-local cursor.  A global
+        # value leaks unrelated mission activity and creates gaps that violate
+        # the shared lifecycle contract after the first mission.
         last_sequence = int(
-            self.store.scalar(
-                "SELECT COALESCE(MAX(sequence),0) FROM events WHERE mission_id=?", (mission_id,)
-            )
+            self.store.scalar("SELECT COUNT(*) FROM events WHERE mission_id=?", (mission_id,))
         )
         return MissionSnapshot(
             mission_id=mission_id,
@@ -219,15 +221,15 @@ class FactoryEngine:
         if limit < 1 or limit > MAX_EVENT_PAGE:
             raise ValueError(f"event limit must be between 1 and {MAX_EVENT_PAGE}")
         rows = self.store.all(
-            """SELECT sequence,id,event_type,stream_key,subject_type,subject_id,
+            """SELECT id,event_type,stream_key,subject_type,subject_id,
                       payload_json,created_at
-               FROM events WHERE mission_id=? AND sequence>?
-               ORDER BY sequence LIMIT ?""",
-            (mission_id, after_sequence, limit),
+               FROM events WHERE mission_id=?
+               ORDER BY sequence LIMIT ? OFFSET ?""",
+            (mission_id, limit, after_sequence),
         )
         return tuple(
             EventRecord(
-                sequence=int(row["sequence"]),
+                sequence=after_sequence + index,
                 event_id=str(row["id"]),
                 event_type=str(row["event_type"]),
                 stream_key=str(row["stream_key"]),
@@ -236,7 +238,7 @@ class FactoryEngine:
                 payload=json_load(row["payload_json"], {}),
                 created_at=str(row["created_at"]),
             )
-            for row in rows
+            for index, row in enumerate(rows, start=1)
         )
 
 
