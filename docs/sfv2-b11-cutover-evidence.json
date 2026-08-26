@@ -232,34 +232,65 @@
     ],
     "root_generated_residue_absent": true,
     "archived_generated_residue_present": true,
+    "archived_chunks_revision_addressable": true,
+    "archived_chunks": [
+      {
+        "path": "legacy/v1/.sf-upload/next-integration/part-000",
+        "bytes": 4000,
+        "sha256": "568d93404f4cff9e31f70fd5fa23748ef14ad90f3ea24f9d5c2e380a9f3f5296"
+      },
+      {
+        "path": "legacy/v1/.sf-upload/next-integration/part-001",
+        "bytes": 4000,
+        "sha256": "8ca882b4b782bebca3a28936963d8f74baf3102305dd8d72028d836d1a69e927"
+      },
+      {
+        "path": "legacy/v1/.sf-upload/next-integration/part-002",
+        "bytes": 16000,
+        "sha256": "64ee5f72e20bead815a2da35a69aabaffe324cbb039e07f36a4dd69d290dad29"
+      },
+      {
+        "path": "legacy/v1/.sf-upload/next-integration/part-003",
+        "bytes": 13360,
+        "sha256": "93c9802908d44822e3795f4c6b03c6f84c41f15dd2794d87de46d3c4adc0eade"
+      }
+    ],
     "source_and_archive_roots_equal": true
   },
   "dashboard_install_qualification": {
-    "build_source_revision": "5ba775dd74d3d7fbada98b7bd4a0819d3139f295",
+    "build_source_revision": "pending exact implementation successor",
     "source_date_epoch": 1787732350,
     "isolated_python": "3.13.13",
     "dashboard_version": "0.1.0",
     "runtime_version": "2.0.0.dev6",
     "dashboard_wheel_sha256": "e4d861284841fdec2fc0b15bdbfa1744cc798ded483850a3856a21ad4b5c0216",
-    "runtime_wheel_sha256": "8c2ab25cf0ab87cdf24dcd9bea426dd87d6212666d6127116ed3996e1521f3cc",
+    "runtime_wheel_sha256": "c819f31af2edca586cc60ec0132c147ee9fc1dda593f5092ed9188bbd58ae2e1",
     "runtime_requirement": "software-factory==2.0.0.dev6",
     "semantic_requirement": "libRSI @ git+https://github.com/estill01/libRSI.git@1d81f6180b40435e10145756a2d99e6f334d31bc",
     "client_wheel_sha256": "1e9dc5b9c7f2edb9676b5a47eb2c9b96498f1b429acec474cd26702fe8e3fdb9",
     "embedded_contract_wheel_sha256": "2b36d7307c08cd6d7d95bfb86d4a240b6ab2a69de5b2c61bf75a54507c7ea18d",
     "runtime_manifest_wheel_sha256": "f2e601d542272187998296f09d33b2235002d108fe07c0b3c89a678ea1d010ac",
+    "librsi_source_commit": "1d81f6180b40435e10145756a2d99e6f334d31bc",
+    "librsi_source_date_epoch": 1787602056,
+    "librsi_wheel_sha256": "baf5fb7309045b52f7f30f5308dd170c37aeac16999aed6ba8d168df8738af91",
     "qualified_utils_pin": "runtime/src/software_factory/provider_pins/qualified-utils.json",
     "client_resolution": "explicit exact wheel through SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL or --codex-client-wheel",
-    "installed_dependency_resolution": "all three utils distributions installed from their exact internal wheel paths; libRSI resolved at the pinned Git revision",
+    "installed_dependency_resolution": "all 16 distributions installed from explicit exact wheel paths with --no-index --no-deps; the Factory runtime wheel was supplied directly and no registry or Git resolution occurred",
+    "offline_install_manifest": "docs/sfv2-b11-install-manifest.json",
+    "offline_install_manifest_sha256": "6e0961bdbc7de512786df30ef822492d604e829c43e7de80331f87bd6ff5b33b",
+    "offline_install_receipt": "docs/sfv2-b11-offline-install-receipt.json",
+    "offline_install_qualification_root_sha256": "aec38536d450cdb458d9046c45f4c8d72b6a289d7fae8b14cba86820104fbf5b",
+    "offline_install_command": "scripts/qualify_sfv2_b11_install.py --manifest docs/sfv2-b11-install-manifest.json --artifact-directory <exact-artifact-directory> --environment <new-empty-environment>",
     "installed_help_exposes_client_wheel": true,
     "installed_loader_verified_client_pin": true,
     "installed_compatibility_projection_only": true,
-    "reproduction_rule": "rebuild the exact review candidate with SOURCE_DATE_EPOCH=1787732350 and require both Factory wheel hashes to remain identical",
+    "reproduction_rule": "rebuild the exact review candidate with SOURCE_DATE_EPOCH=1787732350, require both Factory wheel hashes to remain identical, validate every artifact against the committed manifest, and install only the explicit artifact paths under --no-index --no-deps",
     "registry_resolution_allowed": false,
     "release_posture": "no-license-selected/unpublished"
   },
   "validation": {
-    "focused_runtime": "55 passed with the exact client, embedded-contract, and runtime-manifest wheels, including the real historical snapshot migration and installed compatibility boundary",
-    "dashboard": "136 passed and 29 subtests passed",
+    "focused_runtime": "54 passed with the exact client, embedded-contract, and runtime-manifest wheels and no skips, including the real historical snapshot migration and installed compatibility boundary",
+    "dashboard": "137 passed and 29 subtests passed",
     "runtime_ruff": "all checks passed",
     "runtime_format": "111 files formatted",
     "runtime_mypy": "75 source files clean",
@@ -276,10 +307,10 @@
     },
     {
       "concern": "dashboard tracker and supervision helper consumers",
-      "active_disposition": "read-only-projection-tree; every historical command and low-level writer fails closed; fixture effects load only the exact archived owner",
+      "active_disposition": "mechanically closed read-only projection surface; every non-projection function, historical command, low-level writer, owner-root key creator, and release lifecycle action fails closed; fixture effects load only the exact archived owner",
       "active_path": "runtime/src/software_factory/compatibility_owners",
-      "active_file_count": 12,
-      "active_file_hash_set_sha256": "946605bbf4c5ad6feb58405706c8e422f63ea03e62eef9bed200b834c12b3376",
+      "active_file_count": 13,
+      "active_file_hash_set_sha256": "57d96dbc1b0574dd006eedb5fd6ec8096fc273429300e5007e5baf90bfb71045",
       "legacy_execution": false,
       "test_fixture_execution": "exact archived owner against temporary test roots only",
       "second_active_writer": false

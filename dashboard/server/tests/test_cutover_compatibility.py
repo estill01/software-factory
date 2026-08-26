@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import inspect
 import json
@@ -32,6 +33,19 @@ def compatibility_owner_module():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.path.insert(0, str(DEFAULT_SUPERVISION_OWNER.parent))
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.pop(0)
+    return module
+
+
+def compatibility_release_module():
+    path = DEFAULT_SUPERVISION_OWNER.parent.parent / "skill_release.py"
+    spec = importlib.util.spec_from_file_location("cutover_compatibility_release", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(path.parent))
     try:
         spec.loader.exec_module(module)
     finally:
@@ -126,6 +140,7 @@ def test_installed_compatibility_owner_has_no_direct_second_writer_bypass(
     tmp_path: Path,
 ) -> None:
     owner = compatibility_owner_module()
+    assert owner.compatibility_projection_surface_is_closed()
     target = tmp_path / "forbidden.json"
 
     for effect in (
@@ -168,6 +183,34 @@ def test_installed_compatibility_owner_has_no_direct_second_writer_bypass(
         )
     assert not (tmp_path / "supervision").exists()
 
+    try:
+        owner.owner_root_key_at(-1, allow_create=True)
+    except owner.SupervisionLogError as exc:
+        assert "projection-only" in str(exc)
+    else:
+        raise AssertionError("compatibility owner retained key creation")
+
+    read_only_commands = {
+        "cmd_factory_evolution",
+        "cmd_gmail_cadence",
+        "cmd_lifecycle_gate",
+        "cmd_resume_gate",
+        "cmd_status",
+        "cmd_successor_transition_gate",
+        "cmd_terminal_report",
+        "cmd_terminal_report_verify",
+        "cmd_thread_route_gate",
+        "cmd_weekly_report",
+    }
+    for name, value in vars(owner).items():
+        if callable(value) and name.startswith(
+            ("cmd_", "atomic_", "append_", "write_")
+        ):
+            assert (
+                name in read_only_commands
+                or value is owner._reject_compatibility_effect
+            )
+
     sys.path.insert(0, str(DEFAULT_SUPERVISION_OWNER.parent))
     try:
         weekly = owner.weekly_report_module()
@@ -194,6 +237,53 @@ def test_installed_compatibility_owner_has_no_direct_second_writer_bypass(
     assert "legacy/v1/skills/supervise-tracker-runs" in fixture_driver.read_text(
         encoding="utf-8"
     )
+
+
+def test_installed_release_compatibility_is_status_only(tmp_path: Path) -> None:
+    owner = compatibility_release_module()
+    assert owner.compatibility_projection_surface_is_closed()
+    assert set(owner.parser()._subparsers._group_actions[0].choices) == {
+        "status",
+        "verify-installed",
+    }
+
+    for name in (
+        "activate_release",
+        "adopt_release",
+        "append_jsonl",
+        "atomic_json",
+        "bootstrap_release",
+        "promote_release",
+        "release_lock",
+        "rollback_release",
+        "stage_release",
+    ):
+        assert getattr(owner, name) is owner._reject_compatibility_release_effect
+
+    release_root = tmp_path / "releases"
+    install_root = tmp_path / "skills"
+    release_root.mkdir()
+    install_root.mkdir()
+    projected = owner.status(
+        argparse.Namespace(
+            release_root=str(release_root), install_root=str(install_root)
+        )
+    )
+    assert projected["active_release_id"] is None
+    assert projected["installed_complete"] is False
+    assert not (release_root / ".release.lock").exists()
+    assert not (tmp_path / owner.KEY_DIRECTORY).exists()
+
+    for effect in (
+        lambda: owner.ensure_directory(release_root, label="release", create=True),
+        lambda: owner.release_key(release_root, allow_create=True),
+    ):
+        try:
+            effect()
+        except owner.ReleaseError as exc:
+            assert "projection-only" in str(exc)
+        else:
+            raise AssertionError("release compatibility retained a writer path")
 
 
 def test_dashboard_composes_the_exact_local_factory_runtime() -> None:

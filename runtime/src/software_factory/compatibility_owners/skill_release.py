@@ -22,6 +22,19 @@ import sys
 import tempfile
 from typing import Any, Iterator, Mapping, Sequence
 
+try:
+    from software_factory.compatibility_owners.projection_surface import (
+        projection_surface_is_closed,
+        retain_projection_functions,
+    )
+except ModuleNotFoundError:  # Direct execution from the installed source tree.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from projection_surface import (  # type: ignore[no-redef]
+        projection_surface_is_closed,
+        retain_projection_functions,
+    )
+    sys.path.pop(0)
+
 
 SKILLS = (
     "author-implementation-trackers",
@@ -2504,6 +2517,157 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     print(json.dumps(result, sort_keys=True))
     return 0
+
+
+def _reject_compatibility_release_effect(*_args: Any, **_kwargs: Any) -> None:
+    raise ReleaseError(
+        "The installed v1 release compatibility owner is projection-only after "
+        "SFV2 cutover; invoke the canonical release owner for effects"
+    )
+
+
+def ensure_directory(path: Path, *, label: str, create: bool = False) -> Path:
+    """Resolve an existing directory without retaining an implicit mkdir path."""
+
+    if create:
+        _reject_compatibility_release_effect()
+    if path.is_symlink() or not path.is_dir():
+        raise ReleaseError(f"{label} must be an existing real directory")
+    return path.resolve(strict=True)
+
+
+def release_key(release_root: Path, *, allow_create: bool) -> bytes:
+    """Read the existing release ledger key without retaining key creation."""
+
+    if allow_create:
+        _reject_compatibility_release_effect()
+    path = release_key_path(release_root)
+    if not path.exists():
+        raise ReleaseError("External release authority key is missing")
+    if path.is_symlink() or not path.is_file():
+        raise ReleaseError("External release authority key is not a canonical file")
+    metadata = path.stat()
+    if metadata.st_size != 32 or stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ReleaseError("External release authority key has invalid permissions")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        key = os.read(descriptor, 33)
+    finally:
+        os.close(descriptor)
+    if len(key) != 32:
+        raise ReleaseError("External release authority key is invalid")
+    return key
+
+
+def status(args: argparse.Namespace) -> dict[str, Any]:
+    """Project the current accepted release without creating a lock or state."""
+
+    release_root = ensure_directory(
+        Path(args.release_root), label="release root", create=False
+    )
+    install_root = ensure_directory(
+        Path(args.install_root), label="skill install root", create=False
+    )
+    active = current_release_id(release_root)
+    manifest = read_manifest(release_root, active) if active else None
+    records = history(release_root)
+    history_active = str(records[-1]["release_id"]) if records else None
+    if history_active != active:
+        raise ReleaseError("Current pointer and activation history differ")
+    installed = installed_link_state(install_root, release_root)
+    result: dict[str, Any] = {
+        "active_release_id": active,
+        "source_commit": manifest.get("source_commit") if manifest else None,
+        "manifest_sha256": manifest.get("manifest_sha256") if manifest else None,
+        "candidate_root_sha256": (
+            manifest.get("candidate_root_sha256") if manifest else None
+        ),
+        "independent_review": (
+            manifest.get("independent_review") if manifest else None
+        ),
+        "skills": manifest.get("skills") if manifest else None,
+        "installed_links": installed,
+        "installed_complete": bool(active)
+        and all(item["stable"] for item in installed.values()),
+        "activation_history_records": len(records),
+        "activation_record": records[-1] if records else None,
+    }
+    result["acceptance_record"] = (
+        accepted_release_record(release_root, active) if active else None
+    )
+    if active and result["installed_complete"]:
+        result["current_verification"] = verify_installed(
+            release_root, install_root, active
+        )
+    result["release_owner_state_root_sha256"] = digest(result)
+    return result
+
+
+def parser() -> argparse.ArgumentParser:
+    value = argparse.ArgumentParser(
+        description="Read-only projection of the accepted Software Factory skill release"
+    )
+    value.add_argument(
+        "--release-root",
+        default=str(Path.home() / ".codex/software-factory-releases"),
+    )
+    value.add_argument("--install-root", default=str(Path.home() / ".codex/skills"))
+    subcommands = value.add_subparsers(dest="command", required=True)
+    inspect = subcommands.add_parser("status", help="report exact active roots")
+    inspect.set_defaults(func=status)
+    verify = subcommands.add_parser(
+        "verify-installed", help="verify exact installed links and roots"
+    )
+    verify.add_argument("--expected-release", required=True)
+    verify.set_defaults(
+        func=lambda args: verify_installed(
+            ensure_directory(
+                Path(args.release_root), label="release root", create=False
+            ),
+            ensure_directory(
+                Path(args.install_root), label="skill install root", create=False
+            ),
+            args.expected_release,
+            verify_review_authority=False,
+        )
+    )
+    return value
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        result = args.func(args)
+    except (OSError, ReleaseError, subprocess.SubprocessError) as exc:
+        print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)
+        return 2
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def compatibility_projection_surface_is_closed() -> bool:
+    return projection_surface_is_closed(
+        globals(),
+        exposed=COMPATIBILITY_PROJECTION_FUNCTIONS,
+        reject=_reject_compatibility_release_effect,
+    )
+
+
+_COMPATIBILITY_PROJECTION_ROOTS = {
+    "compatibility_projection_surface_is_closed",
+    "ensure_directory",
+    "main",
+    "parser",
+    "release_key",
+    "status",
+    "verify_installed",
+}
+COMPATIBILITY_PROJECTION_FUNCTIONS = retain_projection_functions(
+    globals(),
+    roots=_COMPATIBILITY_PROJECTION_ROOTS,
+    reject=_reject_compatibility_release_effect,
+    opaque_roots={"parser"},
+)
 
 
 if __name__ == "__main__":

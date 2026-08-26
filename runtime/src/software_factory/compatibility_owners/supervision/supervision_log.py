@@ -29,6 +29,19 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
 try:
+    from software_factory.compatibility_owners.projection_surface import (
+        projection_surface_is_closed,
+        retain_projection_functions,
+    )
+except ModuleNotFoundError:  # Direct execution from the installed source tree.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from projection_surface import (  # type: ignore[no-redef]
+        projection_surface_is_closed,
+        retain_projection_functions,
+    )
+    sys.path.pop(0)
+
+try:
     import tomllib
 except ModuleNotFoundError:  # Python 3.9 maintained host runtime.
     import tomli as tomllib
@@ -36789,6 +36802,85 @@ globals().update(
 )
 
 
+def owner_root_key_at(directory_fd: int, *, allow_create: bool) -> bytes:
+    """Read an existing owner-root key without retaining a creation path."""
+
+    if allow_create:
+        _reject_compatibility_effect()
+    path = owner_root_key_path_at(directory_fd)
+    if not path.exists():
+        if owner_root_external_state_exists_at(directory_fd):
+            raise SupervisionLogError(
+                "Canonical external owner-root head survives without its key"
+            )
+        raise SupervisionLogError("Canonical external owner-root key is missing")
+    if path.is_symlink():
+        raise SupervisionLogError("Canonical external owner-root key is symlinked")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        key = os.read(descriptor, 33)
+    finally:
+        os.close(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size != 32
+        or len(key) != 32
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise SupervisionLogError("Canonical external owner-root key is invalid")
+    return key
+
+
+_COMPATIBILITY_PROJECTION_ROOTS = {
+    "assess_outcome_completion_record",
+    "bound_mission",
+    "canonical",
+    "cmd_factory_evolution",
+    "cmd_gmail_cadence",
+    "cmd_lifecycle_gate",
+    "cmd_resume_gate",
+    "cmd_status",
+    "cmd_successor_transition_gate",
+    "cmd_terminal_report",
+    "cmd_thread_route_gate",
+    "cmd_weekly_report",
+    "compatibility_projection_surface_is_closed",
+    "derive_mission_binding",
+    "digest",
+    "events",
+    "execution_economy_contract",
+    "expected_terminal_automation_owners",
+    "factory_evolution_module",
+    "is_substantive_incident_record",
+    "is_terminal_incident_record",
+    "latest_outcome_completion_record",
+    "latest_terminal_delivery",
+    "load_policy",
+    "main",
+    "mission_activation_heads",
+    "mission_binding_identity",
+    "mission_binding_is_supported",
+    "mission_scoped_events",
+    "owner_root_key_at",
+    "parser",
+    "policy_mission_roots",
+    "project_policy_bind",
+    "read_json",
+    "skill_maintenance_contract",
+    "successor_transition_events",
+    "successor_transition_heads",
+    "supervision_resume_record_is_canonical",
+    "terminal_automation_owner_states",
+    "terminal_delivery_is_current",
+    "terminal_prior_report_inventory",
+    "terminal_report_contract",
+    "terminal_report_module",
+    "terminal_shutdown_record_is_canonical",
+    "utc_now",
+    "weekly_projection_inventory",
+    "weekly_report_module",
+}
 def main() -> int:
     args = parser().parse_args()
     try:
@@ -36806,6 +36898,22 @@ def main() -> int:
         print(json.dumps({"error": str(exc)}, sort_keys=True))
         return 2
     return 0
+
+
+def compatibility_projection_surface_is_closed() -> bool:
+    return projection_surface_is_closed(
+        globals(),
+        exposed=COMPATIBILITY_PROJECTION_FUNCTIONS,
+        reject=_reject_compatibility_effect,
+    )
+
+
+COMPATIBILITY_PROJECTION_FUNCTIONS = retain_projection_functions(
+    globals(),
+    roots=_COMPATIBILITY_PROJECTION_ROOTS,
+    reject=_reject_compatibility_effect,
+    opaque_roots={"parser"},
+)
 
 
 if __name__ == "__main__":
