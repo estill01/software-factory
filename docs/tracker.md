@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `dde566c89acf72bd53a0fa6bd0c66f178365c768a48157b742e9484db68175cd`; Blocks 0–8 accepted; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; bounded Block 9 remediation/proof complete and pending successor commit/review; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 9 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `73456e524b92bb5b96ff01d80d5b47d9faef6f4824dae08e14c802e12709d114`; Blocks 0–9 accepted; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -91,13 +91,17 @@ removes the rejected candidate's stale later-read reconciliation claim. A clean
 correction freeze and distinct exact-revision review accepted exact pushed
 candidate `e82ee5325c266d8891e86ab22ca7abfb2e369166`, tree
 `b5be73e4fd137e440ef6c0b72fe13ebb2f2525c1`, with no P0–P2 findings.
-Block 9 remains the dependency-safe frontier. Exact pushed candidates
+Block 9 is accepted at exact pushed candidate
+`7f4d55f2e87c4eaeae0731fdb22ef7fb2f793b0e`, tree
+`a2ac7a1f1d706f851db5ccb84d768a3af109a36a`, after distinct exact-revision
+review returned no P0–P2 findings. Exact pushed candidates
 `5a2f226` and `9c76fc8` are preserved and unaccepted after independent review
 returned four total P1 findings in event-cursor scope, installed component
-identity, completing-handler drain, and bounded shutdown/recovery. The current
-bounded remediation and focused/mapped/build proof are complete at the current
-detailed-tracker binding, but Block 9 remains unaccepted pending a clean pushed
-successor and distinct exact-revision review.
+identity, completing-handler drain, and bounded shutdown/recovery. The accepted
+successor closes every finding with mission-local contiguous cursors, installed
+component-root verification, finite request/read and drain ceilings, and exact
+replay of only the already accepted operator request. Block 10 is now the sole
+dependency-safe frontier.
 
 ## Required outcome
 

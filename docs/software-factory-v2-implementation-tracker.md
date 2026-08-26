@@ -241,8 +241,8 @@ for this tracker may inspect Patent Studio patent content.
 | 6 | QA, supervision, acceptance, and outcome closure | 3–5 | `accepted` |
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `accepted` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `accepted` |
-| 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `in-progress` |
-| 10 | Neutral content profile and external-extension proof | 5–9 | `not-started` |
+| 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `accepted` |
+| 10 | Neutral content profile and external-extension proof | 5–9 | `in-progress` |
 | 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `not-started` |
 | 12 | Frozen terminal qualification and handoff | 11 | `not-started` |
 
@@ -2090,7 +2090,7 @@ Stop before service/operator qualification.
 
 ## Block 9 — Qualify service, API, operator, and deployment-ready boundaries
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2305,12 +2305,19 @@ equivalence, and false authority.
   root `9683cadba6fa25e6f1e4bbfd4ebdcc6263ed14cd1aa3c1b2a2df54a56b4c8baf`,
   reproduced current engine and service protocol roots, and retained the
   Factory wheel as the actual import source.
-- Candidate posture: both rejected candidates and all four findings are
-  preserved. The current bounded successor implementation, focused/mapped proof, static
-  audit, collection, detailed-tracker verification, and isolated build/import
-  proof are complete; exact successor commit/push and fresh independent
-  exact-revision review remain required before Block 9 acceptance or Block 10
-  effects.
+- Accepted exact candidate: pushed commit
+  `7f4d55f2e87c4eaeae0731fdb22ef7fb2f793b0e`, tree
+  `a2ac7a1f1d706f851db5ccb84d768a3af109a36a`, with a clean worktree and
+  local/remote parity at review. Distinct read-only replacement review accepted
+  that exact revision with no P0, P1, or P2 findings. The review independently
+  confirmed finite socket/read deadlines, bounded shutdown drain, exact
+  consumed-token replay, mission-local contiguous event cursors, installed
+  component-root binding, and no Block 9 scope regression.
+- Candidate posture: both rejected candidates, all four findings, and their
+  corrective history remain preserved and unaccepted. Exact pushed successor
+  `7f4d55f2e87c4eaeae0731fdb22ef7fb2f793b0e` is the accepted Block 9
+  implementation checkpoint. This status reconciliation opens Block 10; it
+  does not rewrite the reviewed candidate or replay its proof.
 
 ### Stop
 
@@ -2320,7 +2327,7 @@ Stop before cross-domain proof.
 
 ## Block 10 — Prove neutral content profile and external extension
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2381,7 +2388,11 @@ reuse of the real engine.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: exact pushed Block 9 candidate
+  `7f4d55f2e87c4eaeae0731fdb22ef7fb2f793b0e`, tree
+  `a2ac7a1f1d706f851db5ccb84d768a3af109a36a`, accepted by distinct
+  exact-revision review with no P0–P2 findings. Blocks 0–9 are accepted and
+  Block 10 is the sole dependency-eligible frontier.
 
 ### Stop
 
