@@ -2875,7 +2875,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_status_table_header_ignores_unrelated_numeric_table_and_normalizes_complete(
+    def test_status_table_header_ignores_unrelated_numeric_table_and_normalizes_completion(
         self,
     ) -> None:
         self.tracker.write_text(
@@ -2886,20 +2886,25 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "| Block | Scope | Depends on | Owner | Status |\n"
             "|---:|---|---:|---|---|\n"
             "| 0 | Foundation | — | target | `complete` |\n"
-            "| 1 | Follow-on | 0 | target | `not-started` |\n\n"
+            "| 1 | Accepted prerequisite | 0 | target | `accepted` |\n"
+            "| 2 | Follow-on | 1 | target | `not-started` |\n\n"
             "## Block 0 — Foundation\n\nStatus: `complete`\n\n"
             "### Completion evidence\n\nAccepted.\n\n"
             "### Stop\n\nStop at this Block boundary.\n\n"
-            "## Block 1 — Follow-on\n\nStatus: `not-started`\n\n"
+            "## Block 1 — Accepted prerequisite\n\nStatus: `accepted`\n\n"
+            "### Completion evidence\n\nAccepted.\n\n"
+            "### Stop\n\nStop at this Block boundary.\n\n"
+            "## Block 2 — Follow-on\n\nStatus: `not-started`\n\n"
             "### Completion evidence\n\nPending.\n\n"
             "### Stop\n\nStop at this Block boundary.\n",
             encoding="utf-8",
         )
         self.bind()
         gate = self.gate("block-boundary")
-        self.assertEqual(gate["accepted_blocks"], [0])
-        self.assertEqual(gate["remaining_blocks"], [1])
-        self.assertEqual(gate["eligible_blocks"], [1])
+        self.assertEqual(gate["accepted_blocks"], [0, 1])
+        self.assertEqual(gate["remaining_blocks"], [2])
+        self.assertEqual(gate["eligible_blocks"], [2])
+        self.assertTrue(gate["implementation_start_permitted"])
         self.assertEqual(gate["next_action"], "continue-next-eligible-block")
 
     def call(self, *arguments: str) -> dict[str, object]:

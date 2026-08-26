@@ -9128,7 +9128,7 @@ def implementation_tracker_snapshot(
         if number in rows:
             raise SupervisionLogError("Implementation tracker repeats a status row")
         status = cells[table_columns["status"]]
-        if status == "complete":
+        if status in {"complete", "accepted"}:
             status = "completed"
         rows[number] = {
             "scope": cells[table_columns["scope"]],
@@ -15048,6 +15048,9 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
         "range_binding_current": True,
         "range_binding_posture": "current",
         "response_kind": args.response_kind,
+        "implementation_start_permitted": bool(
+            remaining and state["eligible_blocks"]
+        ),
         "final_response_permitted": final_permitted,
         "required_target_posture": effective_control[
             "required_target_posture"
