@@ -242,8 +242,8 @@ for this tracker may inspect Patent Studio patent content.
 | 7 | libRSI semantic integration and duplicate removal | 1, 3, 6 | `accepted` |
 | 8 | Delivery, release, recovery, and reconciliation | 5–7 | `accepted` |
 | 9 | Service/API/operator and deployment-ready boundaries | 2, 6, 8 | `accepted` |
-| 10 | Neutral content profile and external-extension proof | 5–9 | `in-progress` |
-| 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `not-started` |
+| 10 | Neutral content profile and external-extension proof | 5–9 | `accepted` |
+| 11 | Migration, compatibility cutover, and legacy retirement | 6–10 | `in-progress` |
 | 12 | Frozen terminal qualification and handoff | 11 | `not-started` |
 
 Required order:
@@ -2327,7 +2327,7 @@ Stop before cross-domain proof.
 
 ## Block 10 — Prove neutral content profile and external extension
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2591,13 +2591,21 @@ reuse of the real engine.
     deterministic cited-document contract rather than a universal document
     platform. New domains remain external extensions until another accepted
     shared need justifies a bounded core contract.
-- Candidate posture: rejected exact candidates `e60b999`, `44f3e83`,
-  `b408e17`, `777b2d2`, and `8edf34b` and all eleven review findings are
-  preserved. The fifth bounded remediation, docs,
-  focused/mapped proof, static audit, collection, durable-restart proof, and
-  isolated build/import proof are complete. A new exact candidate commit/push
-  and distinct exact-revision review remain required before Block 10 acceptance
-  or Block 11 effects.
+- Independent review: exact pushed candidate
+  `5988b3d7dd9bf3fd2720842abfb810f8e0a0cc30`, tree
+  `c35773d65cf9040156d70cab31c84047d3b80e85`, was clean and at local/remote
+  equality. Distinct exact-revision review returned `ACCEPT` with no P0–P2
+  findings after independently confirming full composite work identity, unique
+  deterministic physical-target fencing, pre-acquisition conflict rejection,
+  acceptance and mission-completion revalidation, bounded duplicate-target
+  regressions, and preservation of all five rejected candidates and eleven
+  findings.
+- Acceptance posture: `accepted`. Rejected exact candidates `e60b999`,
+  `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` and all eleven review findings
+  remain immutable and preserved. Blocks 11–12 and the terminal observable
+  outcome remain open. No migration, legacy retirement, production activation,
+  utils mutation, registry resolution, public-installability claim, or release
+  effect occurred in this Block.
 
 ### Stop
 
@@ -2607,7 +2615,7 @@ Stop before migration and legacy retirement.
 
 ## Block 11 — Migrate, cut over, and retire duplicate legacy paths
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2669,7 +2677,20 @@ behavior.
 
 ### Completion evidence
 
-Pending.
+- Start baseline: exact pushed Block 10 candidate
+  `5988b3d7dd9bf3fd2720842abfb810f8e0a0cc30`, tree
+  `c35773d65cf9040156d70cab31c84047d3b80e85`, accepted by distinct
+  exact-revision review with no P0–P2 findings. Blocks 0–10 are accepted and
+  Block 11 is the sole dependency-eligible frontier.
+- Start posture: preserve historical and rejected bytes while proving one
+  frozen real-state migration plus rollback/reapply, exact installed package,
+  skill, entrypoint, and dashboard behavior, one active writer for every
+  lifecycle concern, and removal or inert archival of mapped generated residue,
+  dashboard-local RPC ownership, and the retired libRSI shadow comparator. The
+  exact qualified utils client remains an unpublished/no-license internal
+  artifact supplied by path and verified by producer/source/tree/content/version
+  and artifact hashes; bare registry resolution and utils repository mutation
+  remain prohibited.
 
 ### Stop
 

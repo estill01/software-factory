@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `7d3cc99e25e6026515ce1ff705a9538c58797341666e57a2500c870c06309ea5`; Blocks 0–9 accepted; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` plus all eleven P1/P2 findings preserved; exact candidate-root stage lineage, atomic stale-QA, deterministic all-profile terminal identity, and unique-target fencing remediation with mapped proof complete pending successor commit/review; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `4065ed0a7afd4b443e58f803cd6d24f0a2b36cea1286f5b46d662aea19288574`; Blocks 0–10 accepted; exact accepted Block 10 candidate `5988b3d`; rejected Block 10 candidates `e60b999`, `44f3e83`, `b408e17`, `777b2d2`, and `8edf34b` plus all eleven P1/P2 findings preserved; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 11 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -100,12 +100,12 @@ returned four total P1 findings in event-cursor scope, installed component
 identity, completing-handler drain, and bounded shutdown/recovery. The accepted
 successor closes every finding with mission-local contiguous cursors, installed
 component-root verification, finite request/read and drain ceilings, and exact
-replay of only the already accepted operator request. Block 10 is now the sole
+replay of only the already accepted operator request. Block 10 then became the sole
 dependency-safe frontier. Its maintained neutral profile and consumer-owned
 external extension both reach delivered and independently accepted terminal
 mission outcomes through the real CoreService owners. Focused/mapped/static and
 isolated package proof are current at detailed tracker SHA-256
-`7d3cc99e25e6026515ce1ff705a9538c58797341666e57a2500c870c06309ea5`.
+`4065ed0a7afd4b443e58f803cd6d24f0a2b36cea1286f5b46d662aea19288574`.
 Exact pushed candidates `e60b9990a2453888dfff991dc8c46fb5ca251d58` and
 `44f3e83095550b6cf0db18c08ac314cce110e3f3`, plus exact pushed candidate
 `b408e179b7254ce54aec6ac396dd797159e27fe5` and exact pushed candidate
@@ -123,8 +123,10 @@ children atomically after the stale check, and binds every selected,
 non-cancelled, installed profile target into one deterministic terminal set whose
 unique physical targets are each fenced once through acceptance and whose exact
 work identity is rechecked at mission completion; conflicting physical-target
-roots reject before fence acquisition. Block 10 remains in progress
-pending its clean pushed successor and distinct exact-revision review.
+roots reject before fence acquisition. Distinct exact-revision review accepted
+exact pushed candidate `5988b3d7dd9bf3fd2720842abfb810f8e0a0cc30`, tree
+`c35773d65cf9040156d70cab31c84047d3b80e85`, with no P0–P2 findings. Block 10
+is accepted and Block 11 is now the sole dependency-safe frontier.
 
 ## Required outcome
 
