@@ -1,0 +1,1 @@
+include tests/external_extension_fixture.py

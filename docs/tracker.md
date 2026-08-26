@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `73456e524b92bb5b96ff01d80d5b47d9faef6f4824dae08e14c802e12709d114`; Blocks 0–9 accepted; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `8b4071c474ba979e099cc241c5c5061d87c03f44fdf555259552f3288d5694a3`; Blocks 0–9 accepted; Block 10 neutral-content/external-extension implementation and mapped proof complete pending exact candidate commit/review; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -101,7 +101,13 @@ identity, completing-handler drain, and bounded shutdown/recovery. The accepted
 successor closes every finding with mission-local contiguous cursors, installed
 component-root verification, finite request/read and drain ceilings, and exact
 replay of only the already accepted operator request. Block 10 is now the sole
-dependency-safe frontier.
+dependency-safe frontier. Its maintained neutral profile and consumer-owned
+external extension both reach delivered and independently accepted terminal
+mission outcomes through the real CoreService owners. Focused/mapped/static and
+isolated package proof are current at detailed tracker SHA-256
+`8b4071c474ba979e099cc241c5c5061d87c03f44fdf555259552f3288d5694a3`;
+Block 10 remains in progress pending its clean pushed exact candidate and
+distinct review.
 
 ## Required outcome
 

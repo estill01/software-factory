@@ -2393,6 +2393,98 @@ reuse of the real engine.
   `a2ac7a1f1d706f851db5ccb84d768a3af109a36a`, accepted by distinct
   exact-revision review with no P0–P2 findings. Blocks 0–9 are accepted and
   Block 10 is the sole dependency-eligible frontier.
+- Maintained neutral profile: `ContentTargetProfile` is composed beside the
+  software profile and owns only exact-currentness-fenced physical content
+  effects. A registered source set proceeds through source collection, planning,
+  drafting, deterministic revision, factual/structural/style review, escaped
+  HTML rendering, internal delivery, and exact receipt verification. Its closed
+  effect contract accepts no caller path, command, authority, approval,
+  acceptance, or arbitrary content. Rendering requires all three current quality
+  reviews; delivery and verification reject changed bytes, receipts, definitions,
+  symlinks, non-regular members, stale roots, and out-of-order effects.
+- Real content mission: the maintained operations-brief fixture uses the actual
+  CoreService mission, program, capability, obligation, selected work, leased
+  execution, target registry, QA, governance, independent
+  candidate/integrated/installed/terminal acceptance, program-range closure,
+  continuation, and terminal mission-completion owners. Its deterministic final
+  target revision is
+  `d8b77e0406d862ccfcbffec1f50ec1f0f6e3a88a1c6c3a54324fee8bde2fd67c`,
+  currentness root
+  `30a428d6d3cd53cf3a416305ea09197615cc2ddef0ea381bc0cbb28463f95597`,
+  and delivered HTML SHA-256
+  `b9844f519ffc5a0b1737c9b70223a211a318d062c7576dd899297948eaf62206`.
+  Assertions inspect the delivered title, factual statement, exact source
+  citation, and all three review artifacts; build success alone is ineligible.
+- Domain-neutral candidate bridge: `QAService.submit_profile_candidate` binds a
+  successful non-workspace execution to the work-declared profile/target, exact
+  registered snapshot revision/currentness and attributes, acceptance spec, and
+  current program revision. Profile or target substitution, a workspace
+  candidate, stale target bytes, failed/unbound execution, or changed work
+  version fails before submission. This bridge creates QA input only; the
+  existing staged lifecycle remains the sole work-acceptance owner.
+- External extension proof: `runtime/tests/external_extension_fixture.py` owns
+  its sample observation key, target ID, schema, snapshots, and physical effects
+  outside `runtime/src/software_factory`. It registers through the unchanged
+  public `TargetProfileRegistry` and runs a second real mission through the same
+  generic helper and terminal owners. Its deterministic final revision is
+  `3a79243f82538cb658e68055bc4d335a4eaba3d98908c19a399de63cef2fc3d7`,
+  currentness root
+  `b81063f997c8b9949f0bb957f699db5b0f17912ef8bea46b091a40c551e10e39`,
+  and delivered summary SHA-256
+  `c22da8a20c8cc99e21ea717dd7399adec7002b6c4ef2b98a7a4af6ec091dd6f4`.
+  Static leakage proof scans the Factory package for that extension's key,
+  target, and schema markers plus prohibited consumer names, and separately
+  rejects repository, branch, or Git snapshot fields in the content profile.
+- Contract and packaging: the maintained external registration, ownership, and
+  negative boundary is
+  `docs/software-factory-v2-content-extension-contract.md`, SHA-256
+  `4892c7d9fda1c90176de25913a2ef2d365b28b9d2b261c7e659ab1db1681dfd0`.
+  The corrected repository-native build envelope is `uv build`; the initial
+  no-isolation diagnostic was invalid because the selected development venv did
+  not contain the declared setuptools backend and was not reused as proof. The
+  isolated wheel and sdist SHA-256 values are respectively
+  `e25228e28c431e7c17f1be0b8782cf3ceee7a1f98c3e4b6a3f51fdf39abbaf78`
+  and
+  `a72c6af1070639999bd0a879e83f8f6d5c82e432af64e15ace990a159f8461ca`.
+  A target-directory installation imported version `2.0.0.dev6` from the built
+  wheel, exposed the content profile, and composed profile keys `content` and
+  `software`; the sdist contains both maintained Block 10 test modules.
+- Focused and mapped proof: `61 passed` across content/external profiles, target
+  profiles, execution/QA, acceptance lifecycle, core, composition, operational
+  boundaries, engine hosts, and v2 entrypoints. Ruff format/check are clean over
+  108 files, mypy is clean over 72 source files, compilation is clean, and full
+  runtime collection is 260 tests with the seven documented legacy `TestStore`
+  collection warnings. Per the range economy contract, the broad runtime suite
+  remains deferred to Block 12.
+- Product-capability review:
+  - Trigger: consequential Block posture and the first maintained non-software
+    physical target plus an external consumer registration path.
+  - Capability added or preserved: non-software targets now reach current
+    delivered outcomes while the same Factory mission, work, QA, supervision,
+    independent acceptance, and continuation owners remain authoritative.
+  - Paths compared: encode content steps in generic core tables; add a second
+    content-specific runtime/engine; use a test-only fixture that writes an
+    artifact; or select one bounded maintained content physical adapter plus a
+    consumer-owned protocol implementation registered into the existing engine.
+  - Selected level and owner: the content profile owns only registered physical
+    source/document/render/delivery effects; the external consumer owns its
+    domain schema/effects; existing generic services own every operational and
+    acceptance transition.
+  - Protected-capability result: profile completion, rendered bytes, execution
+    success, or registration cannot manufacture QA or acceptance, and no
+    consumer-domain code, identifier, schema, or Git-only field enters generic
+    runtime contracts.
+  - Rejected alternatives: generic content schemas would overgeneralize the core;
+    a second engine would split lifecycle authority; a fixture-only path would
+    not prove real mission continuation or outcome closure.
+  - Tradeoff: the maintained profile intentionally supports one small
+    deterministic cited-document contract rather than a universal document
+    platform. New domains remain external extensions until another accepted
+    shared need justifies a bounded core contract.
+- Candidate posture: implementation, docs, focused/mapped proof, static audit,
+  collection, and isolated build/import proof are complete. Exact candidate
+  commit/push and distinct exact-revision review remain required before Block 10
+  acceptance or Block 11 effects.
 
 ### Stop
 

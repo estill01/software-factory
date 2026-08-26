@@ -135,8 +135,9 @@ def test_registry_rejects_unowned_effects_self_acceptance_and_worktree_authority
 ) -> None:
     core, repository_id, repository = target_runtime(tmp_path)
     snapshot = core.target_profiles.snapshot("software", repository_id)
-    assert core.target_profiles.keys() == ("software",)
+    assert core.target_profiles.keys() == ("content", "software")
     assert snapshot.revision == git(repository, "rev-parse", "refs/heads/main")
+    assert not hasattr(core, "content_profile")
     assert not hasattr(core, "software_profile")
     assert not hasattr(core, "workspace_owner")
     assert not hasattr(core, "executions")

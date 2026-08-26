@@ -28,6 +28,9 @@ from .errors import (
     StoreError,
 )
 from .profiles import (
+    ContentSection,
+    ContentSource,
+    ContentTargetProfile,
     EffectClass,
     ProfileEffectResult,
     RegisteredSoftwareCommand,
@@ -63,6 +66,9 @@ __all__ = [
     "MissionSnapshot",
     "MissionSubmission",
     "ControllerService",
+    "ContentSection",
+    "ContentSource",
+    "ContentTargetProfile",
     "EvidenceInvalid",
     "EffectClass",
     "InvalidTransition",

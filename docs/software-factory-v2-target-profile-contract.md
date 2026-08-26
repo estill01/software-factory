@@ -68,14 +68,36 @@ Both governed activation entrypoints use the same strict decision predicate;
 the activate-and-verify convenience path cannot call the physical owner around
 that gate.
 
+## Neutral content profile and external extensions
+
+`ContentTargetProfile` is the maintained non-software proof. It collects a
+registered factual source set, creates and revises a source-bound document,
+performs factual/structural/style review, renders deterministic HTML, and
+delivers and verifies an exact internal artifact receipt. Its closed effect
+arguments contain no caller paths, commands, acceptance, or release authority.
+The current operation and extension-conformance contract is
+[`software-factory-v2-content-extension-contract.md`](software-factory-v2-content-extension-contract.md).
+
+The QA owner accepts either the existing frozen software workspace or a current
+registered profile snapshot as candidate input. Non-workspace submission binds
+the successful execution, work-declared profile and target, exact revision,
+exact currentness root, target attributes, acceptance specification, and active
+program revision. It does not bypass the same independent
+candidate/integrated/installed/terminal acceptance lifecycle.
+
+External consumers register implementations of the same public profile protocol
+directly with the composition registry. Their identifiers, schemas, and effect
+code remain outside `runtime/src/software_factory`; registration supplies no
+mission, QA, supervision, or acceptance authority.
+
 ## Boundary
 
-The profile delegates to the existing Factory physical owners; it does not
+Each profile delegates to its registered physical owner; it does not
 create another Git writer, state store, effect ledger, provider, QA system, or
 acceptance authority. Core composition supplies the software profile—not the
 raw Git workspace owner—to controller and QA workspace interfaces; the raw
-owner remains an internal physical adapter. The profile contains no universal
-domain entity schema and no content or Patent Studio concepts. Block 6 still
+owner remains an internal physical adapter. Generic core contracts contain no
+universal domain entity schema or consumer-product concepts. Block 6 still
 owns integrated QA, supervision, acceptance, and outcome closure. Blocks 9,
 11, and 12 still own their assigned utils consumption, cutover, and terminal
 qualification work.

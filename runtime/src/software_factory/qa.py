@@ -9,10 +9,18 @@ from .util import canonical_json, digest_json, json_load, new_id, utc_now
 class QAService:
     """Revision-bound QA generation, execution, independent review, and acceptance."""
 
-    def __init__(self, store: Any, workspaces: Any, executions: Any):
+    def __init__(
+        self,
+        store: Any,
+        workspaces: Any,
+        executions: Any,
+        *,
+        target_profiles: Any | None = None,
+    ):
         self.store = store
         self.workspaces = workspaces
         self.executions = executions
+        self.target_profiles = target_profiles
 
     def _candidate_context(
         self, db: Any, work_item_id: str
@@ -151,6 +159,159 @@ class QAService:
             "candidate_root": candidate_root,
             "requirements": self.store.all(
                 "SELECT * FROM qa_requirements WHERE work_item_id=? AND phase='candidate' ORDER BY created_at",
+                (execution["work_item_id"],),
+            ),
+        }
+
+    def submit_profile_candidate(
+        self,
+        execution_id: str,
+        *,
+        profile_key: str,
+        target_id: str,
+        expected_revision: str,
+        expected_currentness_root: str,
+        expected_work_version: int,
+    ) -> dict[str, Any]:
+        """Submit a non-workspace profile result through the canonical QA owner."""
+
+        if self.target_profiles is None:
+            raise InvalidTransition("target-profile candidate submission is not configured")
+        execution = self.store.one("SELECT * FROM executions WHERE id=?", (execution_id,))
+        if execution["status"] != "succeeded" or not execution["work_item_id"]:
+            raise InvalidTransition(
+                "only a successful bound execution can submit a target-profile candidate"
+            )
+        if execution["workspace_id"]:
+            raise InvalidTransition("workspace candidates must use the software QA submission")
+        snapshot = self.target_profiles.snapshot(profile_key, target_id)
+        if snapshot.revision != expected_revision:
+            raise InvalidTransition("target-profile candidate revision changed before submission")
+        if snapshot.currentness_root != expected_currentness_root:
+            raise InvalidTransition(
+                "target-profile candidate currentness changed before submission"
+            )
+
+        with self.store.transaction() as db:
+            work = self.store.check_version(
+                db,
+                table="work_items",
+                row_id=execution["work_item_id"],
+                expected_version=expected_work_version,
+            )
+            if work["execution_status"] not in {"submitted", "running"}:
+                raise InvalidTransition("work is not ready for target-profile candidate submission")
+            expected_effect = json_load(work["expected_effect_json"], {})
+            if expected_effect.get("target_profile") != profile_key:
+                raise InvalidTransition("work item is bound to another target profile")
+            if expected_effect.get("target_id") != target_id:
+                raise InvalidTransition("work item is bound to another profile target")
+            spec = json_load(work["acceptance_spec_json"], {})
+            candidate_root = digest_json(
+                {
+                    "work_item_id": work["id"],
+                    "execution_id": execution_id,
+                    "profile_key": profile_key,
+                    "target_id": target_id,
+                    "revision": snapshot.revision,
+                    "currentness_root": snapshot.currentness_root,
+                    "attributes": dict(snapshot.attributes),
+                    "acceptance_spec": spec,
+                    "program_revision_id": work["program_revision_id"],
+                }
+            )
+            if work["candidate_revision"] and work["candidate_revision"] != snapshot.revision:
+                db.execute(
+                    """UPDATE qa_requirements SET status='stale',updated_at=?
+                       WHERE work_item_id=? AND status IN ('pending','running','passed','failed')""",
+                    (utc_now(), work["id"]),
+                )
+                db.execute(
+                    """UPDATE qa_results SET stale_at=? WHERE requirement_id IN (
+                         SELECT id FROM qa_requirements WHERE work_item_id=?
+                       ) AND stale_at IS NULL""",
+                    (utc_now(), work["id"]),
+                )
+                db.execute(
+                    """UPDATE evidence_records SET status='stale',invalidated_at=?
+                       WHERE subject_type='work_item' AND subject_id=? AND status='current'""",
+                    (utc_now(), work["id"]),
+                )
+            existing = db.execute(
+                """SELECT COUNT(*) AS n FROM qa_requirements
+                   WHERE work_item_id=? AND phase='candidate' AND status<>'stale'
+                     AND candidate_revision=?""",
+                (work["id"], snapshot.revision),
+            ).fetchone()["n"]
+            if not existing:
+                requirements = spec.get("candidate", []) or [
+                    {"type": "profile_currentness", "required": True},
+                    {
+                        "type": "independent_review",
+                        "required": True,
+                        "role": "independent_reviewer",
+                    },
+                ]
+                for item in requirements:
+                    qa_type = str(item.get("type") or "predicate")
+                    db.execute(
+                        """INSERT INTO qa_requirements(
+                            id,work_item_id,phase,qa_type,required,independence_role,
+                            command_json,predicate_json,status,candidate_revision,created_at,
+                            updated_at,acceptance_contract_root,state_version
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            new_id("qar"),
+                            work["id"],
+                            "candidate",
+                            qa_type,
+                            int(item.get("required", True)),
+                            item.get("role"),
+                            canonical_json({"argv": item.get("command", [])}),
+                            canonical_json(item.get("predicate", {})),
+                            "pending",
+                            snapshot.revision,
+                            utc_now(),
+                            utc_now(),
+                            candidate_root,
+                            1,
+                        ),
+                    )
+            new_version = expected_work_version + 1
+            db.execute(
+                """UPDATE work_items SET candidate_revision=?,execution_status='submitted',
+                   qa_status='pending',acceptance_status='pending',state_version=?,updated_at=?
+                   WHERE id=?""",
+                (snapshot.revision, new_version, utc_now(), work["id"]),
+            )
+            self.store.append_event(
+                db,
+                mission_id=work["mission_id"],
+                stream_key="qa",
+                event_type="profile_candidate.submitted",
+                subject_type="work_item",
+                subject_id=work["id"],
+                prior_version=expected_work_version,
+                new_version=new_version,
+                payload={
+                    "execution_id": execution_id,
+                    "profile_key": profile_key,
+                    "target_id": target_id,
+                    "revision": snapshot.revision,
+                    "currentness_root": snapshot.currentness_root,
+                    "candidate_root": candidate_root,
+                },
+            )
+        return {
+            "work_item_id": execution["work_item_id"],
+            "profile_key": profile_key,
+            "target_id": target_id,
+            "revision": snapshot.revision,
+            "currentness_root": snapshot.currentness_root,
+            "candidate_root": candidate_root,
+            "requirements": self.store.all(
+                """SELECT * FROM qa_requirements
+                   WHERE work_item_id=? AND phase='candidate' ORDER BY created_at""",
                 (execution["work_item_id"],),
             ),
         }

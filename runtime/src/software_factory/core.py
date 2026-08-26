@@ -20,7 +20,7 @@ from .migration import MigrationService
 from .mission import MissionService
 from .operations import OperationsService
 from .problem_solving import ProblemSolvingService
-from .profiles import SoftwareTargetProfile, TargetProfileRegistry
+from .profiles import ContentTargetProfile, SoftwareTargetProfile, TargetProfileRegistry
 from .program import ProgramService
 from .providers import ProviderRegistry
 from .qa import QAService
@@ -94,10 +94,17 @@ class CoreService:
             reconciliation=self._reconciliation,
             releases=self.release,
         )
+        self._content_profile = ContentTargetProfile()
         self.target_profiles = TargetProfileRegistry()
         self.target_profiles.register(self._software_profile)
+        self.target_profiles.register(self._content_profile)
         self._profile_workspaces = self._software_profile
-        self.qa = QAService(store, self._profile_workspaces, self._executions)
+        self.qa = QAService(
+            store,
+            self._profile_workspaces,
+            self._executions,
+            target_profiles=self.target_profiles,
+        )
         self.continuation = ContinuationService(store, self.work_items)
         self.supervision = SupervisionService(
             store, work_items=self.work_items, continuation=self.continuation
@@ -184,6 +191,11 @@ class CoreService:
         """Configure the software adapter without exposing its effect executor."""
 
         self._software_profile.register_target(repository_id, **configuration)
+
+    def register_content_target(self, target_id: str, **configuration: Any) -> None:
+        """Configure the maintained neutral content adapter without exposing it."""
+
+        self._content_profile.register_target(target_id, **configuration)
 
     def close(self) -> None:
         """Close provider-owned resources exactly once through the registry owner."""

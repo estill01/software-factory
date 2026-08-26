@@ -39,6 +39,21 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Neutral content production and external target-profile extension.** The v2
+  runtime now includes a maintained invention-neutral content profile for
+  source collection, planning, drafting/revision, factual/structural/style
+  review, deterministic rendering, exact internal delivery, and receipt
+  verification. Non-workspace profile output enters the existing QA owner only
+  when a successful work execution, declared profile/target, exact revision,
+  and exact currentness root agree; it still traverses independent
+  candidate/integrated/installed/terminal acceptance and cannot self-accept. A
+  consumer-owned example profile lives outside the Factory package, registers
+  through the public profile registry, and completes the same real mission,
+  program, obligation, work, capability, and terminal-outcome path without
+  importing its identifiers, schema, or effect code into the OSS core. The
+  maintained content profile contains no Git/repository schema, and neither
+  proof introduces Patent Studio, OMNI, or Celltonomy behavior.
+
 - **Qualified internal service and exact shared-utils boundary.** The v2
   loopback host now separates minimal public liveness/readiness from
   bearer-authenticated operator projections and a closed engine operation set.

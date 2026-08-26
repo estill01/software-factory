@@ -28,8 +28,12 @@ scheduler or mission authority.
 
 Target-specific behavior belongs behind profiles. The software profile owns Git,
 repositories, worktrees, commands, tests, builds, integration, and software release
-or rollback. A content profile will provide the first maintained non-software proof
-that the mission runtime is genuinely general.
+or rollback. The maintained neutral content profile collects registered sources,
+plans and revises a cited document, performs factual/structural/style review, renders
+and delivers an exact artifact, and verifies its receipt. A consumer-owned external
+fixture registers through the same public profile contract without placing its
+identifiers, schema, or effects in the Factory package. Both complete real missions
+through the ordinary program, work, QA, independent acceptance, and terminal owners.
 
 ## State and evidence
 
