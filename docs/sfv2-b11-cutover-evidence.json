@@ -276,18 +276,18 @@
     "librsi_wheel_sha256": "baf5fb7309045b52f7f30f5308dd170c37aeac16999aed6ba8d168df8738af91",
     "qualified_utils_pin": "runtime/src/software_factory/provider_pins/qualified-utils.json",
     "client_resolution": "explicit exact wheel through SOFTWARE_FACTORY_CODEX_CLIENT_WHEEL or --codex-client-wheel",
-    "installed_dependency_resolution": "all 16 distributions were copied through no-follow descriptors into qualification-owned private storage, installed only from those exact copies with --no-index --no-deps, rehashed after installation, and matched to installed files through each wheel RECORD; no registry or Git resolution occurred",
+    "installed_dependency_resolution": "the manifest was read exactly once through a stable no-follow descriptor; all 16 distributions were copied through stable no-follow descriptors into qualification-owned private storage, installed only from those exact copies with --no-index --no-deps, rehashed after installation, and reconciled against the complete validated wheel and installed RECORD inventories; no registry or Git resolution occurred",
     "offline_install_manifest": "docs/sfv2-b11-install-manifest.json",
     "offline_install_manifest_sha256": "6e0961bdbc7de512786df30ef822492d604e829c43e7de80331f87bd6ff5b33b",
     "offline_install_receipt": "docs/sfv2-b11-offline-install-receipt.json",
-    "offline_install_qualification_root_sha256": "be568680bcafa1178bd9ef545b270e42ed3a524b55f36a81f77bfdebc770cf9b",
+    "offline_install_qualification_root_sha256": "d639b02c751b40333d3e865dad0cb936baec311da7192a94485d8a7eb31935e9",
     "offline_install_command": "scripts/qualify_sfv2_b11_install.py --manifest docs/sfv2-b11-install-manifest.json --artifact-directory <exact-artifact-directory>",
-    "clean_committed_tree_reproduction": true,
-    "clean_committed_tree_revision": "a52ddedadeda7df56937ee68f605385d67cdb57d",
+    "clean_committed_tree_reproduction": false,
+    "clean_committed_tree_revision": null,
     "installed_help_exposes_client_wheel": true,
     "installed_loader_verified_client_pin": true,
     "installed_compatibility_projection_only": true,
-    "reproduction_rule": "rebuild the exact review candidate with SOURCE_DATE_EPOCH=1787732350, require both Factory wheel hashes to remain identical, atomically stage every artifact into qualification-owned private storage, and bind the post-install files back to the staged wheel RECORD roots under --no-index --no-deps",
+    "reproduction_rule": "rebuild the exact review candidate with SOURCE_DATE_EPOCH=1787732350, require both Factory wheel hashes to remain identical, read the manifest once through a stable no-follow descriptor, atomically stage every artifact into qualification-owned private storage, require every non-directory wheel member exactly once in RECORD, and reconcile the complete installed RECORD inventory under --no-index --no-deps",
     "registry_resolution_allowed": false,
     "release_posture": "no-license-selected/unpublished"
   },
@@ -299,9 +299,10 @@
     "runtime_mypy": "75 source files clean",
     "compileall": "runtime and dashboard sources clean",
     "dashboard_lock": "current with exact local software-factory composition",
-    "clean_archive_compatibility": "5 passed from git archive of a52ddedadeda7df56937ee68f605385d67cdb57d",
+    "clean_archive_compatibility": "pending the exact remediation implementation commit",
     "clean_archive_wheel_rebuild": "runtime c819f31af2edca586cc60ec0132c147ee9fc1dda593f5092ed9188bbd58ae2e1 and dashboard e4d861284841fdec2fc0b15bdbfa1744cc798ded483850a3856a21ad4b5c0216 rebuilt byte-identically",
-    "clean_archive_offline_install": "passed from git archive of a52ddedadeda7df56937ee68f605385d67cdb57d with qualification root be568680bcafa1178bd9ef545b270e42ed3a524b55f36a81f77bfdebc770cf9b"
+    "clean_archive_offline_install": "working-tree qualifier passed twice with byte-identical receipts and qualification root d639b02c751b40333d3e865dad0cb936baec311da7192a94485d8a7eb31935e9; clean archive pending the exact remediation implementation commit",
+    "install_qualifier_regressions": "5 passed for exact RECORD coverage, duplicate/unrecorded/symlink rejection, and stable no-follow manifest authority"
   },
   "deletion_and_compatibility_ledger": [
     {
