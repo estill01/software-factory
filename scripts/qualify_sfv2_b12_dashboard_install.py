@@ -104,6 +104,7 @@ def qualify(*, project_root: Path, static_dir: Path) -> dict[str, Any]:
             ),
             encoding="utf-8",
         )
+        catalog_path.chmod(0o600)
         server = DashboardHTTPServer(
             ServerConfig(
                 host="127.0.0.1",
