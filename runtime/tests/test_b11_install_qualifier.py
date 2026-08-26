@@ -118,3 +118,12 @@ def test_manifest_authority_is_one_stable_no_follow_read(tmp_path: Path) -> None
             label="Qualification manifest",
             maximum_bytes=1024,
         )
+
+
+def test_qualification_kind_is_closed_to_block_11_and_terminal_block_12() -> None:
+    qualifier = load_qualifier()
+
+    assert qualifier.QUALIFICATION_KINDS == (
+        "sfv2-b11-offline-install-qualification",
+        "sfv2-b12-offline-install-qualification",
+    )

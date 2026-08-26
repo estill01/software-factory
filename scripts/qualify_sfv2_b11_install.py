@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install and smoke-test the exact SFV2 Block 11 wheel composition offline."""
+"""Install and smoke-test an exact SFV2 Block 11 or Block 12 wheel set offline."""
 
 from __future__ import annotations
 
@@ -23,6 +23,10 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+QUALIFICATION_KINDS = (
+    "sfv2-b11-offline-install-qualification",
+    "sfv2-b12-offline-install-qualification",
+)
 
 
 class QualificationError(RuntimeError):
@@ -544,7 +548,10 @@ def qualify(
     artifact_directory: Path,
     *,
     uv: Path,
+    qualification_kind: str = QUALIFICATION_KINDS[0],
 ) -> dict[str, Any]:
+    if qualification_kind not in QUALIFICATION_KINDS:
+        raise QualificationError("Qualification kind is unsupported")
     manifest_bytes = read_stable_bytes(
         manifest_path,
         label="Qualification manifest",
@@ -669,7 +676,7 @@ def qualify(
 
     material: dict[str, Any] = {
         "schema_version": 1,
-        "kind": "sfv2-b11-offline-install-qualification",
+        "kind": qualification_kind,
         "manifest_sha256": manifest_sha256,
         "python": installed["python"],
         "artifacts": artifact_receipts,
@@ -695,6 +702,11 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--manifest", type=Path, required=True)
     value.add_argument("--artifact-directory", type=Path, required=True)
     value.add_argument("--uv", type=Path, default=Path("/opt/homebrew/bin/uv"))
+    value.add_argument(
+        "--qualification-kind",
+        choices=QUALIFICATION_KINDS,
+        default=QUALIFICATION_KINDS[0],
+    )
     return value
 
 
@@ -705,6 +717,7 @@ def main() -> int:
             args.manifest.absolute(),
             args.artifact_directory.absolute(),
             uv=args.uv.resolve(strict=True),
+            qualification_kind=args.qualification_kind,
         )
     except (OSError, QualificationError, subprocess.SubprocessError) as exc:
         print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)
