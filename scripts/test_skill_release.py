@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -6,13 +7,12 @@ import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
-
 
 MODULE_PATH = Path(__file__).with_name("skill_release.py")
 SPEC = importlib.util.spec_from_file_location("skill_release", MODULE_PATH)
@@ -198,9 +198,7 @@ class SkillReleaseTests(unittest.TestCase):
         self.evidence_counter += 1
         evidence_path = self.root / f"quiescent-{self.evidence_counter}.json"
         operator_id = skill_release.TRUSTED_AUTHORITY_IDS["operators"][0]
-        ledger_path = (
-            self.authority_root / "operators" / f"{operator_id}.ledger.jsonl"
-        )
+        ledger_path = self.authority_root / "operators" / f"{operator_id}.ledger.jsonl"
         prior_records = (
             [json.loads(line) for line in ledger_path.read_bytes().splitlines()]
             if ledger_path.exists()
@@ -323,9 +321,7 @@ class SkillReleaseTests(unittest.TestCase):
             "run_automated_checks",
             side_effect=AssertionError("accepted stage reran checks"),
         ) as repeated_runner:
-            repeated = skill_release.promote_release(
-                self.automated_args(first_commit)
-            )
+            repeated = skill_release.promote_release(self.automated_args(first_commit))
         repeated_runner.assert_not_called()
         self.assertEqual(repeated["stage"], "existing")
         self.assertEqual(repeated["release_id"], first["release_id"])
@@ -340,7 +336,9 @@ class SkillReleaseTests(unittest.TestCase):
         ):
             second = skill_release.promote_release(self.automated_args(second_commit))
         self.assertEqual(second["activation"]["action"], "activate")
-        self.assertEqual(second["activation"]["previous_release_id"], first["release_id"])
+        self.assertEqual(
+            second["activation"]["previous_release_id"], first["release_id"]
+        )
         self.assertEqual(len(skill_release.history(self.release_root.resolve())), 2)
 
     def test_accepted_stage_receipt_failures_precede_automated_checks(self) -> None:
@@ -360,8 +358,11 @@ class SkillReleaseTests(unittest.TestCase):
             previous = None
             values = []
             for index, source in enumerate(records, start=1):
-                value = {**source, "record_id": f"RELEASE-ACCEPTANCE-{index}",
-                         "previous_record_hmac_sha256": previous}
+                value = {
+                    **source,
+                    "record_id": f"RELEASE-ACCEPTANCE-{index}",
+                    "previous_record_hmac_sha256": previous,
+                }
                 material = {k: v for k, v in value.items() if k != "record_hmac_sha256"}
                 value["record_hmac_sha256"] = skill_release.record_hmac(key, material)
                 previous = value["record_hmac_sha256"]
@@ -373,17 +374,23 @@ class SkillReleaseTests(unittest.TestCase):
         for name, records in (("divergent", divergent), ("duplicate", duplicate)):
             with self.subTest(name=name):
                 write(records)
-                with mock.patch.object(skill_release, "run_automated_checks") as runner:
-                    with self.assertRaises(skill_release.ReleaseError):
-                        skill_release.stage_release(self.automated_args(commit))
+                with (
+                    mock.patch.object(skill_release, "run_automated_checks") as runner,
+                    self.assertRaises(skill_release.ReleaseError),
+                ):
+                    skill_release.stage_release(self.automated_args(commit))
                 runner.assert_not_called()
         ledger.write_bytes(b"{}\n")
-        with mock.patch.object(skill_release, "run_automated_checks") as runner:
-            with self.assertRaises(skill_release.ReleaseError):
-                skill_release.stage_release(self.automated_args(commit))
+        with (
+            mock.patch.object(skill_release, "run_automated_checks") as runner,
+            self.assertRaises(skill_release.ReleaseError),
+        ):
+            skill_release.stage_release(self.automated_args(commit))
         runner.assert_not_called()
 
-    def test_automated_assurance_fails_closed_on_incomplete_or_forged_checks(self) -> None:
+    def test_automated_assurance_fails_closed_on_incomplete_or_forged_checks(
+        self,
+    ) -> None:
         commit = self.git("rev-parse", "HEAD")
         with tempfile.TemporaryDirectory() as raw:
             candidate = skill_release.build_candidate(self.repo, commit, Path(raw))
@@ -456,7 +463,8 @@ class SkillReleaseTests(unittest.TestCase):
         def inherited(checkout: Path, **values: object):
             failures = (
                 {"test_existing (suite.Case)"}
-                if values["check_id"] in {
+                if values["check_id"]
+                in {
                     "tracker-execution",
                     "tracker-execution-baseline",
                 }
@@ -568,8 +576,7 @@ class SkillReleaseTests(unittest.TestCase):
     def test_stage_activate_second_release_and_rollback(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         original_targets = {
-            name: os.readlink(self.install_root / name)
-            for name in skill_release.SKILLS
+            name: os.readlink(self.install_root / name) for name in skill_release.SKILLS
         }
         first_review = self.review_evidence(first_commit)
         first = skill_release.stage_release(
@@ -595,13 +602,11 @@ class SkillReleaseTests(unittest.TestCase):
         )
         self.assertEqual(first_active["active_release_id"], first["release_id"])
         stable_targets = {
-            name: os.readlink(self.install_root / name)
-            for name in skill_release.SKILLS
+            name: os.readlink(self.install_root / name) for name in skill_release.SKILLS
         }
         self.assertTrue(
             all(
-                target
-                == skill_release.desired_link(self.release_root.resolve(), name)
+                target == skill_release.desired_link(self.release_root.resolve(), name)
                 for name, target in stable_targets.items()
             )
         )
@@ -647,9 +652,7 @@ class SkillReleaseTests(unittest.TestCase):
     def test_guarded_rollback_rejects_a_newer_active_release(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         first = self.stage(first_commit)
-        skill_release.bootstrap_release(
-            self.activate_args(str(first["release_id"]))
-        )
+        skill_release.bootstrap_release(self.activate_args(str(first["release_id"])))
 
         for name in skill_release.SKILLS:
             (self.repo / name / "VERSION").write_text("2\n", encoding="utf-8")
@@ -700,9 +703,7 @@ class SkillReleaseTests(unittest.TestCase):
     def test_adopt_composes_reviewed_stage_activation_and_retry(self) -> None:
         baseline_commit = self.git("rev-parse", "HEAD")
         baseline = self.stage(baseline_commit)
-        skill_release.bootstrap_release(
-            self.activate_args(str(baseline["release_id"]))
-        )
+        skill_release.bootstrap_release(self.activate_args(str(baseline["release_id"])))
         for name in skill_release.SKILLS:
             (self.repo / name / "ADOPTED").write_text("yes\n", encoding="utf-8")
         candidate_commit = self.commit("reviewed adoption candidate")
@@ -762,7 +763,9 @@ class SkillReleaseTests(unittest.TestCase):
         history_count = len(skill_release.history(self.release_root.resolve()))
         repeated = skill_release.adopt_release(args)
         self.assertTrue(repeated["duplicate"])
-        self.assertEqual(repeated["adoption_root_sha256"], adopted["adoption_root_sha256"])
+        self.assertEqual(
+            repeated["adoption_root_sha256"], adopted["adoption_root_sha256"]
+        )
         self.assertEqual(
             len(skill_release.history(self.release_root.resolve())), history_count
         )
@@ -915,7 +918,9 @@ class SkillReleaseTests(unittest.TestCase):
             len(skill_release.history(self.release_root.resolve())), history_count
         )
 
-    def test_stage_rejects_dirty_missing_review_partial_and_symlinked_source(self) -> None:
+    def test_stage_rejects_dirty_missing_review_partial_and_symlinked_source(
+        self,
+    ) -> None:
         commit = self.git("rev-parse", "HEAD")
         (self.repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
         with self.assertRaisesRegex(skill_release.ReleaseError, "dirty"):
@@ -943,12 +948,16 @@ class SkillReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(skill_release.ReleaseError, "symlink"):
             self.stage(symlink_commit)
 
-    def test_hash_drift_and_missing_quiescent_evidence_fail_before_cutover(self) -> None:
+    def test_hash_drift_and_missing_quiescent_evidence_fail_before_cutover(
+        self,
+    ) -> None:
         commit = self.git("rev-parse", "HEAD")
         staged = self.stage(commit)
         release_id = str(staged["release_id"])
         args = self.activate_args(release_id)
-        quiescent = json.loads(Path(args.quiescent_evidence).read_text(encoding="utf-8"))
+        quiescent = json.loads(
+            Path(args.quiescent_evidence).read_text(encoding="utf-8")
+        )
         quiescent["evidence_root_sha256"] = "0" * 64
         Path(args.quiescent_evidence).write_bytes(
             skill_release.canonical(quiescent) + b"\n"
@@ -979,36 +988,37 @@ class SkillReleaseTests(unittest.TestCase):
         historical = skill_release.TRUSTED_VALIDATOR_SHA256
         successor = "a" * 64
 
-        with mock.patch.object(
-            skill_release, "TRUSTED_VALIDATOR_SHA256", successor
-        ), mock.patch.object(
-            skill_release,
-            "TRUSTED_HISTORICAL_VALIDATOR_SHA256S",
-            (historical,),
+        with (
+            mock.patch.object(skill_release, "TRUSTED_VALIDATOR_SHA256", successor),
+            mock.patch.object(
+                skill_release,
+                "TRUSTED_HISTORICAL_VALIDATOR_SHA256S",
+                (historical,),
+            ),
         ):
             manifest = skill_release.read_manifest(
                 self.release_root, release_id, require_acceptance=False
             )
             self.assertEqual(manifest["release_id"], release_id)
 
-        with mock.patch.object(
-            skill_release, "TRUSTED_VALIDATOR_SHA256", successor
-        ), mock.patch.object(
-            skill_release, "TRUSTED_HISTORICAL_VALIDATOR_SHA256S", (),
-        ):
-            with self.assertRaisesRegex(
+        with (
+            mock.patch.object(skill_release, "TRUSTED_VALIDATOR_SHA256", successor),
+            mock.patch.object(
+                skill_release, "TRUSTED_HISTORICAL_VALIDATOR_SHA256S", ()
+            ),
+            self.assertRaisesRegex(
                 skill_release.ReleaseError, "validator evidence is invalid"
-            ):
-                skill_release.read_manifest(
-                    self.release_root, release_id, require_acceptance=False
-                )
+            ),
+        ):
+            skill_release.read_manifest(
+                self.release_root, release_id, require_acceptance=False
+            )
 
     def test_interrupted_bootstrap_restores_all_links_and_pointer(self) -> None:
         commit = self.git("rev-parse", "HEAD")
         staged = self.stage(commit)
         original_targets = {
-            name: os.readlink(self.install_root / name)
-            for name in skill_release.SKILLS
+            name: os.readlink(self.install_root / name) for name in skill_release.SKILLS
         }
         with self.assertRaisesRegex(skill_release.ReleaseError, "interruption"):
             skill_release.bootstrap_release(
@@ -1028,8 +1038,7 @@ class SkillReleaseTests(unittest.TestCase):
         commit = self.git("rev-parse", "HEAD")
         staged = self.stage(commit)
         original_targets = {
-            name: os.readlink(self.install_root / name)
-            for name in skill_release.SKILLS
+            name: os.readlink(self.install_root / name) for name in skill_release.SKILLS
         }
         original_replace = skill_release.replace_link
         failed_once = False
@@ -1150,9 +1159,7 @@ class SkillReleaseTests(unittest.TestCase):
         review_path = self.review_evidence(commit)
         original_review = json.loads(review_path.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as raw:
-            candidate = skill_release.build_candidate(
-                self.repo, commit, Path(raw)
-            )
+            candidate = skill_release.build_candidate(self.repo, commit, Path(raw))
         for invalid in (True, 1.0, "1"):
             with self.subTest(record="review", value=invalid):
                 review = dict(original_review)
@@ -1171,13 +1178,9 @@ class SkillReleaseTests(unittest.TestCase):
 
         quiescent_args = self.activate_args("release-id-1234")
         quiescent_path = Path(quiescent_args.quiescent_evidence)
-        original_quiescent = json.loads(
-            quiescent_path.read_text(encoding="utf-8")
-        )
+        original_quiescent = json.loads(quiescent_path.read_text(encoding="utf-8"))
         operator_id = skill_release.TRUSTED_AUTHORITY_IDS["operators"][0]
-        ledger_path = (
-            self.authority_root / "operators" / f"{operator_id}.ledger.jsonl"
-        )
+        ledger_path = self.authority_root / "operators" / f"{operator_id}.ledger.jsonl"
         for field in ("schema_version", "authority_sequence"):
             for invalid in (True, 1.0, "1"):
                 with self.subTest(record="quiescent", field=field, value=invalid):
@@ -1192,9 +1195,7 @@ class SkillReleaseTests(unittest.TestCase):
                         skill_release.canonical(quiescent) + b"\n"
                     )
                     ledger_path.chmod(0o644)
-                    ledger_path.write_bytes(
-                        skill_release.canonical(quiescent) + b"\n"
-                    )
+                    ledger_path.write_bytes(skill_release.canonical(quiescent) + b"\n")
                     ledger_path.chmod(0o444)
                     with self.assertRaisesRegex(
                         skill_release.ReleaseError,
@@ -1212,7 +1213,9 @@ class SkillReleaseTests(unittest.TestCase):
                     ):
                         skill_release.validate_operator_authority_ledger(quiescent)
 
-    def test_path_substitution_cannot_replace_signature_or_validator_tools(self) -> None:
+    def test_path_substitution_cannot_replace_signature_or_validator_tools(
+        self,
+    ) -> None:
         commit = self.git("rev-parse", "HEAD")
         review_path = self.review_evidence(commit)
         review = json.loads(review_path.read_text(encoding="utf-8"))
@@ -1236,11 +1239,17 @@ class SkillReleaseTests(unittest.TestCase):
                 encoding="utf-8",
             )
             invalid_commit = self.commit("invalid skill under substituted path")
-            with self.assertRaisesRegex(skill_release.ReleaseError, "validation failed"):
+            with self.assertRaisesRegex(
+                skill_release.ReleaseError, "validation failed"
+            ):
                 skill_release.review_request(
-                    argparse.Namespace(repo=str(self.repo), source_commit=invalid_commit)
+                    argparse.Namespace(
+                        repo=str(self.repo), source_commit=invalid_commit
+                    )
                 )
-            with self.assertRaisesRegex(skill_release.ReleaseError, "validation failed"):
+            with self.assertRaisesRegex(
+                skill_release.ReleaseError, "validation failed"
+            ):
                 skill_release.stage_release(
                     self.stage_args(invalid_commit, review_evidence=review_path)
                 )
@@ -1274,11 +1283,15 @@ class SkillReleaseTests(unittest.TestCase):
         commit = self.git("rev-parse", "HEAD")
         staged = self.stage(commit)
         release_id = str(staged["release_id"])
-        manifest_path = self.release_root / "releases" / release_id / skill_release.MANIFEST_NAME
+        manifest_path = (
+            self.release_root / "releases" / release_id / skill_release.MANIFEST_NAME
+        )
         manifest_path.chmod(0o644)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["independent_review"] = {}
-        material = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+        material = {
+            key: value for key, value in manifest.items() if key != "manifest_sha256"
+        }
         manifest["manifest_sha256"] = skill_release.digest(material)
         manifest_path.write_bytes(skill_release.canonical(manifest) + b"\n")
         with self.assertRaises(skill_release.ReleaseError):
@@ -1290,7 +1303,9 @@ class SkillReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(skill_release.ReleaseError, "prior accepted"):
             skill_release.rollback_release(rollback_args)
 
-    def test_oversized_or_noncanonical_manifest_is_rejected_before_cutover(self) -> None:
+    def test_oversized_or_noncanonical_manifest_is_rejected_before_cutover(
+        self,
+    ) -> None:
         commit = self.git("rev-parse", "HEAD")
         staged = self.stage(commit)
         release_id = str(staged["release_id"])
@@ -1311,12 +1326,16 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release.bootstrap_release(self.activate_args(release_id))
         self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
 
-    def test_forged_history_cannot_make_never_active_release_rollback_eligible(self) -> None:
+    def test_forged_history_cannot_make_never_active_release_rollback_eligible(
+        self,
+    ) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         first = self.stage(first_commit)
         skill_release.bootstrap_release(self.activate_args(str(first["release_id"])))
         for name in skill_release.SKILLS:
-            (self.repo / name / "NEVER_ACTIVE").write_text("candidate\n", encoding="utf-8")
+            (self.repo / name / "NEVER_ACTIVE").write_text(
+                "candidate\n", encoding="utf-8"
+            )
         second_commit = self.commit("never active candidate")
         second = self.stage(second_commit)
         forged = {
