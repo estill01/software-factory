@@ -1,188 +1,22 @@
 ---
 name: evolve-product-program
-description: Reflect on current product, implementation-program, supervision, outcome, and resource evidence; generate and challenge future-work candidates; and select one bounded nonauthorizing program portfolio for existing Software Factory owners. Use after a material implementation or supervision change, at a terminal checkpoint, or when an explicit product-program evolution cycle is requested. Do not require it before the first user-seeded tracker.
+description: Evolve product and implementation programs through the native Software Factory v2 selection and experimentation runtime.
 ---
 
-# Evolve Product Program
+# Native Software Factory v2 interface
 
-Turn one exact, current product/program checkpoint into a bounded derived
-evidence packet and, only after the later semantic stages apply, one
-nonauthorizing placement handoff. The user's governing product intent and the
-current requested implementation range remain authoritative throughout.
+This skill is a thin invocation and role contract. The installed SQL-backed v2
+runtime is the only active control-plane owner. Do not write or reactivate files
+under `legacy/v1`.
 
-## Load the contract
-
-Read `references/product-program-evolution-contract.md` completely. For packet
-preparation, also read `references/program-evidence-packet.md`. Later reflection,
-resource, selection, and placement stages must read their own references when
-present; do not infer later-stage authority from the packet contract.
-
-## Preserve the first loop
-
-Do not invoke evolution as a prerequisite for the first tracker. The cold-start
-path remains direct intent to tracker authoring to implementation plus optional
-supervision. Invoke this skill only from an exact material-change, terminal, or
-explicit maintenance checkpoint.
-
-## Prepare deterministic evidence
-
-Use the repository-owned CLI from the repository root:
+Resolve the governing mission and invoke:
 
 ```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_evolution.py \
-  prepare --input <checkpoint.json> [--prior-packet <packet.json>]
+sf-skill evolve-product-program --mission <mission-id> --payload '<json-object>'
 ```
 
-The checkpoint must match the exact schema in
-`fixtures/product_program_contract_v1.json`. The preparer validates exact Git,
-tracker, range, outcome, protected-capability, supervision, decision, incident,
-report, and resource-source currentness. It reads bounded regular files through
-no-follow paths and retains identities, hashes, evidence classes, and byte
-counts—not source content, transcripts, prompts, hidden reasoning, or secrets.
-
-Verify a retained packet independently:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_evolution.py \
-  verify --packet <packet.json>
-```
-
-Identical semantic and currentness identities return
-`continue-program-unchanged` with zero cognitive/model work. A changed identity
-prepares one successor packet; it does not itself start reflection.
-
-## Generate divergent reflection
-
-Read `references/program-reflection.md` completely. Before the one bounded
-high-resolution generation pass, provide one canonical product-program inventory
-manifest whose bytes are hash-bound to a retained packet product source. It must
-contain bounded evidence-linked behavior, user, feature, capability, and exact
-planned/active/completed/accepted/rejected/retired/superseded tracker-state
-records, including evidence-backed `verified-empty` states. Use its retained
-capability and user IDs; do not copy source content into the output.
-
-Generate one semantic submission, then validate and root it:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  build --packet <packet.json> --inventory <inventory.json> \
-  --submission <reflection-submission.json>
-```
-
-The generator must expose evidence-linked observations, lessons, meta-patterns,
-capability gaps, category searches, contrary posture, a no-change comparison,
-and bounded candidates. Build output is unreviewed and cannot verify or reuse.
-An independent semantic reviewer must inspect the exact root, remain distinct
-from generator and downstream owners, and submit an accepted review:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  review --packet <packet.json> --inventory <inventory.json> \
-  --reflection <unreviewed-reflection.json> --review <review.json>
-```
-
-The reviewer accepts only a divergent-only artifact with truthful category
-dispositions and no selection/adoption claim. The generator does not rank or
-select. Use at most one widening
-pass for counterexamples. Generator, future selector, tracker author,
-implementation owner, and evaluator identities remain distinct.
-
-Verify or cheaply reuse an exact artifact:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  verify --packet <packet.json> --inventory <inventory.json> \
-  --reflection <reflection.json>
-/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
-  reuse --packet <packet.json> --inventory <inventory.json> \
-  --reflection <reflection.json>
-```
-
-## Project resource and outcome evidence
-
-Read `references/program-resource-evidence.md` completely. Provide one canonical
-resource-source manifest whose exact bytes are retained by the packet, plus
-separate raw resource-source identities for every work-class attribution. Build
-the deterministic projection:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_resources.py \
-  build --packet <packet.json> --source <resource-source.json> \
-  [--prior-evidence <prior-resource-evidence.json>]
-```
-
-The projection keeps product effect, protected-capability result, useful-yield
-dimensions, elapsed time, provider-reported or estimated tokens, commands/tools,
-validation/review, rework, reopened findings, incidents, rollbacks, user
-corrections, reuse, uncertainty, reversibility, and opportunity cost separate.
-It requires a versioned estimation profile and never emits a scalar score,
-billing claim, spend authority, selection, or allocation.
-
-Verify or cheaply reuse an exact projection:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_resources.py \
-  verify --packet <packet.json> --source <resource-source.json> \
-  --resource-evidence <resource-evidence.json>
-/usr/bin/python3 evolve-product-program/scripts/product_program_resources.py \
-  reuse --packet <packet.json> --source <resource-source.json> \
-  --resource-evidence <resource-evidence.json>
-```
-
-## Select and place one bounded portfolio
-
-Read `references/program-selection-and-portfolio.md` completely. The independent
-selector supplies one exact structured submission over the reviewed reflection
-and typed resource evidence:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
-  build --packet <packet.json> --inventory <inventory.json> \
-  --reflection <reviewed-reflection.json> \
-  --resource-source <resource-source.json> \
-  --resource-evidence <resource-evidence.json> \
-  --capacity-source <operator-capacity.json> \
-  --submission <selection-submission.json>
-```
-
-The result compares every candidate across separate product, evidence,
-architecture, protected-capability, risk, resource, uncertainty, reversibility,
-integration, opportunity, coordination, and expected-benefit dimensions. It
-retains rejected alternatives, one disposition, operator ceilings, unused
-capacity, a bounded acyclic lane DAG, sequential/parallel groups, exact writers
-and scopes, Stops, rollback/revisit posture, and one fixed downstream owner.
-Consequential unresolved tradeoffs require a distinct accepted adjudicator.
-
-Verify or cheaply reuse the rooted selection/portfolio/handoff bundle:
-
-```bash
-/usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
-  verify --packet <packet.json> --inventory <inventory.json> \
-  --reflection <reviewed-reflection.json> \
-  --resource-source <resource-source.json> \
-  --resource-evidence <resource-evidence.json> \
-  --capacity-source <operator-capacity.json> --bundle <bundle.json>
-/usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
-  reuse --packet <packet.json> --inventory <inventory.json> \
-  --reflection <reviewed-reflection.json> \
-  --resource-source <resource-source.json> \
-  --resource-evidence <resource-evidence.json> \
-  --capacity-source <operator-capacity.json> --bundle <bundle.json>
-```
-
-## Authority boundary
-
-Every output is derived and nonauthorizing. This skill does not write trackers,
-target source, supervision policy/events, release state, automations, messages,
-deployments, credentials, spend, destructive effects, or other external state.
-Existing sibling owners must independently revalidate and accept a later
-placement handoff before any canonical application.
-
-## Stop
-
-For packet preparation, stop after a verified packet or deterministic unchanged
-result. For reflection, stop after an independently accepted verified reflection
-or exact reuse result. For resource projection, stop after verified evidence or
-exact reuse. For selection, stop after the verified nonauthorizing handoff or
-exact reuse. Do not edit a tracker, create a task, start a lane, write source,
-authorize spend, or perform an external effect.
+Treat the returned record as an observed runtime result, not as authority to
+invent completion. Continue through the native runtime until obligations are
+accepted, terminal verification passes, or a genuinely reserved external effect
+is recorded with its exact blocker. Do not create a parallel file ledger, event
+log, scheduler, acceptance owner, or release owner in this skill directory.

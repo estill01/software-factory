@@ -29,8 +29,11 @@ DEFAULT_SUPERVISION_ROOT = Path.home() / ".codex" / "supervision" / "tracker-run
 DEFAULT_AUTOMATIONS_ROOT = Path.home() / ".codex" / "automations"
 DEFAULT_SUPERVISION_OWNER = (
     DASHBOARD_REPOSITORY_ROOT
-    / "supervise-tracker-runs"
-    / "scripts"
+    / "runtime"
+    / "src"
+    / "software_factory"
+    / "compatibility_owners"
+    / "supervision"
     / "supervision_log.py"
 )
 DEFAULT_WEEKLY_OWNER = DEFAULT_SUPERVISION_OWNER.with_name("weekly_report.py")
@@ -1149,19 +1152,19 @@ class OperationsProjectionService:
         return {
             "supervision": _owner_revision(
                 self.supervision_owner,
-                "supervise-tracker-runs/scripts/supervision_log.py",
+                "runtime/compatibility_owners/supervision/supervision_log.py",
             ),
             "weekly_report": _owner_revision(
                 self.weekly_owner,
-                "supervise-tracker-runs/scripts/weekly_report.py",
+                "runtime/compatibility_owners/supervision/weekly_report.py",
             ),
             "terminal_report": _owner_revision(
                 self.terminal_owner,
-                "supervise-tracker-runs/scripts/terminal_report.py",
+                "runtime/compatibility_owners/supervision/terminal_report.py",
             ),
             "factory_evolution": _owner_revision(
                 self.evolution_owner,
-                "supervise-tracker-runs/scripts/factory_evolution.py",
+                "runtime/compatibility_owners/supervision/factory_evolution.py",
             ),
         }
 
@@ -6692,7 +6695,7 @@ class OperationsProjectionService:
         if not evidence.active_events:
             return {
                 "status": "unavailable",
-                "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+                "definition_owner": "runtime/compatibility_owners/supervision/weekly_report.py",
                 "metrics": None,
                 "error": {"code": "empty_active_mission", "message": "The active mission has no canonical events.", "retryable": False},
             }
@@ -6740,7 +6743,7 @@ class OperationsProjectionService:
             projection["blocks"] = metrics.get("blocks", [])
             return {
                 "status": "available",
-                "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+                "definition_owner": "runtime/compatibility_owners/supervision/weekly_report.py",
                 "metrics": projection,
                 "error": None,
             }
@@ -6752,7 +6755,7 @@ class OperationsProjectionService:
             )
             return {
                 "status": "unavailable",
-                "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+                "definition_owner": "runtime/compatibility_owners/supervision/weekly_report.py",
                 "metrics": None,
                 "error": {
                     "code": error.code,
@@ -7059,7 +7062,7 @@ class OperationsProjectionService:
             "factory_evolution_workflow": factory_evolution_workflow,
             "metrics": metrics,
             "source": {
-                "identity": "supervise-tracker-runs/scripts/supervision_log.py",
+                "identity": "runtime/compatibility_owners/supervision/supervision_log.py",
                 "root": str(evidence.directory),
                 "revision": owners["supervision"]["sha256"],
                 "event_head_sha256": evidence.events[-1].get("record_sha256")
@@ -7336,7 +7339,7 @@ class OperationsProjectionService:
             },
             "metrics": {
                 "status": "unavailable",
-                "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+                "definition_owner": "runtime/compatibility_owners/supervision/weekly_report.py",
                 "metrics": None,
                 "error": {
                     "code": error.code,

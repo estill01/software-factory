@@ -47,8 +47,11 @@ def tracker_block_is_complete(value: Any) -> bool:
 DASHBOARD_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFIER_PATH = (
     DASHBOARD_REPOSITORY_ROOT
-    / "author-implementation-trackers"
-    / "scripts"
+    / "runtime"
+    / "src"
+    / "software_factory"
+    / "compatibility_owners"
+    / "tracker"
     / "verify_tracker.py"
 )
 DEFAULT_CORE_COMPATIBILITY: dict[str, dict[str, frozenset[str]]] = {
@@ -1968,7 +1971,7 @@ class TrackerProjectionService:
             "warnings": payload["warnings"],
             "command": arguments,
             "owner": {
-                "identity": "author-implementation-trackers/verify_tracker.py",
+                "identity": "runtime/compatibility_owners/tracker/verify_tracker.py",
                 **verifier_source,
             },
         }
@@ -2041,7 +2044,7 @@ class TrackerProjectionService:
                 "--json",
             ],
             "owner": {
-                "identity": "author-implementation-trackers/verify_tracker.py",
+                "identity": "runtime/compatibility_owners/tracker/verify_tracker.py",
                 **verifier_source,
             },
         }

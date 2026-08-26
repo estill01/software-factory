@@ -1,6 +1,6 @@
 ---
-name: author-implementation-trackers
-description: Author or revise the canonical implementation program through the native SQL-backed Software Factory v2 runtime.
+name: clean-software-factory
+description: Reconcile repository state through the native no-loss Software Factory v2 cleanup runtime.
 ---
 
 # Native Software Factory v2 interface
@@ -12,7 +12,7 @@ under `legacy/v1`.
 Resolve the governing mission and invoke:
 
 ```bash
-sf-skill author-implementation-trackers --mission <mission-id> --payload '<json-object>'
+sf-skill clean-software-factory --mission <mission-id> --payload '<json-object>'
 ```
 
 Treat the returned record as an observed runtime result, not as authority to

@@ -37,6 +37,7 @@ from .app_server import AppServerError, CodexAppServerClient
 from .catalog import CatalogError, CatalogStore, ProjectRecord, discover_project
 from .operations import (
     AUTOMATION_BINDING_CONTRACTS,
+    DEFAULT_SUPERVISION_OWNER,
     POLICY_ADJUSTABLE_FIELDS,
     OperationsProjectionError,
     OperationsProjectionService,
@@ -405,11 +406,10 @@ class SupervisionRouteGate:
     """Read-only bridge to the maintained supervision thread-route gate."""
 
     def __init__(self, *, supervision_root: Path, helper_path: Path | None = None) -> None:
-        repository_root = Path(__file__).resolve().parents[4]
         self.supervision_root = supervision_root.expanduser().resolve()
         selected_helper = (
             helper_path
-            or repository_root / "supervise-tracker-runs" / "scripts" / "supervision_log.py"
+            or DEFAULT_SUPERVISION_OWNER
         ).expanduser()
         self.helper_path_is_symlink = selected_helper.is_symlink()
         self.helper_path = selected_helper.absolute()
@@ -13065,12 +13065,7 @@ class FactoryWorkflowOwner:
         source: SourceSnapshot,
     ) -> str:
         marker = FactoryWorkflowOwner._weekly_report_marker(target, source)
-        helper = (
-            Path(__file__).resolve().parents[4]
-            / "supervise-tracker-runs"
-            / "scripts"
-            / "supervision_log.py"
-        )
+        helper = DEFAULT_SUPERVISION_OWNER
         owner_root = str(source.evidence["owner_root"])
         base = (
             f"{WEEKLY_REPORT_MARKER}{_canonical(marker)}\n"
@@ -13817,12 +13812,7 @@ class FactoryWorkflowOwner:
         source: SourceSnapshot,
     ) -> str:
         marker = FactoryWorkflowOwner._terminal_report_marker(target, source)
-        helper = (
-            Path(__file__).resolve().parents[4]
-            / "supervise-tracker-runs"
-            / "scripts"
-            / "supervision_log.py"
-        )
+        helper = DEFAULT_SUPERVISION_OWNER
         owner_root = str(source.evidence["owner_root"])
         base = (
             f"{TERMINAL_REPORT_MARKER}{_canonical(marker)}\n"
@@ -15661,12 +15651,7 @@ class FactoryWorkflowOwner:
         source: SourceSnapshot,
     ) -> str:
         marker = FactoryWorkflowOwner._factory_evolution_marker(target, source)
-        helper = (
-            Path(__file__).resolve().parents[4]
-            / "supervise-tracker-runs"
-            / "scripts"
-            / "supervision_log.py"
-        )
+        helper = DEFAULT_SUPERVISION_OWNER
         owner_root = str(source.evidence["owner_root"])
         evolution_id = str(source.evidence["evolution_id"])
         evolution_directory = (

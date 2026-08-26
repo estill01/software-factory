@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "block": "SFV2/B11",
+  "baseline_revision": "d9094fec33f800b247bf3ca90bb9ab7719e65de9",
+  "dry_run": {
+    "isolated_clone": true,
+    "source_plan_root": "847ce7f83c1ca9d0d9165ff6cc5a555c8d94245c00e5d188696313638fd0adf2",
+    "migration_inventory_root": "a58bc31a963ed4a3216fd31c3d8afb3e8cdac1bac0be8694798bd0574632b60a",
+    "backup_root": "bd766cdf70d4a29299832903182824b8ac815b39dee5ecec5b08676cbde5f191",
+    "parity_evidence_root": "ee188c86adc3a6a6e21e4fc33826baa15d4a6edc8432f32c7ac10b708cb39e00",
+    "source_apply_rollback_reapply": [
+      "applied",
+      "verified",
+      "rolled_back",
+      "applied"
+    ],
+    "residue_apply_rollback_reapply": [
+      "verified",
+      "rolled_back",
+      "verified"
+    ]
+  },
+  "source_cutover": {
+    "plan_root": "847ce7f83c1ca9d0d9165ff6cc5a555c8d94245c00e5d188696313638fd0adf2",
+    "marker_sha256": "589ef4e8c33955b2a5fd52d85197edb4f2f2bfba83bb31ba1e0fe8db9c63621b",
+    "active_runtime": "runtime/src/software_factory",
+    "legacy_runtime": "legacy/v1",
+    "one_writer": true,
+    "apply_rollback_reapply": [
+      "applied",
+      "verified",
+      "rolled_back",
+      "applied",
+      "verified"
+    ],
+    "skills": [
+      {
+        "name": "author-implementation-trackers",
+        "source_exists": true,
+        "file_count": 11,
+        "source_root": "930e8c759f8c736c355ecc2c694d02a2c80c79f25b8b5db64c98788cdb11f1b6",
+        "legacy_destination": "legacy/v1/skills/author-implementation-trackers"
+      },
+      {
+        "name": "implement-tracker-blocks",
+        "source_exists": true,
+        "file_count": 27,
+        "source_root": "d59b5aeef90627cb3676d463a64dbc031c963426e0474d0a4e1e85cc42af468c",
+        "legacy_destination": "legacy/v1/skills/implement-tracker-blocks"
+      },
+      {
+        "name": "supervise-tracker-runs",
+        "source_exists": true,
+        "file_count": 26,
+        "source_root": "1cb7d65fb4b09b4a19c63051ebd4fb24bc68a0e9b3f8dc94811af59efd2eefc6",
+        "legacy_destination": "legacy/v1/skills/supervise-tracker-runs"
+      },
+      {
+        "name": "evolve-product-program",
+        "source_exists": true,
+        "file_count": 30,
+        "source_root": "3f9c1f36b618496d3dc44520522f9f0cbbdd52db07bf7b2dc69bf7b8c33698a9",
+        "legacy_destination": "legacy/v1/skills/evolve-product-program"
+      },
+      {
+        "name": "clean-software-factory",
+        "source_exists": false,
+        "file_count": 0,
+        "source_root": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "legacy_destination": "legacy/v1/skills/clean-software-factory"
+      }
+    ],
+    "preserved_file_count": 94,
+    "preserved_file_hash_set_sha256": "81506cdf84cbc0bdd66eb4e38380ad9ec599fb5ca23a966b802fe1d934cc4ce5"
+  },
+  "residue_migration": {
+    "migration_id": "migration_3d3424a12e1946f9f3393ddd",
+    "source_inventory_root": "a58bc31a963ed4a3216fd31c3d8afb3e8cdac1bac0be8694798bd0574632b60a",
+    "backup_root": "8704b7fd27c6f0f5caeda99c753b9e8a437d0a45921a2851fe8ed93c2c4441e0",
+    "cutover_id": "cutover_aad1d33f15a6897da7198a1e",
+    "runtime_marker_sha256": "a873406b2197e323944fc96f0a77890ae7f749a8948f8ac68ce9762b895b82b5",
+    "active_writer_probe": {
+      "legacy_writers": 0,
+      "native_writers": 1
+    },
+    "apply_replay_rollback_replay_reapply_replay": [
+      "verified",
+      "verified",
+      "rolled_back",
+      "rolled_back",
+      "verified",
+      "verified"
+    ],
+    "focused_parity": {
+      "command": "runtime/.venv/bin/python -m pytest -q runtime/tests/test_merge_readiness.py runtime/tests/test_migration.py runtime/tests/test_source_cutover.py",
+      "result": "24 passed",
+      "exit_code": 0,
+      "parity_case_count": 0,
+      "evidence_root": "7c5272f79756a9a44f2216aa97e79985a89099f77877c3759b7fdeebafea122c"
+    },
+    "effects": [
+      {
+        "source": ".v2-acceptance-pending",
+        "destination": "legacy/v1/.v2-acceptance-pending",
+        "sha256": "170fe34d874a2731fa06f1cc6f9c02d6f645eb952a1374f10f0c0c2f8712d732"
+      },
+      {
+        "source": ".v2-acceptance-v2-pending",
+        "destination": "legacy/v1/.v2-acceptance-v2-pending",
+        "sha256": "a1c0f257decf353e562998a30fc8394b1516e40f37a117f0f8a819486d6e4504"
+      },
+      {
+        "source": ".v2-full-landing-pending",
+        "destination": "legacy/v1/.v2-full-landing-pending",
+        "sha256": "048436a4ae6128513025342498fef51092e32c1a3c264ab0744350528bc07715"
+      },
+      {
+        "source": ".v2-governance-pending",
+        "destination": "legacy/v1/.v2-governance-pending",
+        "sha256": "048436a4ae6128513025342498fef51092e32c1a3c264ab0744350528bc07715"
+      },
+      {
+        "source": ".v2-green-checkpoint-pending",
+        "destination": "legacy/v1/.v2-green-checkpoint-pending",
+        "sha256": "3bcbf60528044c3b84bb1857c78e603f937b29deb632be092e7eb0cfd573f06a"
+      },
+      {
+        "source": ".v2-integration-gate-pending",
+        "destination": "legacy/v1/.v2-integration-gate-pending",
+        "sha256": "16e8aa1d4eb2d03ce6b967b286667df7dcafc97eabc87e92c425c34dc8a5d30a"
+      },
+      {
+        "source": ".v2-integration-pending",
+        "destination": "legacy/v1/.v2-integration-pending",
+        "sha256": "048436a4ae6128513025342498fef51092e32c1a3c264ab0744350528bc07715"
+      },
+      {
+        "source": ".v2-next-integration-pending",
+        "destination": "legacy/v1/.v2-next-integration-pending",
+        "sha256": "aee3711306e67cd91d7237dc62c5b311ca75840331afc800d0bd92e4e2522764"
+      },
+      {
+        "source": ".v2-normalize-pending",
+        "destination": "legacy/v1/.v2-normalize-pending",
+        "sha256": "b2cb7d423233704ddbaadc6ce678bcdecb50235c04594c2f482db9f8547cfa37"
+      },
+      {
+        "source": ".v2-repair-pending",
+        "destination": "legacy/v1/.v2-repair-pending",
+        "sha256": "048436a4ae6128513025342498fef51092e32c1a3c264ab0744350528bc07715"
+      },
+      {
+        "source": ".v2-repair-v2-pending",
+        "destination": "legacy/v1/.v2-repair-v2-pending",
+        "sha256": "048436a4ae6128513025342498fef51092e32c1a3c264ab0744350528bc07715"
+      },
+      {
+        "source": ".v2-repair-v3-pending",
+        "destination": "legacy/v1/.v2-repair-v3-pending",
+        "sha256": "048436a4ae6128513025342498fef51092e32c1a3c264ab0744350528bc07715"
+      },
+      {
+        "source": ".sf-upload",
+        "destination": "legacy/v1/.sf-upload",
+        "sha256": "f90fcdb37192306329af7c12f0f33951be3e8bfef24c2b0018d16d324ad0c70a"
+      }
+    ],
+    "root_generated_residue_absent": true,
+    "archived_generated_residue_present": true,
+    "source_and_archive_roots_equal": true
+  },
+  "deletion_and_compatibility_ledger": [
+    {
+      "concern": "root skill control-plane owners",
+      "active_disposition": "replaced-by-five-thin-sf-skill-wrappers",
+      "preservation": "94 exact files under legacy/v1/skills",
+      "compatibility": "all five wrapper contracts resolve the installed sf-skill entrypoint",
+      "second_active_writer": false
+    },
+    {
+      "concern": "dashboard tracker and supervision helper consumers",
+      "active_disposition": "moved-to-single-factory-owned-runtime-compatibility-owner-tree",
+      "active_path": "runtime/src/software_factory/compatibility_owners",
+      "active_file_count": 12,
+      "active_file_hash_set_sha256": "9f1a234024431f5a6e5e8c731ab96235b30996ac7c041fac14e9b6286be6eab6",
+      "legacy_execution": false,
+      "second_active_writer": false
+    },
+    {
+      "concern": "dashboard-local app-server RPC owner",
+      "active_disposition": "replaced-by-qualified-shared-client-adapter",
+      "preservation_sha256": "5a95a80c935555678dfd97140f356160b11145ec2b03e745b524a45b6be64bc9",
+      "compatibility_sha256": "8b53cd4e6b14fbe7bcfbaff766c1c4264d542614a5c95257e8a8458e24baf0e6",
+      "second_active_writer": false
+    },
+    {
+      "concern": "libRSI live shadow comparator",
+      "active_disposition": "retired-under-e61871f6e8c058b43183eaecf4a0cfa14f6e0234e024a40b1f0b64387e339677",
+      "preservation_sha256": "2e61a80eeb847a33297dbf73921f08349f8ab90dc58a9f72623eb053fdace644",
+      "second_active_writer": false
+    },
+    {
+      "concern": "tracked pending markers and staged upload chunks",
+      "active_disposition": "moved-out-of-root-hygiene-surface",
+      "preservation": "12 exact markers and 4 exact chunks under legacy/v1",
+      "second_active_writer": false
+    }
+  ],
+  "external_activation": "not-performed"
+}

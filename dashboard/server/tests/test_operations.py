@@ -1748,7 +1748,7 @@ class OperationsProjectionTests(unittest.TestCase):
             "dashboard-terminal-completed-fixture",
             "--tracker",
             str(
-                DEFAULT_SUPERVISION_OWNER.parents[2]
+                DEFAULT_SUPERVISION_OWNER.parents[5]
                 / "docs"
                 / "software-factory-operations-dashboard-implementation-tracker.md"
             ),
