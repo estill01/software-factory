@@ -221,7 +221,16 @@ class QAService:
                     "program_revision_id": work["program_revision_id"],
                 }
             )
-            if work["candidate_revision"] and work["candidate_revision"] != snapshot.revision:
+            active_contract_roots = {
+                str(row["acceptance_contract_root"])
+                for row in db.execute(
+                    """SELECT DISTINCT acceptance_contract_root FROM qa_requirements
+                       WHERE work_item_id=? AND phase='candidate' AND status<>'stale'""",
+                    (work["id"],),
+                ).fetchall()
+                if row["acceptance_contract_root"]
+            }
+            if active_contract_roots - {candidate_root}:
                 db.execute(
                     """UPDATE qa_requirements SET status='stale',updated_at=?
                        WHERE work_item_id=? AND status IN ('pending','running','passed','failed')""",
@@ -241,18 +250,27 @@ class QAService:
             existing = db.execute(
                 """SELECT COUNT(*) AS n FROM qa_requirements
                    WHERE work_item_id=? AND phase='candidate' AND status<>'stale'
-                     AND candidate_revision=?""",
-                (work["id"], snapshot.revision),
+                     AND candidate_revision=? AND acceptance_contract_root=?""",
+                (work["id"], snapshot.revision, candidate_root),
             ).fetchone()["n"]
             if not existing:
-                requirements = spec.get("candidate", []) or [
-                    {"type": "profile_currentness", "required": True},
-                    {
-                        "type": "independent_review",
-                        "required": True,
-                        "role": "independent_reviewer",
-                    },
+                supplied = [dict(item) for item in spec.get("candidate", [])]
+                requirements = [
+                    item
+                    for item in supplied
+                    if str(item.get("type") or "predicate")
+                    not in {"profile_currentness", "independent_review"}
                 ]
+                requirements.extend(
+                    [
+                        {"type": "profile_currentness", "required": True},
+                        {
+                            "type": "independent_review",
+                            "required": True,
+                            "role": "independent_reviewer",
+                        },
+                    ]
+                )
                 for item in requirements:
                     qa_type = str(item.get("type") or "predicate")
                     predicate = dict(item.get("predicate", {}))
@@ -651,9 +669,24 @@ class QAService:
                AND candidate_revision=? AND status<>'stale' ORDER BY created_at""",
             (work_item_id, initial["candidate_revision"]),
         )
+        candidate_roots = {
+            str(row["acceptance_contract_root"])
+            for row in requirements
+            if row["acceptance_contract_root"]
+        }
+        if len(candidate_roots) != 1:
+            raise EvidenceInvalid("profile candidate QA is not bound to one exact submission")
+        candidate_root = next(iter(candidate_roots))
         currentness = [row for row in requirements if row["qa_type"] == "profile_currentness"]
         if len(currentness) != 1:
             raise EvidenceInvalid("profile candidate requires one exact currentness check")
+        independent_review = [
+            row
+            for row in requirements
+            if row["qa_type"] == "independent_review" and row["required"]
+        ]
+        if len(independent_review) != 1:
+            raise EvidenceInvalid("profile candidate requires one independent review")
         predicate = json_load(currentness[0]["predicate_json"], {})
         expected_currentness_root = str(predicate.get("currentness_root") or "")
         if (
@@ -694,8 +727,9 @@ class QAService:
                 raise EvidenceInvalid("profile target attributes changed after QA observation")
             current_requirements = db.execute(
                 """SELECT * FROM qa_requirements WHERE work_item_id=? AND phase='candidate'
-                   AND candidate_revision=? AND status<>'stale'""",
-                (work_item_id, work["candidate_revision"]),
+                   AND candidate_revision=? AND acceptance_contract_root=?
+                   AND status<>'stale'""",
+                (work_item_id, work["candidate_revision"], candidate_root),
             ).fetchall()
             if not current_requirements:
                 raise EvidenceInvalid("profile candidate has no QA requirements")
@@ -710,10 +744,16 @@ class QAService:
                 """SELECT qr.reviewer_session_id FROM qa_results qr
                    JOIN qa_requirements q ON q.id=qr.requirement_id
                    WHERE q.work_item_id=? AND q.phase='candidate'
-                     AND q.candidate_revision=? AND q.qa_type IN (
-                       'independent_review','review','architecture_review'
-                     ) AND qr.status='passed' AND qr.stale_at IS NULL""",
-                (work_item_id, work["candidate_revision"]),
+                     AND q.candidate_revision=? AND q.acceptance_contract_root=?
+                     AND q.qa_type='independent_review' AND q.required=1
+                     AND qr.candidate_root=? AND qr.status='passed'
+                     AND qr.stale_at IS NULL""",
+                (
+                    work_item_id,
+                    work["candidate_revision"],
+                    candidate_root,
+                    candidate_root,
+                ),
             ).fetchall()
             execution = db.execute(
                 "SELECT work_item_id,agent_session_id FROM executions WHERE id=?",
@@ -722,7 +762,9 @@ class QAService:
             if execution is None or execution["work_item_id"] != work_item_id:
                 raise EvidenceInvalid("profile candidate implementation execution is missing")
             implementer_id = execution["agent_session_id"]
-            if reviews and any(row["reviewer_session_id"] == implementer_id for row in reviews):
+            if not reviews:
+                raise EvidenceInvalid("profile candidate has no passed independent review")
+            if any(row["reviewer_session_id"] == implementer_id for row in reviews):
                 raise RoleConflict("profile candidate review is not independent")
             new_version = expected_work_version + 1
             db.execute(

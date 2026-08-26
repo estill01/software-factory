@@ -10,7 +10,7 @@ Block or narrow a direct requested range.
 
 | Program ID | Role | Detailed tracker | Exact tracker binding | Block range | First eligible Block | Status |
 |---|---|---|---|---|---:|---|
-| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `4ff33d6c1923aee890c1813f8629ac1fbb7519441a7efb6b8b0a8fa99fe092e7`; Blocks 0–9 accepted; rejected Block 10 candidate `e60b999` and its three P1 findings preserved; bounded durable-currentness/canonical-QA remediation and mapped proof complete pending successor commit/review; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
+| `SFV2` | required current v2 implementation program | `docs/software-factory-v2-implementation-tracker.md` | SHA-256 `bbf121b1747f844a5639abf363e0cd3ea8f175880f470c78846f852dcbceed50`; Blocks 0–9 accepted; rejected Block 10 candidates `e60b999` and `44f3e83` plus all six P1 findings preserved; bounded exact-submission QA and staged physical-currentness remediation with mapped proof complete pending successor commit/review; rejected Block 9 candidates `5a2f226` and `9c76fc8` plus all four P1 findings preserved; exact accepted Block 9 candidate `7f4d55f`; rejected Block 7 candidates `7937464`, `bb1bd62`, and `c5bfce2` plus rejected Block 8 candidates `4a23d41`, `76ca892`, `12adc23`, `52acbaf`, `91b8cac`, `7c27b86`, `46631b7`, `eca370f`, and `173280d` preserved; exact accepted Block 7 candidate `56d2a22`; exact accepted Block 8 candidate `e82ee53`; full range `RANGE-SFV2-B0-B12-3901D4F-2079C81D` preserved | `SFV2/B0`–`SFV2/B12` | 10 | `active` |
 
 The maintained architecture authority is
 `docs/software-factory-v2-implementation-plan.md` at candidate SHA-256
@@ -105,14 +105,17 @@ dependency-safe frontier. Its maintained neutral profile and consumer-owned
 external extension both reach delivered and independently accepted terminal
 mission outcomes through the real CoreService owners. Focused/mapped/static and
 isolated package proof are current at detailed tracker SHA-256
-`4ff33d6c1923aee890c1813f8629ac1fbb7519441a7efb6b8b0a8fa99fe092e7`.
-Exact pushed candidate `e60b9990a2453888dfff991dc8c46fb5ca251d58` is preserved and
-unaccepted after distinct review found three P1 gaps in canonical non-workspace
-QA completion, durable target restart, and atomic physical-effect currentness.
-The bounded successor closes those gaps with real currentness/review results,
-passed-QA-gated acceptance, durable target reopening, physical-tree-bound
-revisions, and one held target fence. Block 10 remains in progress pending its
-clean pushed successor and distinct exact-revision review.
+`bbf121b1747f844a5639abf363e0cd3ea8f175880f470c78846f852dcbceed50`.
+Exact pushed candidates `e60b9990a2453888dfff991dc8c46fb5ca251d58` and
+`44f3e83095550b6cf0db18c08ac314cce110e3f3` are preserved and unaccepted after
+distinct reviews found six P1 gaps across canonical non-workspace QA, durable
+target restart, physical-effect fencing, exact execution/candidate lineage,
+mandatory independent review, and post-QA staged currentness. The bounded
+successor retains the earlier closures, forces currentness/review through
+canonical QA for every profile candidate, invalidates same-revision
+cross-execution lineage, and holds the physical target fence through each
+authoritative acceptance write. Block 10 remains in progress pending its clean
+pushed successor and distinct exact-revision review.
 
 ## Required outcome
 

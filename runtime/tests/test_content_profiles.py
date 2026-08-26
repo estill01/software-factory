@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
@@ -114,6 +115,7 @@ def _accept_stage(
     prior_stage_id: str | None,
     outcome: dict[str, Any],
     evidence_id: str,
+    before_accept: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     remaining = {
         "candidate": ["integrated", "installed", "terminal"],
@@ -188,6 +190,8 @@ def _accept_stage(
         observed_outcome=outcome,
         evidence_ids=[evidence_id],
     )
+    if before_accept is not None:
+        before_accept()
     return core.acceptance_lifecycle.accept_stage(
         prepared["id"],
         acceptor_session_id=reviewer_id,
@@ -202,6 +206,9 @@ def _complete_profile_mission(
     profile_key: str,
     target_id: str,
     steps: tuple[tuple[EffectClass, str], ...],
+    candidate_spec: list[dict[str, Any]] | None = None,
+    resubmit_same_revision: bool = False,
+    before_stage_accept: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     store = core.store
     project_id = core.create_project(f"{profile_key} mission project")
@@ -237,7 +244,9 @@ def _complete_profile_mission(
         description="Use the registered target profile through exact-currentness effects",
         expected_effect={"target_profile": profile_key, "target_id": target_id},
         acceptance_spec={
-            "candidate": [
+            "candidate": candidate_spec
+            if candidate_spec is not None
+            else [
                 {"type": "profile_currentness", "required": True},
                 {
                     "type": "independent_review",
@@ -315,6 +324,9 @@ def _complete_profile_mission(
         requirements["profile_currentness"]["id"]
     )
     assert currentness_result["passed"] is True
+    work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+    with pytest.raises(EvidenceInvalid, match="QA remains incomplete"):
+        core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
     review_result = core.qa.record_independent_review(
         requirements["independent_review"]["id"],
         reviewer_session_id=reviewer_id,
@@ -324,6 +336,82 @@ def _complete_profile_mission(
     work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
     completed_qa = core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
     assert completed_qa["qa_status"] == "passed"
+    if resubmit_same_revision:
+        first_candidate_root = submitted["candidate_root"]
+        first_requirement_ids = {item["id"] for item in submitted["requirements"]}
+        second_execution_id = core.queue_execution(
+            mission_id=mission_id,
+            work_item_id=work_id,
+            agent_session_id=implementer_id,
+            execution_type="target_profile_production",
+            idempotency_key=f"{mission_id}:{profile_key}:{target_id}:same-revision-resubmit",
+            expected_effect={"target_profile": profile_key, "target_id": target_id},
+        )
+        second_generation = core.acquire_leases(
+            second_execution_id,
+            [
+                {
+                    "kind": "target_profile",
+                    "key": f"{profile_key}:{target_id}",
+                    "mode": "exclusive",
+                }
+            ],
+        )
+        core.complete_external_execution(
+            second_execution_id,
+            generation=second_generation,
+            succeeded=True,
+            result={
+                "profile_key": profile_key,
+                "target_id": target_id,
+                "revision": final_snapshot.revision,
+                "currentness_root": final_snapshot.currentness_root,
+                "resubmitted": True,
+            },
+        )
+        work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+        resubmitted = core.qa.submit_profile_candidate(
+            second_execution_id,
+            profile_key=profile_key,
+            target_id=target_id,
+            expected_revision=final_snapshot.revision,
+            expected_currentness_root=final_snapshot.currentness_root,
+            expected_work_version=work["state_version"],
+        )
+        assert resubmitted["candidate_root"] != first_candidate_root
+        placeholders = ",".join("?" for _ in first_requirement_ids)
+        stale = store.all(
+            f"SELECT id,status FROM qa_requirements WHERE id IN ({placeholders})",
+            tuple(sorted(first_requirement_ids)),
+        )
+        assert {row["status"] for row in stale} == {"stale"}
+        old_results = store.all(
+            f"SELECT stale_at FROM qa_results WHERE requirement_id IN ({placeholders})",
+            tuple(sorted(first_requirement_ids)),
+        )
+        assert old_results and all(row["stale_at"] for row in old_results)
+        active_requirements = {
+            item["qa_type"]: item
+            for item in resubmitted["requirements"]
+            if item["status"] != "stale"
+        }
+        assert {item["acceptance_contract_root"] for item in active_requirements.values()} == {
+            resubmitted["candidate_root"]
+        }
+        work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+        with pytest.raises(EvidenceInvalid, match="QA remains incomplete"):
+            core.complete_candidate_qa(work_id, expected_work_version=work["state_version"])
+        core.qa.record_profile_currentness(active_requirements["profile_currentness"]["id"])
+        core.qa.record_independent_review(
+            active_requirements["independent_review"]["id"],
+            reviewer_session_id=reviewer_id,
+            disposition="accept",
+        )
+        work = store.one("SELECT state_version FROM work_items WHERE id=?", (work_id,))
+        completed_qa = core.complete_candidate_qa(
+            work_id, expected_work_version=work["state_version"]
+        )
+        assert completed_qa["qa_status"] == "passed"
     outcome = {
         "operator_visible": {
             "profile_key": profile_key,
@@ -363,6 +451,11 @@ def _complete_profile_mission(
             prior_stage_id=None if prior is None else prior["id"],
             outcome=outcome,
             evidence_id=stage_evidence,
+            before_accept=(
+                None
+                if before_stage_accept is None
+                else lambda stage=stage: before_stage_accept(stage)
+            ),
         )
     assert prior is not None
 
@@ -659,6 +752,57 @@ def test_neutral_content_mission_reaches_current_delivered_outcome(tmp_path: Pat
     assert (tmp_path / "content" / "reviews" / "factual.json").is_file()
     assert (tmp_path / "content" / "reviews" / "structural.json").is_file()
     assert (tmp_path / "content" / "reviews" / "style.json").is_file()
+
+
+def test_profile_candidate_forces_review_and_restarts_qa_for_same_revision_resubmission(
+    tmp_path: Path,
+) -> None:
+    core = CoreService(Store(tmp_path / "factory.sqlite3"))
+    target_id = _register_content(core, tmp_path / "content")
+    result = _complete_profile_mission(
+        core,
+        profile_key="content",
+        target_id=target_id,
+        steps=_content_steps(),
+        candidate_spec=[{"type": "profile_currentness", "required": False}],
+        resubmit_same_revision=True,
+    )
+    assert result["mission"]["status"] == "completed"
+    active = core.store.all(
+        """SELECT qa_type,required,acceptance_contract_root FROM qa_requirements
+           WHERE work_item_id=? AND phase='candidate' AND status<>'stale'""",
+        (result["work"]["id"],),
+    )
+    assert {(row["qa_type"], row["required"]) for row in active} == {
+        ("profile_currentness", 1),
+        ("independent_review", 1),
+    }
+    assert len({row["acceptance_contract_root"] for row in active}) == 1
+
+
+def test_profile_acceptance_reobserves_physical_currentness_after_qa(
+    tmp_path: Path,
+) -> None:
+    core = CoreService(Store(tmp_path / "factory.sqlite3"))
+    root = tmp_path / "content"
+    target_id = _register_content(core, root)
+
+    def drift_after_outcome_reconciliation(stage: str) -> None:
+        assert stage == "candidate"
+        delivered = root / "delivered" / "document.html"
+        delivered.write_text(
+            delivered.read_text(encoding="utf-8") + "<!-- post-QA drift -->\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(InvalidTransition, match="revision changed|currentness changed"):
+        _complete_profile_mission(
+            core,
+            profile_key="content",
+            target_id=target_id,
+            steps=_content_steps(),
+            before_stage_accept=drift_after_outcome_reconciliation,
+        )
 
 
 def test_external_extension_registers_outside_core_and_uses_same_mission_runtime(

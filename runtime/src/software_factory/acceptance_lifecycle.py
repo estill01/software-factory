@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from typing import Any, Literal
 
 from .errors import EvidenceInvalid, InvalidTransition, RoleConflict
@@ -62,12 +63,14 @@ class AcceptanceLifecycleService:
         work_items: Any,
         capabilities: Any,
         supervision: Any,
+        target_profiles: Any | None = None,
     ) -> None:
         self.store = store
         self.governance = governance
         self.work_items = work_items
         self.capabilities = capabilities
         self.supervision = supervision
+        self.target_profiles = target_profiles
         self._work_acceptance_authority = object()
         self.work_items._bind_acceptance_lifecycle_authority(  # noqa: SLF001
             self._work_acceptance_authority
@@ -79,6 +82,43 @@ class AcceptanceLifecycleService:
             return _STAGE_ORDER.index(stage)
         except ValueError as exc:
             raise ValueError(f"unsupported acceptance stage: {stage}") from exc
+
+    @contextmanager
+    def _currentness_fence(
+        self,
+        stage_id: str,
+        *,
+        exact_revision: str,
+        currentness_root: str,
+    ) -> Iterator[tuple[str, str] | None]:
+        """Hold a profile-owned physical fence through the acceptance write."""
+
+        stage = self.store.one("SELECT * FROM acceptance_stage_records_v2 WHERE id=?", (stage_id,))
+        if (
+            stage["target_revision"] != exact_revision
+            or stage["currentness_root"] != currentness_root
+        ):
+            raise InvalidTransition("acceptance stage promotion is stale")
+        work_item_id = stage.get("work_item_id")
+        if not work_item_id:
+            yield None
+            return
+        work = self.store.one("SELECT * FROM work_items WHERE id=?", (work_item_id,))
+        expected_effect = json_load(work["expected_effect_json"], {})
+        profile_key = expected_effect.get("target_profile")
+        target_id = expected_effect.get("target_id")
+        if not isinstance(profile_key, str) or not isinstance(target_id, str):
+            yield None
+            return
+        if self.target_profiles is None:
+            raise InvalidTransition("target-profile acceptance currentness is not configured")
+        with self.target_profiles.currentness_fence(
+            profile_key,
+            target_id,
+            expected_revision=exact_revision,
+            expected_currentness_root=currentness_root,
+        ):
+            yield (profile_key, target_id)
 
     def prepare_stage(
         self,
@@ -645,7 +685,14 @@ class AcceptanceLifecycleService:
         exact_revision: str,
         currentness_root: str,
     ) -> dict[str, Any]:
-        with self.store.transaction() as db:
+        with (
+            self._currentness_fence(
+                stage_id,
+                exact_revision=exact_revision,
+                currentness_root=currentness_root,
+            ) as profile_binding,
+            self.store.transaction() as db,
+        ):
             stage = self.store.one(
                 "SELECT * FROM acceptance_stage_records_v2 WHERE id=?", (stage_id,), db=db
             )
@@ -668,6 +715,16 @@ class AcceptanceLifecycleService:
                 raise RoleConflict("stage promotion requires an independent acceptance role")
             if acceptor_session_id == stage["implementer_session_id"]:
                 raise RoleConflict("implementer cannot promote its own acceptance stage")
+            if profile_binding is not None:
+                work = self.store.one(
+                    "SELECT * FROM work_items WHERE id=?", (stage["work_item_id"],), db=db
+                )
+                expected_effect = json_load(work["expected_effect_json"], {})
+                if (
+                    expected_effect.get("target_profile") != profile_binding[0]
+                    or expected_effect.get("target_id") != profile_binding[1]
+                ):
+                    raise InvalidTransition("profile acceptance target binding changed")
             latest = self.store.one(
                 """SELECT * FROM outcome_reconciliations_v2
                    WHERE stage_record_id=? ORDER BY created_at DESC,id DESC LIMIT 1""",

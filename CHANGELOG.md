@@ -49,9 +49,16 @@ the completed program materially changes Software Factory.
   revision and physical-tree currentness. Non-workspace profile output enters
   the existing QA owner only
   when a successful work execution, declared profile/target, exact revision,
-  and exact currentness root agree. Currentness and independent review then
-  complete through canonical QA before the lifecycle can promote any stage;
-  acceptance cannot manufacture a passed QA state. The output still traverses independent
+  and exact currentness root agree. Canonical profile QA always adds required
+  currentness and independent-review requirements even when a caller supplies a
+  weaker acceptance specification, and every requirement/result is bound to the
+  exact submitting execution and candidate root. A same-revision resubmission
+  therefore stales the prior execution's QA lineage and must be reviewed again.
+  Currentness and independent review complete through canonical QA before the
+  lifecycle can promote any stage; acceptance cannot manufacture a passed QA
+  state, and every staged promotion re-observes and holds the profile-owned
+  physical currentness fence through the authoritative acceptance write. The
+  output still traverses independent
   candidate/integrated/installed/terminal acceptance and cannot self-accept. A
   consumer-owned example profile lives outside the Factory package, registers
   through the public profile registry, and completes the same real mission,

@@ -123,6 +123,7 @@ class CoreService:
             work_items=self.work_items,
             capabilities=self.capabilities,
             supervision=self.supervision,
+            target_profiles=self.target_profiles,
         )
         self.controller = ControllerService(
             store,

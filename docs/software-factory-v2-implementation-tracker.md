@@ -2428,12 +2428,19 @@ reuse of the real engine.
   registered snapshot revision/currentness and attributes, acceptance spec, and
   current program revision. Profile or target substitution, a workspace
   candidate, stale target bytes, failed/unbound execution, or changed work
-  version fails before submission. `record_profile_currentness`, independent
-  review, and `complete_candidate_qa` then produce and consume real requirement
-  results while holding the same target fence. The two real missions perform
-  those steps before candidate acceptance. Work promotion now requires the
-  already-passed QA state and no longer writes `qa_status='passed'`; the existing
-  staged lifecycle remains the sole work-acceptance owner.
+  version fails before submission. The canonical owner always installs one
+  required currentness check and one required independent review even if the
+  caller's acceptance specification omits them or marks them optional. Every
+  requirement/result shares the exact execution-derived candidate root; a
+  second execution submitting the same physical revision stales the complete
+  earlier QA/evidence lineage and starts new requirements. Completion requires
+  a passed review for that exact root by a non-implementer. The two real missions
+  perform those steps before candidate acceptance. Work promotion requires the
+  already-passed QA state and no longer writes `qa_status='passed'`; every
+  candidate/integrated/installed/terminal acceptance re-observes the registered
+  physical target and holds its profile-owned fence through the authoritative
+  stage and work-promotion write. The existing staged lifecycle remains the sole
+  work-acceptance owner.
 - External extension proof: `runtime/tests/external_extension_fixture.py` owns
   its sample observation key, target ID, schema, snapshots, and physical effects
   outside `runtime/src/software_factory`. It registers through the unchanged
@@ -2455,9 +2462,9 @@ reuse of the real engine.
   no-isolation diagnostic was invalid because the selected development venv did
   not contain the declared setuptools backend and was not reused as proof. The
   isolated wheel and sdist SHA-256 values are respectively
-  `703693ff1c9c2944952017dd5383af50d98bdd8407fd81c695e7dbac55174ae1`
+  `6cce22b5d4de49102937969cc5d5e169ded341f7f1f62c992f0792d457c5ccf1`
   and
-  `c1c3995c2c9db8615121e86b789a5facdfaf702140d365b1a671144c5961edb3`.
+  `54ace850cfb16bc2d646e43aa6cd9dc062ad283ef70322d66c7ba4d04ed124dd`.
   A target-directory installation imported version `2.0.0.dev6` from the built
   wheel, exposed the content profile, and composed profile keys `content` and
   `software`; the sdist contains both maintained Block 10 test modules.
@@ -2472,7 +2479,22 @@ reuse of the real engine.
   capability while adding the canonical non-workspace QA path, durable reopen,
   physical-tree-bound revisions, shared target locks, and adapter-internal dual-root
   rechecks. No rejected history was amended or removed.
-- Focused and mapped proof: `63 passed` across content/external profiles, target
+- Preserved second rejected candidate: exact pushed commit
+  `44f3e83095550b6cf0db18c08ac314cce110e3f3`, tree
+  `3a7d7f08943abc0e36bc030d5088a2224e222606`, remains immutable and
+  unaccepted. Distinct exact-revision review confirmed the durable target,
+  cross-process fencing, extension, neutrality, and package boundaries but
+  returned three P1 findings: a caller could omit required independent review;
+  a same-revision execution could inherit another execution's QA lineage; and
+  staged acceptance trusted pre-drift roots after canonical QA released its
+  physical fence. The current bounded successor forces the two canonical
+  requirements, binds and invalidates QA by exact execution-derived candidate
+  root, requires a passed non-implementer review for that root, and re-observes
+  physical currentness under the profile fence through every authoritative
+  acceptance write. Negative dogfood weakens the caller specification,
+  resubmits the same revision from a new execution, and injects physical drift
+  after outcome reconciliation. No rejected history was amended or removed.
+- Focused and mapped proof: `65 passed` across content/external profiles, target
   profiles, execution/QA, acceptance lifecycle, core, composition, operational
   boundaries, engine hosts, and v2 entrypoints. Ruff format/check are clean over
   108 files, mypy is clean over 72 source files, compilation is clean, and full
@@ -2506,11 +2528,12 @@ reuse of the real engine.
     deterministic cited-document contract rather than a universal document
     platform. New domains remain external extensions until another accepted
     shared need justifies a bounded core contract.
-- Candidate posture: rejected exact candidate `e60b999` and all three review
-  findings are preserved. The bounded remediation, docs, focused/mapped proof,
-  static audit, collection, durable-restart proof, and isolated build/import proof
-  are complete. A new exact candidate commit/push and distinct exact-revision
-  review remain required before Block 10 acceptance or Block 11 effects.
+- Candidate posture: rejected exact candidates `e60b999` and `44f3e83` and all
+  six review findings are preserved. The second bounded remediation, docs,
+  focused/mapped proof, static audit, collection, durable-restart proof, and
+  isolated build/import proof are complete. A new exact candidate commit/push
+  and distinct exact-revision review remain required before Block 10 acceptance
+  or Block 11 effects.
 
 ### Stop
 
