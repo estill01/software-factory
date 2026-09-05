@@ -55,7 +55,10 @@ class NativeOwner:
         if method == "thread/resume":
             if not self.histories[params["threadId"]]:
                 raise AssertionError("resume before durable initialization")
-            self.instructions[params["threadId"]] = params["developerInstructions"]
+            # Native loaded tasks may ignore resume's developerInstructions.
+            return {}
+        if method == "thread/settings/update":
+            self.instructions[params["threadId"]] = params["collaborationMode"]["settings"]["developer_instructions"]
             return {}
         if method == "thread/name/set":
             return {}
@@ -159,6 +162,9 @@ class PortableRuntimeTests(unittest.TestCase):
     def test_complete_bootstrap_replay_reuses_five_roles_and_three_paused_schedules(self):
         self.ready()
         self.assertEqual((self.owner.creates, self.owner.starts), (5, 10))
+        config = json.loads(self.path.read_text())
+        for role in config["roles"].values():
+            self.assertEqual(self.owner.instructions[role["thread_id"]], role["instructions"])
         self.assertEqual(bootstrap_step(self.path, client_factory=self.owner)["phase"], "ready")
         runtime = Runtime(self.path, client_factory=self.owner)
         try:

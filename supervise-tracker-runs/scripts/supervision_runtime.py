@@ -29,6 +29,9 @@ ROLES = {
 INTERVALS = {"liveness": 60, "watcher": 1200, "reviewer": 14400}
 INITIALIZE = ("Initialization only. Do not inspect or contact the target, call tools, "
               "log, schedule, implement, or delegate. Reply exactly INITIALIZED and stop.")
+AWAIT_ROLE = ("You are a newly created bounded supervision role awaiting assignment. "
+              "Initialization-only turns must perform no tools or target work. "
+              "A later explicit role assignment supplies your operating contract.")
 NATIVE_ROOT = Path("/srv/patent-studio/private/gcp-supervision")
 
 
@@ -182,7 +185,7 @@ def bootstrap_step(path, *, client_factory=CodexClient):
                     save(path, config)  # Fail closed after an ambiguous creation, even after crash.
                     result = client.call("thread/start", {
                         "model": model, "cwd": str(role_root), "approvalPolicy": "never",
-                        "sandbox": "danger-full-access", "developerInstructions": INITIALIZE,
+                        "sandbox": "danger-full-access", "developerInstructions": AWAIT_ROLE,
                         "config": {"model_reasoning_effort": reasoning}, "ephemeral": False})
                     thread_id = result["thread"]["id"]
                     config["roles"][name] = {"thread_id": thread_id, "model": model,
@@ -201,6 +204,12 @@ def bootstrap_step(path, *, client_factory=CodexClient):
                         "model": role["model"], "cwd": role["cwd"], "approvalPolicy": "never",
                         "sandbox": "danger-full-access", "developerInstructions": instructions,
                         "config": {"model_reasoning_effort": role["reasoning"]}})
+                    # resume does not reliably replace instructions on an already
+                    # loaded task. This owner explicitly changes subsequent turns.
+                    client.call("thread/settings/update", {"threadId": role["thread_id"],
+                        "collaborationMode": {"mode": "default", "settings": {
+                            "model": role["model"], "reasoning_effort": role["reasoning"],
+                            "developer_instructions": instructions}}})
                     client.call("thread/name/set", {"threadId": role["thread_id"],
                         "name": config["target_label"]+" / supervision / "+name})
                     role["instructions"] = instructions

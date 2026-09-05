@@ -54,7 +54,11 @@ The displayed command wraps for readability; use structured subprocess argv or
 proper shell continuation. Each call advances one bounded step. Allow an active
 initialization turn to finish before the next call; do useful independent work
 while waiting. Five role tasks receive initialization-only turns before resume,
-then complete their bound full-role initialization. The bootstrap retains exact
+then receive the full role through `thread/settings/update` collaboration
+settings and complete their bound full-role initialization. `thread/resume`
+alone does not reliably replace instructions on an already loaded task. Observe
+an actual bounded role action after activation; `INITIALIZED` alone cannot prove
+that later scheduled turns use the assignment. The bootstrap retains exact
 task/turn IDs and never creates another task after an ambiguous create response.
 Resolve such uncertainty from the native owner's exact request/task evidence.
 

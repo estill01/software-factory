@@ -84,8 +84,8 @@ observable outcome before any final completion claim.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Discover owners and bootstrap isolated groups | — | `complete` |
-| 1 | Install portable skill and initialize this target | 0 | `in-progress` |
-| 2 | Verify live operation and record delivery | 1 | `not-started` |
+| 1 | Install portable skill and initialize this target | 0 | `complete` |
+| 2 | Verify live operation and record delivery | 1 | `in-progress` |
 
 Required order: `0 → 1 → 2`.
 
@@ -163,7 +163,7 @@ Stop before installation owned by Block 1, then continue after the Block audit.
 
 ## Block 1 — Install portable skill and initialize this target
 
-Status: `in-progress`
+Status: `complete`
 
 ### Objective
 
@@ -216,7 +216,16 @@ Repeated bootstrap must reuse IDs and leave the peer group untouched.
 
 ### Completion evidence
 
-Pending.
+- Installed successor: `c3328d5255ae84ceb3aef1e93facf5e59d9e1c32`, independently accepted after the real systemd parser caught and the successor corrected scalar path quoting. Two focused unit/parser checks pass; unchanged predecessor transport/bootstrap proof is reused.
+- Host release: `/srv/patent-studio/tooling/portable-supervision/releases/c3328d5255ae`; retained `host-installation.json` binds source, review, tests and prior release. Both r0/r2 supervision skill entry points resolve through its stable `current`; other skill channels and the peer runtime are untouched.
+- Five native roles completed ten initialization-only turns; exact receipts are in the new group's `config.json`. Repeated ready bootstrap returned the same byte-identical config.
+- Three paused schedules and the exact derived mission pass native/helper agreement checks. The distinct `codex-supervision-01a06f3e-7ffc.service` is enabled and running while schedules remain paused.
+- Peer preservation: original config SHA-256 `68c68b12a95ff8c02ebdefef11bd1cbad7702df648e1f617a5462cc2979c716d`, unit SHA-256 `97642431c39b370efeebe99c69583b71b701ba5d6432a8c197da618546ddddcf`, native current release `range-afbc5f6acb29`, original service PID `1054787` unchanged at this checkpoint.
+- Remaining open work: actual schedule activation, routed delivery and restart proof in Block 2.
+- Decision/continuation posture: continue without an additional user gate.
+- Post-block audit: accepted; initialization is not misreported as active monitoring.
+- Git durability: successor pushed on the existing feature branch.
+
 
 ### Stop
 
@@ -224,7 +233,7 @@ Stop before live schedule activation owned by Block 2, then continue after audit
 
 ## Block 2 — Verify live operation and record delivery
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
