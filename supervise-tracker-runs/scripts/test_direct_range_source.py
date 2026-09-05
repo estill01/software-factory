@@ -2,6 +2,8 @@
 import base64
 import copy
 import hashlib
+import importlib.util
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,6 +12,43 @@ import test_supervision_log as support
 
 owner = support.supervision_log
 SOURCE = "and ultimately I don't care how you achieve this -- I want to be able to run `supervise tracker runs` and have it work no matter if it's on my laptop or on the GCP system. if you need to build scripts or other things to get it to work then do that.\u00a0\n"
+
+
+class ReviewHostProfileTests(unittest.TestCase):
+    def profile(self, platform):
+        spec = importlib.util.spec_from_file_location("review_host_profile", owner.__file__)
+        module = importlib.util.module_from_spec(spec)
+        with mock.patch.object(sys, "platform", platform), mock.patch.object(
+                Path, "home", return_value=Path("/example-account")):
+            spec.loader.exec_module(module)
+        return module
+
+    def test_linux_and_mac_keep_the_same_reviewer_identity(self):
+        for platform, executable, sha in (
+            ("linux", "/usr/bin/openssl", "f4aa15f2822f670af7b5c1043d7aa6ebbbc64229fd2fae382edfc6a4524749c1"),
+            ("darwin", "/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl", "bf63843e6856e1994ca71092ff3b46834236eb2144dd9b6ceb85d511128b836e"),
+        ):
+            with self.subTest(platform=platform):
+                profile = self.profile(platform)
+                self.assertEqual(profile.ADAPTIVE_REVIEWER_ID, "software-factory-release-reviewer-v1")
+                self.assertEqual(profile.ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+                                 "e6ace9dfbbf97ec65800d1da146c4b59b20a2aef86ad706b174b9837bcb41a02")
+                self.assertEqual(profile.ADAPTIVE_REVIEW_PUBLIC_KEY_PATH, Path(
+                    "/example-account/.codex/software-factory-release-authority/reviewers/software-factory-release-reviewer-v1.pem"))
+                self.assertEqual(profile.ADAPTIVE_REVIEW_PRIVATE_KEY_PATH, Path(
+                    "/example-account/.codex/software-factory-release-private/reviewer/software-factory-release-reviewer-v1.private.pem"))
+                self.assertEqual(str(profile.ADAPTIVE_REVIEW_OPENSSL_PATH), executable)
+                self.assertEqual(profile.ADAPTIVE_REVIEW_OPENSSL_SHA256, sha)
+
+    @unittest.skipUnless(sys.platform == "linux", "exact installed GCP verifier")
+    def test_linux_verifier_is_pinned_and_missing_key_stays_rejected(self):
+        profile = self.profile("linux")
+        self.assertEqual(profile.trusted_adaptive_review_openssl(), Path("/usr/bin/openssl"))
+        with mock.patch.object(profile, "ADAPTIVE_REVIEW_OPENSSL_SHA256", "f" * 64):
+            with self.assertRaisesRegex(profile.SupervisionLogError, "identity differs"):
+                profile.trusted_adaptive_review_openssl()
+        with self.assertRaisesRegex(profile.SupervisionLogError, "signing key is unavailable"):
+            profile.trusted_adaptive_reviewer_private_key()
 
 
 class DirectRangeSourceTests(unittest.TestCase):

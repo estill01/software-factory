@@ -139,11 +139,11 @@ MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
 ADAPTIVE_REVIEWER_ID = "software-factory-release-reviewer-v1"
 ADAPTIVE_EVALUATOR_ID = "software-factory-adaptive-evaluator-v1"
 ADAPTIVE_REVIEW_PUBLIC_KEY_PATH = Path(
-    "/Users/ethanstillman/.codex/software-factory-release-authority/"
+    Path.home(), ".codex/software-factory-release-authority/"
     "reviewers/software-factory-release-reviewer-v1.pem"
 )
 ADAPTIVE_REVIEW_PRIVATE_KEY_PATH = Path(
-    "/Users/ethanstillman/.codex/software-factory-release-private/"
+    Path.home(), ".codex/software-factory-release-private/"
     "reviewer/software-factory-release-reviewer-v1.private.pem"
 )
 ADAPTIVE_REVIEW_OPENSSL_PATH = Path(
@@ -152,6 +152,12 @@ ADAPTIVE_REVIEW_OPENSSL_PATH = Path(
 ADAPTIVE_REVIEW_OPENSSL_SHA256 = (
     "bf63843e6856e1994ca71092ff3b46834236eb2144dd9b6ceb85d511128b836e"
 )
+if sys.platform == "linux":
+    # Exact reviewed GCP verifier profile; upgrades fail closed until reviewed.
+    ADAPTIVE_REVIEW_OPENSSL_PATH = Path("/usr/bin/openssl")
+    ADAPTIVE_REVIEW_OPENSSL_SHA256 = (
+        "f4aa15f2822f670af7b5c1043d7aa6ebbbc64229fd2fae382edfc6a4524749c1"
+    )
 ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256 = (
     "e6ace9dfbbf97ec65800d1da146c4b59b20a2aef86ad706b174b9837bcb41a02"
 )

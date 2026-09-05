@@ -14,6 +14,16 @@ HEADINGS = {
 }
 
 
+def role_resume_arguments(role, instructions=None):
+    """Restore the original bound role, including its writable helper access."""
+    return {
+        "threadId": role["thread_id"], "model": role["model"], "cwd": role["cwd"],
+        "approvalPolicy": "never", "sandbox": "danger-full-access",
+        "developerInstructions": role["instructions"] if instructions is None else instructions,
+        "config": {"model_reasoning_effort": role["reasoning"]},
+    }
+
+
 def role_prompt(config, name):
     policy = (Path(config["helper_path"]).parent.parent / "references/supervision-policy.md").read_text()
     section = policy.split("## "+HEADINGS[name]+"\n", 1)[1].split("\n## ", 1)[0]

@@ -18,6 +18,9 @@ class FakeCodex:
         self.lose_add_response = False
         self.lose_start_response = False
         self.auto_start = False
+        self.not_loaded = False
+        self.resume_arguments = None
+        self.resume_writable = True
 
     def __call__(self, *args, **kwargs):
         return self
@@ -29,12 +32,19 @@ class FakeCodex:
         pass
 
     def compact(self, identity):
+        if self.not_loaded:
+            return {'id': identity, 'status': {'type': 'notLoaded'}, 'updatedAt': 1}
         return {'id': identity, 'status': {'type': 'active' if self.active else 'idle'}, 'updatedAt': 1}
 
     def turns(self, *args, **kwargs):
         return {'data': self.history}
 
     def call(self, method, args):
+        if method == 'thread/resume':
+            self.resume_arguments = args
+            self.not_loaded = False
+            return {'sandbox': {'type': 'dangerFullAccess' if self.resume_writable else 'readOnly'},
+                    'approvalPolicy': 'never'}
         if method == 'thread/queue/list':
             return {'data': self.queue}
         if method == 'thread/queue/add':
@@ -81,6 +91,58 @@ class RuntimeTests(unittest.TestCase):
 
     def message(self):
         return self.runtime.prepare('one', 'watcher', 'Check the exact target.', 'source', 'watcher-action')
+
+    def test_unloaded_role_restores_original_helper_access_before_delivery(self):
+        role = {'thread_id': 'watcher', 'model': 'gpt-5.6-terra',
+                'cwd': str(self.root), 'reasoning': 'max',
+                'instructions': 'Bound watcher instructions'}
+        self.runtime.config['roles']['watcher'] = role
+        self.fake.not_loaded = True
+        self.assertEqual(self.runtime.deliver(self.message()), 'started')
+        args = self.fake.resume_arguments
+        self.assertEqual(args['sandbox'], 'danger-full-access')
+        self.assertEqual(args['approvalPolicy'], 'never')
+        self.assertEqual(args['threadId'], 'watcher')
+        self.assertEqual(args['developerInstructions'], role['instructions'])
+        self.assertEqual(args['config']['model_reasoning_effort'], 'max')
+        self.assertEqual(self.fake.started, 1)
+
+    def test_unrestored_role_does_not_receive_queued_work(self):
+        self.runtime.config['roles']['watcher'].update(
+            model='gpt-5.6-terra', cwd=str(self.root), reasoning='max', instructions='Bound')
+        self.fake.not_loaded = True
+        self.fake.resume_writable = False
+        identity = self.message()
+        self.assertEqual(self.runtime.deliver(identity), 'failed')
+        self.assertEqual(self.runtime.deliver(identity), 'failed')
+        self.assertEqual(self.fake.queue, [])
+        self.assertEqual(self.fake.started, 0)
+
+    def test_target_resume_does_not_replace_its_permissions_or_instructions(self):
+        self.fake.not_loaded = True
+        self.fake.resume_writable = False
+        identity = self.runtime.prepare('target-wake', 'target', 'Continue.', 'source', 'target-action')
+        self.assertEqual(self.runtime.deliver(identity), 'started')
+        self.assertEqual(self.fake.resume_arguments, {'threadId': 'target'})
+
+    def test_rejected_role_restore_preserves_uncertain_existing_delivery(self):
+        self.runtime.config['roles']['watcher'].update(
+            model='gpt-5.6-terra', cwd=str(self.root), reasoning='max', instructions='Bound')
+        self.fake.lose_add_response = True
+        identity = self.message()
+        self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+        self.assertEqual(len(self.fake.queue), 1)
+        self.fake.not_loaded = True
+        self.fake.resume_writable = False
+        self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+        self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+        self.assertEqual(len(self.fake.queue), 1)
+        self.assertEqual(self.fake.started, 0)
+        self.fake.resume_writable = True
+        self.assertEqual(self.runtime.deliver(identity), 'started')
+        self.assertEqual(self.fake.started, 1)
+        self.assertEqual(self.fake.queue, [])
+        self.assertEqual(self.runtime.deliver(identity), 'started')
 
     def test_schedule_and_receipt_survive_restart(self):
         schedule = self.runtime.add_schedule('liveness', 60, first_due=time.time()-1)

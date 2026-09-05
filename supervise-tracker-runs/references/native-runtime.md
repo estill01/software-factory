@@ -62,6 +62,22 @@ that later scheduled turns use the assignment. The bootstrap retains exact
 task/turn IDs and never creates another task after an ambiguous create response.
 Resolve such uncertainty from the native owner's exact request/task evidence.
 
+When a bound role is no longer loaded, delivery reuses the same model, working
+directory, instructions, reasoning, sandbox and approval settings as role boot.
+The native response must confirm writable helper access before any work is
+queued; a rejected restoration leaves a new delivery failed for owner reconciliation.
+An earlier possibly accepted send stays uncertain until its original native
+receipt can be reconciled after role access is restored; it is never resent.
+Resuming the implementation target does not replace its own settings.
+
+Reviewer sealing uses the existing account's `.codex/software-factory-release-authority`
+and `.codex/software-factory-release-private` stores. The reviewer key identity
+is unchanged. macOS retains its exact reviewed Homebrew verifier; Linux has an
+exact `/usr/bin/openssl` binary profile. Missing keys, changed binaries, or a
+private key deriving a different public identity fail closed. Provisioning the
+existing key belongs to its external custodian; native boot does not generate
+replacement keys, copy credentials, or infer successful sealing from review prose.
+
 Once roles are initialized, bootstrap creates three paused schedules, initializes
 and binds the maintained semantic helper, and verifies actual initialization,
 role identity, mission and schedule agreement. Repeating a ready bootstrap

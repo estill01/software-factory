@@ -421,3 +421,27 @@ The existing Max role is tracing the maintained authority owner using metadata
 only. This does not authorize replacement keys, altered trust pins, or a false
 completion receipt. Continue the semantic correction and resolve the signing
 dependency within the current PORTABLE mission before live terminal closure.
+
+### Remaining host prerequisites
+
+The original writable reviewer profile was restored on the same task, allowing
+Max to append `EVT-000029`, SHA-256
+`bf7fdf6b79aabffdcfc10d60a347e72f241d4643adb247014fc2f46ff07e1bbe`.
+The real installed signer accepts that exact review and then exits 2 with
+`Sealed adaptive reviewer signing key is unavailable`. It creates no authority
+receipt. `EVT-000031` owns the narrow host-profile successor, preserving the
+same mission, source and key identity.
+
+Reviewer key paths now use the account home. The exact Linux OpenSSL profile
+is `/usr/bin/openssl`, SHA-256
+`f4aa15f2822f670af7b5c1043d7aa6ebbbc64229fd2fae382edfc6a4524749c1`;
+the existing macOS profile and reviewer public-key pin are retained. Native role
+boot and unloaded-role delivery share the original resume settings, and delivery
+requires the native response to confirm writable helper access before queueing.
+A rejected restoration leaves a new delivery failed, while an earlier possibly
+accepted send remains uncertain and is reconciled without duplication after
+restoration. Implementation-target settings are not overridden. Fifty-one
+affected source/host/runtime checks pass; four final restoration and receipt
+recovery checks also pass. Exact code review and installation remain
+pending. Existing key provisioning stays with its external custodian; no key is
+generated, moved, substituted or claimed available by these changes.

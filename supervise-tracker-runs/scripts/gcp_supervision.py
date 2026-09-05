@@ -22,9 +22,11 @@ import time
 import uuid
 
 from gcp_codex_transport import CodexClient, RpcError, TransportError
+from gcp_supervision_roles import role_resume_arguments
 
 DEFAULT_CONFIG = "/srv/patent-studio/private/gcp-supervision/config.json"
 TERMINAL_DELIVERY = {"started", "acknowledged"}
+ROLE_ACCESS_ERROR = "bound role helper access was not restored"
 
 
 def canonical(value):
@@ -234,8 +236,19 @@ class Runtime:
                 with self.client() as client:
                     compact = client.compact(row["recipient"])
                     status = compact["status"]["type"]
-                    if status == "notLoaded":
-                        client.call("thread/resume", {"threadId": row["recipient"]})
+                    if status == "notLoaded" or row["error"] == ROLE_ACCESS_ERROR:
+                        role = next((role for role in self.config["roles"].values()
+                                     if role["thread_id"] == row["recipient"]), None)
+                        arguments = (role_resume_arguments(role) if role is not None
+                                     else {"threadId": row["recipient"]})
+                        resumed = client.call("thread/resume", arguments)
+                        if role is not None and (
+                            resumed.get("sandbox", {}).get("type") != "dangerFullAccess"
+                            or resumed.get("approvalPolicy") != "never"
+                        ):
+                            state = "uncertain" if effect_possible else "failed"
+                            self.update_delivery(identity, state, error=ROLE_ACCESS_ERROR)
+                            return state
                         status = client.compact(row["recipient"])["status"]["type"]
                     state, queue_id = row["state"], row["queue_id"]
                     if state in ("sending", "starting", "uncertain", "queued"):

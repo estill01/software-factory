@@ -17,7 +17,7 @@ import time
 
 from gcp_codex_transport import CodexClient
 from gcp_supervision import Runtime, locked
-from gcp_supervision_roles import role_prompt
+from gcp_supervision_roles import role_prompt, role_resume_arguments
 
 ROLES = {
     "reviewer": ("gpt-5.6-sol", "max"),
@@ -200,10 +200,7 @@ def bootstrap_step(path, *, client_factory=CodexClient):
                 role = config["roles"][name]
                 if not role.get("role_init_turn"):
                     instructions = role_prompt(config, name)
-                    client.call("thread/resume", {"threadId": role["thread_id"],
-                        "model": role["model"], "cwd": role["cwd"], "approvalPolicy": "never",
-                        "sandbox": "danger-full-access", "developerInstructions": instructions,
-                        "config": {"model_reasoning_effort": role["reasoning"]}})
+                    client.call("thread/resume", role_resume_arguments(role, instructions))
                     # resume does not reliably replace instructions on an already
                     # loaded task. This owner explicitly changes subsequent turns.
                     client.call("thread/settings/update", {"threadId": role["thread_id"],
