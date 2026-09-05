@@ -1,0 +1,5 @@
+[
+  "supervise-tracker-runs",
+  "author-implementation-trackers/scripts/program_revision.py",
+  "author-implementation-trackers/scripts/verify_tracker.py"
+]

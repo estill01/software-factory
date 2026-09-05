@@ -28,7 +28,7 @@ under the direct instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`.
 Blocks 0–1 retain acceptance. Block 2 is reopened only for the recorded canonical completion and evidence-handoff correction. It repairs supervision portability and does not
 activate SFV2 implementation or Patent Studio RRA implementation. The detailed
 tracker owns status and exact completion evidence. Its current SHA-256 is
-`fb829eea8916bd4ff1fd798ab484dfada95f9d5640f1ea9dd2123feb14b01d2f`.
+`386112f4ee8e683f383fce57a06d029c5d6586065b854f26209c6d496ddfdb6b`.
 
 ## Required outcome
 

@@ -316,7 +316,7 @@ native operation verified, protected peer state preserved, and source changes
 pushed. Desktop compatibility is bounded to selection/instruction tests until a
 physical laptop supplies live proof; no unsupported universal-runtime claim.
 
-## Block 2 corrective continuation — canonical completion and evidence handoff
+## Corrective continuation for Block 2 — canonical completion and evidence handoff
 
 `INC-20260905-175134-D612BF` / `EVT-000008` exposed a missing canonical outcome
 completion record after the accepted runtime delivery. Preserve the completed
@@ -357,3 +357,26 @@ hash and client identity. The installed live correction is accepted with no
 remaining transport/code findings. Current canonical completion/lifecycle/control
 gate and incident disposition remain pending with the existing base and Max
 reviewers.
+
+
+### Installed range-owner dependency correction
+
+`EVT-000016` independently verified the installed c83 outcome and `EVT-000017`
+recorded its matching completed lifecycle at fingerprint
+`0f9292659759b2f36234edbe5c93ab621b7a3f5b9bf25b2bf8df289040d06d71`.
+The mandatory range gate still rejects terminalization because no implementation
+range is bound. Preserve these records without using them to bypass that gate.
+`EVT-000018` narrowed the repair to current PORTABLE Blocks 0–2 bookkeeping.
+The owner rejected the appendix's repeated Block 2 heading; renaming that
+appendix preserves its content and the original three-Block scope.
+
+The next real installed bind exposed `Program revision verifier cannot be
+loaded`. `EVT-000022` therefore reopens only native release packaging and its
+focused verification. The declared native release paths now retain the existing
+`author-implementation-trackers/scripts/program_revision.py` and
+`verify_tracker.py` beside supervision, from the same reviewed source commit.
+No verifier or semantic authority logic is duplicated or changed. Two focused
+package checks pass: the range and full-verifier owners load outside the source
+checkout, and omission of the required program verifier fails closed. Exact
+review, retained installation, real source ingestion/range binding and final
+terminal receipts remain pending.

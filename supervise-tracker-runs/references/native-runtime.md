@@ -115,3 +115,12 @@ as a retained host release with a stable discovery entry point. Do not replace
 newer semantic helpers with the older native prototype or disturb another
 group's installed runtime. Source files and desktop-path instructions must also
 be committed and pushed so the same skill repair can be installed on the laptop.
+
+Archive every repository-relative path in `assets/native-release-paths.json`
+from the same reviewed source commit, preserving their sibling layout beneath
+the release root. The range owner loads `program_revision.py` and its full
+tracker verifier from `author-implementation-trackers/scripts`; installing only
+the supervision directory omits those required dependencies. Include every
+archived file in the host installation hash manifest. Keep the existing verifier
+implementations and resolution rules; do not copy their logic into supervision
+or substitute a mutable source checkout for the retained release.
