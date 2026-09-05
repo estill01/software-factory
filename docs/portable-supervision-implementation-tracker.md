@@ -1,6 +1,6 @@
 # Portable supervision implementation tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `blocked`
 - Tracker sequence: Blocks 0–2
 - Repository: `software_factory`, branch `codex/portable-supervision-runtime`
 - Governing objective: direct user instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`: make `supervise tracker runs` work on the laptop and GCP, including necessary scripts and cross-task coordination.
@@ -87,7 +87,7 @@ observable outcome before any final completion claim.
 |---:|---|---:|---|
 | 0 | Discover owners and bootstrap isolated groups | — | `complete` |
 | 1 | Install portable skill and initialize this target | 0 | `complete` |
-| 2 | Verify live operation and record delivery | 1 | `in-progress` |
+| 2 | Verify live operation and record delivery | 1 | `blocked` |
 
 Required order: `0 → 1 → 2`.
 
@@ -235,7 +235,7 @@ Stop before live schedule activation owned by Block 2, then continue after audit
 
 ## Block 2 — Verify live operation and record delivery
 
-Status: `in-progress`
+Status: `blocked`
 
 ### Objective
 
@@ -487,8 +487,10 @@ completion plus matching lifecycle only when the range and control gates agree.
 Physical laptop execution remains unobserved. No manual Resume is required.
 
 `EVT-000044` records the actual handoff; `EVT-000046` is the target's canonical
-acknowledgement. `EVT-000045` is the superseding nonterminal lifecycle at the
-same frozen fingerprint. The control gate reports `blocked`, with no current
+acknowledgement. `EVT-000048` supersedes the transitional `EVT-000045`
+with the matching `blocked` lifecycle at the same frozen fingerprint. Its
+record SHA-256 is `7acec4531c13473dfec84bc55e80128afbeecffa0bce5e4e2d67761b25797d17`.
+The control gate reports `blocked`, with no current
 completion candidates and next action
 `preserve-safe-deferral-and-revisit-on-authority-change`. The outcome-terminal
 range gate still reports `range_binding_posture=absent`,
