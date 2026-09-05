@@ -64,6 +64,8 @@ The action is the exact requested operation in at most 240 characters; keep
 the required evidence packet intact in --message. The helper validates the
 same recipient, source, purpose and authority before that packet can be sent.
 Never drop evidence or misstate the action to fit the action-field bound.
+For status-broadcast, keep --action identical to --message: its canonical
+broadcast envelope binds the exact payload hash, and differing text is rejected.
 Never bypass this command
 with a raw Codex message call. A returned queued, uncertain, failed or denied
 state is not completed delivery. Role metadata and authentic schedules are

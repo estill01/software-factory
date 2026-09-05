@@ -334,4 +334,4 @@ install the accepted retained successor, and obtain current independent canonica
 completion and incident disposition. Reuse all byte-identical prior proof. No
 new group, scheduler, semantic ledger, RRA implementation or manual Resume.
 
-Current corrective status: candidate implemented; 16 focused runtime/prompt checks pass, including full-packet delivery/dedup and denied-route refusal. Exact independent review, installed successor and canonical receipts remain pending.
+Current corrective status: candidate implemented; 17 focused runtime/prompt checks pass, including full-packet delivery/dedup, denied-route refusal and exact status-broadcast payload binding. Exact independent review, installed successor and canonical receipts remain pending.

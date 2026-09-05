@@ -201,6 +201,15 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(result['delivered'])
         self.assertEqual(self.runtime.status()['deliveries'], [])
 
+    def test_status_broadcast_preserves_exact_payload_gate_binding(self):
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'reviewer'}):
+            with patch.object(self.runtime, 'helper') as helper:
+                with self.assertRaisesRegex(ValueError, 'exact message payload'):
+                    self.runtime.gated_send('target', 'status-broadcast', 'source', 'exact message',
+                                             action='different summary')
+        helper.assert_not_called()
+        self.assertEqual(self.runtime.status()['deliveries'], [])
+
 
 if __name__ == '__main__':
     unittest.main()

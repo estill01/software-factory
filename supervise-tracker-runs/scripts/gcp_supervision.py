@@ -294,6 +294,8 @@ class Runtime:
         sender = os.environ.get("CODEX_THREAD_ID")
         if sender not in {r["thread_id"] for r in self.config["roles"].values()}:
             raise ValueError("gated role sending requires a bound runtime role")
+        if purpose == "status-broadcast" and action is not None and action != message:
+            raise ValueError("status-broadcast action must remain the exact message payload")
         args = ["thread-route-gate", "--target-thread", self.target,
                 "--recipient-thread", recipient, "--purpose", purpose,
                 "--source-record", source, "--action", message if action is None else action, *extra]
