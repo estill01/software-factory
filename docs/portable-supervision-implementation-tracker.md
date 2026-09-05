@@ -409,7 +409,11 @@ contradictions and changed mission identities are rejected. The generic request
 grammar and mission identity are unchanged. Twelve affected checks pass, including
 the exact 251-byte source through sign, ingest, receipt and full three-Block bind,
 negative provenance/currentness cases, and existing direct/delegated paths.
-Independent exact-revision review and retained installation remain pending.
+Independent code review accepted `edf277061e1c2ff4f9bebc05522bad35188ebd0a`
+with no findings after conflicting evidence-token and cross-mission duplicate
+replay corrections. The clean commit is pushed and installed immutably as
+`edf277061e1c`; all 40 release files match. Both 0b07 and c83 remain retained,
+and no service restart, schedule change, or peer mutation was required.
 
 The live signing prerequisite is separately unresolved: installed reviewer key
 paths and the pinned OpenSSL executable refer to unavailable laptop locations.
