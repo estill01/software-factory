@@ -1,11 +1,11 @@
 # Portable supervision implementation tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `complete`
 - Tracker sequence: Blocks 0–2
 - Repository: `software_factory`, branch `codex/portable-supervision-runtime`
 - Governing objective: direct user instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`: make `supervise tracker runs` work on the laptop and GCP, including necessary scripts and cross-task coordination.
-- Current installed revision: `8c868ff7717bb3305b5e80c20bef28889e642722`; independently accepted code, retained installation and live target-service verification.
-- Remaining work: remove redundant release-key signing from local source admission, install the independently reviewed correction, admit exact canonical sources, supersede the obsolete deferral, and complete current range/outcome reconciliation. The latest direct user explicitly authorizes this correction; no key provisioning is required for local admission.
+- Current installed revision: `5b3940e81ac13440fbf596d4ffc3339f38a071ae`; independently accepted code, immutable 40-file installation, and real local source admission without a release key.
+- Remaining implementation work: none in PORTABLE Blocks 0–2. Canonical terminal acceptance requires the current independent outcome review, matching lifecycle and agreeing range/control gates; no local key provisioning is required.
 
 ## 1. Purpose and intended outcome
 
@@ -87,7 +87,7 @@ observable outcome before any final completion claim.
 |---:|---|---:|---|
 | 0 | Discover owners and bootstrap isolated groups | — | `complete` |
 | 1 | Install portable skill and initialize this target | 0 | `complete` |
-| 2 | Verify live operation and record delivery | 1 | `in-progress` |
+| 2 | Verify live operation and record delivery | 1 | `complete` |
 
 Required order: `0 → 1 → 2`.
 
@@ -235,7 +235,7 @@ Stop before live schedule activation owned by Block 2, then continue after audit
 
 ## Block 2 — Verify live operation and record delivery
 
-Status: `in-progress`
+Status: `complete`
 
 ### Objective
 
@@ -287,6 +287,12 @@ future skill invocations discover its exact config; both trackers report current
 Queued-only delivery or an enabled schedule without an observed wake is insufficient.
 
 ### Completion evidence
+
+- Current successor acceptance: independent exact-commit review accepted `5b3940e81ac13440fbf596d4ffc3339f38a071ae` with zero findings; 23 focused source admission, signed/delegated compatibility and rejection tests pass. Full tracker, skill, diff and isolated index validation pass. Source is pushed; 40 immutable installed files retain `8c868ff`, `edf277`, `0b07` and `c83` predecessors.
+- Real installed local admission: original 251-byte request, source SHA `792e2627e071a097a3807a9d928d2821dd23dd4438f8d37f6d6b9be043fd22ec`, uses clean Max review `EVT-000029` and owner source `EVT-000052` (`f48a35ca3ca5a4124b69beebb042718f655a9a37f95919ebee352292c481fe77`). Receipt accepted at policy version 4; full range `RANGE-PORTABLE-0-2` is bound under unchanged mission root.
+- Renewed direct authority: clean review `EVT-000050`, source event `EVT-000051` and accepted receipt permit exact correction `EVT-000053` of obsolete key decision `EVT-000046`. No release private key or OpenSSL is needed by this local path. No replacement identity, event schema, command or ledger was introduced.
+- Live runtime continuity: installed discovery returns `reuse` for the same exact group. This helper/reference-only installation requires no service restart, schedule mutation or peer change; accepted native runtime, role restoration, delivery and restart proof below remains byte-identical.
+- Current terminal reconciliation: implementation acceptance is complete. The final-revision outcome, matching lifecycle, range/control gates and state fingerprint are recorded in `/srv/patent-studio/private/gcp-supervision/groups/01a06f3e-7ffc-75b3-873d-675e9b93ae84/terminal-local-admission-5b3940e.json`; terminal delivery requires all of them to agree. Earlier blocked records remain historical.
 
 - Installed code: `6d6f83b55c5074667000bce5dfe88207362fbb3e`, independently accepted; retained host release `/srv/patent-studio/tooling/portable-supervision/releases/6d6f83b55c50`. All 35 installed source files match its manifest.
 - Live correction retained: initial initialization receipts did not prove loaded tasks used their full roles. Luna repeated `INITIALIZED`; the watcher loaded generic instructions. Only this group's schedules were paused. Native `thread/settings/update` applied the exact roles, and successor `d4ec1e3` adds that owner to repeatable bootstrap. Actual Luna compact-read/gate execution proved the correction; 20 focused bootstrap/systemd tests pass with ignored-resume behavior modeled. Successor `6d6f83b` also fixes the observed plaintext `--help` wrapper failure, with one real-helper regression passing. Unchanged transport proof is reused.
