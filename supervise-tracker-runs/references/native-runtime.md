@@ -73,7 +73,13 @@ across later delivery IDs, transport failures and runtime restarts. Only a
 confirmed native response clears that requirement.
 Resuming the implementation target does not replace its own settings.
 
-Reviewer sealing uses the existing account's `.codex/software-factory-release-authority`
+Local same-task tracker authority uses the canonical Max review directly through
+`direct-authority-ingest`; it needs no release signing key or OpenSSL. Follow the
+exact provenance and receipt contract in `supervision-policy.md`. A missing
+release credential cannot block this local workflow.
+
+For consumers that export or import signed review artifacts, reviewer sealing
+uses the existing account's `.codex/software-factory-release-authority`
 and `.codex/software-factory-release-private` stores. The reviewer key identity
 is unchanged. macOS retains its exact reviewed Homebrew verifier; Linux has an
 exact `/usr/bin/openssl` binary profile. Missing keys, changed binaries, or a
