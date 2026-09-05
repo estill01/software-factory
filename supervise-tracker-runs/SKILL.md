@@ -43,7 +43,24 @@ supplied digest.
    processor.
    Do not combine patent or repository contexts merely to save a thread.
 
-## Boot one target
+## Select the runtime before boot
+
+Search for the actual app schedule and task-control tools first, then run the
+read-only `scripts/supervision_runtime.py discover --target-thread <exact-id>`
+on the target host. Add `--app-tools-available` only when task creation, direct
+reads, sending and automation controls are actually callable in this session.
+Read `references/native-runtime.md` when discovery returns `native` or app
+controls are unavailable. Missing app tools do not prove the remote host lacks
+a scheduler. An existing exact-target native owner takes precedence; reuse its
+config and never create a duplicate local group for a remote target.
+
+For a new native group, follow the repeatable bootstrap and host-service flow
+in that reference. For `app`, use the boot procedure below after checking the
+app's existing bindings. Both paths use the same policy, five role models,
+three cadences, direct evidence and gated communication. Do not infer the owner
+from operating system or the desktop UI alone.
+
+## Boot one target through app tools
 
 1. Create a projectless reviewer thread using `gpt-5.6-sol` at `max` reasoning.
    Give it the reviewer role prompt and target ID. It remains idle until an

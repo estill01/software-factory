@@ -20,6 +20,15 @@ accepted exact candidate `65c7bae2e69b25547b2914372ee7b9ee6ea9c1db`
 with no material findings. This index activates that reviewed program;
 activation does not start Block 0.
 
+## Direct-user parallel repair
+
+`PORTABLE/B0`–`PORTABLE/B2` in
+`docs/portable-supervision-implementation-tracker.md` is `active-isolated-parallel`
+under the direct instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`.
+Its first eligible Block is 0. It repairs supervision portability and does not
+activate SFV2 implementation or Patent Studio RRA implementation. The detailed
+tracker owns status and exact completion evidence.
+
 ## Required outcome
 
 Software Factory becomes one standalone and embeddable autonomous work, QA,
