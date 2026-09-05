@@ -1,0 +1,29 @@
+[Unit]
+Description=GCP-native Codex patent supervision
+After=local-fs.target
+RequiresMountsFor=/srv/patent-studio
+
+[Service]
+Type=simple
+User=ehs_stillman_gmail_com
+Group=ehs_stillman_gmail_com
+WorkingDirectory=/srv/patent-studio/private/gcp-supervision
+Environment=HOME=/home/ehs_stillman_gmail_com
+Environment=CODEX_HOME=/home/ehs_stillman_gmail_com/.codex-alt
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TMPDIR=/srv/patent-studio/private/tmp
+ExecStartPre=/srv/patent-studio/tooling/bin/patent-storage-preflight
+ExecStart=/usr/bin/python3 /srv/patent-studio/tooling/gcp-supervision/current/gcp_supervision.py run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/srv/patent-studio/private/gcp-supervision
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

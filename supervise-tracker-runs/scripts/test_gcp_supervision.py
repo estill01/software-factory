@@ -17,6 +17,7 @@ class FakeCodex:
         self.active = False
         self.lose_add_response = False
         self.lose_start_response = False
+        self.auto_start = False
 
     def __call__(self, *args, **kwargs):
         return self
@@ -42,6 +43,9 @@ class FakeCodex:
             if self.lose_add_response:
                 self.lose_add_response = False
                 raise TimeoutError('response lost after accepted add')
+            if self.auto_start:
+                self.call('thread/queue/start', {'queuedSubmissionId': queued['id']})
+                self.active = True
             return {'queuedSubmission': queued}
         if method == 'thread/queue/start':
             queued = next(q for q in self.queue if q['id'] == args['queuedSubmissionId'])
@@ -99,6 +103,21 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.fake.started, 1)
         self.assertEqual(self.runtime.deliver(identity), 'started')
         self.assertEqual(self.fake.started, 1)
+
+    def test_idle_queue_auto_start_is_observed_without_second_start(self):
+        self.fake.auto_start = True
+        identity = self.message()
+        self.assertEqual(self.runtime.deliver(identity), 'acknowledged')
+        self.assertEqual(self.fake.started, 1)
+
+    def test_recovered_receipt_advances_schedule_while_role_is_active(self):
+        self.runtime.add_schedule('liveness', 60, first_due=time.time()-1)
+        self.runtime.schedule_state(True)
+        self.fake.auto_start = True
+        self.runtime.tick()
+        state = self.runtime.status()['schedules'][0]
+        self.assertIsNotNone(state['last_delivery'])
+        self.assertGreater(state['next_due'], time.time())
 
     def test_lost_start_response_reconciles_from_direct_history(self):
         identity = self.message()

@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -211,6 +212,15 @@ class Runtime:
                             "threadId": row["recipient"], "clientUserMessageId": identity, "input": inputs})
                         queue_id = result["queuedSubmission"]["id"]
                         self.update_delivery(identity, "queued", queue_id=queue_id, error=None)
+                        # Current Codex automatically drains an idle task's queue.
+                        # Observe its owner before attempting an explicit start.
+                        state, queue_id = self.reconcile(client, row)
+                        if state == "acknowledged":
+                            return state
+                        if state == "uncertain":
+                            self.update_delivery(identity, "uncertain", error="accepted add awaiting native start receipt")
+                            return state
+                        status = client.compact(row["recipient"])["status"]["type"]
                     if status == "active":
                         return "queued"
                     self.update_delivery(identity, "starting")
@@ -250,17 +260,83 @@ class Runtime:
             return "Run one ordinary bounded watcher check under your role and current policy. Use native direct task evidence and the current helper. Keep unchanged/non-actionable results quiet."
         return "Run the bounded supervisor-effectiveness review under your role. First use the current helper status. Stop quietly if no new review evidence exists; otherwise review only the bounded delta and exact original target evidence."
 
+    def repair_unstarted_reviewer(self):
+        """Repair only the observed bootstrap loss through the existing policy writer.
+
+        The original no-rollout task and old policy version remain retained.
+        This is not a general rebind API for operating supervision groups.
+        """
+        if os.environ.get("CODEX_THREAD_ID") != self.target:
+            raise ValueError("bootstrap repair belongs to the direct implementation task")
+        pending = self.config["pending_reviewer_replacement"]
+        old, new = pending["old_thread_id"], pending["new_thread_id"]
+        if self.db.execute("SELECT count(*) FROM deliveries").fetchone()[0]:
+            raise ValueError("bootstrap repair is closed after first runtime delivery")
+        if self.db.execute("SELECT count(*) FROM schedules WHERE enabled=1").fetchone()[0]:
+            raise ValueError("bootstrap repair requires inactive schedules")
+        with self.client() as client:
+            if client.compact(old)["status"]["type"] != "notLoaded":
+                raise ValueError("old reviewer is still available")
+            try:
+                client.turns(old, limit=1)
+            except RpcError as exc:
+                if not any(text in str(exc).lower() for text in ("no rollout", "missing source rollout")):
+                    raise
+            else:
+                raise ValueError("old reviewer has resumable history")
+            history = client.turns(new, limit=1).get("data", [])
+            if (len(history) != 1 or history[0].get("status") != "completed"
+                    or not any(item.get("type") == "agentMessage"
+                               and item.get("text", "").strip() == "INITIALIZED"
+                               for item in history[0].get("items", []))):
+                raise ValueError("replacement initialization is not independently observable")
+        spec = importlib.util.spec_from_file_location("gcp_policy_owner", self.config["helper_path"])
+        owner = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = owner
+        spec.loader.exec_module(owner)
+        args = argparse.Namespace(root=self.config["supervision_root"], target_thread=self.target)
+        directory, policy, _, events, _, _ = owner.load_control_snapshot(args)
+        if any(event.get("kind") != "policy-change" for event in events):
+            raise ValueError("bootstrap repair cannot replace a reviewer after monitoring evidence")
+        current = policy["runtime"]["reviewer_thread_id"]
+        if current not in (old, new):
+            raise ValueError("reviewer binding changed concurrently")
+        if current == old:
+            policy["runtime"]["reviewer_thread_id"] = new
+            owner.write_policy_version(directory, policy,
+                kind="runtime-bootstrap-repair",
+                reason="Replace an unused reviewer with no rollout after verified durable initialization.",
+                evidence_values=[old, new, history[0]["id"], self.target])
+        self.config["roles"]["reviewer"]["thread_id"] = new
+        self.config["reviewer_bootstrap_repair"] = pending
+        self.config.pop("pending_reviewer_replacement")
+        temporary = self.config_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.config, indent=2)+"\n")
+        temporary.chmod(0o600)
+        temporary.replace(self.config_path)
+        return {"repaired": True, "old_thread_id": old, "new_thread_id": new,
+                "policy_version": policy["policy_version"]}
+
     def tick(self):
         now = time.time()
         self.db.execute("INSERT OR REPLACE INTO health VALUES ('service_heartbeat',?,?)", (str(os.getpid()), now))
         # Finish already-owned dispatches first; uncertainty never creates a new
         # message identity or advances a schedule as if delivery succeeded.
-        pending = self.db.execute("SELECT id FROM deliveries WHERE state IN ('prepared','sending','starting','queued','uncertain') ORDER BY created_at LIMIT 12").fetchall()
+        pending = self.db.execute("""SELECT id FROM deliveries
+          WHERE state IN ('prepared','sending','starting','queued')
+             OR (state='uncertain' AND updated_at<=?)
+          ORDER BY created_at LIMIT 12""", (now-30,)).fetchall()
         for row in pending:
-            self.deliver(row["id"])
+            if self.deliver(row["id"]) in TERMINAL_DELIVERY:
+                self.finish_scheduled_delivery(row["id"], now)
         results = []
         for schedule in self.db.execute("SELECT * FROM schedules WHERE enabled=1 AND next_due<=? ORDER BY next_due", (now,)).fetchall():
             role = self.config["roles"][schedule["role"]]
+            existing = self.db.execute("SELECT id FROM deliveries WHERE schedule_id=? AND scheduled_for=? AND state IN ('started','acknowledged')",
+                                       (schedule["id"], schedule["next_due"])).fetchone()
+            if existing:
+                self.finish_scheduled_delivery(existing["id"], now)
+                continue
             outstanding = self.db.execute("SELECT id,state FROM deliveries WHERE schedule_id=? AND state NOT IN ('started','acknowledged') ORDER BY created_at DESC LIMIT 1", (schedule["id"],)).fetchone()
             if outstanding:
                 results.append({"schedule_id": schedule["id"], "state": outstanding["state"]})
@@ -275,10 +351,20 @@ class Runtime:
             state = self.deliver(identity)
             results.append({"schedule_id": schedule["id"], "delivery_id": identity, "state": state})
             if state in TERMINAL_DELIVERY:
-                next_due = due + (int(max(0, now-due) // schedule["interval_seconds"])+1)*schedule["interval_seconds"]
-                self.db.execute("UPDATE schedules SET next_due=?, last_delivery=?, last_started_at=?, updated_at=? WHERE id=?",
-                                (next_due, identity, now, now, schedule["id"]))
+                self.finish_scheduled_delivery(identity, now)
         return results
+
+    def finish_scheduled_delivery(self, identity, now):
+        delivery = self.db.execute("SELECT * FROM deliveries WHERE id=?", (identity,)).fetchone()
+        if not delivery or not delivery["schedule_id"] or delivery["state"] not in TERMINAL_DELIVERY:
+            return
+        schedule = self.db.execute("SELECT * FROM schedules WHERE id=?", (delivery["schedule_id"],)).fetchone()
+        due = delivery["scheduled_for"]
+        if schedule["next_due"] != due:
+            return
+        next_due = due + (int(max(0, now-due) // schedule["interval_seconds"])+1)*schedule["interval_seconds"]
+        self.db.execute("UPDATE schedules SET next_due=?, last_delivery=?, last_started_at=?, updated_at=? WHERE id=? AND next_due=?",
+                        (next_due, identity, now, now, schedule["id"], due))
 
     def status(self):
         schedules = [dict(row) for row in self.db.execute("SELECT * FROM schedules ORDER BY role")]
@@ -324,7 +410,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("run", "tick", "status", "pause", "resume"):
+    for command in ("run", "tick", "status", "pause", "resume", "repair-unstarted-reviewer"):
         sub.add_parser(command)
     compact = sub.add_parser("read")
     compact.add_argument("--thread", required=True)
@@ -349,6 +435,8 @@ def main():
             result = runtime.tick()
         elif args.command == "status":
             result = runtime.status()
+        elif args.command == "repair-unstarted-reviewer":
+            result = runtime.repair_unstarted_reviewer()
         elif args.command in ("pause", "resume"):
             runtime.schedule_state(args.command == "resume")
             result = runtime.status()
