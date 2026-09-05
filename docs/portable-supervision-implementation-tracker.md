@@ -1,6 +1,6 @@
 # Portable supervision implementation tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `complete`
 - Tracker sequence: Blocks 0–2
 - Repository: `software_factory`, branch `codex/portable-supervision-runtime`
 - Governing objective: direct user instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`: make `supervise tracker runs` work on the laptop and GCP, including necessary scripts and cross-task coordination.
@@ -85,7 +85,7 @@ observable outcome before any final completion claim.
 |---:|---|---:|---|
 | 0 | Discover owners and bootstrap isolated groups | — | `complete` |
 | 1 | Install portable skill and initialize this target | 0 | `complete` |
-| 2 | Verify live operation and record delivery | 1 | `in-progress` |
+| 2 | Verify live operation and record delivery | 1 | `complete` |
 
 Required order: `0 → 1 → 2`.
 
@@ -233,7 +233,7 @@ Stop before live schedule activation owned by Block 2, then continue after audit
 
 ## Block 2 — Verify live operation and record delivery
 
-Status: `in-progress`
+Status: `complete`
 
 ### Objective
 
@@ -282,7 +282,19 @@ Queued-only delivery or an enabled schedule without an observed wake is insuffic
 
 ### Completion evidence
 
-Pending.
+- Installed code: `6d6f83b55c5074667000bce5dfe88207362fbb3e`, independently accepted; retained host release `/srv/patent-studio/tooling/portable-supervision/releases/6d6f83b55c50`. All 35 installed source files match its manifest.
+- Live correction retained: initial initialization receipts did not prove loaded tasks used their full roles. Luna repeated `INITIALIZED`; the watcher loaded generic instructions. Only this group's schedules were paused. Native `thread/settings/update` applied the exact roles, and successor `d4ec1e3` adds that owner to repeatable bootstrap. Actual Luna compact-read/gate execution proved the correction; 20 focused bootstrap/systemd tests pass with ignored-resume behavior modeled. Successor `6d6f83b` also fixes the observed plaintext `--help` wrapper failure, with one real-helper regression passing. Unchanged transport proof is reused.
+- Group: `supervision-group-31e6977d466025bd9de56e01`, target `01a06f3e-7ffc-75b3-873d-675e9b93ae84`. Five distinct roles and three enabled schedules retain the exact IDs in `acceptance.json`.
+- Scheduled post-restart liveness proof: delivery `876f760b-73a1-5dd8-a42e-7171d7598d12`, completed role turn `01a072a5-177f-7791-a2de-36a868a45c00`, two successful exact-config commands and quiet final.
+- Actual gated coordination: watcher-to-base delivery `2e6f464f-746b-50ad-ab99-26b19c6cfc2a`, source `EVT-000001`, acknowledged by native turn `01a072a2-216e-77c2-9d5b-b4c49fdda692`. The base reviewer directly read the target and recorded `EVT-000002` with no supported intervention.
+- Persistence: only `codex-supervision-01a06f3e-7ffc.service` restarted, PID `1243749` to `1249890`; exact schedule state and all seven preceding delivery receipts were preserved. The service is enabled and running. Peer configuration/unit hashes, native current release and original PID `1054787` remained unchanged.
+- Canonical live evidence: `/srv/patent-studio/private/gcp-supervision/groups/01a06f3e-7ffc-75b3-873d-675e9b93ae84/acceptance.json`, with retained `before-restart.json` and `after-restart.json`. Installed discovery returns `reuse` for this exact config.
+- Patent Studio correction: `77e5b8c4` updates the RRA prerequisite note and exact canonical-index hash. Full 28-Block tracker validation and the documentation-scoped changed test plan pass; no web or unrelated runtime suite is selected. RRA remains authoring-only, all Blocks not-started.
+- Remaining limitations: physical laptop execution not observed; app control path retained and selection tested. The enabled four-hour reviewer schedule has not reached its first periodic wake. Native schedule controls do not claim a legacy app-owner semantic lifecycle receipt. None is represented as observed proof.
+- Decision/continuation posture: all three requested Blocks accepted; no remaining implementation frontier in this bounded repair.
+- Post-block audit: `portable_supervision_review` independently accepted the installed GCP outcome after native role reads, read-only SQLite inspection, installed-file verification, restart comparison and peer-preservation checks; no missing required work in this scope.
+- Git durability: runtime source pushed to `origin/codex/portable-supervision-runtime`; RRA correction pushed on its existing feature branch. The final tracker checkpoint records accepted local delivery and source durability.
+
 
 ### Stop
 
