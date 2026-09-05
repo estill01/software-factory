@@ -334,4 +334,26 @@ install the accepted retained successor, and obtain current independent canonica
 completion and incident disposition. Reuse all byte-identical prior proof. No
 new group, scheduler, semantic ledger, RRA implementation or manual Resume.
 
-Current corrective status: candidate implemented; 17 focused runtime/prompt checks pass, including full-packet delivery/dedup, denied-route refusal and exact status-broadcast payload binding. Exact independent review, installed successor and canonical receipts remain pending.
+Current corrective status: independently accepted source
+`c83fbc29c972f2423e7fa1750f3d1b9790e93494` is pushed and installed as retained
+release `c83fbc29c972`. All 35 installed hashes match the manifest. Seventeen
+focused runtime/prompt checks pass, including full-packet delivery/dedup,
+denied-route refusal and exact status-broadcast payload binding; full tracker,
+skill and diff validation pass. The independent reviewer rejected the first
+candidate's broadcast hashing change; the accepted successor rejects differing
+broadcast action/message values before gating or delivery.
+
+All five existing roles received acknowledged native settings updates. The
+isolated service restarted from PID `1249890` to `1301368`, preserving the
+three enabled schedule IDs and all 52 prior delivery IDs/turn receipts. Peer
+configuration and unit hashes remain unchanged. Retained current proofs are
+`corrective-c83fbc2-before.json` and `corrective-c83fbc2-after.json` under the
+same group root. The historical `EVT-000012` completion for source `6d6f83b`
+is preserved but cannot accept this successor. Current full-packet handoff
+`7436ec79-5712-5e8d-9ff2-4f47edae2366`, source `EVT-000015`, is acknowledged
+in Max turn `01a072cb-9fb4-7be1-9ad9-dadc703850bd`. Independent review verified
+the direct receiving message matches the entire 2,043-character payload, stored
+hash and client identity. The installed live correction is accepted with no
+remaining transport/code findings. Current canonical completion/lifecycle/control
+gate and incident disposition remain pending with the existing base and Max
+reviewers.
