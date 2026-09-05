@@ -4,6 +4,8 @@
 - Tracker sequence: Blocks 0–2
 - Repository: `software_factory`, branch `codex/portable-supervision-runtime`
 - Governing objective: direct user instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`: make `supervise tracker runs` work on the laptop and GCP, including necessary scripts and cross-task coordination.
+- Current installed revision: `8c868ff7717bb3305b5e80c20bef28889e642722`; independently accepted code, retained installation and live target-service verification.
+- Remaining dependency: the existing external custodian must make the unchanged reviewer signing key available through its maintained authority store. Source sealing, authority receipt, range binding and terminal reconciliation remain open; no replacement key or manual Resume is authorized or needed.
 
 ## 1. Purpose and intended outcome
 
@@ -241,8 +243,12 @@ Demonstrate usable ongoing supervision and make its evidence discoverable.
 
 ### Target-product capability delta
 
-- Posture: `routine`.
-- Routine or not-applicable justification: acceptance of the runtime installed in Blocks 0–1.
+- Posture: `consequential`.
+- Intended capability gain: complete exact-source admission and preserve writable native role operation across reloads.
+- Potential capability loss or regression: admitting stale or altered authority, losing delivery receipts, or changing another task's execution settings.
+- Protected-capability effect: preserve reviewer key identity, byte-exact provenance, uncertain receipts, mission boundaries and peer isolation.
+- Architecture and operating-model effect: reuse the semantic source owner, existing verifier profiles, shared role-resume arguments and runtime health store.
+- Tradeoff and source evidence: `EVT-000024` and `EVT-000031` justify these bounded corrections; external key custody remains required and fail-closed.
 
 ### Inputs and dependencies
 
@@ -446,6 +452,48 @@ recovery checks also pass. Independent review rejected candidate `2752ae1` for
 a restoration requirement scoped only to one delivery. The correction retains
 that requirement per recipient in the existing runtime health store, across
 new deliveries, RPC failures and restarts; all 21 affected delivery tests pass.
-Exact corrected-revision review and installation remain pending.
+Independent exact review accepted corrected commit
+`8c868ff7717bb3305b5e80c20bef28889e642722` with no remaining findings.
+It is pushed and installed immutably; all 40 file hashes match. Only the target
+service restarted, to PID `1493630`. The three enabled schedule identities,
+target configuration, peer PID `1054787`, peer configuration, unit and release
+pointer are unchanged. The installed exact Linux verifier passes. Real source
+sealing with `EVT-000029` still exits 2 because the existing reviewer key is
+unavailable at the correct account-local path. The retained before/after proof
+is `host-profile-2752ae1-before.json` and `host-profile-8c868ff-after.json` in
+the existing group root; the rejected candidate was never installed.
 Existing key provisioning stays with its external custodian; no key is
 generated, moved, substituted or claimed available by these changes.
+
+### Current independent nonterminal reconciliation
+
+`EVT-000035` is the current failed outcome review for installed revision
+`8c868ff7717bb3305b5e80c20bef28889e642722`, with one supported gap and
+`capability_reconciliation_posture=reopen-narrow-owner`. Its record SHA-256 is
+`8f16e619d983180ca01c07f488722ebc91e0dda3a591e35a4d616d82b714c42c`;
+the frozen current-state fingerprint is
+`c0b93fb1718e44e4f998234a97bd208d5188f00cc4b291c8088a8600b2a5898c`.
+`EVT-000016/17` remain historical evidence only.
+
+Decision `DEC-20260905-PORTABLE-REVIEWER-KEY` reaches `safe-deferred` at
+`EVT-000043`, attempt 3, under full-autonomous control. Its empty safe-frontier
+hash is `5e7a6347e19806658d7c67f33fd008d5f4da7d7106e16870c5cff0e447f886cc`.
+The exact handoff `bc8d0329-5a1c-5a19-8f6a-a9c36dd4d48d` was received by
+this target. Only signing, ingestion/receipt, full-tracker binding and terminal
+closure are deferred. On observed availability from the existing custodian,
+rerun exact `EVT-000029` signing, ingest and receipt the immutable 251-byte
+source, bind current PORTABLE Blocks 0–2, and obtain fresh independent
+completion plus matching lifecycle only when the range and control gates agree.
+Physical laptop execution remains unobserved. No manual Resume is required.
+
+`EVT-000044` records the actual handoff; `EVT-000046` is the target's canonical
+acknowledgement. `EVT-000045` is the superseding nonterminal lifecycle at the
+same frozen fingerprint. The control gate reports `blocked`, with no current
+completion candidates and next action
+`preserve-safe-deferral-and-revisit-on-authority-change`. The outcome-terminal
+range gate still reports `range_binding_posture=absent`,
+`final_response_permitted=false`, and
+`next_action=continue-local-safe-frontier-and-repair-binding`; this remains a
+nonterminal dependency report, not completed PORTABLE acceptance. Both gates
+report `manual_resume_required=false`. Preserve all existing schedules and
+accepted history while awaiting the exact external availability evidence.
