@@ -377,6 +377,22 @@ focused verification. The declared native release paths now retain the existing
 `verify_tracker.py` beside supervision, from the same reviewed source commit.
 No verifier or semantic authority logic is duplicated or changed. Two focused
 package checks pass: the range and full-verifier owners load outside the source
-checkout, and omission of the required program verifier fails closed. Exact
-review, retained installation, real source ingestion/range binding and final
-terminal receipts remain pending.
+checkout, and omission of the required program verifier fails closed. Full
+tracker/skill validation and diff check pass. Exact independent review accepted
+`0b07dcacbc7f6692e0af8e4b9d90ed2025e527e3`; that source is pushed and installed
+as retained release `0b07dcacbc7f`. All 39 archived file hashes match; c83 remains
+retained. Runtime, role and helper code is byte-identical, so no service restart
+or role refresh was needed.
+
+The real installed bind now passes dependency loading and rejects the original
+natural-language request: `Implementation request does not establish full-tracker
+or exact Block intent`. Its exact native source is task
+`01a06f3e-7ffc-75b3-873d-675e9b93ae84`, turn
+`01a0726d-3ff7-73b3-8947-2358e5311615`, item
+`01a0726f-31b9-7e80-b46d-ff58184beb50`, 251 UTF-8 bytes, SHA-256
+`792e2627e071a097a3807a9d928d2821dd23dd4438f8d37f6d6b9be043fd22ec`.
+No source normalization or invented Block command was used. Source admission
+through the existing semantic owner remains the exact narrow successor; it
+must preserve these original bytes, the same mission/group and accepted work.
+This is a machine admission gap, not missing human implementation permission.
+Block 2 remains in progress until the real range and terminal gates agree.
