@@ -290,13 +290,13 @@ class Runtime:
                 self.update_delivery(identity, state, error=type(exc).__name__)
                 return state
 
-    def gated_send(self, recipient, purpose, source, message, extra=()):
+    def gated_send(self, recipient, purpose, source, message, extra=(), *, action=None):
         sender = os.environ.get("CODEX_THREAD_ID")
         if sender not in {r["thread_id"] for r in self.config["roles"].values()}:
             raise ValueError("gated role sending requires a bound runtime role")
         args = ["thread-route-gate", "--target-thread", self.target,
                 "--recipient-thread", recipient, "--purpose", purpose,
-                "--source-record", source, "--action", message, *extra]
+                "--source-record", source, "--action", message if action is None else action, *extra]
         gate = self.helper(args)
         if gate.get("send_allowed") is not True:
             return {"delivered": False, "gate": gate}
@@ -477,6 +477,7 @@ def main():
     send.add_argument("--purpose", required=True)
     send.add_argument("--source-record", required=True)
     send.add_argument("--message", required=True)
+    send.add_argument("--action", help="Concise exact action for the semantic gate; full evidence stays in --message.")
     send.add_argument("gate_arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     runtime = Runtime(args.config)
@@ -502,7 +503,8 @@ def main():
             result = runtime.helper(arguments)
         else:
             extra = args.gate_arguments[1:] if args.gate_arguments[:1] == ["--"] else args.gate_arguments
-            result = runtime.gated_send(args.recipient, args.purpose, args.source_record, args.message, extra)
+            result = runtime.gated_send(args.recipient, args.purpose, args.source_record,
+                                        args.message, extra, action=args.action)
         print(canonical(result))
     finally:
         runtime.close()

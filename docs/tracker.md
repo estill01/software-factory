@@ -23,12 +23,12 @@ activation does not start Block 0.
 ## Direct-user parallel repair
 
 `PORTABLE/B0`–`PORTABLE/B2` in
-`docs/portable-supervision-implementation-tracker.md` is `complete-isolated`
+`docs/portable-supervision-implementation-tracker.md` is `active-isolated-parallel`
 under the direct instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`.
-All three Blocks are accepted; this bounded repair has no remaining execution frontier. It repairs supervision portability and does not
+Blocks 0–1 retain acceptance. Block 2 is reopened only for the recorded canonical completion and evidence-handoff correction. It repairs supervision portability and does not
 activate SFV2 implementation or Patent Studio RRA implementation. The detailed
 tracker owns status and exact completion evidence. Its current SHA-256 is
-`79ea66f47c3bb8589b4dead888181efbaec59b7ecee08efec46c730408df6204`.
+`51fe58ee8e3b83d7b93ea4fffb4c4039cf462a44f3fb2b07a6910da65e1af797`.
 
 ## Required outcome
 

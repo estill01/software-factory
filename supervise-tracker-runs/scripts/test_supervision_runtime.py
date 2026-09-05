@@ -237,6 +237,15 @@ class PortableRuntimeTests(unittest.TestCase):
         self.assertIn("portable supervision only", prompt)
         self.assertNotIn("monitored patent implementation", prompt)
 
+    def test_only_completion_review_roles_receive_exact_reconciliation_schema(self):
+        config = self.configure()
+        config["roles"] = {name: {"thread_id": name} for name in ROLES}
+        reference = (self.helper.parent.parent/"references/terminal-capability-reconciliation.md").read_text()
+        for name in ROLES:
+            prompt = role_prompt(config, name)
+            self.assertEqual(reference in prompt, name in ("reviewer", "base_reviewer"))
+            self.assertIn('--action <concise-exact-action> --message <full-evidence-packet>', prompt)
+
     def test_luna_helper_command_has_one_interpreter(self):
         import shlex
         import sys

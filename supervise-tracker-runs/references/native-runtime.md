@@ -88,6 +88,12 @@ unverified unless observed there; fake tests are not physical deployment proof.
 The runtime's `status`, `read`, `turns`, `helper --`, `send`, `pause` and `resume`
 operate only within the selected group. `send` authenticates the calling bound
 role using its native task environment and invokes `thread-route-gate` itself.
+Use `send --action <concise-exact-action> --message <full-evidence-packet>`:
+the helper's 240-character action field describes the requested operation;
+the message retains the complete bounded evidence packet. Recipient, purpose,
+source and authority checks still run before delivery. Omitting `--action`
+preserves the earlier short-message behavior. Completion-review role prompts
+include the exact maintained reconciliation schema; do not guess its wire shape.
 Never set another role's `CODEX_THREAD_ID` or manufacture a successful receipt.
 An explicitly authorized target-owner bootstrap may dispatch the first ordinary
 watcher check through the runtime; all subsequent role communication is gated.

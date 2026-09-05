@@ -36,7 +36,12 @@ def role_prompt(config, name):
         prompt = prompt.replace("<"+key+">", value)
     if re.search(r"<[A-Z_]+>", prompt):
         raise ValueError("unresolved role placeholder")
-    return prompt + f"""
+    completion_reference = ""
+    if name in ("base_reviewer", "reviewer"):
+        completion_reference = "\n\nMAINTAINED COMPLETION RECONCILIATION CONTRACT\n\n" + (
+            Path(config["helper_path"]).parent.parent /
+            "references/terminal-capability-reconciliation.md").read_text()
+    return prompt + completion_reference + f"""
 
 NATIVE HOST BACKEND — direct operator requirement, applicable to this group
 
@@ -49,12 +54,17 @@ whose ordinary repository-command execution is prohibited:
 {cli} turns --thread <exact-bound-task-id> --limit 1
 {cli} helper -- status --target-thread {config['target_thread_id']}
 {cli} helper -- <helper-subcommand-and-exact-arguments>
-{cli} send --recipient <bound-recipient> --purpose <maintained-purpose> --source-record <exact-record> --message <exact-action>
+{cli} send --recipient <bound-recipient> --purpose <maintained-purpose> --source-record <exact-record> --action <concise-exact-action> --message <full-evidence-packet>
 
 Use exec's structured argument handling or Python subprocess argv to preserve
 message bytes; never interpolate untrusted text into a shell. The send command
 runs thread-route-gate itself and refuses an unbound sender. Optional extra gate
-arguments follow a literal -- after the message. Never bypass this command
+arguments follow a literal -- after the message.
+The action is the exact requested operation in at most 240 characters; keep
+the required evidence packet intact in --message. The helper validates the
+same recipient, source, purpose and authority before that packet can be sent.
+Never drop evidence or misstate the action to fit the action-field bound.
+Never bypass this command
 with a raw Codex message call. A returned queued, uncertain, failed or denied
 state is not completed delivery. Role metadata and authentic schedules are
 available through `{cli} status`.

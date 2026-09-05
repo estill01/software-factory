@@ -1,6 +1,6 @@
 # Portable supervision implementation tracker
 
-- Tracker status: `complete`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–2
 - Repository: `software_factory`, branch `codex/portable-supervision-runtime`
 - Governing objective: direct user instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`: make `supervise tracker runs` work on the laptop and GCP, including necessary scripts and cross-task coordination.
@@ -85,7 +85,7 @@ observable outcome before any final completion claim.
 |---:|---|---:|---|
 | 0 | Discover owners and bootstrap isolated groups | — | `complete` |
 | 1 | Install portable skill and initialize this target | 0 | `complete` |
-| 2 | Verify live operation and record delivery | 1 | `complete` |
+| 2 | Verify live operation and record delivery | 1 | `in-progress` |
 
 Required order: `0 → 1 → 2`.
 
@@ -233,7 +233,7 @@ Stop before live schedule activation owned by Block 2, then continue after audit
 
 ## Block 2 — Verify live operation and record delivery
 
-Status: `complete`
+Status: `in-progress`
 
 ### Objective
 
@@ -315,3 +315,23 @@ All three Blocks must be accepted at current revisions, installation and actual
 native operation verified, protected peer state preserved, and source changes
 pushed. Desktop compatibility is bounded to selection/instruction tests until a
 physical laptop supplies live proof; no unsupported universal-runtime claim.
+
+## Block 2 corrective continuation — canonical completion and evidence handoff
+
+`INC-20260905-175134-D612BF` / `EVT-000008` exposed a missing canonical outcome
+completion record after the accepted runtime delivery. Preserve the completed
+implementation and its historical acceptance above. Reopen only this Block's
+completion boundary in the same task/group. The independent base reviewer found
+the substantive outcome favorable but guessed a seven-field capability object;
+the maintained exact reconciliation schema was not included in its native role
+prompt. Its escalation also reproduced a transport mapping defect: the complete
+evidence message was passed as the helper's 240-character action field.
+
+Required correction: expose the existing concise action separately from the full
+message without changing routing authority; supply the existing schema to only
+completion-review roles; validate and independently review the narrow correction,
+install the accepted retained successor, and obtain current independent canonical
+completion and incident disposition. Reuse all byte-identical prior proof. No
+new group, scheduler, semantic ledger, RRA implementation or manual Resume.
+
+Current corrective status: candidate implemented; 16 focused runtime/prompt checks pass, including full-packet delivery/dedup and denied-route refusal. Exact independent review, installed successor and canonical receipts remain pending.

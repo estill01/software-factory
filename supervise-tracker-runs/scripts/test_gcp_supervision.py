@@ -175,6 +175,32 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.runtime.gated_send('target', 'target-action', 'source', 'message')
 
+    def test_full_evidence_packet_uses_separate_bounded_action_and_replays_once(self):
+        message = 'Exact evidence packet: '+('record-and-turn-reference\n'*40)
+        action = 'Independently review the exact completion evidence.'
+        def gate(arguments):
+            self.assertEqual(arguments[arguments.index('--recipient-thread')+1], 'watcher')
+            self.assertEqual(arguments[arguments.index('--source-record')+1], 'EVT-000001')
+            self.assertEqual(arguments[arguments.index('--action')+1], action)
+            self.assertLessEqual(len(arguments[arguments.index('--action')+1]), 240)
+            return {'send_allowed': True}
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'reviewer'}):
+            with patch.object(self.runtime, 'helper', side_effect=gate):
+                first = self.runtime.gated_send('watcher', 'watcher-action', 'EVT-000001', message, action=action)
+                again = self.runtime.gated_send('watcher', 'watcher-action', 'EVT-000001', message, action=action)
+        self.assertEqual(first['delivery_id'], again['delivery_id'])
+        self.assertEqual(self.fake.started, 1)
+        self.assertTrue(self.fake.history[0]['items'][0]['content'][0]['text'].endswith(message))
+        self.assertEqual(self.runtime.db.execute('SELECT message FROM deliveries').fetchone()[0], message)
+
+    def test_explicit_action_does_not_bypass_denied_route(self):
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'reviewer'}):
+            with patch.object(self.runtime, 'helper', return_value={'send_allowed': False}):
+                result = self.runtime.gated_send('watcher', 'watcher-action', 'source', 'evidence'*100,
+                                                 action='Review exact evidence.')
+        self.assertFalse(result['delivered'])
+        self.assertEqual(self.runtime.status()['deliveries'], [])
+
 
 if __name__ == '__main__':
     unittest.main()
