@@ -268,7 +268,7 @@ RequiresMountsFor={quote(state)}
 Type=simple
 User={user}
 Group={group}
-WorkingDirectory={quote(state)}
+WorkingDirectory={state.replace('%', '%%')}
 Environment={quote('HOME='+account_home)}
 Environment={quote('CODEX_HOME='+codex_home)}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin

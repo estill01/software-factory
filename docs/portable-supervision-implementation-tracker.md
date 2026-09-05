@@ -83,15 +83,15 @@ observable outcome before any final completion claim.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Discover owners and bootstrap isolated groups | — | `in-progress` |
-| 1 | Install portable skill and initialize this target | 0 | `not-started` |
+| 0 | Discover owners and bootstrap isolated groups | — | `complete` |
+| 1 | Install portable skill and initialize this target | 0 | `in-progress` |
 | 2 | Verify live operation and record delivery | 1 | `not-started` |
 
 Required order: `0 → 1 → 2`.
 
 ## Block 0 — Discover owners and bootstrap isolated groups
 
-Status: `in-progress`
+Status: `complete`
 
 ### Objective
 
@@ -147,7 +147,15 @@ schedule/policy disagreement. Read-only discovery must create no database.
 
 ### Completion evidence
 
-Pending.
+- Exact candidate: `9af6e9c46173ca46d3495c44066685a5b38d572a`.
+- Validation: 39 focused native transport/runtime/bootstrap tests pass; full tracker and skill validators pass; `git diff --check` passes.
+- Independent review: `portable_supervision_review` accepted that exact clean commit after corrections to Luna rendering, registry isolation, early source validation and full mission binding checks.
+- Live discovery: existing patent target resolves to its legacy native config; this target resolves to a distinct new group.
+- Remaining open work: installation, initialization and actual delivery belong to Blocks 1–2; physical laptop deployment remains unobserved.
+- Decision/continuation posture: no user gate; continue the authorized safe frontier.
+- Post-block audit: accepted for scoped installation and live validation.
+- Git durability: exact candidate pushed to `origin/codex/portable-supervision-runtime`.
+
 
 ### Stop
 
@@ -155,7 +163,7 @@ Stop before installation owned by Block 1, then continue after the Block audit.
 
 ## Block 1 — Install portable skill and initialize this target
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 

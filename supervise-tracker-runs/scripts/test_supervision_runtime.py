@@ -259,6 +259,21 @@ class PortableRuntimeTests(unittest.TestCase):
         self.assertIn('--config "'+str(self.path)+'" run', unit)
         self.assertIn('"CODEX_HOME=/home/owner/.codex-alt"', unit)
         self.assertIn('ReadWritePaths="'+str(self.path.parent)+'"', unit)
+        self.assertIn('WorkingDirectory='+str(self.path.parent)+'\n', unit)
+
+    def test_unit_passes_native_systemd_parser(self):
+        import shutil
+        import subprocess
+        if not shutil.which("systemd-analyze"):
+            self.skipTest("systemd parser unavailable on this host")
+        config = self.configure()
+        unit = systemd_unit(config, user="root", group="root", account_home="/root",
+                            codex_home="/root/.codex", preflight="/usr/bin/true",
+                            temporary_root=str(self.root))
+        path = self.root/"test-supervision.service"
+        path.write_text(unit)
+        proc = subprocess.run(["systemd-analyze", "verify", str(path)], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 if __name__ == "__main__":

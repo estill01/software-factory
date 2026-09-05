@@ -25,7 +25,7 @@ activation does not start Block 0.
 `PORTABLE/B0`–`PORTABLE/B2` in
 `docs/portable-supervision-implementation-tracker.md` is `active-isolated-parallel`
 under the direct instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`.
-Its first eligible Block is 0. It repairs supervision portability and does not
+Its first eligible Block is 1. It repairs supervision portability and does not
 activate SFV2 implementation or Patent Studio RRA implementation. The detailed
 tracker owns status and exact completion evidence.
 
