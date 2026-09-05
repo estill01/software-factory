@@ -1144,6 +1144,15 @@ authority receipt, bind a range, reconcile the transition, or act on the
 target.
 
 Generic implementation-request classification continues to reject local paths.
+For the ordinary nondelegated `direct-authority-ingest` path, an exact
+independently reviewed instruction to create an implementation tracker and
+then begin implementation can establish full-tracker scope. The bounded
+recognition applies only after the owner verifies the eligible Sol review's
+task/turn/item, original byte count and hash, policy, and full-tracker
+classification; replay must resolve that same review. It does not widen the
+generic classifier or admit planning-only, conditional, approval-dependent,
+negated, explicitly bounded, multiline, or oversized source text. Preserve the
+original source bytes and the existing tracker-based mission identity.
 Only a receipt for an event produced by the legacy owner above may use the
 internal nonauthorizing classification seam: after canonical event, receipt,
 current-policy, reviewer, raw-byte/hash, and exact legacy-transition validation,

@@ -8414,18 +8414,14 @@ def validate_direct_authority_provenance(
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
         )
-    intent, _requested = classify_implementation_request(
-        source_text, {0}, allow_unknown_blocks=True
+    intent, _requested, authorization = classify_reviewed_direct_request(
+        source_text, {0}, provenance=provenance, policy=policy,
+        all_events=all_events,
     )
     if intent != "full-tracker":
         raise SupervisionLogError(
             "Direct-authority source does not authorize the full tracker"
         )
-    authorization = canonical_retained_direct_authority_review(
-        all_events,
-        provenance=provenance,
-        policy=policy,
-    )
     if delegated:
         event_order = {
             str(item.get("record_id")): index
@@ -9382,6 +9378,55 @@ def classify_implementation_request(
     raise SupervisionLogError(
         "Implementation request does not establish full-tracker or exact Block intent"
     )
+
+
+def classify_reviewed_direct_request(
+    request_text: str, blocks: set[int], *, provenance: Mapping[str, Any],
+    policy: Mapping[str, Any], all_events: list[dict[str, Any]],
+) -> tuple[str, list[int], dict[str, Any]]:
+    """Admit a bounded natural instruction only with exact independent review.
+
+    Keep the generic classifier strict. This seam belongs only to direct-source
+    ingestion and replay of that same reviewed authority, never caller scope.
+    """
+    try:
+        intent, requested = classify_implementation_request(
+            request_text, blocks, allow_unknown_blocks=True
+        )
+    except SupervisionLogError as exc:
+        if str(exc) != (
+            "Implementation request does not establish full-tracker or exact Block intent"
+        ):
+            raise
+        source_bytes = request_text.encode("utf-8")
+        if (
+            provenance.get("kind") != DIRECT_AUTHORITY_PROVENANCE_KIND
+            or len(source_bytes) != provenance.get("source_byte_count")
+            or hashlib.sha256(source_bytes).hexdigest() != provenance.get("source_sha256")
+            or "\n" in request_text.rstrip("\r\n")
+            or "\r" in request_text.rstrip("\r\n")
+            or re.search(
+                r"\b(?:only|except|unless|if|after|before|until|wait|approval|approve|"
+                r"permission|not|never|don't|stop|pause|example|quote|when|whenever|once|"
+                r"provided|assuming|subject|depending|confirmation|confirm|go-ahead|"
+                r"maybe|perhaps|consider|could|might)\b|"
+                r"\bblocks?\s+\d|\b(?:first|one|single|next)\s+blocks?\b",
+                request_text, re.I,
+            )
+            or not re.search(
+                r"\b(?:create|author|build)\s+(?:an?|the)\s+implementation\s+tracker"
+                r"(?:,\s*use\s+(?:the\s+)?appropriate\s+skills\s+to\s+do\s+so)?"
+                r"\s*,?\s*(?:and\s+then|then)\s+(?:begin|start)\s+implementation"
+                r"(?=\s*(?:[.!?]|$))",
+                request_text, re.I,
+            )
+        ):
+            raise
+        intent, requested = "full-tracker", sorted(blocks)
+    authorization = canonical_retained_direct_authority_review(
+        all_events, provenance=provenance, policy=policy,
+    )
+    return intent, requested, authorization
 
 
 def direct_request_requires_distinct_task(request_text: str) -> bool:
@@ -10415,9 +10460,12 @@ def retained_full_tracker_authority(
             raise SupervisionLogError(
                 "Implementation request text differs from retained direct authority"
             )
-        intent, requested = classify_implementation_request(
-            request_text, {0}, allow_unknown_blocks=True
+        intent, requested, replay_review = classify_reviewed_direct_request(
+            request_text, {0}, provenance=provenance, policy=policy,
+            all_events=all_events,
         )
+        if replay_review != authorization:
+            raise SupervisionLogError("Retained direct-authority review changed")
         if intent != "full-tracker" or requested != [0]:
             raise SupervisionLogError(
                 "Retained direct authority does not authorize the full tracker"

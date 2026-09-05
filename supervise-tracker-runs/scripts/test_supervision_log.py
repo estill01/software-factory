@@ -2763,6 +2763,88 @@ class PolicyHistoryCompatibilityTests(unittest.TestCase):
 
 
 class ImplementationRangeControlTests(unittest.TestCase):
+    natural_create_request = (
+        "All right, turn this, use, create an implementation tracker, use the "
+        "appropriate skills to do so, and then begin implementation. Make sure "
+        "you launch an implementation supervisor monitor as well using the "
+        "appropriate skill.\n"
+    )
+
+    def test_reviewed_create_then_implement_binds_tracker_mission_without_completion(self):
+        self.write_tracker(["completed", "blocked", "not-started"])
+        self.target = "range-tracker-mission-4321"
+        tracker_sha = hashlib.sha256(self.tracker.read_bytes()).hexdigest()
+        self.call("init", "--target-thread", self.target, "--target-label", "Tracker",
+                  "--watcher-thread", "range-watcher-1234", "--reviewer-thread", self.reviewer,
+                  "--mission-source-class", "tracker", "--mission-source-record", "tracker-4321",
+                  "--mission-source-sha256", tracker_sha)
+        directory = self.root / self.target
+        mission = supervision_log.read_json(directory / "policy.json")["mission_binding"]
+        request = self.natural_create_request
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            supervision_log.classify_implementation_request(request, {0, 1, 2})
+        provenance = self.append_successor_range_authority_review(request_text=request)
+        encoded = base64.b64encode(supervision_log.canonical(provenance)).decode()
+        ingested = self.call("direct-authority-ingest", "--target-thread", self.target,
+                             "--provenance-base64", encoded)
+        self.call("implementation-range-authority-receipt", "--target-thread", self.target,
+                  "--authority-event-record", ingested["record_id"])
+        bound = self.call("implementation-range-bind", "--target-thread", self.target,
+                          "--range-id", "RANGE-NATURAL-4321", "--tracker", str(self.tracker),
+                          "--request-text-base64", base64.b64encode(request.encode()).decode(),
+                          "--authority-source-record", provenance["source_item_id"],
+                          "--authority-source-sha256", provenance["source_sha256"])["binding"]
+        self.assertEqual(bound["range_intent"], "full-tracker")
+        self.assertEqual(bound["tracker_blocks"], [0, 1, 2])
+        self.assertEqual(bound["history"][0]["request_text_sha256"], hashlib.sha256(request.encode()).hexdigest())
+        self.assertEqual(supervision_log.read_json(directory / "policy.json")["mission_binding"], mission)
+        gate = self.gate()
+        self.assertTrue(gate["range_binding_current"])
+        self.assertFalse(gate["final_response_permitted"])
+        self.assertEqual(gate["accepted_blocks"], [0])
+        self.assertEqual(gate["remaining_blocks"], [1, 2])
+        self.assertTrue(self.call("direct-authority-ingest", "--target-thread", self.target,
+                                 "--provenance-base64", encoded)["duplicate"])
+
+    def test_natural_create_request_cannot_replace_exact_independent_review(self):
+        provenance = self.append_successor_range_authority_review(request_text=self.natural_create_request)
+        directory = self.root / self.target
+        before = {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
+        for field, value in [("authorization_record_id", "EVT-999999"),
+                             ("verifier_id", self.target), ("policy_sha256", "0" * 64),
+                             ("source_turn_id", "different-turn-4321")]:
+            with self.subTest(field=field):
+                changed = dict(provenance, **{field: value})
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.call("direct-authority-ingest", "--target-thread", self.target,
+                              "--provenance-base64", base64.b64encode(supervision_log.canonical(changed)).decode())
+                self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}, before)
+
+    def test_reviewed_natural_create_fallback_rejects_scope_and_authority_qualifiers(self):
+        requests = [
+            "Create an implementation tracker.",
+            "Create an implementation tracker, then begin implementation only after approval.",
+            "If useful, create an implementation tracker, then begin implementation.",
+            "When ready, create an implementation tracker, then begin implementation.",
+            "Create an implementation tracker, then begin implementation of the first phase.",
+            "Do not create an implementation tracker, then begin implementation.",
+            "Create an implementation tracker, then begin implementation of Block 2.",
+            "Create an implementation tracker, then begin implementation. Wait for approval.",
+            "Create an implementation tracker, then begin implementation.\nReview later.",
+            "Create an implementation tracker, then begin implementation in /tmp/project.",
+            "generic planning context " * 80,
+        ]
+        for index, request in enumerate(requests):
+            with self.subTest(request=request):
+                provenance = self.append_successor_range_authority_review(
+                    source_record=f"natural-negative-{index:04d}", request_text=request)
+                directory = self.root / self.target
+                before = {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.call("direct-authority-ingest", "--target-thread", self.target,
+                              "--provenance-base64", base64.b64encode(supervision_log.canonical(provenance)).decode())
+                self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}, before)
+
     target = "range-target-1234"
     initial_source = "direct-item-100"
     initial_mission_request = "Begin the current implementation mission."
@@ -2793,6 +2875,12 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.private_key = self.root / "range-review-private.pem"
         self.public_key = self.root / "range-review-public.pem"
+        # Disposable test keys use the host crypto executable. Production
+        # verifier pins remain unchanged by this test-only substitution.
+        if sys.platform == "linux":
+            host_openssl = Path("/usr/bin/openssl")
+            self.enterContext(mock.patch.object(supervision_log, "ADAPTIVE_REVIEW_OPENSSL_PATH", host_openssl))
+            self.enterContext(mock.patch.object(supervision_log, "ADAPTIVE_REVIEW_OPENSSL_SHA256", hashlib.sha256(host_openssl.read_bytes()).hexdigest()))
         openssl = str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH)
         subprocess.run(
             [openssl, "genpkey", "-algorithm", "ED25519", "-out", str(self.private_key)],
