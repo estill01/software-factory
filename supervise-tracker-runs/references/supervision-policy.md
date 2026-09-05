@@ -1026,8 +1026,34 @@ replay route-action text that the canonical owner retained only by digest. The
 source item bytes, byte count, and raw UTF-8 SHA-256 remain separate reviewed
 provenance. The ordinary `thread-route-gate` keeps its bounded action input.
 
-A receipt resolves that separately ingested
-`direct-user-authority-source` owner event by exact ledger record:
+For a direct message in the target task, prefer the existing
+`direct-authority-ingest --provenance-base64` owner above. A clean canonical Max
+review can establish semantic full-tracker scope even when the mission uses a
+descriptive source record. That review must bind exactly one value for each of
+`source-kind`, `source-task`, `source-turn`, `source-item`, `source-record`,
+`source-byte-count`, `source-sha256`, `verifier`, `classification`,
+`review-findings`, and `mission-root`. The record is
+`direct-user:<TARGET>:<ITEM>`, classification is `full-tracker`, findings are
+`none`, and the mission root and reviewer must match the current target.
+The authenticated canonical ledger already owns this independent review:
+local ingestion and replay do not require a release-reviewer key or OpenSSL.
+The ordinary ingestion event retains the exact item ID as `source_record`;
+use that returned item ID and exact source hash when binding the range. The
+full source tuple remains in the immutable review. Wrong task, altered bytes,
+missing or conflicting evidence, stale fresh ingestion, changed mission, or a
+later contradictory review rejects. Receipt/range writes may advance policy
+versions without replacing the reviewed source or mission.
+
+A receipt resolves either ingestion owner's `direct-user-authority-source`
+event by exact ledger record:
+
+```bash
+python3 <LOG_HELPER> implementation-range-authority-receipt \
+  --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
+```
+
+The retained signed-source path remains available for its existing consumers;
+it is not a prerequisite for local same-task semantic admission:
 
 ```bash
 python3 <LOG_HELPER> implementation-range-authority-source-review-sign \
@@ -1055,8 +1081,9 @@ requires the exact target/source-task/source-item record tuple and current
 policy, and verifies a bounded canonical source-review object signed by the
 sealed independent reviewer key. That signed review binds the exact bytes,
 tuple, eligible runtime reviewer thread, disposition, finding count, and policy
-root; an ordinary owner-ledger record or caller-supplied reviewer label is not
-review evidence. On a same-tuple, same-byte retry, the helper re-authenticates
+root; this signed-import owner does not accept an ordinary owner-ledger record
+or caller-supplied reviewer label in place of its signed payload. On a
+same-tuple, same-byte retry, the helper re-authenticates
 the supplied signed review against the event's source policy and requires exact
 equality with the signed payload already retained by the canonical event. The
 original exact review may therefore deduplicate after later policy or role
@@ -1144,7 +1171,8 @@ authority receipt, bind a range, reconcile the transition, or act on the
 target.
 
 Generic implementation-request classification continues to reject local paths.
-For the ordinary nondelegated `direct-authority-ingest` path, an exact
+For the ordinary nondelegated `direct-authority-ingest` path without the exact
+mission-bound Max semantic review above, an exact
 independently reviewed instruction to create an implementation tracker and
 then begin implementation can establish full-tracker scope. The bounded
 recognition applies only after the owner verifies the eligible Sol review's

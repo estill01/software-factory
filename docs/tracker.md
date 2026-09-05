@@ -25,10 +25,10 @@ activation does not start Block 0.
 `PORTABLE/B0`–`PORTABLE/B2` in
 `docs/portable-supervision-implementation-tracker.md` is `active-isolated-parallel`
 under the direct instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`.
-Blocks 0–1 retain acceptance. Block 2 is blocked only on the acknowledged external reviewer-key dependency after the accepted portable corrections. It repairs supervision portability and does not
+Blocks 0–1 retain acceptance. Block 2 is in progress under renewed direct authority to remove redundant local signing and finish current acceptance. It repairs supervision portability and does not
 activate SFV2 implementation or Patent Studio RRA implementation. The detailed
 tracker owns status and exact completion evidence. Its current SHA-256 is
-`16ef83ec20e6413954885dcc7a48f68f9b31567a8b93ca1419a50a663997a438`.
+`5dd5727e778e82ebd3530e2f7b7b884f9bb081cc802d5f8a6cddd02ff1117e23`.
 
 ## Required outcome
 

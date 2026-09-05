@@ -69,7 +69,7 @@ class DirectRangeSourceTests(unittest.TestCase):
         self.encoded = base64.b64encode(SOURCE.encode()).decode()
         self.case.write_tracker(["completed"] * 3)
 
-    def review(self, classification="full-tracker", mission=None, reviewer=None, extra=()):
+    def review(self, classification="full-tracker", mission=None, reviewer=None, extra=(), omit=()):
         evidence = [
             f"source-kind:{owner.DIRECT_AUTHORITY_SOURCE_KIND}",
             f"source-task:{self.target}", f"source-turn:{self.turn}",
@@ -80,6 +80,7 @@ class DirectRangeSourceTests(unittest.TestCase):
             f"mission-root:{mission or self.mission['mission_root']}",
             *extra,
         ]
+        evidence = [token for token in evidence if token.split(":", 1)[0] not in omit]
         self.call(
             "record", "--target-thread", self.target, "--kind", "meta-review",
             "--active-block", "2", "--checkpoint", "direct-source-review",
@@ -101,6 +102,142 @@ class DirectRangeSourceTests(unittest.TestCase):
             "--review-evidence-record", review,
             "--expected-policy-sha256", self.policy["policy_sha256"],
         ]
+
+    def local_provenance(self, review):
+        return {
+            "schema_version": 1, "kind": owner.DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": self.target, "source_task_id": self.target,
+            "source_turn_id": self.turn, "source_item_id": self.item,
+            "source_kind": owner.DIRECT_AUTHORITY_SOURCE_KIND,
+            "source_text": SOURCE, "source_byte_count": 251,
+            "source_sha256": self.sha,
+            "policy_version": self.policy["policy_version"],
+            "policy_sha256": self.policy["policy_sha256"],
+            "verifier_id": self.case.reviewer, "authorization_record_id": review,
+        }
+
+    def local_ingest(self, provenance):
+        return self.call("direct-authority-ingest", "--target-thread", self.target,
+                         "--provenance-base64", base64.b64encode(
+                             owner.canonical(provenance)).decode())
+
+    def test_local_semantic_source_binds_without_any_release_key(self):
+        provenance = self.local_provenance(self.review())
+        with mock.patch.object(owner, "trusted_adaptive_reviewer_private_key",
+                               side_effect=AssertionError("unrelated private key accessed")), \
+             mock.patch.object(owner, "trusted_adaptive_review_openssl",
+                               side_effect=AssertionError("unrelated verifier accessed")):
+            event = self.local_ingest(provenance)
+            self.call("implementation-range-authority-receipt", "--target-thread",
+                      self.target, "--authority-event-record", event["record_id"])
+            self.assertTrue(self.local_ingest(provenance)["duplicate"])
+            result = self.call(
+                "implementation-range-bind", "--target-thread", self.target,
+                "--range-id", "RANGE-LOCAL-SEMANTIC", "--tracker", str(self.case.tracker),
+                "--request-text-base64", self.encoded,
+                "--authority-source-record", self.item,
+                "--authority-source-sha256", self.sha,
+            )
+            self.assertEqual(result["binding"]["range_intent"], "full-tracker")
+            gate = self.call("implementation-range-gate", "--target-thread", self.target,
+                             "--response-kind", "outcome-terminal")
+            self.assertTrue(gate["range_binding_current"])
+            # Source admission cannot substitute for the separate outcome review.
+            self.assertFalse(gate["final_response_permitted"])
+            self.assertEqual(gate["remaining_blocks"], [])
+            self.assertEqual(owner.read_json(self.directory / "policy.json")["mission_binding"],
+                             self.mission)
+            self.assertTrue(self.local_ingest(provenance)["duplicate"])
+
+    def test_local_semantic_source_rejects_altered_provenance_before_write(self):
+        provenance = self.local_provenance(self.review())
+        before = self.state()
+        for field, value in (
+            ("target_thread_id", "wrong-target"), ("source_task_id", "wrong-target"),
+            ("source_turn_id", "wrong-turn"), ("source_item_id", "wrong-item"),
+            ("source_text", SOURCE.rstrip()), ("source_byte_count", 250),
+            ("source_sha256", "f" * 64), ("policy_sha256", "f" * 64),
+            ("policy_version", 999), ("verifier_id", self.target),
+            ("authorization_record_id", "EVT-999999"),
+        ):
+            with self.subTest(field=field), self.assertRaises(owner.SupervisionLogError):
+                self.local_ingest({**provenance, field: value})
+            self.assertEqual(self.state(), before)
+
+    def test_local_semantic_source_rejects_incomplete_or_conflicting_review(self):
+        for kwargs in (
+            {"classification": "explicit-blocks"}, {"mission": "f" * 64},
+            {"reviewer": self.target}, {"extra": ["review-findings:unresolved"]},
+            {"extra": ["source-record:wrong-source"]},
+            {"extra": ["source-sha256:" + "f" * 64]},
+            {"omit": ["review-findings"]}, {"omit": ["mission-root"]},
+        ):
+            provenance = self.local_provenance(self.review(**kwargs))
+            before = self.state()
+            with self.subTest(kwargs=kwargs), self.assertRaises(owner.SupervisionLogError):
+                self.local_ingest(provenance)
+            self.assertEqual(self.state(), before)
+
+    def test_local_semantic_source_rejects_later_contradiction_on_replay(self):
+        provenance = self.local_provenance(self.review())
+        event = self.local_ingest(provenance)
+        self.call("implementation-range-authority-receipt", "--target-thread",
+                  self.target, "--authority-event-record", event["record_id"])
+        # Use the review's original policy version, as a historical contradiction
+        # must remain effective after receipt policy changes.
+        current = owner.read_json(self.directory / "policy.json")
+        events = owner.events(self.directory / "events.jsonl")
+        review = copy.deepcopy(next(e for e in events if e["record_id"] == provenance["authorization_record_id"]))
+        review["record_id"] = "EVT-999998"
+        review["evidence"].append("review-findings:unresolved")
+        with self.assertRaisesRegex(owner.SupervisionLogError, "later contradiction"):
+            owner.retained_full_tracker_authority(
+                current, all_events=events + [review],
+                policy_history=owner.events(self.directory / "policy-history.jsonl"),
+                source_record=self.item, source_sha256=self.sha,
+                require_current_receipt=True, request_text=SOURCE,
+            )
+
+    def test_local_semantic_source_rejects_changed_mission_and_stale_fresh_ingest(self):
+        provenance = self.local_provenance(self.review())
+        for changed in ("mission", "policy"):
+            policy = copy.deepcopy(self.policy)
+            if changed == "mission":
+                policy["mission_binding"]["mission_root"] = "f" * 64
+            else:
+                policy["policy_sha256"] = "f" * 64
+                policy["policy_version"] += 1
+            with self.subTest(changed=changed), self.assertRaises(owner.SupervisionLogError):
+                owner.validate_direct_authority_provenance(
+                    provenance, policy=policy,
+                    policy_history=owner.events(self.directory / "policy-history.jsonl"),
+                    all_events=owner.events(self.directory / "events.jsonl"),
+                    require_current_policy=True,
+                )
+
+    def test_local_duplicate_and_retained_range_reject_successor_mission(self):
+        self.case.bind()
+        self.policy = owner.read_json(self.directory / "policy.json")
+        provenance = self.local_provenance(self.review())
+        event = self.local_ingest(provenance)
+        self.call("implementation-range-authority-receipt", "--target-thread",
+                  self.target, "--authority-event-record", event["record_id"])
+        self.case.complete_predecessor_and_start_successor(
+            retain_range_authority=False, mission_source_record=self.record,
+            mission_source_sha256=self.sha,
+        )
+        before = self.state()
+        with self.assertRaises(owner.SupervisionLogError):
+            self.local_ingest(provenance)
+        with self.assertRaises(owner.SupervisionLogError):
+            owner.retained_full_tracker_authority(
+                owner.read_json(self.directory / "policy.json"),
+                all_events=owner.events(self.directory / "events.jsonl"),
+                policy_history=owner.events(self.directory / "policy-history.jsonl"),
+                source_record=self.item, source_sha256=self.sha,
+                require_current_receipt=False, request_text=SOURCE,
+            )
+        self.assertEqual(self.state(), before)
 
     def ingest_args(self, path):
         return [

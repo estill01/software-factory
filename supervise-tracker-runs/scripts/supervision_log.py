@@ -8253,6 +8253,30 @@ def canonical_retained_direct_authority_review(
         str(event.get("record_sha256", "")),
         label="direct-authority review record SHA-256",
     )
+    if provenance.get("kind") == DIRECT_AUTHORITY_PROVENANCE_KIND and any(
+        token.startswith("source-record:") for token in evidence
+    ):
+        # Local semantic authority is already independently reviewed in the
+        # authenticated owner ledger. Reuse that review, without exporting it
+        # through the unrelated release-reviewer private key.
+        target = str(policy["target_thread_id"])
+        source_record = f"direct-user:{target}:{provenance['source_item_id']}"
+        if not separate_direct_range_source(
+            policy, target, provenance["source_task_id"],
+            provenance["source_item_id"], source_record,
+        ):
+            raise SupervisionLogError("Local semantic review requires a same-task range source")
+        # Receipt/range writes advance the policy version, but preserve mission
+        # identity. The enclosing owner validates that historical policy; review
+        # currentness still checks the current mission and eligible reviewer.
+        review_policy = {**policy, "policy_sha256": provenance["policy_sha256"]}
+        return clean_direct_source_review(
+            review_policy, all_events, review_id=record_id, target=target,
+            task=provenance["source_task_id"], item=provenance["source_item_id"],
+            record=source_record, source_sha256=provenance["source_sha256"],
+            source_byte_count=provenance["source_byte_count"],
+            source_turn=provenance["source_turn_id"],
+        )
     return event
 
 
@@ -9401,6 +9425,19 @@ def classify_reviewed_direct_request(
     Keep the generic classifier strict. This seam belongs only to direct-source
     ingestion and replay of that same reviewed authority, never caller scope.
     """
+    authorization = canonical_retained_direct_authority_review(
+        all_events, provenance=provenance, policy=policy,
+    )
+    if provenance.get("kind") == DIRECT_AUTHORITY_PROVENANCE_KIND and any(
+        token.startswith("source-record:") for token in authorization["evidence"]
+    ):
+        # The semantic owner above requires a clean, exact Max classification;
+        # no keyword approximation or extra signing credential is needed.
+        source_bytes = request_text.encode("utf-8")
+        if (len(source_bytes) != provenance.get("source_byte_count")
+                or hashlib.sha256(source_bytes).hexdigest() != provenance.get("source_sha256")):
+            raise SupervisionLogError("Implementation request differs from its exact semantic review")
+        return "full-tracker", sorted(blocks), authorization
     try:
         intent, requested = classify_implementation_request(
             request_text, blocks, allow_unknown_blocks=True
@@ -9435,9 +9472,6 @@ def classify_reviewed_direct_request(
         ):
             raise
         intent, requested = "full-tracker", sorted(blocks)
-    authorization = canonical_retained_direct_authority_review(
-        all_events, provenance=provenance, policy=policy,
-    )
     return intent, requested, authorization
 
 
@@ -27463,7 +27497,7 @@ def implementation_authority_source_tuple(policy: Mapping[str, Any], target: str
 def clean_direct_source_review(policy, all_events, *, review_id, target, task,
                                item, record, source_sha256, source_byte_count,
                                source_turn=None):
-    """Resolve the exact semantic review used by the existing signing owner."""
+    """Resolve the exact semantic review for local admission or signed export."""
     matches = [event for event in all_events if event.get("record_id") == review_id]
     evidence = matches[0] if len(matches) == 1 else {}
     values = evidence.get("evidence", [])

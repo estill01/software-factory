@@ -1,11 +1,11 @@
 # Portable supervision implementation tracker
 
-- Tracker status: `blocked`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–2
 - Repository: `software_factory`, branch `codex/portable-supervision-runtime`
 - Governing objective: direct user instruction in task `01a06f3e-7ffc-75b3-873d-675e9b93ae84`: make `supervise tracker runs` work on the laptop and GCP, including necessary scripts and cross-task coordination.
 - Current installed revision: `8c868ff7717bb3305b5e80c20bef28889e642722`; independently accepted code, retained installation and live target-service verification.
-- Remaining dependency: the existing external custodian must make the unchanged reviewer signing key available through its maintained authority store. Source sealing, authority receipt, range binding and terminal reconciliation remain open; no replacement key or manual Resume is authorized or needed.
+- Remaining work: remove redundant release-key signing from local source admission, install the independently reviewed correction, admit exact canonical sources, supersede the obsolete deferral, and complete current range/outcome reconciliation. The latest direct user explicitly authorizes this correction; no key provisioning is required for local admission.
 
 ## 1. Purpose and intended outcome
 
@@ -87,7 +87,7 @@ observable outcome before any final completion claim.
 |---:|---|---:|---|
 | 0 | Discover owners and bootstrap isolated groups | — | `complete` |
 | 1 | Install portable skill and initialize this target | 0 | `complete` |
-| 2 | Verify live operation and record delivery | 1 | `blocked` |
+| 2 | Verify live operation and record delivery | 1 | `in-progress` |
 
 Required order: `0 → 1 → 2`.
 
@@ -235,7 +235,7 @@ Stop before live schedule activation owned by Block 2, then continue after audit
 
 ## Block 2 — Verify live operation and record delivery
 
-Status: `blocked`
+Status: `in-progress`
 
 ### Objective
 
@@ -246,9 +246,9 @@ Demonstrate usable ongoing supervision and make its evidence discoverable.
 - Posture: `consequential`.
 - Intended capability gain: complete exact-source admission and preserve writable native role operation across reloads.
 - Potential capability loss or regression: admitting stale or altered authority, losing delivery receipts, or changing another task's execution settings.
-- Protected-capability effect: preserve reviewer key identity, byte-exact provenance, uncertain receipts, mission boundaries and peer isolation.
-- Architecture and operating-model effect: reuse the semantic source owner, existing verifier profiles, shared role-resume arguments and runtime health store.
-- Tradeoff and source evidence: `EVT-000024` and `EVT-000031` justify these bounded corrections; external key custody remains required and fail-closed.
+- Protected-capability effect: preserve independent canonical review, byte-exact provenance, uncertain receipts, mission boundaries and peer isolation; historical signed consumers retain their key identity.
+- Architecture and operating-model effect: reuse local direct-authority ingestion and clean semantic review; remove the release-key export dependency from that local path. Retain accepted shared role-resume arguments and runtime health behavior.
+- Tradeoff and source evidence: direct human item `01a07397-65b4-7290-aba0-f813d5edbb9e` rejects the redundant signer dependency and requires full implementation. Canonical same-task review is sufficient locally; signed external artifacts retain their existing verification.
 
 ### Inputs and dependencies
 
@@ -499,3 +499,24 @@ range gate still reports `range_binding_posture=absent`,
 nonterminal dependency report, not completed PORTABLE acceptance. Both gates
 report `manual_resume_required=false`. Preserve all existing schedules and
 accepted history while awaiting the exact external availability evidence.
+
+## Local admission correction under renewed direct authority
+
+The direct user item `01a07397-65b4-7290-aba0-f813d5edbb9e` (turn
+`01a07397-64ff-7eb3-8f05-a657011a5858`, 193 UTF-8 bytes, SHA-256
+`27dd47e2b5c7e0edd1f034c9c262373cf051cc5f08b6c2416e951f020bcc209b`)
+supersedes the external-key prerequisite for this local workflow. Earlier failed
+completion, deferral, key profiles, and installations remain historical evidence.
+No key is created or substituted. The existing local ingestion owner uses the
+canonical independent review directly; signed import/export consumers are intact.
+
+- Product-capability review:
+  - Trigger: consequential Block 2 correction of an unnecessary local admission dependency.
+  - Frame identity: `docs/portable-supervision-implementation-tracker.md`, Block 2, SHA-256 `6b9f92b2a2146dd41b3368faf80316ecaa5ca15a190f402693f010dd2307c036`.
+  - Capability added or preserved: locally reviewed direct requests can bind and finish their tracker on either supported host without a release signing credential.
+  - Paths compared: local deletion of signed-event validation; bounded new admission command; existing canonical local ingestion and semantic review.
+  - Selected level and owner: existing architectural owner, `direct-authority-ingest` and `clean_direct_source_review`; no new command, event shape, ledger, or service.
+  - Protected-capability result: exact bytes, target/item/turn, independent Max, current mission/policy, replay and contradiction checks remain enforced.
+  - Rejected alternatives: deleting validation would omit required provenance and historical signed behavior; another command duplicates the existing owner.
+  - Tradeoffs and uncertainty: local review relies on its authenticated canonical ledger; a physical laptop remains unobserved.
+  - Frozen-candidate proof: 23 focused local/signed/delegated authority tests, full tracker and skill validation, and diff check pass. Independent exact-revision review and installed acceptance follow; current completion is not yet claimed.
