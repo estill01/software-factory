@@ -107,6 +107,5 @@ the original target delta directly and recorded canonical `EVT-000004`,
 `no-intervention`, at 2026-09-05 06:50:30 UTC.
 
 Release and restart evidence is retained in
-`/srv/patent-studio/private/gcp-supervision/acceptance.json` once live acceptance
-completes. The original patent implementation tracker remains independently
+`/srv/patent-studio/private/gcp-supervision/acceptance.json` with completed live acceptance. The original patent implementation tracker remains independently
 open; installing this monitor does not accept patent content or its dependencies.

@@ -6,8 +6,8 @@ This index introduces the bounded GCP supervision repair queue in this isolated 
 
 - Program: GCP/0–GCP/3.
 - Tracker: [GCP-native supervision](gcp-native-supervision-implementation-tracker.md).
-- Current SHA-256: `460c3b386079a321959c464524bb99960f01e63331c8cfc971e5323f280b3b76`.
-- Status: in-progress; first eligible Block GCP/2.
+- Current SHA-256: `0cd5e52bd0bc8be782c1f548a5f22dfaef8b51214fe4bdce53e0e95f5d1ca715`.
+- Status: completed; GCP/0–GCP/3 accepted with live service evidence. No remaining repair Block.
 - Required order: GCP/0 → GCP/1 → GCP/2 → GCP/3.
 - Outcome: persistent GCP-owned supervision of task 01a06f3e-c732-74b2-bde9-3980430df4de, with real wake/read/delivery/restart evidence.
 - Boundary: prerequisite infrastructure repair only; it does not accept or replace any patent or other existing program. No additional successor is required for this repair.
