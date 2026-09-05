@@ -89,6 +89,8 @@ class Runtime:
         proc = subprocess.run(command, capture_output=True, text=True, timeout=45)
         if proc.returncode:
             raise RuntimeError(f"supervision helper rejected {arguments[0]}: {(proc.stdout or proc.stderr)[:1000]}")
+        if "--help" in arguments:
+            return {"help": proc.stdout}
         return json.loads(proc.stdout)
 
     def add_schedule(self, role, interval, *, first_due=None):

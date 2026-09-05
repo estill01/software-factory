@@ -103,6 +103,14 @@ class PortableRuntimeTests(unittest.TestCase):
         result = discover("target", root=self.root/"missing", socket_path=str(self.root/"absent"))
         self.assertEqual(result["action"], "owner-access-required")
 
+    def test_native_helper_preserves_plaintext_command_help(self):
+        self.configure()
+        runtime = Runtime(self.path, client_factory=self.owner)
+        try:
+            self.assertIn("--kind", runtime.helper(["record", "--help"])["help"])
+        finally:
+            runtime.close()
+
     def test_native_socket_fallback_checks_target_without_database(self):
         with patch.object(Path, "is_socket", return_value=True):
             result = discover("target", root=self.root, socket_path="/unused", client_factory=self.owner)
