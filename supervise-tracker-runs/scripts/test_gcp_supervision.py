@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from gcp_supervision import Runtime
+from gcp_codex_transport import RpcError
 
 
 class FakeCodex:
@@ -21,6 +22,7 @@ class FakeCodex:
         self.not_loaded = False
         self.resume_arguments = None
         self.resume_writable = True
+        self.resume_error = None
 
     def __call__(self, *args, **kwargs):
         return self
@@ -41,6 +43,9 @@ class FakeCodex:
 
     def call(self, method, args):
         if method == 'thread/resume':
+            if self.resume_error is not None:
+                error, self.resume_error = self.resume_error, None
+                raise error
             self.resume_arguments = args
             self.not_loaded = False
             return {'sandbox': {'type': 'dangerFullAccess' if self.resume_writable else 'readOnly'},
@@ -138,6 +143,42 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.deliver(identity), 'uncertain')
         self.assertEqual(len(self.fake.queue), 1)
         self.assertEqual(self.fake.started, 0)
+        self.fake.resume_writable = True
+        self.assertEqual(self.runtime.deliver(identity), 'started')
+
+    def test_failed_role_posture_applies_to_new_deliveries(self):
+        self.runtime.config['roles']['watcher'].update(
+            model='gpt-5.6-terra', cwd=str(self.root), reasoning='max', instructions='Bound')
+        self.fake.not_loaded = True
+        self.fake.resume_writable = False
+        self.assertEqual(self.runtime.deliver(self.message()), 'failed')
+        later = self.runtime.prepare('later', 'watcher', 'Later wake.', 'source', 'watcher-action')
+        self.assertEqual(self.runtime.deliver(later), 'failed')
+        self.assertEqual(self.fake.queue, [])
+        self.assertEqual(self.fake.started, 0)
+        self.fake.resume_writable = True
+        restored = self.runtime.prepare('restored', 'watcher', 'Restored wake.', 'source', 'watcher-action')
+        self.assertEqual(self.runtime.deliver(restored), 'started')
+        self.assertEqual(self.fake.started, 1)
+
+    def test_restore_posture_survives_rpc_errors_and_runtime_restart(self):
+        self.runtime.config['roles']['watcher'].update(
+            model='gpt-5.6-terra', cwd=str(self.root), reasoning='max', instructions='Bound')
+        self.path.write_text(json.dumps(self.runtime.config))
+        self.fake.lose_add_response = True
+        identity = self.message()
+        self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+        self.fake.not_loaded = True
+        self.fake.resume_writable = False
+        self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+        self.runtime.close()
+        self.runtime = Runtime(self.path, client_factory=self.fake)
+        for error in (TimeoutError('lost resume'), RpcError('thread/resume', {'code': -1, 'message': 'rejected'})):
+            self.fake.resume_error = error
+            self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+            self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+            self.assertEqual(self.fake.started, 0)
+            self.assertEqual(len(self.fake.queue), 1)
         self.fake.resume_writable = True
         self.assertEqual(self.runtime.deliver(identity), 'started')
         self.assertEqual(self.fake.started, 1)

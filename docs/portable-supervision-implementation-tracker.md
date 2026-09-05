@@ -442,6 +442,10 @@ A rejected restoration leaves a new delivery failed, while an earlier possibly
 accepted send remains uncertain and is reconciled without duplication after
 restoration. Implementation-target settings are not overridden. Fifty-one
 affected source/host/runtime checks pass; four final restoration and receipt
-recovery checks also pass. Exact code review and installation remain
-pending. Existing key provisioning stays with its external custodian; no key is
+recovery checks also pass. Independent review rejected candidate `2752ae1` for
+a restoration requirement scoped only to one delivery. The correction retains
+that requirement per recipient in the existing runtime health store, across
+new deliveries, RPC failures and restarts; all 21 affected delivery tests pass.
+Exact corrected-revision review and installation remain pending.
+Existing key provisioning stays with its external custodian; no key is
 generated, moved, substituted or claimed available by these changes.

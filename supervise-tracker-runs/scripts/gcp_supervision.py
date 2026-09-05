@@ -236,11 +236,18 @@ class Runtime:
                 with self.client() as client:
                     compact = client.compact(row["recipient"])
                     status = compact["status"]["type"]
-                    if status == "notLoaded" or row["error"] == ROLE_ACCESS_ERROR:
-                        role = next((role for role in self.config["roles"].values()
-                                     if role["thread_id"] == row["recipient"]), None)
+                    role = next((role for role in self.config["roles"].values()
+                                 if role["thread_id"] == row["recipient"]), None)
+                    access_key = "role-helper-access:" + row["recipient"]
+                    access = self.db.execute("SELECT value FROM health WHERE key=?",
+                                             (access_key,)).fetchone()
+                    if status == "notLoaded" or (role is not None and access is not None
+                                                  and access["value"] != "restored"):
                         arguments = (role_resume_arguments(role) if role is not None
                                      else {"threadId": row["recipient"]})
+                        if role is not None:
+                            self.db.execute("INSERT OR REPLACE INTO health VALUES (?,?,?)",
+                                            (access_key, "restore-required", time.time()))
                         resumed = client.call("thread/resume", arguments)
                         if role is not None and (
                             resumed.get("sandbox", {}).get("type") != "dangerFullAccess"
@@ -249,6 +256,9 @@ class Runtime:
                             state = "uncertain" if effect_possible else "failed"
                             self.update_delivery(identity, state, error=ROLE_ACCESS_ERROR)
                             return state
+                        if role is not None:
+                            self.db.execute("INSERT OR REPLACE INTO health VALUES (?,?,?)",
+                                            (access_key, "restored", time.time()))
                         status = client.compact(row["recipient"])["status"]["type"]
                     state, queue_id = row["state"], row["queue_id"]
                     if state in ("sending", "starting", "uncertain", "queued"):

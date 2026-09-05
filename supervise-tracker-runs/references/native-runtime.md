@@ -68,6 +68,9 @@ The native response must confirm writable helper access before any work is
 queued; a rejected restoration leaves a new delivery failed for owner reconciliation.
 An earlier possibly accepted send stays uncertain until its original native
 receipt can be reconciled after role access is restored; it is never resent.
+The existing runtime health store retains the role's restoration requirement
+across later delivery IDs, transport failures and runtime restarts. Only a
+confirmed native response clears that requirement.
 Resuming the implementation target does not replace its own settings.
 
 Reviewer sealing uses the existing account's `.codex/software-factory-release-authority`
