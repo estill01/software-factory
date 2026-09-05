@@ -2971,6 +2971,8 @@ def canonical_direct_authority_event(
             require_current_activation_head=require_current_route_source,
         )
     if not signed_event:
+        if separate_direct_range_source(source_policy, str(event["target_thread_id"]), source_task_id, source_item_id, source_record):
+            raise SupervisionLogError("Separate direct range source requires signed semantic review")
         return event
     safe_id(
         str(event["provenance_review_record"]),
@@ -3021,6 +3023,10 @@ def canonical_direct_authority_event(
         raise SupervisionLogError(
             "Canonical direct-authority provenance review payload differs"
         )
+    if separate_direct_range_source(source_policy, str(event["target_thread_id"]), source_task_id, source_item_id, source_record):
+        signed_direct_range_review(
+            policy if require_current_route_source else source_policy,
+            source_policy, all_events, event)
     return event
 
 
@@ -10270,7 +10276,14 @@ def retained_full_tracker_authority(
     signed_source_event = frozenset(source_event) == frozenset(
         DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS
     )
-    if signed_source_event and not source_is_exact_direct_mission_source:
+    source_policy = policy_snapshot_by_sha256(policy_history, str(source_event["policy_sha256"]))
+    if signed_source_event and separate_direct_range_source(
+        source_policy, target_thread_id, str(source_event["source_task_id"]),
+        str(source_event["source_item_id"]), source_record
+    ):
+        signed_classification_review = signed_direct_range_review(
+            policy, source_policy, all_events, source_event)
+    elif signed_source_event and not source_is_exact_direct_mission_source:
         if request_text is None:
             raise SupervisionLogError(
                 "Signed routed full-tracker authority requires its exact source text"
@@ -27408,11 +27421,103 @@ def signed_source_full_tracker_classification(
     return reviews[0]
 
 
+def separate_direct_range_source(policy, target, task, item, record):
+    """Identify a same-task item distinct from the mission's descriptive identity.
+
+    This is tuple eligibility only. Its canonical Max review remains required.
+    """
+    mission = bound_mission(dict(policy))
+    if mission is None:
+        return False
+    derivation = mission.get("mission_derivation", {})
+    controlling = derivation.get("controlling_source", {})
+    return (
+        target == policy.get("target_thread_id") == task
+        and record == f"direct-user:{target}:{item}"
+        and record != mission.get("mission_source_record")
+        and derivation.get("mode") == "derived-from-versioned-meta-charter"
+        and controlling.get("class") == "direct-user"
+        and controlling.get("record") == mission.get("mission_source_record")
+    )
+
+
 def implementation_authority_source_tuple(policy: Mapping[str, Any], target: str, task: str, item: str, record: str, source_sha256: str) -> Mapping[str, Any]:
-    mission = bound_mission(dict(policy)); derivation = mission.get("mission_derivation") if isinstance(mission, Mapping) else None; controlling = derivation.get("controlling_source") if isinstance(derivation, Mapping) else None
-    ordinary = record in {f"codex:{target}:{task}:{item}", f"direct-user:{target}:{item}"} and (record.startswith("codex:") or task == target); compatible = task == target and record == f"codex-item-{item}" and mission.get("mission_source_record") == record and derivation.get("mode") == "derived-from-versioned-meta-charter" and controlling.get("class") == "direct-user" and controlling.get("record") == record and controlling.get("sha256") == source_sha256 if isinstance(mission, Mapping) and isinstance(derivation, Mapping) and isinstance(controlling, Mapping) else False
-    if not (ordinary or compatible) or not isinstance(mission, Mapping) or mission.get("mission_source_record") != record: raise SupervisionLogError("Direct-authority source tuple differs from the current mission")
+    mission = bound_mission(dict(policy))
+    if target != policy.get("target_thread_id") or mission is None:
+        raise SupervisionLogError("Direct-authority source tuple differs from the current mission")
+    derivation = mission.get("mission_derivation", {})
+    controlling = derivation.get("controlling_source", {})
+    ordinary = record in {f"codex:{target}:{task}:{item}", f"direct-user:{target}:{item}"} and (record.startswith("codex:") or task == target)
+    compatible = task == target and record == f"codex-item-{item}" and derivation.get("mode") == "derived-from-versioned-meta-charter" and controlling.get("class") == "direct-user" and controlling.get("record") == record and controlling.get("sha256") == source_sha256
+    if not ((ordinary or compatible) and mission.get("mission_source_record") == record) and not separate_direct_range_source(policy, target, task, item, record):
+        raise SupervisionLogError("Direct-authority source tuple differs from the current mission")
     return mission
+
+
+def clean_direct_source_review(policy, all_events, *, review_id, target, task,
+                               item, record, source_sha256, source_byte_count,
+                               source_turn=None):
+    """Resolve the exact semantic review used by the existing signing owner."""
+    matches = [event for event in all_events if event.get("record_id") == review_id]
+    evidence = matches[0] if len(matches) == 1 else {}
+    values = evidence.get("evidence", [])
+    turns = [value.removeprefix("source-turn:") for value in values
+             if isinstance(value, str) and value.startswith("source-turn:")]
+    if len(turns) != 1 or (source_turn is not None and turns[0] != source_turn):
+        raise SupervisionLogError("Source review evidence lacks one exact source turn")
+    safe_id(turns[0], label="source review turn")
+    verifier = policy.get("runtime", {}).get("reviewer_thread_id")
+    required = {f"source-kind:{DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{task}",
+                f"source-turn:{turns[0]}", f"source-item:{item}", f"source-record:{record}",
+                f"source-byte-count:{source_byte_count}", f"source-sha256:{source_sha256}",
+                f"verifier:{verifier}", f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}",
+                "review-findings:none"}
+    if separate_direct_range_source(policy, target, task, item, record):
+        required.add(f"mission-root:{bound_mission(dict(policy))['mission_root']}")
+    def exact_tokens(values):
+        return all([value for value in values if value.startswith(token.split(":", 1)[0] + ":")] == [token]
+                   for token in required)
+
+    if (evidence.get("target_thread_id") != target
+            or evidence.get("kind") != "meta-review"
+            or evidence.get("model") != "gpt-5.6-sol" or evidence.get("reasoning") != "max"
+            or evidence.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY
+            or evidence.get("status") != "accepted"
+            or evidence.get("resolution_owner") != "supervisor"
+            or evidence.get("user_action_required") != "no"
+            or evidence.get("policy_sha256") != policy.get("policy_sha256")
+            or not exact_tokens(values)):
+        raise SupervisionLogError("Source review evidence is not one current clean Max review")
+    position = all_events.index(evidence)
+    clean = {f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}
+    stable = required - clean
+    if any(event.get("category") == DIRECT_AUTHORITY_REVIEW_CATEGORY
+           and stable <= set(event.get("evidence", []))
+           and (event.get("status") != "accepted" or not exact_tokens(event.get("evidence", [])))
+           for event in all_events[position + 1:]):
+        raise SupervisionLogError("Source review evidence has a later contradiction")
+    return evidence
+
+
+def signed_direct_range_review(policy, source_policy, all_events, source_event):
+    """Replay the signed source's own review under its unchanged mission."""
+    current_mission = bound_mission(dict(policy))
+    source_mission = bound_mission(dict(source_policy))
+    if current_mission is None or source_mission is None or mission_binding_identity(current_mission) != mission_binding_identity(source_mission):
+        raise SupervisionLogError("Signed direct range source belongs to another mission")
+    review = source_event["provenance_review_payload"]
+    match = re.fullmatch(r"range-source-review-(evt-[0-9]{6,})", review["record_id"])
+    if match is None:
+        raise SupervisionLogError("Signed direct range source lacks its exact semantic review")
+    evidence = clean_direct_source_review(
+        source_policy, all_events, review_id=match.group(1).upper(),
+        target=source_event["target_thread_id"], task=source_event["source_task_id"],
+        item=source_event["source_item_id"], record=source_event["source_record"],
+        source_sha256=source_event["source_sha256"],
+        source_byte_count=source_event["source_byte_count"])
+    if evidence["timestamp"] != review["observed_at"]:
+        raise SupervisionLogError("Signed direct range source review time differs")
+    return evidence
 
 
 def cmd_implementation_authority_source_review_sign(args: argparse.Namespace) -> None:
@@ -27420,11 +27525,12 @@ def cmd_implementation_authority_source_review_sign(args: argparse.Namespace) ->
     if policy.get("policy_sha256") != exact_sha256(args.expected_policy_sha256, label="expected policy SHA-256"): raise SupervisionLogError("Direct-authority source review cites a stale policy")
     target, task, turn, item, record = (safe_id(value, label=label) for value, label in ((args.target_thread, "target thread ID"), (args.source_task, "source task"), (args.source_turn, "source turn"), (args.source_item, "source item"), (args.source_record, "source record"))); source_bytes, _source_text = decode_exact_utf8_base64(args.source_text_base64, label="direct-authority source bytes", maximum_bytes=MAX_DIRECT_AUTHORITY_SOURCE_BYTES)
     source_sha256 = hashlib.sha256(source_bytes).hexdigest(); implementation_authority_source_tuple(policy, target, task, item, record, source_sha256)
-    evidence_id = safe_id(args.review_evidence_record, label="source review evidence record"); matches = [event for event in all_events if event.get("record_id") == evidence_id]; verifier = policy.get("runtime", {}).get("reviewer_thread_id")
-    required = {f"source-kind:{DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{task}", f"source-turn:{turn}", f"source-item:{item}", f"source-record:{record}", f"source-byte-count:{len(source_bytes)}", f"source-sha256:{source_sha256}", f"verifier:{verifier}", f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}; evidence = matches[0] if len(matches) == 1 else {}
-    if evidence.get("kind") != "meta-review" or evidence.get("model") != "gpt-5.6-sol" or evidence.get("reasoning") != "max" or evidence.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY or evidence.get("status") != "accepted" or evidence.get("resolution_owner") != "supervisor" or evidence.get("user_action_required") != "no" or evidence.get("policy_sha256") != policy.get("policy_sha256") or not required <= set(evidence.get("evidence", [])): raise SupervisionLogError("Source review evidence is not one current clean Max review")
-    position = all_events.index(evidence); clean = {f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none"}; stable = required - clean
-    if any(event.get("category") == DIRECT_AUTHORITY_REVIEW_CATEGORY and stable <= set(event.get("evidence", [])) and (event.get("status") != "accepted" or not clean <= set(event.get("evidence", []))) for event in all_events[position + 1:]): raise SupervisionLogError("Source review evidence has a later contradiction")
+    evidence_id = safe_id(args.review_evidence_record, label="source review evidence record")
+    verifier = policy.get("runtime", {}).get("reviewer_thread_id")
+    evidence = clean_direct_source_review(
+        policy, all_events, review_id=evidence_id, target=target, task=task,
+        item=item, record=record, source_sha256=source_sha256,
+        source_byte_count=len(source_bytes), source_turn=turn)
     value: dict[str, Any] = {"schema_version": 1, "kind": "software-factory-direct-authority-source-review", "record_id": f"range-source-review-{evidence_id.lower()}", "target_thread_id": target, "source_task_id": task, "source_item_id": item, "source_record": record, "source_sha256": source_sha256, "source_byte_count": len(source_bytes), "verifier_thread_id": verifier, "reviewer_id": ADAPTIVE_REVIEWER_ID, "review_disposition": "accepted", "finding_count": 0, "policy_sha256": policy["policy_sha256"], "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256, "observed_at": evidence["timestamp"], "review_root": "", "signature_base64": ""}; value["review_root"] = digest(direct_authority_review_root_material(value)); output = directory / f"implementation-range-authority-source-review-{evidence['record_sha256']}.json"
     with owner_append_lock(root_from(args), target, directory_snapshot) as directory_fd:
         require_bound_policy_at(directory_fd, expected_policy=policy, expected_snapshot=policy_snapshot)
@@ -27484,7 +27590,10 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
         raise SupervisionLogError(
             "Direct-authority source ingestion requires a direct-user predecessor"
         )
-    if mission_derivation.get("mode") == "derived-from-versioned-meta-charter":
+    separate_source = separate_direct_range_source(policy, target_thread, source_task, source_item, source_record)
+    if separate_source:
+        pass  # Exact signed semantic review is required before either append or replay.
+    elif mission_derivation.get("mode") == "derived-from-versioned-meta-charter":
         controlling_source = mission_derivation.get("controlling_source")
         if (
             not isinstance(controlling_source, Mapping)
@@ -27594,6 +27703,8 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
                 raise SupervisionLogError(
                     "Direct-authority source duplicate provenance differs"
                 )
+            if separate_direct_range_source(source_policy, target_thread, source_task, source_item, source_record):
+                signed_direct_range_review(policy, source_policy, current_events, stored)
             print(
                 json.dumps(
                     {"duplicate": True, "record": stored},
@@ -27611,6 +27722,13 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
             source_sha256=source_sha256,
             source_byte_count=len(source_bytes),
         )
+        if separate_source:
+            signed_direct_range_review(policy, policy, current_events, {
+                "provenance_review_payload": provenance_review,
+                "target_thread_id": target_thread, "source_task_id": source_task,
+                "source_item_id": source_item, "source_record": source_record,
+                "source_sha256": source_sha256, "source_byte_count": len(source_bytes),
+            })
         verifier = str(provenance_review["verifier_thread_id"])
         provenance_signature = base64.b64decode(
             provenance_review["signature_base64"], validate=True

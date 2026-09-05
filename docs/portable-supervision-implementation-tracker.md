@@ -396,3 +396,24 @@ through the existing semantic owner remains the exact narrow successor; it
 must preserve these original bytes, the same mission/group and accepted work.
 This is a machine admission gap, not missing human implementation permission.
 Block 2 remains in progress until the real range and terminal gates agree.
+
+### Exact direct source under the descriptive mission
+
+`EVT-000024` authorizes the existing semantic source-admission owner correction.
+The same-target `direct-user:<target>:<item>` tuple may differ from the mission's
+descriptive source record only with an exact signed canonical Max review. That
+review binds the original task, turn, item, record, byte count and hash, current
+mission root and policy, full-tracker classification and no findings. Ingestion
+and retained authority replay resolve that same review; unsigned events, later
+contradictions and changed mission identities are rejected. The generic request
+grammar and mission identity are unchanged. Twelve affected checks pass, including
+the exact 251-byte source through sign, ingest, receipt and full three-Block bind,
+negative provenance/currentness cases, and existing direct/delegated paths.
+Independent exact-revision review and retained installation remain pending.
+
+The live signing prerequisite is separately unresolved: installed reviewer key
+paths and the pinned OpenSSL executable refer to unavailable laptop locations.
+The existing Max role is tracing the maintained authority owner using metadata
+only. This does not authorize replacement keys, altered trust pins, or a false
+completion receipt. Continue the semantic correction and resolve the signing
+dependency within the current PORTABLE mission before live terminal closure.
