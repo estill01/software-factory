@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import signal
 import sqlite3
 import subprocess
@@ -27,6 +28,111 @@ from gcp_supervision_roles import role_resume_arguments
 DEFAULT_CONFIG = "/srv/patent-studio/private/gcp-supervision/config.json"
 TERMINAL_DELIVERY = {"started", "acknowledged"}
 ROLE_ACCESS_ERROR = "bound role helper access was not restored"
+
+
+def verify_native_tracker_review_origin(policy, event, all_events, *, owner_directory):
+    """Read reviewer authorship from the existing native transport owner.
+
+    A self-hashed helper record alone is not reviewer provenance. Require its
+    creation receipt from an actual command executed in the configured reviewer
+    task after that task received the exact subject through its native owner.
+    This function does not instantiate Runtime or mutate its delivery database.
+    """
+    def token(prefix):
+        matches = [item[len(prefix):] for item in event.get("evidence", []) if item.startswith(prefix)]
+        if len(matches) != 1 or not matches[0]:
+            raise ValueError("native review origin lacks one exact " + prefix)
+        return matches[0]
+
+    target = policy["target_thread_id"]
+    reviewer = token("reviewer-id:")
+    delivery_id, turn_id = token("native-delivery:"), token("native-turn:")
+    role_name = "base_reviewer" if reviewer == policy["runtime"].get("base_reviewer_thread_id") else "reviewer"
+    if reviewer != policy["runtime"].get(role_name + "_thread_id") or reviewer == target:
+        raise ValueError("native review origin reviewer differs")
+    if owner_directory is None:
+        raise ValueError("native review origin requires canonical owner context")
+    owner_directory = Path(owner_directory)
+    if owner_directory.resolve(strict=True) != owner_directory or owner_directory.name != target:
+        raise ValueError("native review origin canonical owner differs")
+    config_path = owner_directory.parent.parent / "config.json"
+    if config_path.resolve(strict=True) != config_path:
+        raise ValueError("native review origin config is not the existing owner")
+    config = json.loads(config_path.read_text())
+    if (config.get("target_thread_id") != target or config["roles"][role_name]["thread_id"] != reviewer
+            or config.get("supervision_root") != str(owner_directory.parent)
+            or config.get("state_root") != str(config_path.parent)):
+        raise ValueError("native review origin owner binding differs")
+    db_path = Path(config["state_root"]) / "runtime.sqlite3"
+    if db_path.resolve(strict=True) != db_path or not db_path.is_file():
+        raise ValueError("native review origin database is not the existing owner")
+    with contextlib.closing(sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        row = db.execute("SELECT * FROM deliveries WHERE id=?", (delivery_id,)).fetchone()
+    if (row is None or row["state"] != "acknowledged" or row["recipient"] != reviewer
+            or row["turn_id"] != turn_id or digest(row["message"]) != row["message_sha256"]):
+        raise ValueError("native review origin lacks the acknowledged reviewer delivery")
+    source = next((item for item in all_events if item.get("record_id") == row["source"]), None)
+    if (source is None or source.get("target_thread_id") != target
+            or source.get("policy_sha256") != event.get("policy_sha256")
+            or all_events.index(source) >= all_events.index(event)):
+        raise ValueError("native review origin source is stale or mismatched")
+    for binding in ("review-subject:" + token("review-subject:"),
+                    "mission-root:" + token("mission-root:"),
+                    "policy-sha256:" + event["policy_sha256"]):
+        if binding not in row["message"]:
+            raise ValueError("native review delivery does not bind the exact subject context")
+    with CodexClient(config["socket_path"], timeout=20) as client:
+        observed = client.compact(reviewer)
+        if observed.get("id") != reviewer:
+            raise ValueError("native review origin returned a different reviewer")
+        # Exact-turn reads avoid replaying an ever-growing reviewer history.
+        response = client.call("thread/items/list", {
+            "threadId": reviewer, "turnId": turn_id, "limit": 200, "sortDirection": "asc",
+        })
+    if response.get("nextCursor") is not None:
+        raise ValueError("native reviewer turn exceeds the bounded origin read")
+    rows = response.get("data", [])
+    if any(item.get("turnId") != turn_id for item in rows):
+        raise ValueError("native review origin returned a different turn")
+    items = [item["item"] for item in rows]
+    expected_message = Runtime.marker(delivery_id) + "\n" + row["message"]
+    received = [index for index, item in enumerate(items) if item.get("type") == "userMessage"
+                and item.get("clientId") == delivery_id
+                and "\n".join(part.get("text", "") for part in item.get("content", []) if part.get("type") == "text") == expected_message]
+    if len(received) != 1:
+        raise ValueError("native review origin lacks the exact receiving user item")
+    matches = []
+    for item in items[received[0] + 1:]:
+        if (item.get("type") != "commandExecution" or item.get("status") != "completed"
+                or item.get("exitCode") != 0 or item.get("source") not in {"agent", "unifiedExecStartup"}):
+            continue
+        try:
+            argv = shlex.split(item.get("command", ""))
+            command = item.get("command", "")
+            if len(argv) == 3 and argv[:2] in (["/usr/bin/bash", "-lc"], ["/bin/bash", "-lc"], ["/bin/zsh", "-lc"]):
+                command = argv[2]
+            if any(char in command for char in ("$", "`", "\n")):
+                continue
+            lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+            lexer.whitespace_split = True
+            argv = list(lexer)
+            if any(arg and set(arg) <= set(";&|<>()") for arg in argv):
+                continue
+            prefix = [config["native_cli"], "--config", str(config_path), "helper", "--", "record"]
+            if (not argv or not Path(argv[0]).is_absolute()
+                    or Path(argv[0]).resolve(strict=True) != Path(sys.executable).resolve(strict=True)
+                    or argv[1:len(prefix) + 1] != prefix):
+                continue
+            output = json.loads(item.get("aggregatedOutput", ""))
+            if output.get("duplicate") is False and output.get("record") == event:
+                matches.append(item["id"])
+        except (ValueError, TypeError):
+            continue
+    if len(matches) != 1:
+        raise ValueError("native review was not created by the configured reviewer helper command")
+    return {"reviewer_thread_id": reviewer, "delivery_id": delivery_id,
+            "turn_id": turn_id, "item_id": matches[0], "record_sha256": event["record_sha256"]}
 
 
 def canonical(value):

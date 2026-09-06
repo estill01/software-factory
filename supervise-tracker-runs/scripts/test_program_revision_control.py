@@ -8,10 +8,13 @@ import importlib.util
 import io
 import json
 import re
+import shlex
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -25,15 +28,21 @@ support = importlib.util.module_from_spec(SUPPORT_SPEC)
 SUPPORT_SPEC.loader.exec_module(support)
 supervision_log = support.supervision_log
 program_revision = supervision_log.program_revision_module()
+SOURCE_REPOSITORY_ROOT = supervision_log.software_factory_source_repository_root
 
 
 class ProgramRevisionControlTests(unittest.TestCase):
+    local_reviews = False
+
     def setUp(self) -> None:
         self.fixture = support.AdaptiveDecisionPolicyTests(
             methodName="test_modes_preserve_application_and_review_boundaries"
         )
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
+        if self.local_reviews:
+            self.fixture.root = self.fixture.root / "supervision"
+            self.fixture.root.mkdir()
         self.write_tracker(
             self.fixture.tracker_path,
             [
@@ -87,13 +96,6 @@ class ProgramRevisionControlTests(unittest.TestCase):
             check=True,
         )
         self.refresh_fixture_revision()
-        self.profile_review = self.signed_profile_review(
-            source_revision=self.software_factory_source_revision,
-            source_root=software_factory_source_sha256,
-        )
-        self.profile_review_path = self.fixture.write_json(
-            "tracker-authoring-profile-review.json", self.profile_review
-        )
         self.policy = self.fixture.init()
         directory = self.fixture.root / self.fixture.target
         self.policy["permissions"]["repository_write"] = True
@@ -104,15 +106,28 @@ class ProgramRevisionControlTests(unittest.TestCase):
             reason="Exercise the already authorized target repository owner.",
             evidence_values=["test-direct-repository-write-authority"],
         )
+        if self.local_reviews:
+            self.install_native_review_fixture()
+            for accessor in ("trusted_adaptive_reviewer_key", "trusted_adaptive_reviewer_private_key"):
+                guard = mock.patch.object(supervision_log, accessor, side_effect=AssertionError("local tracker path touched signer"))
+                guard.start()
+                self.addCleanup(guard.stop)
+            self.fixture.sign_outer_review = lambda value: self.local_review(value, "adaptive")
+        self.profile_review = self.signed_profile_review(
+            source_revision=self.software_factory_source_revision,
+            source_root=software_factory_source_sha256,
+        )
+        self.profile_review_path = self.fixture.write_json(
+            "tracker-authoring-profile-review.json", self.profile_review
+        )
         self.policy = self.fixture.adjust(
             "--program-revision-authoring-thread",
             self.fixture.target,
             "--program-revision-authoring-profile-review",
             str(self.profile_review_path),
         )
-        self.policy = self.fixture.adjust(
-            "--adaptive-target-class", "software-factory"
-        )
+        if not self.local_reviews:
+            self.policy = self.fixture.adjust("--adaptive-target-class", "software-factory")
         self.proposal = self.fixture.root / "proposal.md"
         self.write_tracker(
             self.proposal,
@@ -133,7 +148,9 @@ class ProgramRevisionControlTests(unittest.TestCase):
             affected=[7, 8],
             resume=7,
         )
-        self.decision_evidence = self.structural_decision_evidence()
+        self.decision_evidence = self.structural_decision_evidence(
+            target_class="target-repository" if self.local_reviews else "software-factory"
+        )
         pending = self.fixture.run_gate(
             self.fixture.gate_args(self.decision_evidence)
         )["record"]
@@ -148,6 +165,99 @@ class ProgramRevisionControlTests(unittest.TestCase):
         )["record"]
         self.packet = self.build_packet()
         self.packet_path = self.fixture.write_json("program-revision.json", self.packet)
+
+    def install_native_review_fixture(self):
+        import gcp_supervision
+        self.native_rows = {}
+        self.native_config = self.fixture.root.parent / "config.json"
+        self.native_cli = str(Path(gcp_supervision.__file__).resolve())
+        self.native_config.write_text(json.dumps({
+            "target_thread_id": self.fixture.target, "state_root": str(self.fixture.root.parent),
+            "supervision_root": str(self.fixture.root),
+            "socket_path": "/test-native-socket", "native_cli": self.native_cli,
+            "roles": {role: {"thread_id": self.policy["runtime"][role + "_thread_id"]}
+                      for role in ("base_reviewer", "reviewer")},
+        }))
+        with closing(sqlite3.connect(self.fixture.root.parent / "runtime.sqlite3", isolation_level=None)) as db:
+            db.execute("CREATE TABLE deliveries (id TEXT PRIMARY KEY, recipient TEXT, message TEXT, message_sha256 TEXT, source TEXT, state TEXT, turn_id TEXT)")
+        rows = self.native_rows
+
+        class Client:
+            def __init__(self, *args, **kwargs): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def compact(self, task): return {"id": task}
+            def call(self, method, params):
+                if method != "thread/items/list": raise AssertionError(method)
+                return copy.deepcopy(rows.get((params["threadId"], params["turnId"]), {"data": [], "nextCursor": None}))
+
+        for patch in (
+            mock.patch.object(gcp_supervision, "CodexClient", Client),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def local_review(self, value, stage, *, reviewer=None):
+        value = copy.deepcopy(value)
+        directory = self.fixture.root / self.fixture.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        mission = supervision_log.bound_mission(policy)
+        value.update(kind=supervision_log.LOCAL_TRACKER_REVIEW_KINDS[stage],
+                     authority_key_sha256=None, signature_base64=None,
+                     canonical_review={"record_id": "pending", "record_sha256": "0" * 64,
+                                       "native_delivery_id": "pending", "native_turn_id": "pending"})
+        value["reviewer_id"] = reviewer or policy["runtime"][
+            "base_reviewer_thread_id" if stage == "program" else "reviewer_thread_id"]
+        if stage == "profile":
+            value.update(profile_source_repository_root=str(self.software_factory_source_root),
+                         policy_sha256=policy["policy_sha256"],
+                         mission_root=mission["mission_root"], target_thread_id=self.fixture.target)
+        value["review_root"] = supervision_log.digest(
+            supervision_log.tracker_authoring_profile_review_root_material(value))
+        proof = value["canonical_review"]
+        proof.update(native_delivery_id="delivery-" + value["review_root"], native_turn_id="turn-" + value["review_root"])
+        evidence = supervision_log.local_tracker_review_evidence(value, stage, mission["mission_root"])
+        retained = supervision_log.events(directory / "events.jsonl")
+        found = next((item for item in reversed(retained) if item.get("category") == f"local-tracker-{stage}-review"
+                      and item.get("evidence") == evidence), None)
+        if found is None:
+            if not retained or retained[-1].get("policy_sha256") != policy["policy_sha256"]:
+                supervision_log.append_raw(directory / "events.jsonl", {
+                    "schema_version": 1, "record_id": f"EVT-{len(retained) + 1:06d}",
+                    "timestamp": supervision_log.utc_now(), "target_thread_id": self.fixture.target,
+                    "kind": "check", "policy_sha256": policy["policy_sha256"], "evidence": ["review-request"],
+                })
+                retained = supervision_log.events(directory / "events.jsonl")
+            source = retained[-1]
+            is_base = value["reviewer_id"] == policy["runtime"]["base_reviewer_thread_id"]
+            supervision_log.append_raw(directory / "events.jsonl", {
+                "schema_version": 1, "record_id": f"EVT-{len(retained) + 1:06d}",
+                "timestamp": supervision_log.utc_now(), "target_thread_id": self.fixture.target,
+                "kind": "checkpoint-review" if is_base else "meta-review",
+                "category": f"local-tracker-{stage}-review", "model": "gpt-5.6-sol",
+                "reasoning": "xhigh" if is_base else "max", "resolution_owner": "supervisor",
+                "user_action_required": "no", "policy_sha256": policy["policy_sha256"],
+                "status": value.get("review_disposition") if stage == "adaptive" else value["disposition"],
+                "evidence": evidence,
+            })
+            found = supervision_log.events(directory / "events.jsonl")[-1]
+            message = "\n".join([evidence[1], evidence[2], "policy-sha256:" + policy["policy_sha256"]])
+            with closing(sqlite3.connect(self.fixture.root.parent / "runtime.sqlite3", isolation_level=None)) as db:
+                db.execute("INSERT INTO deliveries VALUES (?,?,?,?,?,?,?)", (
+                    proof["native_delivery_id"], value["reviewer_id"], message,
+                    hashlib.sha256(message.encode()).hexdigest(), source["record_id"], "acknowledged", proof["native_turn_id"],
+                ))
+            argv = [sys.executable, self.native_cli, "--config", str(self.native_config), "helper", "--", "record",
+                    "--target-thread", self.fixture.target, "--kind", found["kind"]]
+            self.native_rows[(value["reviewer_id"], proof["native_turn_id"])] = {"nextCursor": None, "data": [
+                {"turnId": proof["native_turn_id"], "item": {"type": "userMessage", "id": "user-item", "clientId": proof["native_delivery_id"],
+                    "content": [{"type": "text", "text": f"[gcp-supervision-delivery:{proof['native_delivery_id']}]\n{message}"}]}},
+                {"turnId": proof["native_turn_id"], "item": {"type": "commandExecution", "id": "exec-review-record", "source": "unifiedExecStartup",
+                    "status": "completed", "exitCode": 0, "command": shlex.join(["/usr/bin/bash", "-lc", shlex.join(argv)]),
+                    "aggregatedOutput": json.dumps({"duplicate": False, "record": found})}},
+            ]}
+        value["canonical_review"].update({field: found[field] for field in ("record_id", "record_sha256")})
+        return value
 
     def create_profile_source_repository(
         self, name: str, profile_text: str
@@ -287,6 +397,8 @@ class ProgramRevisionControlTests(unittest.TestCase):
             "review_root": "",
             "signature_base64": "",
         }
+        if self.local_reviews:
+            return self.local_review(value, "profile")
         value["review_root"] = supervision_log.digest(
             supervision_log.tracker_authoring_profile_review_root_material(value)
         )
@@ -627,6 +739,8 @@ Stop before the next Block mutation.
             "review_root": "",
             "signature_base64": "",
         }
+        if self.local_reviews:
+            return self.local_review(value, "program")
         value["review_root"] = program_revision.digest(
             program_revision.review_root_material(value)
         )
@@ -1482,6 +1596,138 @@ Stop before the next Block mutation.
         )
         self.assertFalse(amended["contraction"])
         self.assertEqual(amended["binding"]["explicit_blocks"], [7, 8])
+
+
+class LocalProgramRevisionControlTests(unittest.TestCase):
+    def setUp(self):
+        self.case = ProgramRevisionControlTests("test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block")
+        self.case.local_reviews = True
+        self.case.setUp()
+        self.addCleanup(self.case.doCleanups)
+
+    def test_native_review_chain_preserves_full_range_without_signer(self):
+        self.case.test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block()
+        case = self.case
+        args = supervision_log.parser().parse_args([
+            "--root", str(case.fixture.root), "implementation-range-gate",
+            "--target-thread", case.fixture.target, "--response-kind", "block-boundary",
+        ])
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_implementation_range_gate(args)
+        gate = json.loads(output.getvalue())
+        self.assertTrue(gate["range_binding_current"])
+        self.assertFalse(gate["final_response_permitted"])
+
+    def validate_review(self, review, *, policy=None, packet=None):
+        case = self.case
+        directory = case.fixture.root / case.fixture.target
+        return supervision_log.validate_program_revision_review(
+            review, packet=packet or case.packet, policy=policy or case.policy,
+            all_events=supervision_log.events(directory / "events.jsonl"), owner_directory=directory,
+        )
+
+    def test_target_authored_qualifying_record_has_no_reviewer_origin(self):
+        case = self.case
+        review = case.signed_program_review()
+        directory = case.fixture.root / case.fixture.target
+        original = supervision_log.events(directory / "events.jsonl")[-1]
+        forged = {key: value for key, value in original.items() if key not in {"record_id", "record_sha256", "previous_record_sha256"}}
+        forged["record_id"] = f"EVT-{len(supervision_log.events(directory / 'events.jsonl')) + 1:06d}"
+        # This is exactly the syntactically qualifying record the target can
+        # write. Its native creation output belongs to no reviewer task.
+        supervision_log.append_raw(directory / "events.jsonl", forged)
+        retained = supervision_log.events(directory / "events.jsonl")[-1]
+        review["canonical_review"].update({key: retained[key] for key in ("record_id", "record_sha256")})
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "native origin failed"):
+            self.validate_review(review)
+        # Nor may an unverified later label become a semantic supersession.
+        review["canonical_review"].update({key: original[key] for key in ("record_id", "record_sha256")})
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "native origin failed"):
+            self.validate_review(review)
+
+    def test_native_origin_rejects_wrong_turn_recipient_echo_and_shell_expansion(self):
+        case = self.case
+        review = case.signed_program_review()
+        key = (review["reviewer_id"], review["canonical_review"]["native_turn_id"])
+        original = copy.deepcopy(case.native_rows[key])
+        mutations = {
+            "wrong-turn": lambda rows: rows[1].update(turnId="other-turn"),
+            "wrong-client": lambda rows: rows[0]["item"].update(clientId="other-delivery"),
+            "wrong-message": lambda rows: rows[0]["item"].update(content=[{"type": "text", "text": "forged marker only"}]),
+            "wrong-order": lambda rows: rows.reverse(),
+            "echo": lambda rows: rows[1]["item"].update(command="/usr/bin/echo '{}'"),
+            "duplicate": lambda rows: rows[1]["item"].update(aggregatedOutput=json.dumps({"duplicate": True, "record": json.loads(rows[1]["item"]["aggregatedOutput"])["record"]})),
+            "incomplete-command": lambda rows: rows[1]["item"].update(status="inProgress"),
+            "wrong-source": lambda rows: rows[1]["item"].update(source="userShell"),
+            "wrong-output": lambda rows: rows[1]["item"].update(aggregatedOutput="{}"),
+            "unwrapped-substitution": lambda rows: rows[1]["item"].update(command=shlex.split(rows[1]["item"]["command"])[2] + " $(echo forged)"),
+            "unwrapped-operator": lambda rows: rows[1]["item"].update(command=shlex.split(rows[1]["item"]["command"])[2] + ";echo forged"),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                case.native_rows[key] = copy.deepcopy(original)
+                mutate(case.native_rows[key]["data"])
+                with self.assertRaisesRegex(supervision_log.SupervisionLogError, "native origin failed"):
+                    self.validate_review(review)
+        case.native_rows[key] = original
+        self.validate_review(review)
+        with closing(sqlite3.connect(case.fixture.root.parent / "runtime.sqlite3", isolation_level=None)) as db:
+            for field, value in (("recipient", case.fixture.target), ("turn_id", "other-turn"), ("state", "prepared"), ("message_sha256", "0" * 64), ("source", "missing-source")):
+                with self.subTest(field=field):
+                    old = db.execute(f"SELECT {field} FROM deliveries WHERE id=?", (review["canonical_review"]["native_delivery_id"],)).fetchone()[0]
+                    db.execute(f"UPDATE deliveries SET {field}=? WHERE id=?", (value, review["canonical_review"]["native_delivery_id"]))
+                    with self.assertRaisesRegex(supervision_log.SupervisionLogError, "native origin failed"):
+                        self.validate_review(review)
+                    db.execute(f"UPDATE deliveries SET {field}=? WHERE id=?", (old, review["canonical_review"]["native_delivery_id"]))
+
+    def test_review_context_and_profile_location_fail_closed(self):
+        case = self.case
+        review = case.signed_program_review()
+        for field, value in (("policy_sha256", "0" * 64), ("target_thread_id", "other-target")):
+            policy = copy.deepcopy(case.policy)
+            policy[field] = value
+            with self.subTest(field=field), self.assertRaises(supervision_log.SupervisionLogError):
+                self.validate_review(review, policy=policy)
+        for field in ("mission_root", "packet_root", "accepted_history_root", "proposed_tracker_sha256"):
+            packet = copy.deepcopy(case.packet)
+            packet[field] = "0" * 64
+            with self.subTest(field=field), self.assertRaises(supervision_log.SupervisionLogError):
+                self.validate_review(review, packet=packet)
+        packet = {**case.packet, "target_class": "software-factory"}
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "release authority"):
+            self.validate_review(review, packet=packet)
+        with mock.patch.object(supervision_log, "software_factory_source_repository_root", SOURCE_REPOSITORY_ROOT):
+            source = supervision_log.tracker_authoring_profile_source(repository_root=str(case.software_factory_source_root), source_revision=case.software_factory_source_revision)
+            self.assertEqual(source["profile_source_root"], case.profile_review["profile_source_root"])
+            self.assertEqual(source["profile_source_repository_root"], str(case.software_factory_source_root))
+            link = case.fixture.root / "source-link"
+            link.symlink_to(case.software_factory_source_root, target_is_directory=True)
+            for path in (link, case.fixture.root / "unavailable", case.software_factory_source_root / "docs"):
+                with self.subTest(path=path), self.assertRaises(supervision_log.SupervisionLogError):
+                    supervision_log.tracker_authoring_profile_source(repository_root=str(path), source_revision=case.software_factory_source_revision)
+
+    def test_historical_policy_can_load_during_native_outage_but_current_admission_cannot(self):
+        import gcp_supervision
+        case = self.case
+        args = supervision_log.parser().parse_args(["--root", str(case.fixture.root), "status", "--target-thread", case.fixture.target])
+        with mock.patch.object(gcp_supervision, "CodexClient", side_effect=RuntimeError("native owner unavailable")):
+            directory, policy = supervision_log.load_policy(args)
+            self.assertEqual(policy["policy_sha256"], case.policy["policy_sha256"])
+            with self.assertRaisesRegex(supervision_log.SupervisionLogError, "not current:.*native owner unavailable"):
+                supervision_log.require_current_local_tracker_reviews(directory, policy, supervision_log.events(directory / "events.jsonl"))
+
+    def test_genuine_later_max_rejection_blocks_application_without_breaking_history(self):
+        case = self.case
+        accepted = case.record_program_revision()["record"]
+        rejected = copy.deepcopy(accepted["review_payload"])
+        rejected.update(disposition="rejected", finding_refs=["EXACT-NEW-FINDING"])
+        case.local_review(rejected, "program", reviewer=case.policy["runtime"]["reviewer_thread_id"])
+        application = case.apply_proposal()
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "superseded"):
+            case.range_amend(accepted["record_id"], application)
+        args = supervision_log.parser().parse_args(["--root", str(case.fixture.root), "status", "--target-thread", case.fixture.target])
+        supervision_log.load_policy(args)
 
 
 if __name__ == "__main__":

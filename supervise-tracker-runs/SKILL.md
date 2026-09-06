@@ -588,6 +588,41 @@ policy-write boundary, then resume the derived dependency-safe Block without a
 user scheduling step. An identical retry returns that same resume state. Do not
 use this path for status-only or local corrections.
 
+For an ordinary target-repository tracker amendment, these same owners also
+accept native local review envelopes. This path requires the existing bound
+range and distinct configured reviewers; it conveys no Software Factory release
+authority. The signed envelopes and their key pins remain unchanged.
+
+- A reviewed profile can include `profile_source_repository_root` to identify
+  the exact maintained checkout on either host. The helper checks its canonical
+  Git root, exact ancestor revision, regular source blob, and content hash. An
+  unavailable explicit location fails closed; it never selects another checkout.
+- The local kinds are `local-tracker-authoring-profile-review`,
+  `local-tracker-adaptive-independent-review`, and
+  `local-tracker-program-revision-independent-review`. Their signature and key
+  fields are null. The first two use the configured Max reviewer; the final
+  packet uses the configured base reviewer. All existing packet, findings,
+  accepted-history, role-separation, and application checks still apply.
+- `canonical_review` binds `record_id`, `record_sha256`, `native_delivery_id`,
+  and `native_turn_id`. The profile envelope also binds target, mission, and
+  source policy. Its payload digest excludes the canonical reference to avoid
+  a circular record hash. `local_tracker_review_evidence` derives the exact
+  subject, payload, verdict, findings, reviewer, mission, delivery, and turn
+  evidence tokens for the ordinary `record` command.
+- Route the exact subject through the existing native `send` owner. The request
+  includes `review-subject`, `mission-root`, and `policy-sha256` tokens. The
+  receiving reviewer performs the review and writes one `meta-review` or
+  `checkpoint-review` with category `local-tracker-<profile|adaptive|program>-review`.
+  A subsequent consuming command requires an acknowledged matching delivery,
+  the exact native user item, and the completed maintained helper invocation
+  that created the exact canonical record with `duplicate=false`. Target-written
+  records, caller labels, record echoes, shell expansions, and substituted
+  recipients or turns cannot supply reviewer origin.
+- Historical owner bindings remain readable for repair during a transport
+  outage. Current admission, application, range, and control gates recheck
+  native origin and authentic later subject reviews. An unavailable origin is
+  unresolved evidence; it does not establish an accepted or rejected review.
+
 Adaptive mode never grants repository, command, credential, spend, destructive,
 Gmail, deployment, release, promotion, or skill-maintenance permission. A
 candidate still requires one lane, exact ceilings, focused-before-mapped proof,

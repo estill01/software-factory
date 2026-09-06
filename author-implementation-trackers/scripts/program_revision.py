@@ -1207,15 +1207,16 @@ def validate_stored_packet(value: Any) -> dict[str, Any]:
 
 
 def review_root_material(value: Mapping[str, Any]) -> dict[str, Any]:
-    return {key: value[key] for key in value if key not in {"review_root", "signature_base64"}}
+    return {key: value[key] for key in value if key not in {"review_root", "signature_base64", "canonical_review"}}
 
 
 def validate_review_shape(
     value: Any,
     *,
     packet: Mapping[str, Any],
-    authority_key_sha256: str,
+    authority_key_sha256: str | None,
 ) -> dict[str, Any]:
+    local = isinstance(value, Mapping) and value.get("kind") == "local-tracker-program-revision-independent-review"
     expected = {
         "schema_version",
         "kind",
@@ -1251,12 +1252,16 @@ def validate_review_shape(
         "review_root",
         "signature_base64",
     }
+    if local:
+        expected |= {"canonical_review"}
     if not isinstance(value, Mapping) or set(value) != expected:
         raise ProgramRevisionError("Program revision review shape differs")
     if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
         raise ProgramRevisionError("Program revision review version differs")
-    if value.get("kind") != "software-factory-program-revision-independent-review":
+    if not local and value.get("kind") != "software-factory-program-revision-independent-review":
         raise ProgramRevisionError("Program revision review kind differs")
+    if local and (authority_key_sha256 is not None or packet.get("target_class") != "target-repository"):
+        raise ProgramRevisionError("Local program review cannot convey release authority")
     exact = {
         "revision_id": packet["revision_id"],
         "predecessor_revision_id": packet["predecessor_revision_id"],
@@ -1298,7 +1303,13 @@ def validate_review_shape(
     exact_string_list(value.get("finding_refs"), label="program revision findings", allow_empty=True)
     exact_sha256(value.get("evidence_root"), label="program revision review evidence root")
     exact_sha256(value.get("review_root"), label="program revision review root")
-    if type(value.get("signature_base64")) is not str or not value["signature_base64"]:
+    if local:
+        if value.get("signature_base64") is not None:
+            raise ProgramRevisionError("Local program review cannot claim a signature")
+        proof = value.get("canonical_review")
+        if not isinstance(proof, Mapping) or set(proof) != {"record_id", "record_sha256", "native_delivery_id", "native_turn_id"}:
+            raise ProgramRevisionError("Local program review canonical reference differs")
+    elif type(value.get("signature_base64")) is not str or not value["signature_base64"]:
         raise ProgramRevisionError("Program revision review signature is absent")
     if value["review_root"] != digest(review_root_material(value)):
         raise ProgramRevisionError("Program revision review root differs")

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import copy
 import datetime as dt
 import difflib
 import fcntl
@@ -2043,6 +2044,7 @@ def validate_policy(
         validate_tracker_authoring_profile_binding(
             authoring_profile,
             runtime=policy.get("runtime", {}),
+            shape_only=True,
         )
     economy = policy.get("execution_economy")
     if economy is not None and canonical(economy) not in {
@@ -3499,6 +3501,7 @@ def range_policy_requires_history(policy: Mapping[str, Any]) -> bool:
     return bool(
         policy.get("implementation_range") is not None
         or policy.get("direct_authority_receipts")
+        or (policy.get("program_revision_authoring_profile") or {}).get("profile_acceptance", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["profile"]
     )
 
 
@@ -3584,6 +3587,7 @@ def validate_range_policy_history_at(
             all_events,
             allow_missing=False,
         )
+    validate_local_tracker_profile_history(policy, all_events=all_events, policy_history=history, owner_directory=directory_path_from_fd(directory_fd))
     if policy.get("direct_authority_receipts") or policy.get("implementation_range"):
         validate_event_ledger_anchor_at(
             directory_fd,
@@ -3600,6 +3604,7 @@ def validate_range_policy_history_at(
             policy,
             all_events=all_events,
             policy_history=history,
+            owner_directory=directory_path_from_fd(directory_fd),
         )
 
 
@@ -11346,7 +11351,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
                         all_events,
                         event_record_id=str(latest["amendment_event_record_id"]),
                         policy=policy,
-                        policy_history=policy_history,
+                        policy_history=policy_history, owner_directory=directory,
                     )
                     if historical_event.get("kind") == PROGRAM_REVISION_EVENT_KIND:
                         validate_program_revision_application_commit(
@@ -11398,7 +11403,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
             all_events,
             event_record_id=event_record_id,
             policy=policy,
-            policy_history=policy_history,
+            policy_history=policy_history, owner_directory=directory,
         )
         comparisons = {
             "old_tracker_path": contract["tracker_path"],
@@ -15109,9 +15114,11 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
                 print(json.dumps(result, sort_keys=True))
                 return
     try:
+        require_current_local_tracker_reviews(directory, policy, owner_events)
         state = implementation_range_state(policy)
     except SupervisionLogError as exc:
         repairable_noncurrent_messages = (
+            "Local tracker review is not current:",
             "Implementation tracker changed without an accepted range amendment",
             "Implementation tracker structure changed without an accepted amendment",
             "Bound explicit Blocks require an exact accepted renumbering map",
@@ -16836,6 +16843,10 @@ def reduce_control_posture(
         owner_event_snapshot=owner_event_snapshot,
         owner_directory_snapshot=owner_directory_snapshot,
     )
+    try:
+        require_current_local_tracker_reviews(directory, policy, owner_events)
+    except SupervisionLogError as exc:
+        issues.append({"kind": "tracker-review-not-current", "target_thread_id": policy["target_thread_id"], "reason": str(exc)})
     mission = bound_mission(policy)
     owner_target = str(policy.get("target_thread_id") or directory.name)
     identities = {
@@ -19298,6 +19309,8 @@ def _adaptive_decision_posture(
     packet: Mapping[str, Any],
     *,
     active_candidate_fingerprints: Sequence[str],
+    all_events: Sequence[Mapping[str, Any]] | None = None,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
     expected_packet_fields = {
         "decision_evidence",
@@ -19462,7 +19475,7 @@ def _adaptive_decision_posture(
             "implementation_owner_id": evidence["implementation_owner_id"],
         }
         review = validate_external_adaptive_review(
-            review, source=review_source, policy=policy
+            review, source=review_source, policy=policy, all_events=all_events, owner_directory=owner_directory,
         )
         if (
             review["decision_id"] != decision_id
@@ -19739,7 +19752,7 @@ def adaptive_decision_posture(
 
 
 def adaptive_status_projection(
-    policy: Mapping[str, Any], all_events: Sequence[Mapping[str, Any]]
+    policy: Mapping[str, Any], all_events: Sequence[Mapping[str, Any]], *, owner_directory: Path | None = None
 ) -> dict[str, Any]:
     configured = policy.get("adaptive_decision_control")
     legacy = configured is None
@@ -19794,7 +19807,7 @@ def adaptive_status_projection(
             all_events,
             str(item.get("record_id", "")),
             policy=policy,
-            require_current_policy=False,
+            require_current_policy=False, current=False, owner_directory=owner_directory,
         )
     adaptive_human_request_count = sum(
         int(item.get("human_request_count", 0)) for item in decision_events
@@ -19850,7 +19863,7 @@ def adaptive_external_review_root_material(value: Mapping[str, Any]) -> dict[str
     return {
         key: item
         for key, item in value.items()
-        if key not in {"review_root", "signature_base64"}
+        if key not in {"review_root", "signature_base64", "canonical_review"}
     }
 
 
@@ -20105,8 +20118,12 @@ def verify_adaptive_evaluation_signature(value: Mapping[str, Any]) -> None:
 
 
 def validate_external_adaptive_review(
-    value: Any, *, source: Mapping[str, Any], policy: Mapping[str, Any]
+    value: Any, *, source: Mapping[str, Any], policy: Mapping[str, Any],
+    all_events: Sequence[Mapping[str, Any]] | None = None,
+    current: bool = True,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
+    local = isinstance(value, Mapping) and value.get("kind") == LOCAL_TRACKER_REVIEW_KINDS["adaptive"]
     expected = {
         "schema_version",
         "kind",
@@ -20138,11 +20155,13 @@ def validate_external_adaptive_review(
         "review_root",
         "signature_base64",
     }
+    if local:
+        expected |= {"canonical_review"}
     if not isinstance(value, Mapping) or set(value) != expected:
         raise SupervisionLogError("External adaptive review shape differs")
     if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
         raise SupervisionLogError("External adaptive review version differs")
-    if value.get("kind") != "software-factory-adaptive-independent-review":
+    if not local and value.get("kind") != "software-factory-adaptive-independent-review":
         raise SupervisionLogError("External adaptive review kind differs")
     for field in ("record_id", "source_decision_record", "decision_id"):
         if type(value.get(field)) is not str:
@@ -20158,6 +20177,8 @@ def validate_external_adaptive_review(
         "authority_key_sha256",
         "review_root",
     ):
+        if local and field == "authority_key_sha256":
+            continue
         if type(value.get(field)) is not str:
             raise SupervisionLogError(f"External adaptive review {field} must be a string")
         exact_sha256(str(value[field]), label=f"external adaptive review {field}")
@@ -20194,7 +20215,7 @@ def validate_external_adaptive_review(
             if type(item) is not str:
                 raise SupervisionLogError(f"External adaptive review {field} must be a string")
             safe_id(item, label=f"external adaptive review {field}")
-    if value.get("reviewer_id") != ADAPTIVE_REVIEWER_ID:
+    if not local and value.get("reviewer_id") != ADAPTIVE_REVIEWER_ID:
         raise SupervisionLogError("External adaptive review authority differs")
     if value.get("review_disposition") not in {"accepted", "rejected", "inconclusive"}:
         raise SupervisionLogError("External adaptive review disposition differs")
@@ -20215,7 +20236,7 @@ def validate_external_adaptive_review(
         "proposer_author_id": source.get("proposer_author_id"),
         "implementation_owner_id": source.get("implementation_owner_id"),
         "policy_sha256": policy.get("policy_sha256"),
-        "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+        "authority_key_sha256": None if local else ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
     }
     if any(value.get(key) != item for key, item in exact_identity.items()):
         raise SupervisionLogError("External adaptive review does not bind the source decision")
@@ -20254,7 +20275,20 @@ def validate_external_adaptive_review(
         verify_adaptive_evaluation_signature(value)
     if value["review_root"] != digest(adaptive_external_review_root_material(value)):
         raise SupervisionLogError("External adaptive review root differs")
-    verify_adaptive_review_signature(value)
+    if local:
+        if (
+            all_events is None or source.get("target_class") != "target-repository"
+            or source.get("disposition") != "amend-structure"
+            or source.get("effect_class") != "tracker-amendment"
+            or source.get("implementation_owner_id") != policy.get("target_thread_id")
+        ):
+            raise SupervisionLogError("Local adaptive review is limited to canonical target-owned tracker amendments")
+        validate_local_tracker_review(
+            value, stage="adaptive", policy=policy, all_events=all_events, current=current, owner_directory=owner_directory,
+            disallowed=[source.get("proposer_author_id"), source.get("implementation_owner_id"), source.get("candidate_owner_id")],
+        )
+    else:
+        verify_adaptive_review_signature(value)
     return dict(value)
 
 
@@ -20334,6 +20368,8 @@ def resolve_adaptive_review(
     *,
     policy: Mapping[str, Any],
     require_current_policy: bool = True,
+    current: bool = True,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
     safe_id(record_id, label="adaptive review record")
     event = next(
@@ -20403,7 +20439,8 @@ def resolve_adaptive_review(
         source.get("proposer_author_id"),
         source.get("candidate_owner_id"),
     }
-    if reviewer_id != ADAPTIVE_REVIEWER_ID or reviewer_id in disallowed:
+    local = event.get("external_review_payload", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["adaptive"]
+    if (not local and reviewer_id != ADAPTIVE_REVIEWER_ID) or reviewer_id in disallowed:
         raise SupervisionLogError("Adaptive review is not independently owned")
     if event.get("review_disposition") not in {"accepted", "rejected", "inconclusive"}:
         raise SupervisionLogError("Adaptive review disposition differs")
@@ -20420,6 +20457,10 @@ def resolve_adaptive_review(
         "review_root",
         "record_sha256",
     ):
+        if local and field in {"authority_key_sha256", "external_signature_sha256"}:
+            if event.get(field) is not None:
+                raise SupervisionLogError("Local adaptive review cannot claim a signature")
+            continue
         if type(event.get(field)) is not str:
             raise SupervisionLogError(f"Adaptive review {field} must be a string")
         exact_sha256(str(event[field]), label=f"adaptive review {field}")
@@ -20432,8 +20473,17 @@ def resolve_adaptive_review(
         raise SupervisionLogError("Adaptive review is stale for the current policy")
     if event["review_root"] != digest(adaptive_review_root_material(event)):
         raise SupervisionLogError("Adaptive review root differs")
+    review_policy = policy
+    if not require_current_policy and event["policy_sha256"] != policy.get("policy_sha256"):
+        if owner_directory is None:
+            raise SupervisionLogError("Historical adaptive review requires its canonical policy owner")
+        history = events(owner_directory / "policy-history.jsonl")
+        review_policy = next((item["policy"] for item in history if item["policy"]["policy_sha256"] == event["policy_sha256"]), None)
+        if review_policy is None:
+            raise SupervisionLogError("Historical adaptive review source policy is unavailable")
     external_review = validate_external_adaptive_review(
-        event["external_review_payload"], source=source, policy=policy
+        event["external_review_payload"], source=source, policy=review_policy,
+        all_events=all_events if current else all_events[:all_events.index(event)], current=current, owner_directory=owner_directory,
     )
     exact_payload_fields = {
         "record_id": "external_review_record",
@@ -20520,11 +20570,13 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
             active_events,
             args.independent_review_record,
             policy=policy,
+            owner_directory=directory,
         )
     governing_events = [
         item
         for item in active_events
         if item.get("kind") not in {"adaptive-decision", "adaptive-decision-review"}
+        and (review is None or item.get("record_id") != review.get("canonical_review", {}).get("record_id"))
     ]
     packet = {
         "decision_evidence": decision_evidence,
@@ -20541,6 +20593,7 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
         active_candidate_fingerprints=adaptive_active_candidate_fingerprints(
             active_events
         ),
+        all_events=active_events, owner_directory=directory,
     )
     if review is not None:
         result["independent_review_record"] = args.independent_review_record
@@ -20681,6 +20734,8 @@ def current_adaptive_review_source(
     active_events: list[dict[str, Any]],
     policy: Mapping[str, Any],
     source_record_value: Any,
+    local_review: Mapping[str, Any] | None = None,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
     if type(source_record_value) is not str:
         raise SupervisionLogError("External adaptive review source must be a string")
@@ -20706,10 +20761,13 @@ def current_adaptive_review_source(
         or source.get("policy_sha256") != policy.get("policy_sha256")
     ):
         raise SupervisionLogError("Adaptive review source is not current and review-required")
+    if local_review is not None:
+        validate_external_adaptive_review(local_review, source=source, policy=policy, all_events=active_events, owner_directory=owner_directory)
     governing_events = [
         item
         for item in active_events
         if item.get("kind") not in {"adaptive-decision", "adaptive-decision-review"}
+        and (local_review is None or item.get("record_id") != local_review.get("canonical_review", {}).get("record_id"))
     ]
     current_governing_head = (
         governing_events[-1].get("record_sha256") if governing_events else None
@@ -21006,10 +21064,12 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         active_events=active_events,
         policy=policy,
         source_record_value=external_value.get("source_decision_record"),
+        local_review=external_value if external_value.get("kind") == LOCAL_TRACKER_REVIEW_KINDS["adaptive"] else None,
+        owner_directory=directory,
     )
     source_record = str(source["record_id"])
     external_review = validate_external_adaptive_review(
-        external_value, source=source, policy=policy
+        external_value, source=source, policy=policy, all_events=active_events, owner_directory=directory,
     )
     record: dict[str, Any] = {
         "schema_version": 1,
@@ -21054,9 +21114,7 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         "policy_sha256": policy["policy_sha256"],
         "authority_key_sha256": external_review["authority_key_sha256"],
         "external_review_root": external_review["review_root"],
-        "external_signature_sha256": hashlib.sha256(
-            base64.b64decode(external_review["signature_base64"], validate=True)
-        ).hexdigest(),
+        "external_signature_sha256": review_signature_sha256(external_review),
     }
     record["review_root"] = digest(adaptive_review_root_material(record))
     with owner_append_lock(
@@ -25406,7 +25464,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     )
     transition_heads = successor_transition_heads(all_events)
     open_transitions = successor_transition_heads(all_events, open_only=True)
-    adaptive_control = adaptive_status_projection(policy, active_events)
+    adaptive_control = adaptive_status_projection(policy, active_events, owner_directory=directory)
     factory_evolution_control = factory_evolution_admission_status(
         directory, policy, all_events
     )
@@ -25759,8 +25817,147 @@ def tracker_authoring_profile_review_root_material(
     return {
         key: item
         for key, item in value.items()
-        if key not in {"review_root", "signature_base64"}
+        if key not in {"review_root", "signature_base64", "canonical_review"}
     }
+
+
+LOCAL_TRACKER_REVIEW_KINDS = {
+    "profile": "local-tracker-authoring-profile-review",
+    "adaptive": "local-tracker-adaptive-independent-review",
+    "program": "local-tracker-program-revision-independent-review",
+}
+
+
+def review_signature_sha256(value: Mapping[str, Any]) -> str | None:
+    signature = value.get("signature_base64")
+    if signature is None and value.get("kind") in LOCAL_TRACKER_REVIEW_KINDS.values():
+        return None
+    return hashlib.sha256(base64.b64decode(signature, validate=True)).hexdigest()
+
+
+def local_tracker_review_subject(value: Mapping[str, Any], stage: str) -> str:
+    # A later rejection must name the same subject even when the reviewer,
+    # verdict, findings, or evidence record changes.
+    fields = {
+        "profile": (
+            "profile_source_repository_root", "profile_source_path",
+            "profile_source_revision", "profile_source_root",
+        ),
+        "adaptive": (
+            "source_decision_record", "source_decision_sha256",
+            "decision_fingerprint", "decision_currentness_root",
+            "decision_semantics_root",
+        ),
+        "program": ("packet_root",),
+    }[stage]
+    return digest({"stage": stage, **{key: value.get(key) for key in fields}})
+
+
+def local_tracker_review_evidence(
+    value: Mapping[str, Any], stage: str, mission_root: str
+) -> list[str]:
+    verdict = value.get("review_disposition") if stage == "adaptive" else value.get("disposition")
+    findings = value.get("finding_refs", value.get("finding_count", 0))
+    proof = value.get("canonical_review", {})
+    return [
+        f"reviewer-id:{value.get('reviewer_id')}",
+        f"mission-root:{mission_root}",
+        f"review-subject:{local_tracker_review_subject(value, stage)}",
+        f"review-payload:{value.get('review_root')}",
+        f"review-verdict:{verdict}",
+        f"review-findings:{digest(findings)}",
+        f"native-delivery:{proof.get('native_delivery_id')}",
+        f"native-turn:{proof.get('native_turn_id')}",
+    ]
+
+
+def validate_local_tracker_review(
+    value: Mapping[str, Any], *, stage: str, policy: Mapping[str, Any],
+    all_events: Sequence[Mapping[str, Any]], current: bool = True,
+    disallowed: Sequence[Any] = (),
+    owner_directory: Path | None = None,
+) -> dict[str, Any]:
+    """Resolve local tracker review through the existing canonical owner ledger.
+
+    Historical integrity and current usability are separate: a later rejection
+    blocks application but cannot make the review/repair commands unloadable.
+    This variant never conveys Software Factory release authority.
+    """
+    mission = bound_mission(dict(policy))
+    if (
+        value.get("kind") != LOCAL_TRACKER_REVIEW_KINDS[stage]
+        or value.get("authority_key_sha256") is not None
+        or value.get("signature_base64") is not None
+        or mission is None
+        or policy.get("adaptive_decision_control", {}).get("target_class") != "target-repository"
+        or implementation_range_contract(policy) is None
+    ):
+        raise SupervisionLogError("Local tracker review requires the bound target-repository mission")
+    proof = value.get("canonical_review")
+    if not isinstance(proof, Mapping) or set(proof) != {"record_id", "record_sha256", "native_delivery_id", "native_turn_id"}:
+        raise SupervisionLogError("Local tracker review canonical reference differs")
+    runtime = policy.get("runtime", {})
+    base = runtime.get("base_reviewer_thread_id")
+    adjudicator = runtime.get("reviewer_thread_id")
+    eligible = {base, adjudicator} - {
+        None, policy.get("target_thread_id"), runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"), *disallowed,
+    }
+    reviewer = value.get("reviewer_id")
+    required_reviewer = base if stage == "program" else adjudicator
+    expected_evidence = local_tracker_review_evidence(value, stage, mission["mission_root"])
+    subject_token = expected_evidence[2]
+    mission_token = expected_evidence[1]
+    category = f"local-tracker-{stage}-review"
+
+    def eligible_event(event: Mapping[str, Any]) -> bool:
+        evidence = event.get("evidence", [])
+        identities = [item for item in eligible if f"reviewer-id:{item}" in evidence]
+        return bool(
+            len(identities) == 1
+            and event.get("schema_version") == 1
+            and event.get("target_thread_id") == policy.get("target_thread_id")
+            and event.get("category") == category
+            and event.get("kind") == ("checkpoint-review" if identities[0] == base else "meta-review")
+            and event.get("model") == "gpt-5.6-sol"
+            and event.get("reasoning") == ("xhigh" if identities[0] == base else "max")
+            and event.get("resolution_owner") == "supervisor"
+            and event.get("user_action_required") == "no"
+            and subject_token in evidence and mission_token in evidence
+        )
+
+    event = next((item for item in all_events if item.get("record_id") == proof["record_id"]), None)
+    if (
+        reviewer != required_reviewer or reviewer not in eligible
+        or event is None or not eligible_event(event)
+        or event.get("policy_sha256") != policy.get("policy_sha256")
+        or event.get("record_sha256") != proof["record_sha256"]
+        or event.get("record_sha256") != digest({key: item for key, item in event.items() if key != "record_sha256"})
+        or not all(item in event.get("evidence", []) for item in expected_evidence)
+        or event.get("status") != (value.get("review_disposition") if stage == "adaptive" else value.get("disposition"))
+    ):
+        raise SupervisionLogError("Local tracker review lacks exact independent canonical provenance")
+    if not current:
+        # This path is used only while rehydrating an already anchored owner
+        # binding/event. Its admission checked native creation. Retain that
+        # authentic history when the transport is temporarily unavailable;
+        # current admission, application, and range gates recheck origin below.
+        return dict(event)
+    try:
+        from gcp_supervision import verify_native_tracker_review_origin
+        verify_native_tracker_review_origin(policy, event, all_events, owner_directory=owner_directory)
+        candidates = [item for item in all_events if eligible_event(item)]
+        # Authenticate purported changed reviews before giving their labels
+        # any control effect. Unavailable origin is an evidence failure,
+        # never an inferred rejection, acceptance, or supersession.
+        for candidate in candidates:
+            if candidate != event:
+                verify_native_tracker_review_origin(policy, candidate, all_events, owner_directory=owner_directory)
+    except (ImportError, OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
+        raise SupervisionLogError(f"Local tracker review native origin failed: {exc}") from exc
+    if candidates[-1].get("record_id") != event.get("record_id"):
+        raise SupervisionLogError("Local tracker review was superseded; obtain the current subject review")
+    return dict(event)
 
 
 def verify_tracker_authoring_profile_review_signature(
@@ -25820,13 +26017,23 @@ def verify_tracker_authoring_profile_review_signature(
         )
 
 
-def validate_tracker_authoring_profile_review(value: Any) -> dict[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS:
+def validate_tracker_authoring_profile_review(
+    value: Any, *, policy: Mapping[str, Any] | None = None,
+    all_events: Sequence[Mapping[str, Any]] | None = None,
+    shape_only: bool = False, current: bool = True,
+    owner_directory: Path | None = None,
+) -> dict[str, Any]:
+    local = isinstance(value, Mapping) and value.get("kind") == LOCAL_TRACKER_REVIEW_KINDS["profile"]
+    local_fields = {"canonical_review", "target_thread_id", "mission_root", "policy_sha256", "profile_source_repository_root"}
+    if not isinstance(value, Mapping) or set(value) not in (
+        (TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS | local_fields) if local else TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS,
+        (TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS | local_fields) if local else TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS | {"profile_source_repository_root"},
+    ):
         raise SupervisionLogError("Tracker-authoring profile review shape differs")
     review = dict(value)
     if type(review.get("schema_version")) is not int or review["schema_version"] != 1:
         raise SupervisionLogError("Tracker-authoring profile review version differs")
-    if review.get("kind") != "software-factory-tracker-authoring-profile-review":
+    if not local and review.get("kind") != "software-factory-tracker-authoring-profile-review":
         raise SupervisionLogError("Tracker-authoring profile review kind differs")
     safe_id(str(review.get("record_id", "")), label="tracker-authoring profile review")
     if review.get("profile_source_path") != TRACKER_AUTHORING_PROFILE_SOURCE_PATH:
@@ -25845,8 +26052,8 @@ def validate_tracker_authoring_profile_review(value: Any) -> dict[str, Any]:
         or review.get("implementation_claim") != "not-claimed"
         or type(review.get("finding_count")) is not int
         or review["finding_count"] != 0
-        or review.get("reviewer_id") != ADAPTIVE_REVIEWER_ID
-        or review.get("authority_key_sha256") != ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256
+        or (not local and review.get("reviewer_id") != ADAPTIVE_REVIEWER_ID)
+        or review.get("authority_key_sha256") != (None if local else ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256)
     ):
         raise SupervisionLogError("Tracker-authoring profile review is not accepted")
     parse_time(str(review.get("observed_at", "")))
@@ -25854,11 +26061,37 @@ def validate_tracker_authoring_profile_review(value: Any) -> dict[str, Any]:
         tracker_authoring_profile_review_root_material(review)
     ):
         raise SupervisionLogError("Tracker-authoring profile review root differs")
-    verify_tracker_authoring_profile_review_signature(review)
+    if "profile_source_repository_root" in review:
+        location = review["profile_source_repository_root"]
+        if type(location) is not str or str(adaptive_git_top_level(location)) != location:
+            raise SupervisionLogError("Tracker-authoring profile source location differs")
+    if local:
+        if review.get("signature_base64") is not None:
+            raise SupervisionLogError("Local tracker review cannot claim a signature")
+        for field in ("mission_root", "policy_sha256"):
+            exact_sha256(str(review.get(field, "")), label=f"local profile {field}")
+        safe_id(str(review.get("target_thread_id", "")), label="local profile target")
+        if not shape_only:
+            if policy is None or all_events is None:
+                raise SupervisionLogError("Local tracker review requires canonical context")
+            mission = bound_mission(dict(policy))
+            if mission is None or any(review[field] != expected for field, expected in {
+                "target_thread_id": policy["target_thread_id"],
+                "policy_sha256": policy["policy_sha256"],
+                "mission_root": mission["mission_root"],
+            }.items()):
+                raise SupervisionLogError("Local tracker profile mission or policy differs")
+            validate_local_tracker_review(review, stage="profile", policy=policy, all_events=all_events, current=current, owner_directory=owner_directory)
+    else:
+        verify_tracker_authoring_profile_review_signature(review)
     return review
 
 
-def software_factory_source_repository_root() -> Path:
+def software_factory_source_repository_root(repository_root: str | None = None) -> Path:
+    if repository_root is not None:
+        # An explicitly reviewed location is authoritative; never substitute
+        # another checkout when that location is unavailable or invalid.
+        return adaptive_git_top_level(repository_root)
     try:
         owner_home = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(strict=True)
         source_root = (owner_home / "code" / "software_factory").resolve(
@@ -25877,9 +26110,13 @@ def software_factory_source_repository_root() -> Path:
 
 
 def tracker_authoring_profile_source(
-    *, source_revision: str | None = None
+    *, source_revision: str | None = None, repository_root: str | None = None
 ) -> dict[str, str]:
-    root = software_factory_source_repository_root()
+    root = (
+        software_factory_source_repository_root(repository_root)
+        if repository_root is not None
+        else software_factory_source_repository_root()
+    )
     current_revision = adaptive_git_revision(str(root))
     revision = source_revision or current_revision
     if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
@@ -25959,6 +26196,7 @@ def tracker_authoring_profile_source(
             "Tracker-authoring profile source bytes are unavailable"
         )
     return {
+        **({"profile_source_repository_root": str(root)} if repository_root is not None else {}),
         "profile_source_path": TRACKER_AUTHORING_PROFILE_SOURCE_PATH,
         "profile_source_revision": revision,
         "profile_source_root": hashlib.sha256(blob_result.stdout).hexdigest(),
@@ -25970,10 +26208,17 @@ def tracker_authoring_profile_binding(
     authoring_thread_id: str,
     runtime: Mapping[str, Any],
     profile_review: Mapping[str, Any],
+    policy: Mapping[str, Any] | None = None,
+    all_events: Sequence[Mapping[str, Any]] | None = None,
+    shape_only: bool = False,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
-    accepted_review = validate_tracker_authoring_profile_review(profile_review)
+    accepted_review = validate_tracker_authoring_profile_review(
+        profile_review, policy=policy, all_events=all_events, shape_only=shape_only, owner_directory=owner_directory,
+    )
     source = tracker_authoring_profile_source(
         source_revision=str(accepted_review["profile_source_revision"]),
+        repository_root=accepted_review.get("profile_source_repository_root"),
     )
     if (
         accepted_review["profile_source_path"] != source["profile_source_path"]
@@ -26027,7 +26272,8 @@ def tracker_authoring_profile_binding(
 
 
 def validate_tracker_authoring_profile_binding(
-    value: Mapping[str, Any], *, runtime: Mapping[str, Any]
+    value: Mapping[str, Any], *, runtime: Mapping[str, Any],
+    shape_only: bool = False,
 ) -> None:
     if not isinstance(value, Mapping):
         raise SupervisionLogError("Tracker-authoring profile binding is malformed")
@@ -26035,9 +26281,59 @@ def validate_tracker_authoring_profile_binding(
         authoring_thread_id=str(value.get("authoring_target_thread_id", "")),
         runtime=runtime,
         profile_review=value.get("profile_acceptance", {}),
+        shape_only=shape_only,
     )
     if dict(value) != expected:
         raise SupervisionLogError("Tracker-authoring profile binding differs")
+
+
+def validate_local_tracker_profile_history(
+    policy: Mapping[str, Any], *, all_events: Sequence[Mapping[str, Any]],
+    policy_history: Sequence[Mapping[str, Any]], current: bool = False,
+    owner_directory: Path | None = None,
+) -> None:
+    seen: set[str] = set()
+    for index, item in enumerate(policy_history):
+        stored = item.get("policy", {})
+        profile = stored.get("program_revision_authoring_profile") or {}
+        review = profile.get("profile_acceptance", {})
+        if review.get("kind") != LOCAL_TRACKER_REVIEW_KINDS["profile"] or profile.get("binding_root") in seen:
+            continue
+        seen.add(profile["binding_root"])
+        source_policy = policy_history[index - 1].get("policy", {}) if index else {}
+        if source_policy.get("policy_sha256") != review.get("policy_sha256"):
+            raise SupervisionLogError("Local tracker profile is not bound to its source policy history")
+        validate_tracker_authoring_profile_review(review, policy=source_policy, all_events=all_events, current=False, owner_directory=owner_directory)
+    if current:
+        profile = policy.get("program_revision_authoring_profile") or {}
+        review = profile.get("profile_acceptance", {})
+        if review.get("kind") == LOCAL_TRACKER_REVIEW_KINDS["profile"]:
+            source_policy = next((item["policy"] for item in policy_history if item.get("policy", {}).get("policy_sha256") == review.get("policy_sha256")), None)
+            if source_policy is None:
+                raise SupervisionLogError("Local tracker profile source policy is unavailable")
+            if bound_mission(dict(source_policy))["mission_root"] != bound_mission(dict(policy))["mission_root"]:
+                raise SupervisionLogError("Local tracker profile belongs to a different mission")
+            validate_tracker_authoring_profile_review(review, policy=source_policy, all_events=all_events, owner_directory=owner_directory)
+
+
+def require_current_local_tracker_reviews(
+    directory: Path, policy: Mapping[str, Any], all_events: list[dict[str, Any]],
+) -> None:
+    profile = policy.get("program_revision_authoring_profile") or {}
+    if profile.get("profile_acceptance", {}).get("kind") != LOCAL_TRACKER_REVIEW_KINDS["profile"]:
+        return
+    history = events(directory / "policy-history.jsonl")
+    try:
+        validate_local_tracker_profile_history(policy, all_events=all_events, policy_history=history, current=True, owner_directory=directory)
+        validate_tracker_amendment_events(policy, all_events=all_events, policy_history=history, current=True, owner_directory=directory)
+        for entry in (implementation_range_contract(policy) or {}).get("history", []):
+            revision = next((item for item in all_events if item.get("record_id") == entry.get("amendment_event_record_id") and item.get("kind") == PROGRAM_REVISION_EVENT_KIND), None)
+            if revision is not None and revision.get("review_payload", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["program"]:
+                packet = revision["packet"]
+                source_policy = next(item["policy"] for item in history if item["policy"]["policy_sha256"] == packet["policy_sha256"])
+                resolve_adaptive_review(all_events, packet["semantic_review_record_id"], policy=source_policy, owner_directory=directory)
+    except (SupervisionLogError, StopIteration) as exc:
+        raise SupervisionLogError(f"Local tracker review is not current: {exc}") from exc
 
 
 def factory_evolution_admission_contract() -> dict[str, Any]:
@@ -26632,18 +26928,39 @@ def verify_program_revision_review_signature(value: Mapping[str, Any]) -> None:
 
 
 def validate_program_revision_review(
-    value: Any, *, packet: Mapping[str, Any]
+    value: Any, *, packet: Mapping[str, Any],
+    policy: Mapping[str, Any] | None = None,
+    all_events: Sequence[Mapping[str, Any]] | None = None,
+    current: bool = True,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
     module = program_revision_module()
+    local = isinstance(value, Mapping) and value.get("kind") == LOCAL_TRACKER_REVIEW_KINDS["program"]
     try:
         review = module.validate_review_shape(
             value,
             packet=packet,
-            authority_key_sha256=ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+            authority_key_sha256=None if local else ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
         )
     except module.ProgramRevisionError as exc:
         raise SupervisionLogError(str(exc)) from exc
-    verify_program_revision_review_signature(review)
+    if local:
+        if policy is None or all_events is None:
+            raise SupervisionLogError("Local program review requires canonical context")
+        mission = bound_mission(dict(policy))
+        if (
+            mission is None or packet.get("mission_root") != mission["mission_root"]
+            or packet.get("policy_sha256") != policy.get("policy_sha256")
+            or packet.get("target_thread_id") != policy.get("target_thread_id")
+            or packet.get("application_owner_id") != policy.get("target_thread_id")
+        ):
+            raise SupervisionLogError("Local program review mission or policy differs")
+        validate_local_tracker_review(
+            review, stage="program", policy=policy, all_events=all_events, current=current, owner_directory=owner_directory,
+            disallowed=[packet.get("author_id"), packet.get("application_owner_id")],
+        )
+    else:
+        verify_program_revision_review_signature(review)
     return review
 
 
@@ -26653,6 +26970,9 @@ def canonical_program_revision_event(
     policy: Mapping[str, Any],
     policy_history: list[dict[str, Any]],
     require_accepted: bool = True,
+    all_events: Sequence[Mapping[str, Any]] = (),
+    current: bool = True,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
     required = {
         "schema_version",
@@ -26691,7 +27011,17 @@ def canonical_program_revision_event(
         packet = module.validate_stored_packet(event.get("packet"))
     except module.ProgramRevisionError as exc:
         raise SupervisionLogError(str(exc)) from exc
-    review = validate_program_revision_review(event.get("review_payload"), packet=packet)
+    source_policy = next((item["policy"] for item in policy_history if item.get("policy", {}).get("policy_sha256") == packet["policy_sha256"]), None)
+    if source_policy is None:
+        raise SupervisionLogError("Program revision is not anchored to policy history")
+    prior_events = all_events[:all_events.index(event)] if event in all_events else ()
+    # The consuming event must follow the independent review, even on reload.
+    review = validate_program_revision_review(
+        event.get("review_payload"), packet=packet, policy=source_policy,
+        all_events=prior_events, current=False, owner_directory=owner_directory,
+    )
+    if current:
+        validate_program_revision_review(review, packet=packet, policy=source_policy, all_events=all_events, owner_directory=owner_directory)
     comparisons = {
         "revision_id": packet["revision_id"],
         "packet_root": packet["packet_root"],
@@ -26705,9 +27035,7 @@ def canonical_program_revision_event(
     }
     if any(event.get(field) != expected for field, expected in comparisons.items()):
         raise SupervisionLogError("Canonical program-revision event differs from its packet")
-    if event.get("external_signature_sha256") != hashlib.sha256(
-        base64.b64decode(review["signature_base64"], validate=True)
-    ).hexdigest():
+    if event.get("external_signature_sha256") != review_signature_sha256(review):
         raise SupervisionLogError("Canonical program-revision signature root differs")
     exact_sha256(str(event.get("record_sha256", "")), label="program revision event root")
     source_policy_sha256 = str(event["policy_sha256"])
@@ -27034,6 +27362,7 @@ def require_current_program_revision_application(
         raise SupervisionLogError("Program revision application packet is absent")
     if packet.get("policy_sha256") != policy.get("policy_sha256"):
         raise SupervisionLogError("Program revision is stale for the current policy")
+    require_current_local_tracker_reviews(directory, policy, all_events)
     active_events = mission_scoped_events(directory, dict(policy), all_events)
     source = next(
         (
@@ -27079,7 +27408,7 @@ def require_current_program_revision_application(
     if type(review_record) is not str:
         raise SupervisionLogError("Program revision decision lacks independent review")
     resolved_review = resolve_adaptive_review(
-        active_events, review_record, policy=policy
+        active_events, review_record, policy=policy, owner_directory=directory
     )
     if (
         resolved_review.get("review_disposition") != "accepted"
@@ -27099,6 +27428,8 @@ def canonical_tracker_amendment_event(
     event_record_id: str,
     policy: Mapping[str, Any],
     policy_history: list[dict[str, Any]],
+    current: bool = True,
+    owner_directory: Path | None = None,
 ) -> dict[str, Any]:
     event = next(
         (item for item in all_events if item.get("record_id") == event_record_id),
@@ -27110,7 +27441,7 @@ def canonical_tracker_amendment_event(
         )
     if event.get("kind") == PROGRAM_REVISION_EVENT_KIND:
         return canonical_program_revision_event(
-            event, policy=policy, policy_history=policy_history
+            event, policy=policy, policy_history=policy_history, all_events=all_events, current=current, owner_directory=owner_directory,
         )
     required = {
         "schema_version",
@@ -27224,6 +27555,8 @@ def validate_tracker_amendment_events(
     *,
     all_events: list[dict[str, Any]],
     policy_history: list[dict[str, Any]],
+    current: bool = False,
+    owner_directory: Path | None = None,
 ) -> None:
     contract = implementation_range_contract(policy)
     if contract is None:
@@ -27241,6 +27574,7 @@ def validate_tracker_amendment_events(
             event_record_id=str(event_record_id),
             policy=policy,
             policy_history=policy_history,
+            current=current, owner_directory=owner_directory,
         )
         if (
             entry.get("amendment_event_sha256") != event.get("record_sha256")
@@ -27893,7 +28227,7 @@ def validate_program_revision_inputs(
         label="program revision review",
         maximum_bytes=MAX_PROGRAM_REVISION_EVIDENCE_BYTES,
     )
-    review = validate_program_revision_review(review_value, packet=packet)
+    review = validate_program_revision_review(review_value, packet=packet, policy=policy, all_events=all_events, owner_directory=directory)
     if review["disposition"] == "accepted" and review["finding_refs"]:
         raise SupervisionLogError(
             "Accepted program revision review cannot retain open findings"
@@ -27974,7 +28308,7 @@ def validate_program_revision_inputs(
     if type(review_record) is not str:
         raise SupervisionLogError("Program revision decision lacks independent review")
     resolved_adaptive_review = resolve_adaptive_review(
-        active_events, review_record, policy=policy
+        active_events, review_record, policy=policy, owner_directory=directory
     )
     if (
         resolved_adaptive_review.get("review_disposition") != "accepted"
@@ -27992,7 +28326,9 @@ def validate_program_revision_inputs(
     validate_tracker_authoring_profile_binding(
         authoring_profile,
         runtime=policy.get("runtime", {}),
+        shape_only=True,
     )
+    validate_local_tracker_profile_history(policy, all_events=all_events, policy_history=events(directory / "policy-history.jsonl"), current=True, owner_directory=directory)
     semantic_review_event = next(
         item for item in active_events if item.get("record_id") == review_record
     )
@@ -28056,6 +28392,8 @@ def validate_program_revision_inputs(
             policy=policy,
             policy_history=policy_history,
             require_accepted=False,
+            all_events=all_events,
+            current=False, owner_directory=directory,
         )
         for item in active_events
         if item.get("kind") == PROGRAM_REVISION_EVENT_KIND
@@ -28140,9 +28478,7 @@ def cmd_implementation_program_revision(args: argparse.Namespace) -> None:
         "review_root": review["review_root"],
         "review_disposition": review["disposition"],
         "authority_key_sha256": review["authority_key_sha256"],
-        "external_signature_sha256": hashlib.sha256(
-            base64.b64decode(review["signature_base64"], validate=True)
-        ).hexdigest(),
+        "external_signature_sha256": review_signature_sha256(review),
         "policy_sha256": policy["policy_sha256"],
         "mission_root": packet["mission_root"],
         "decision_record_id": source["record_id"],
@@ -28592,6 +28928,7 @@ def validate_successor_transition(
 
 def cmd_adjust(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
+    source_policy = copy.deepcopy(policy)
     reason = clean(args.reason, label="reason")
     if not reason:
         raise SupervisionLogError("A bounded policy adjustment requires a reason")
@@ -28839,6 +29176,9 @@ def cmd_adjust(args: argparse.Namespace) -> None:
             ),
             runtime=policy.get("runtime", {}),
             profile_review=profile_review,
+            policy=source_policy,
+            all_events=events(directory / "events.jsonl"),
+            owner_directory=directory,
         )
         existing_profile = policy.get("program_revision_authoring_profile")
         if existing_profile is not None and existing_profile != replacement_profile:
