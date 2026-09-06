@@ -125,7 +125,13 @@ def verify_native_tracker_review_origin(policy, event, all_events, *, owner_dire
                     or argv[1:len(prefix) + 1] != prefix):
                 continue
             output = json.loads(item.get("aggregatedOutput", ""))
-            if output.get("duplicate") is False and output.get("record") == event:
+            # The maintained record command prints its input material. The
+            # append owner adds the two ledger hashes to the retained event.
+            # Compare every emitted field, including the exact event identity;
+            # ledger integrity is checked separately by the canonical loader.
+            emitted_record = {key: value for key, value in event.items()
+                              if key not in {"record_sha256", "previous_record_sha256"}}
+            if output.get("duplicate") is False and output.get("record") == emitted_record:
                 matches.append(item["id"])
         except (ValueError, TypeError):
             continue

@@ -234,16 +234,19 @@ class ProgramRevisionControlTests(unittest.TestCase):
                 retained = supervision_log.events(directory / "events.jsonl")
             source = retained[-1]
             is_base = value["reviewer_id"] == policy["runtime"]["base_reviewer_thread_id"]
-            supervision_log.append_raw(directory / "events.jsonl", {
-                "schema_version": 1, "record_id": f"EVT-{len(retained) + 1:06d}",
-                "timestamp": supervision_log.utc_now(), "target_thread_id": self.fixture.target,
-                "kind": "checkpoint-review" if is_base else "meta-review",
-                "category": f"local-tracker-{stage}-review", "model": "gpt-5.6-sol",
-                "reasoning": "xhigh" if is_base else "max", "resolution_owner": "supervisor",
-                "user_action_required": "no", "policy_sha256": policy["policy_sha256"],
-                "status": value.get("review_disposition") if stage == "adaptive" else value["disposition"],
-                "evidence": evidence,
-            })
+            record_args = ["record", "--target-thread", self.fixture.target,
+                "--kind", "checkpoint-review" if is_base else "meta-review",
+                "--category", f"local-tracker-{stage}-review", "--model", "gpt-5.6-sol",
+                "--reasoning", "xhigh" if is_base else "max", "--resolution-owner", "supervisor",
+                "--user-action-required", "no", "--summary", "Independent exact local tracker review",
+                "--status", value.get("review_disposition") if stage == "adaptive" else value["disposition"]]
+            for token in evidence:
+                record_args.extend(["--evidence", token])
+            record_output = io.StringIO()
+            with redirect_stdout(record_output):
+                supervision_log.cmd_record(supervision_log.parser().parse_args([
+                    "--root", str(self.fixture.root), *record_args]))
+            self.assertFalse(json.loads(record_output.getvalue())["duplicate"])
             found = supervision_log.events(directory / "events.jsonl")[-1]
             message = "\n".join([evidence[1], evidence[2], "policy-sha256:" + policy["policy_sha256"]])
             with closing(sqlite3.connect(self.fixture.root.parent / "runtime.sqlite3", isolation_level=None)) as db:
@@ -251,14 +254,13 @@ class ProgramRevisionControlTests(unittest.TestCase):
                     proof["native_delivery_id"], value["reviewer_id"], message,
                     hashlib.sha256(message.encode()).hexdigest(), source["record_id"], "acknowledged", proof["native_turn_id"],
                 ))
-            argv = [sys.executable, self.native_cli, "--config", str(self.native_config), "helper", "--", "record",
-                    "--target-thread", self.fixture.target, "--kind", found["kind"]]
+            argv = [sys.executable, self.native_cli, "--config", str(self.native_config), "helper", "--", *record_args]
             self.native_rows[(value["reviewer_id"], proof["native_turn_id"])] = {"nextCursor": None, "data": [
                 {"turnId": proof["native_turn_id"], "item": {"type": "userMessage", "id": "user-item", "clientId": proof["native_delivery_id"],
                     "content": [{"type": "text", "text": f"[gcp-supervision-delivery:{proof['native_delivery_id']}]\n{message}"}]}},
                 {"turnId": proof["native_turn_id"], "item": {"type": "commandExecution", "id": "exec-review-record", "source": "unifiedExecStartup",
                     "status": "completed", "exitCode": 0, "command": shlex.join(["/usr/bin/bash", "-lc", shlex.join(argv)]),
-                    "aggregatedOutput": json.dumps({"duplicate": False, "record": found})}},
+                    "aggregatedOutput": record_output.getvalue()}},
             ]}
         value["canonical_review"].update({field: found[field] for field in ("record_id", "record_sha256")})
         return value
