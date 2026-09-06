@@ -4246,49 +4246,6 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(gate["eligible_blocks"], [0])
         self.assertFalse(gate["final_response_permitted"])
 
-    def test_reviewed_227_byte_local_source_binds_current_started_dag(self) -> None:
-        self.write_tracker(["completed"]); self.bind()
-        request = "Use the reviewed local source at /srv/patent-studio/workspaces/example to continue the authorized implementation program while preserving current evidence, dependency order, owner boundaries, and the exact requested scope. Now."
-        self.assertEqual(len(request.encode()), 227)
-        with self.assertRaises(supervision_log.SupervisionLogError): supervision_log.classify_implementation_request(request, set(range(28)))
-        source_item = "local-reviewed-item-227"; source = f"direct-user:{self.target}:{source_item}"
-        source_sha = hashlib.sha256(request.encode()).hexdigest()
-        outcome, lifecycle, pending, _ = self.complete_predecessor_and_start_successor(retain_range_authority=False)
-        source_turn = "local-reviewed-turn-227"; evidence = [f"source-kind:{supervision_log.DIRECT_AUTHORITY_SOURCE_KIND}", f"source-task:{self.target}", f"source-turn:{source_turn}", f"source-item:{source_item}", f"source-record:{source}", f"source-byte-count:{len(request.encode())}", f"source-sha256:{source_sha}", f"verifier:{self.reviewer}", f"classification:{supervision_log.DIRECT_AUTHORITY_CLASSIFICATION}", "review-findings:none", f"mission-root:{supervision_log.bound_mission(supervision_log.read_json(self.root / self.target / 'policy.json'))['mission_root']}"]; self.call("record", "--target-thread", self.target, "--kind", "meta-review", "--active-block", "0", "--checkpoint", "direct-authority-source-review", "--status", "accepted", "--severity", "info", "--summary", "clean exact source review", "--category", supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY, "--model", "gpt-5.6-sol", "--reasoning", "max", "--resolution-owner", "supervisor", "--user-action-required", "no", *(item for value in evidence for item in ("--evidence", value))); review_record = supervision_log.events(self.root / self.target / "events.jsonl")[-1]["record_id"]; review = self.call("implementation-range-authority-source-review-sign", "--target-thread", self.target, "--source-task", self.target, "--source-turn", source_turn, "--source-item", source_item, "--source-record", source, "--source-text-base64", base64.b64encode(request.encode()).decode(), "--review-evidence-record", review_record, "--expected-policy-sha256", supervision_log.read_json(self.root / self.target / "policy.json")["policy_sha256"])["output_json"]
-        policy = supervision_log.read_json(self.root / self.target / "policy.json")
-        ingested = self.call("implementation-range-authority-source-ingest", "--target-thread", self.target, "--source-task", self.target, "--source-item", source_item, "--source-record", source, "--source-text-base64", base64.b64encode(request.encode()).decode(), "--provenance-review-record", review, "--expected-policy-sha256", policy["policy_sha256"])
-        self.call("implementation-range-authority-receipt", "--target-thread", self.target, "--authority-event-record", ingested["record"]["record_id"])
-        started = self.start_current_delegated_activation()
-        directory = self.root / self.target
-        before = (directory / "policy.json").read_bytes()
-        self.tracker = self.root / "started-successor-tracker.md"
-        self.write_tracker(["completed", "in-progress"] + ["not-started"] * 26)
-        tracker_text = self.tracker.read_text()
-        tracker_text = tracker_text.replace("| 2 | Scope 2 | 1 |", "| 2 | Scope 2 | 0 |").replace("| 3 | Scope 3 | 2 |", "| 3 | Scope 3 | 0 |")
-        def admit(activation: str) -> dict[str, object]:
-            return self.admit(include_binding_inputs=True, range_id="RANGE-STARTED-227",
-                              rollover_records=(outcome, lifecycle, activation),
-                              source_record=source, source_sha256=source_sha, request_text=request)
-        invalid = (
-            (tracker_text.replace("| 2 | Scope 2 | 0 | `not-started` |", "| 2 | Scope 2 | 0 | `in-progress` |"), "ambiguous current in-progress"),
-            (tracker_text.replace("| 0 | Scope 0 | — | `completed` |", "| 0 | Scope 0 | — | `not-started` |").replace("| 1 | Scope 1 | 0 | `in-progress` |", "| 1 | Scope 1 | 0 | `completed` |"), "not dependency-closed"),
-            (tracker_text.replace("| 0 | Scope 0 | — | `completed` |", "| 0 | Scope 0 | — | `not-started` |"), "unmet dependencies"),
-        )
-        for changed, message in invalid:
-            self.tracker.write_text(changed)
-            with self.subTest(message=message), self.assertRaisesRegex(
-                supervision_log.SupervisionLogError, message
-            ):
-                admit(str(started["record_id"]))
-        self.tracker.write_text(tracker_text)
-        with self.assertRaisesRegex(
-            supervision_log.SupervisionLogError, "provenance is absent"
-        ):
-            admit(pending)
-        self.assertEqual((directory / "policy.json").read_bytes(), before)
-        result = admit(str(started["record_id"]))
-        self.assertEqual(result["range_state"]["requested_blocks"], list(range(28))); self.assertEqual(result["range_state"]["accepted_blocks"], [0]); self.assertEqual(result["range_state"]["eligible_blocks"], [1, 2, 3])
-
     def test_mission_source_digest_cannot_substitute_for_range_authority(
         self,
     ) -> None:

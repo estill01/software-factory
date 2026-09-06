@@ -911,10 +911,10 @@ belongs to the same mission, admission may only rehydrate that exact range or
 advance status-only tracker bytes through the existing amendment owner. It
 must never replace a same-mission range.
 
-A same-target mission successor may replace one completed predecessor
-range only through the same policy owner. Its activation must be the unique pending head or exact current `work-started` lineage. Under the policy-owner lock,
+A pending same-target mission successor may replace one completed predecessor
+range only through the same policy owner. Under the policy-owner lock,
 admission must revalidate the predecessor's independently verified observable
-outcome and completed lifecycle, the exact current-mission
+outcome and completed lifecycle, the unique still-pending current-mission
 activation, current policy and event heads, one exact independently reviewed
 and canonically ingested current-mission full-tracker authority source and its
 current receipt, and both exact tracker snapshots. Mission identity and range
@@ -1003,7 +1003,8 @@ base64 so multiline requests and their original bytes are retained without
 shell normalization.
 
 The retained activation source must remain the exact current head through
-ingestion and receipt; admission may follow its exact current `work-started` lineage with a dependency-closed accepted set, one dependency-ready in-progress Block, and any number of other DAG-ready Blocks. Later
+ingestion, receipt, and fresh range admission. Actual first-Block work starts
+only afterward and advances that activation to `work-started`; later
 same-mission range gates retain the accepted history without treating the now
 historical pending source as current authority for another admission.
 
