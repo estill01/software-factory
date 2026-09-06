@@ -25946,9 +25946,12 @@ def validate_local_tracker_review(
     try:
         from gcp_supervision import verify_native_tracker_review_origin
         verify_native_tracker_review_origin(policy, event, all_events, owner_directory=owner_directory)
-        candidates = [item for item in all_events if eligible_event(item)]
+        selected_index = next(index for index, item in enumerate(all_events) if item.get("record_id") == event["record_id"])
+        candidates = [item for item in all_events[selected_index:] if eligible_event(item)]
         # Authenticate purported changed reviews before giving their labels
-        # any control effect. Unavailable origin is an evidence failure,
+        # any control effect. Earlier records remain history and cannot
+        # prevent a genuine replacement review from repairing currentness.
+        # Unavailable origin is an evidence failure,
         # never an inferred rejection, acceptance, or supersession.
         for candidate in candidates:
             if candidate != event:
@@ -26320,18 +26323,27 @@ def require_current_local_tracker_reviews(
     directory: Path, policy: Mapping[str, Any], all_events: list[dict[str, Any]],
 ) -> None:
     profile = policy.get("program_revision_authoring_profile") or {}
-    if profile.get("profile_acceptance", {}).get("kind") != LOCAL_TRACKER_REVIEW_KINDS["profile"]:
+    by_id = {item.get("record_id"): item for item in all_events}
+    revisions = [by_id[entry["amendment_event_record_id"]]
+                 for entry in (implementation_range_contract(policy) or {}).get("history", [])
+                 if by_id.get(entry.get("amendment_event_record_id"), {}).get("kind") == PROGRAM_REVISION_EVENT_KIND]
+    has_local_review = profile.get("profile_acceptance", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["profile"]
+    for revision in revisions:
+        adaptive = by_id.get(revision["packet"]["semantic_review_record_id"], {})
+        has_local_review |= (
+            revision.get("review_payload", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["program"]
+            or adaptive.get("external_review_payload", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["adaptive"]
+        )
+    if not has_local_review:
         return
     history = events(directory / "policy-history.jsonl")
     try:
         validate_local_tracker_profile_history(policy, all_events=all_events, policy_history=history, current=True, owner_directory=directory)
         validate_tracker_amendment_events(policy, all_events=all_events, policy_history=history, current=True, owner_directory=directory)
-        for entry in (implementation_range_contract(policy) or {}).get("history", []):
-            revision = next((item for item in all_events if item.get("record_id") == entry.get("amendment_event_record_id") and item.get("kind") == PROGRAM_REVISION_EVENT_KIND), None)
-            if revision is not None and revision.get("review_payload", {}).get("kind") == LOCAL_TRACKER_REVIEW_KINDS["program"]:
-                packet = revision["packet"]
-                source_policy = next(item["policy"] for item in history if item["policy"]["policy_sha256"] == packet["policy_sha256"])
-                resolve_adaptive_review(all_events, packet["semantic_review_record_id"], policy=source_policy, owner_directory=directory)
+        for revision in revisions:
+            packet = revision["packet"]
+            source_policy = next(item["policy"] for item in history if item["policy"]["policy_sha256"] == packet["policy_sha256"])
+            resolve_adaptive_review(all_events, packet["semantic_review_record_id"], policy=source_policy, owner_directory=directory)
     except (SupervisionLogError, StopIteration) as exc:
         raise SupervisionLogError(f"Local tracker review is not current: {exc}") from exc
 

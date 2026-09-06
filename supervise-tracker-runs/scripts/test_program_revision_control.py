@@ -33,6 +33,7 @@ SOURCE_REPOSITORY_ROOT = supervision_log.software_factory_source_repository_root
 
 class ProgramRevisionControlTests(unittest.TestCase):
     local_reviews = False
+    local_review_stages = {"profile", "adaptive", "program"}
 
     def setUp(self) -> None:
         self.fixture = support.AdaptiveDecisionPolicyTests(
@@ -109,10 +110,13 @@ class ProgramRevisionControlTests(unittest.TestCase):
         if self.local_reviews:
             self.install_native_review_fixture()
             for accessor in ("trusted_adaptive_reviewer_key", "trusted_adaptive_reviewer_private_key"):
+                if accessor == "trusted_adaptive_reviewer_key" and self.local_review_stages != {"profile", "adaptive", "program"}:
+                    continue  # Mixed fixtures retain their existing test public key.
                 guard = mock.patch.object(supervision_log, accessor, side_effect=AssertionError("local tracker path touched signer"))
                 guard.start()
                 self.addCleanup(guard.stop)
-            self.fixture.sign_outer_review = lambda value: self.local_review(value, "adaptive")
+            if "adaptive" in self.local_review_stages:
+                self.fixture.sign_outer_review = lambda value: self.local_review(value, "adaptive")
         self.profile_review = self.signed_profile_review(
             source_revision=self.software_factory_source_revision,
             source_root=software_factory_source_sha256,
@@ -397,7 +401,7 @@ class ProgramRevisionControlTests(unittest.TestCase):
             "review_root": "",
             "signature_base64": "",
         }
-        if self.local_reviews:
+        if self.local_reviews and "profile" in self.local_review_stages:
             return self.local_review(value, "profile")
         value["review_root"] = supervision_log.digest(
             supervision_log.tracker_authoring_profile_review_root_material(value)
@@ -739,7 +743,7 @@ Stop before the next Block mutation.
             "review_root": "",
             "signature_base64": "",
         }
-        if self.local_reviews:
+        if self.local_reviews and "program" in self.local_review_stages:
             return self.local_review(value, "program")
         value["review_root"] = program_revision.digest(
             program_revision.review_root_material(value)
@@ -1641,6 +1645,12 @@ class LocalProgramRevisionControlTests(unittest.TestCase):
         review["canonical_review"].update({key: retained[key] for key in ("record_id", "record_sha256")})
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "native origin failed"):
             self.validate_review(review)
+        # A later genuine review can recover without authenticating the older
+        # target-written record or deleting it from the canonical history.
+        successor = copy.deepcopy(review)
+        successor["record_id"] = "program-review-genuine-successor-1234"
+        successor = case.local_review(successor, "program")
+        self.validate_review(successor)
         # Nor may an unverified later label become a semantic supersession.
         review["canonical_review"].update({key: original[key] for key in ("record_id", "record_sha256")})
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "native origin failed"):
@@ -1728,6 +1738,49 @@ class LocalProgramRevisionControlTests(unittest.TestCase):
             case.range_amend(accepted["record_id"], application)
         args = supervision_log.parser().parse_args(["--root", str(case.fixture.root), "status", "--target-thread", case.fixture.target])
         supervision_log.load_policy(args)
+
+
+class MixedLocalProgramRevisionControlTests(unittest.TestCase):
+    def check_currentness(self, *, stages, rejected_stage):
+        case = ProgramRevisionControlTests("test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block")
+        case.local_reviews = True
+        case.local_review_stages = stages
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        accepted = case.record_program_revision()["record"]
+        application = case.apply_proposal()
+        case.range_amend(accepted["record_id"], application)
+        args = supervision_log.parser().parse_args([
+            "--root", str(case.fixture.root), "implementation-range-gate",
+            "--target-thread", case.fixture.target, "--response-kind", "block-boundary",
+        ])
+
+        def gate():
+            output = io.StringIO()
+            with redirect_stdout(output):
+                supervision_log.cmd_implementation_range_gate(args)
+            return json.loads(output.getvalue())
+
+        self.assertTrue(gate()["implementation_start_permitted"])
+        review = copy.deepcopy(accepted["review_payload"] if rejected_stage == "program"
+                               else case.semantic_review["external_review_payload"])
+        review.update(record_id="later-genuine-rejection-1234", finding_refs=["CURRENTNESS-REGRESSION"])
+        review["review_disposition" if rejected_stage == "adaptive" else "disposition"] = "rejected"
+        case.local_review(review, rejected_stage, reviewer=case.policy["runtime"]["reviewer_thread_id"])
+        result = gate()
+        self.assertFalse(result["range_binding_current"])
+        self.assertFalse(result["implementation_start_permitted"])
+        self.assertFalse(result["final_response_permitted"])
+        self.assertTrue(any("Local tracker review is not current" in str(issue)
+                            for issue in result["control_posture"]["issues"]))
+        directory, policy = supervision_log.load_policy(args)
+        self.assertEqual(policy["implementation_range"]["range_intent"], "full-tracker")
+
+    def test_signed_profile_local_program_rejection_blocks_range_and_control(self):
+        self.check_currentness(stages={"adaptive", "program"}, rejected_stage="program")
+
+    def test_signed_profile_and_program_local_adaptive_rejection_blocks_range_and_control(self):
+        self.check_currentness(stages={"adaptive"}, rejected_stage="adaptive")
 
 
 if __name__ == "__main__":
