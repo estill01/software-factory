@@ -326,6 +326,88 @@ Stop before the next Block.
         )
         self.assertEqual(rebuilt, packet)
 
+    def test_complete_alias_preserves_history_without_rewriting_sources(self) -> None:
+        accepted_root = self.build()["accepted_history_root"]
+        for path in (self.previous, self.proposed):
+            path.write_text(path.read_text().replace("`completed`", "`complete`"))
+        self.install_program_control(
+            {"0": [0], "1": [1], "2": [2, 3], "3": [4]}, affected=[2, 3], resume=2
+        )
+        before = (self.previous.read_bytes(), self.proposed.read_bytes())
+        packet = self.build()
+        self.assertEqual(packet["accepted_history_blocks"], [0, 1])
+        self.assertEqual(packet["accepted_history_root"], accepted_root)
+        self.assertEqual(before, (self.previous.read_bytes(), self.proposed.read_bytes()))
+        self.assertEqual(program_revision.validate_stored_packet(packet), packet)
+        self.proposed.write_text(self.proposed.read_text().replace(
+            "Accepted evidence for Foundation.", "Different acceptance evidence."
+        ))
+        with self.assertRaisesRegex(program_revision.ProgramRevisionError, "Accepted Block history"):
+            self.build()
+
+    def future_amendment(self) -> dict[str, object]:
+        old = [
+            ("Foundation", [], "completed"),
+            ("Unrelated ready work", [0], "not-started"),
+            ("Unchanged prerequisite", [0], "in-progress"),
+            ("Future work", [2], "not-started"),
+        ]
+        self.write_tracker(self.previous, old)
+        self.write_tracker(self.proposed, [*old[:3], ("Revised future work", [2], "not-started")])
+        for path in (self.previous, self.proposed):
+            path.write_text(path.read_text().replace("`completed`", "`complete`"))
+        mapping = {str(number): [number] for number in range(4)}
+        self.install_program_control(mapping, affected=[3], resume=2)
+        return program_revision.build_revision_packet(
+            previous_tracker=self.previous, proposed_tracker=self.proposed,
+            target_tracker_path=self.previous, metadata=self.metadata(mapping=mapping),
+        )
+
+    def test_future_amendment_resumes_unchanged_prerequisite_and_rebuilds(self) -> None:
+        packet = self.future_amendment()
+        self.assertEqual(packet["accepted_history_blocks"], [0])
+        self.assertEqual(packet["affected_proposed_blocks"], [3])
+        self.assertEqual(packet["safe_frontier_blocks"], [1, 2])
+        self.assertEqual(packet["resume_block"], 2)  # Unrelated earlier work is skipped.
+        self.assertEqual(program_revision.validate_stored_packet(packet), packet)
+        self.assertEqual(program_revision.validate_revision_packet(
+            packet, previous_tracker=self.previous, proposed_tracker=self.proposed
+        ), packet)
+        self.assertEqual(program_revision._load_full_verifier().verify(self.proposed, "full")["errors"], [])
+        for resume in (0, 1, 3, 99):
+            with self.subTest(fabricated_resume=resume):
+                changed = copy.deepcopy(packet)
+                changed["resume_block"] = resume
+                changed["packet_root"] = program_revision.digest({k: v for k, v in changed.items() if k != "packet_root"})
+                with self.assertRaises(program_revision.ProgramRevisionError):
+                    program_revision.validate_revision_packet(
+                        changed, previous_tracker=self.previous, proposed_tracker=self.proposed
+                    )
+
+    def test_future_amendment_rejects_promotion_and_unready_resume_but_retains_history(self) -> None:
+        self.future_amendment()
+        original = self.proposed.read_text()
+        promoted = original.replace("`in-progress`", "`complete`")
+        self.proposed.write_text(promoted)
+        # The old resume is a historical location after ordinary status progress.
+        self.assertEqual(program_revision._load_full_verifier().verify(self.proposed, "full")["errors"], [])
+        with self.assertRaisesRegex(program_revision.ProgramRevisionError, "Open Block cannot map to completed"):
+            program_revision.build_revision_packet(
+                previous_tracker=self.previous, proposed_tracker=self.proposed,
+                target_tracker_path=self.previous,
+                metadata=self.metadata(mapping={str(n): [n] for n in range(4)}),
+            )
+        for replacement in (
+            original.replace("| 2 | Unchanged prerequisite | 0 |", "| 2 | Unchanged prerequisite | 1 |"),
+            original.replace("| `3` | `2` |", "| `3` | `1` |"),
+            original.replace("| `3` | `2` |", "| `3` | `99` |"),
+        ):
+            self.proposed.write_text(replacement)
+            self.assertIn(
+                "program revision history resume Block is not an available prerequisite",
+                program_revision._load_full_verifier().verify(self.proposed, "full")["errors"],
+            )
+
     def test_legacy_predecessor_complete_table_preserves_accepted_history(self) -> None:
         canonical = self.build()
         self.set_table_status(self.previous, 0, "complete")

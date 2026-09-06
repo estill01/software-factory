@@ -136,6 +136,13 @@ The builder derives, rather than accepts from the caller:
 If predecessor and proposal structure roots are equal, stop and return the
 change to the ordinary status or implementation path.
 
+Preserve accepted history for both supported `complete` and `completed` status
+spellings without rewriting tracker bytes. Prefer a ready affected Block for
+resumption. If amended descendants still depend on unfinished unchanged work,
+resume the first ready unaffected prerequisite in tracker order. Unrelated ready
+work cannot supply this fallback. The packet still invalidates only the affected
+closure and does not accept the prerequisite or its descendants.
+
 ## Independent disposition
 
 The review object is exactly

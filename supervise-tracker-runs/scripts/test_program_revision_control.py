@@ -1625,6 +1625,51 @@ class LocalProgramRevisionControlTests(unittest.TestCase):
         self.assertTrue(gate["range_binding_current"])
         self.assertFalse(gate["final_response_permitted"])
 
+    def test_downstream_amendment_preserves_complete_history_and_resumes_prerequisite(self):
+        class FutureCase(ProgramRevisionControlTests):
+            local_reviews = True
+
+            def write_tracker(self, path, blocks):
+                blocks = list(blocks)
+                for number in (5, 6):
+                    title, dependencies, _ = blocks[number]
+                    blocks[number] = (title, dependencies, "in-progress")
+                title, dependencies, _ = blocks[7]
+                blocks[7] = (title, dependencies, "not-started")
+                super().write_tracker(path, blocks)
+                path.write_text(path.read_text().replace("`completed`", "`complete`"))
+
+            def install_program_control(self, mapping, *, affected, resume, **kwargs):
+                super().install_program_control(mapping, affected=affected, resume=5, **kwargs)
+
+        case = FutureCase("test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block")
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        self.assertEqual(case.packet["accepted_history_blocks"], list(range(5)))
+        self.assertEqual(case.packet["affected_proposed_blocks"], [7, 8])
+        self.assertEqual(case.packet["resume_block"], 5)
+        accepted = case.record_program_revision()
+        applied = case.apply_proposal()
+        result = case.range_amend(accepted["record"]["record_id"], applied)
+        self.assertFalse(result["contraction"])
+        self.assertEqual(result["program_revision"]["resume_block"], 5)
+        policy = supervision_log.read_json(case.fixture.root / case.fixture.target / "policy.json")
+        state = supervision_log.implementation_range_state(policy)
+        self.assertEqual(state["requested_blocks"], list(range(9)))
+        self.assertEqual(state["accepted_blocks"], list(range(5)))
+        self.assertEqual(state["eligible_blocks"], [5])
+        args = supervision_log.parser().parse_args([
+            "--root", str(case.fixture.root), "implementation-range-gate",
+            "--target-thread", case.fixture.target, "--response-kind", "block-boundary",
+        ])
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_implementation_range_gate(args)
+        gate = json.loads(output.getvalue())
+        self.assertTrue(gate["range_binding_current"])
+        self.assertTrue(gate["implementation_start_permitted"])
+        self.assertFalse(gate["final_response_permitted"])
+
     def validate_review(self, review, *, policy=None, packet=None):
         case = self.case
         directory = case.fixture.root / case.fixture.target

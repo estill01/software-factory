@@ -536,7 +536,30 @@ def verify_program_revision_control(
         if affected != sorted(set(affected)) or not set(affected) <= set(numbers):
             errors.append("program revision history has invalid affected Blocks")
         if resume not in affected:
-            errors.append("program revision history resume Block is not affected")
+            table, _ = parse_status_table(lines)
+            graph = {
+                number: {"dependencies": [int(value) for value in re.findall(r"\d+", row[1])]}
+                for number, row in table.items()
+            }
+            # Reuse the revision owner's dependency closure; history may retain
+            # a prerequisite which has since completed, without reopening it.
+            module_path = Path(__file__).with_name("program_revision.py")
+            spec = importlib.util.spec_from_file_location("verify_tracker_resume", module_path)
+            if spec is None or spec.loader is None:
+                errors.append("program revision prerequisite verifier is unavailable")
+                continue
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            completed = {number for number, row in table.items() if row[0] in {"complete", "completed"}}
+            if (
+                resume not in graph
+                or not module.dependency_closure(graph, {resume}) & set(affected)
+                or (
+                    resume not in completed
+                    and not set(graph[resume]["dependencies"]).issubset(completed)
+                )
+            ):
+                errors.append("program revision history resume Block is not an available prerequisite")
     if set(fields) != set(PROGRAM_CONTROL_FIELD_ORDER):
         errors.append("active-program revision control fields are incomplete")
         return errors

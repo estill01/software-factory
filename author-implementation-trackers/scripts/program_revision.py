@@ -581,6 +581,11 @@ def _tracker_snapshot(
                 )
             for number in legacy_blocks:
                 rows[number]["status"] = "completed"
+    # Normalize the supported alias only after strict table/body validation.
+    # File, contract and accepted-history hashes still bind the original bytes.
+    for row in rows.values():
+        if row["status"] == "complete":
+            row["status"] = "completed"
     return {
         "path": str(path),
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -810,6 +815,14 @@ def build_revision_packet(
         if number not in completed_new
         and set(proposed["blocks"][number]["dependencies"]).issubset(completed_new)
     )
+    if not resume_candidates:
+        # A future contract may change while its unchanged prerequisite is open.
+        # Retain affected-ready priority, then resume the first ready prerequisite.
+        resume_candidates = [
+            number
+            for number in safe_frontier
+            if dependency_closure(proposed["blocks"], {number}) & affected_new
+        ]
     if not resume_candidates:
         raise ProgramRevisionError("Structural revision has no dependency-safe resume Block")
     proposed_control = proposed["program_revision_control"]
@@ -1200,7 +1213,15 @@ def validate_stored_packet(value: Any) -> dict[str, Any]:
         or not set(packet["affected_proposed_blocks"]).issubset(packet["proposed_blocks"])
         or not set(packet["safe_frontier_blocks"]).issubset(packet["proposed_blocks"])
         or type(packet.get("resume_block")) is not int
-        or packet["resume_block"] not in packet["affected_proposed_blocks"]
+        or packet["resume_block"] not in (
+            packet["affected_proposed_blocks"] + packet["safe_frontier_blocks"]
+        )
+        or set(packet["safe_frontier_blocks"]) & set(packet["affected_proposed_blocks"])
+        or set(packet["safe_frontier_blocks"]) & {
+            successor
+            for old in packet["accepted_history_blocks"]
+            for successor in block_map[str(old)]
+        }
     ):
         raise ProgramRevisionError("Stored program revision closure differs")
     return packet
