@@ -10341,7 +10341,6 @@ def retained_full_tracker_authority(
         != "verified-delegated-before-entry"
         and not source_is_exact_direct_mission_source
         and signed_classification_review is None
-        and source_event.get("provenance_status") != "verified-before-entry"
     ):
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
@@ -14406,22 +14405,6 @@ def validate_predecessor_range_completion(
         raise SupervisionLogError(
             "Range rollover lacks the current mission binding"
         )
-    lineage = mission_activation_events(
-        all_events, str(activation.get("activation_id", ""))
-    )
-    pending = lineage[0] if lineage else None
-    phase = activation.get("phase")
-    lineage_fields = ("activation_id", "target_thread_id", "mission_root", "mission_source_record",
-                      "activation_policy_sha256", "first_eligible_work")
-    if phase == "work-started" and (
-        len(lineage) != 2
-        or not isinstance(pending, Mapping)
-        or pending.get("phase") != "pending"
-        or pending.get("policy_sha256") != pending.get("activation_policy_sha256")
-        or any(activation.get(field) != pending.get(field)
-               for field in lineage_fields)
-    ):
-        raise SupervisionLogError("Range rollover lacks exact current mission-activation lineage")
     activation_policy = policy_snapshot_by_sha256(
         policy_history,
         exact_sha256(
@@ -14431,24 +14414,26 @@ def validate_predecessor_range_completion(
     )
     activation_mission = bound_mission(activation_policy)
     if (
-        activation.get("kind") != "mission-activation" or phase not in MISSION_ACTIVATION_PHASES
+        activation.get("kind") != "mission-activation"
+        or activation.get("phase") != "pending"
         or activation.get("target_thread_id") != policy.get("target_thread_id")
         or activation.get("mission_root") != current_mission.get("mission_root")
         or activation.get("mission_source_record")
         != current_mission.get("mission_source_record")
-        or (phase == "pending" and activation.get("activation_policy_sha256") != activation.get("policy_sha256"))
+        or activation.get("activation_policy_sha256")
+        != activation.get("policy_sha256")
         or activation_mission is None
         or mission_binding_identity(activation_mission)
         != mission_binding_identity(current_mission)
-        or not isinstance((pending or activation).get("evidence"), list)
-        or lifecycle_record_id not in (pending or activation)["evidence"]
+        or not isinstance(activation.get("evidence"), list)
+        or lifecycle_record_id not in activation["evidence"]
     ):
         raise SupervisionLogError(
-            "Range rollover lacks the exact current-mission activation"
+            "Range rollover lacks the exact pending current-mission activation"
         )
     candidates = [
         item
-        for item in mission_activation_heads(all_events).values()
+        for item in mission_activation_heads(all_events, open_only=True).values()
         if item.get("mission_root") == current_mission.get("mission_root")
         and item.get("mission_source_record")
         == current_mission.get("mission_source_record")
@@ -14679,7 +14664,13 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
         tracker_structure_sha256,
         blocks,
     ) = implementation_tracker_snapshot(args.tracker)
-    if authority_review is not None:
+    if (
+        frozenset(authority_event)
+        == frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS)
+        and authority_review is not None
+        and authority_review.get("category")
+        == DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY
+    ):
         intent, requested = "full-tracker", sorted(blocks)
     else:
         intent, requested = classify_implementation_request(
@@ -14692,14 +14683,6 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
     accepted = [
         number for number, block in blocks.items() if block["status"] == "completed"
     ]
-    if any(dependency not in blocks for block in blocks.values()
-           for dependency in block["dependencies"]):
-        raise SupervisionLogError("Cross-mission tracker references an unknown Block dependency")
-    if any(blocks[dependency]["status"] != "completed" for number in accepted
-           for dependency in blocks[number]["dependencies"]):
-        raise SupervisionLogError("Cross-mission accepted Blocks are not dependency-closed")
-    in_progress = [number for number, block in blocks.items()
-                   if block["status"] == "in-progress"]
     eligible = [
         number
         for number, block in blocks.items()
@@ -14709,23 +14692,14 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             for dependency in block["dependencies"]
         )
     ]
+    if accepted or len(eligible) != 1:
+        raise SupervisionLogError(
+            "Cross-mission tracker is not at one exact pre-work frontier"
+        )
     first_work_match = re.match(
         r"^Block[- ](\d+)(?:\b|-)", str(activation.get("first_eligible_work", ""))
     )
-    if activation.get("phase") == "pending":
-        if accepted or in_progress or len(eligible) != 1:
-            raise SupervisionLogError("Cross-mission tracker is not at one exact pre-work frontier")
-        permissible_first_work = eligible
-    else:
-        if len(in_progress) != 1:
-            raise SupervisionLogError("Cross-mission tracker has ambiguous current in-progress state")
-        active = in_progress[0]
-        if any(blocks[item]["status"] != "completed"
-               for item in blocks[active]["dependencies"]):
-            raise SupervisionLogError("Cross-mission in-progress Block has unmet dependencies")
-        permissible_first_work = [*accepted, active]
-    if (first_work_match is None
-            or int(first_work_match.group(1)) not in permissible_first_work):
+    if first_work_match is None or int(first_work_match.group(1)) != eligible[0]:
         raise SupervisionLogError(
             "Mission activation first work differs from the tracker frontier"
         )

@@ -911,10 +911,10 @@ belongs to the same mission, admission may only rehydrate that exact range or
 advance status-only tracker bytes through the existing amendment owner. It
 must never replace a same-mission range.
 
-A same-target mission successor may replace one completed predecessor
-range only through the same policy owner. Its activation must be the unique pending head or exact current `work-started` lineage. Under the policy-owner lock,
+A pending same-target mission successor may replace one completed predecessor
+range only through the same policy owner. Under the policy-owner lock,
 admission must revalidate the predecessor's independently verified observable
-outcome and completed lifecycle, the exact current-mission
+outcome and completed lifecycle, the unique still-pending current-mission
 activation, current policy and event heads, one exact independently reviewed
 and canonically ingested current-mission full-tracker authority source and its
 current receipt, and both exact tracker snapshots. Mission identity and range
@@ -931,7 +931,7 @@ predecessor range/genesis/head but never appends successor Blocks to predecessor
 history.
 The predecessor contract remains immutable in prior policy versions. A
 nonterminal predecessor, same-mission replacement, absent or ambiguous mission
-provenance, stale policy/event/tracker state, wrong or noncurrent activation lineage,
+provenance, stale policy/event/tracker state, wrong or nonpending activation,
 structural drift, or historical range/genesis reuse rejects before policy
 mutation. A range owned by any mission other than the current policy is
 noncurrent at `implementation-range-gate` and can never yield
@@ -945,7 +945,7 @@ python3 <LOG_HELPER> implementation-range-admit \
   --authority-source-sha256 <CURRENT_RETAINED_RANGE_SOURCE_SHA256> \
   --predecessor-outcome-record <EXACT_VERIFIED_OUTCOME> \
   --predecessor-lifecycle-record <EXACT_COMPLETED_LIFECYCLE> \
-  --mission-activation-record <EXACT_CURRENT_ACTIVATION_HEAD>
+  --mission-activation-record <EXACT_PENDING_ACTIVATION>
 
 python3 <LOG_HELPER> implementation-range-bind \
   --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \
@@ -1003,7 +1003,8 @@ base64 so multiline requests and their original bytes are retained without
 shell normalization.
 
 The retained activation source must remain the exact current head through
-ingestion and receipt; admission may follow its exact current `work-started` lineage with a dependency-closed accepted set, one dependency-ready in-progress Block, and any number of other DAG-ready Blocks. Later
+ingestion, receipt, and fresh range admission. Actual first-Block work starts
+only afterward and advances that activation to `work-started`; later
 same-mission range gates retain the accepted history without treating the now
 historical pending source as current authority for another admission.
 
