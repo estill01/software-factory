@@ -44,8 +44,13 @@ systemctl status gcp-codex-supervision.service --no-pager
 `read --thread <bound-id>` returns compact native task state. `turns --thread
 <bound-id> --limit 1` returns direct task items with tool outputs omitted.
 `helper -- status --target-thread <target-id>` reads canonical semantic status.
-The `send` command requires an actual bound role identity and a successful
-maintained route gate. A gate approval alone is not a delivery receipt.
+The supervision-role `send` command requires an actual bound role identity and
+a successful maintained route gate. Ordinary mission-owner messages instead use
+`owner-send` with the actual native caller, bound mission source and exact
+existing record identifying both owners; see `references/native-runtime.md`.
+This path does not depend on scheduled supervision, resume a supervision role,
+or confer permission to perform the requested operation. A route approval alone
+is not a delivery receipt, and delivery is not an owner agreement.
 
 `pause` and `resume` toggle future scheduled wakes in this runtime. Pause does
 not interrupt already running roles or cancel already owned deliveries. Stop

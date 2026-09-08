@@ -288,9 +288,78 @@ class Runtime:
         if thread_id not in allowed:
             raise ValueError("task is outside this exact supervision group")
 
+    def owner_route(self, recipient, source, owner_record, owner_record_sha256,
+                    owner_field, sender_field):
+        """Bind ordinary coordination to the real caller and an existing owner.
+
+        This authorizes a message only. The recipient still owns operation
+        exclusion, interval grants, acceptance and release decisions.
+        """
+        if os.environ.get("CODEX_THREAD_ID") != self.target:
+            raise ValueError("owner coordination requires the actual mission owner")
+        if not source or source != self.config.get("mission_source_record"):
+            raise ValueError("owner coordination requires the bound mission source")
+        path = Path(owner_record)
+        if not path.is_absolute() or not path.is_file():
+            raise ValueError("existing absolute owner record required")
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != owner_record_sha256:
+            raise ValueError("owner record changed before route admission")
+        route = {"authority_source_record": source, "sender": self.target,
+                 "recipient": recipient, "owner_record": str(path),
+                 "owner_record_sha256": owner_record_sha256,
+                 "owner_field": owner_field, "sender_field": sender_field}
+        self.validate_owner_route(route, recipient)
+        return route
+
+    def validate_owner_route(self, route, recipient):
+        group = {self.target} | {r["thread_id"] for r in self.config["roles"].values()}
+        if (not recipient or recipient in group or route["recipient"] != recipient
+                or route["sender"] != self.target
+                or route["authority_source_record"] != self.config.get("mission_source_record")):
+            raise ValueError("owner route conflicts with actual task ownership")
+        path = Path(route["owner_record"])
+        if not path.is_absolute():
+            raise ValueError("absolute owner record required")
+        record = json.loads(path.read_text())
+        if (not isinstance(record, dict) or not route["owner_field"]
+                or not route["sender_field"] or route["owner_field"] == route["sender_field"]
+                or record.get(route["owner_field"]) != recipient
+                or record.get(route["sender_field"]) != self.target):
+            raise ValueError("owner record does not bind this exact pair of owners")
+        # Progress fields may change. Only ownership and authority determine
+        # whether an admitted message may reach the same owner on reconciliation.
+
+    def owner_send(self, recipient, source, message, *, owner_record,
+                   owner_record_sha256, owner_field, sender_field):
+        route = self.owner_route(recipient, source, owner_record,
+                                 owner_record_sha256, owner_field, sender_field)
+        # A checkpoint or unrelated owner-record edit must not duplicate delivery.
+        key = "owner:" + digest(canonical([self.target, recipient, source, message]))
+        existing = self.db.execute("SELECT * FROM deliveries WHERE id=?", (
+            str(uuid.uuid5(uuid.NAMESPACE_URL, self.target+":"+key)),)).fetchone()
+        if existing is not None:
+            if (existing["purpose"] != "owner-coordination"
+                    or existing["recipient"] != recipient
+                    or existing["message_sha256"] != digest(message)):
+                raise ValueError("delivery identity already binds different content")
+            retained = json.loads(existing["source"])
+            self.validate_owner_route(retained, recipient)
+            identity = existing["id"]
+        else:
+            identity = self.prepare(key, recipient, message, canonical(route),
+                                    "owner-coordination")
+        return {"delivery_id": identity, "state": self.deliver(identity),
+                "purpose": "owner-coordination", "operation_authorized": False}
+
     def prepare(self, key, recipient, message, source, purpose,
                 *, schedule_id=None, scheduled_for=None):
-        self.require_recipient(recipient)
+        if purpose == "owner-coordination":
+            if os.environ.get("CODEX_THREAD_ID") != self.target or schedule_id is not None:
+                raise ValueError("ordinary owner coordination cannot impersonate a scheduled role")
+            self.validate_owner_route(json.loads(source), recipient)
+        else:
+            self.require_recipient(recipient)
         if not message.strip() or len(message.encode()) > 16000:
             raise ValueError("empty or oversized delivery")
         delivery_id = str(uuid.uuid5(uuid.NAMESPACE_URL, self.target+":"+key))
@@ -314,21 +383,22 @@ class Runtime:
         self.db.execute("UPDATE deliveries SET "+sql+" WHERE id=?", (*values.values(), identity))
 
     @staticmethod
-    def marker(identity):
-        return f"[gcp-supervision-delivery:{identity}]"
+    def marker(identity, purpose=None):
+        prefix = "gcp-owner-delivery" if purpose == "owner-coordination" else "gcp-supervision-delivery"
+        return f"[{prefix}:{identity}]"
 
     def reconcile(self, client, row):
         """Resolve uncertainty from native owner data; absence is never a retry grant."""
         queued = client.call("thread/queue/list", {"threadId": row["recipient"]})
         for item in queued.get("data", []):
-            if item.get("clientUserMessageId") == row["id"] or self.marker(row["id"]) in canonical(item):
+            if item.get("clientUserMessageId") == row["id"] or self.marker(row["id"], row["purpose"]) in canonical(item):
                 queue_id = item.get("id")
                 if not queue_id:
                     raise TransportError("native queued submission has no identity")
                 self.update_delivery(row["id"], "queued", queue_id=queue_id, error=None)
                 return "queued", queue_id
         for turn in client.turns(row["recipient"], limit=4).get("data", []):
-            if any(item.get("type") == "userMessage" and self.marker(row["id"]) in canonical(item)
+            if any(item.get("type") == "userMessage" and self.marker(row["id"], row["purpose"]) in canonical(item)
                    for item in turn.get("items", [])):
                 self.update_delivery(row["id"], "acknowledged", turn_id=turn["id"], error=None)
                 return "acknowledged", None
@@ -345,6 +415,8 @@ class Runtime:
                 return "failed"
             effect_possible = row["state"] != "prepared"
             try:
+                if row["purpose"] == "owner-coordination":
+                    self.validate_owner_route(json.loads(row["source"]), row["recipient"])
                 with self.client() as client:
                     compact = client.compact(row["recipient"])
                     status = compact["status"]["type"]
@@ -380,7 +452,7 @@ class Runtime:
                         if state == "uncertain":
                             self.update_delivery(identity, "uncertain", error="native receipt not yet found; retry withheld")
                             return state
-                    message = self.marker(identity)+"\n"+row["message"]
+                    message = self.marker(identity, row["purpose"])+"\n"+row["message"]
                     inputs = [{"type": "text", "text": message, "text_elements": []}]
                     if state == "prepared":
                         self.update_delivery(identity, "sending")
@@ -414,6 +486,10 @@ class Runtime:
                         "threadId": row["recipient"], "queuedSubmissionId": queue_id})
                     self.update_delivery(identity, "started", turn_id=result["turn"]["id"], error=None)
                     return "started"
+            except ValueError as exc:
+                state = "uncertain" if effect_possible else "failed"
+                self.update_delivery(identity, state, error=str(exc)[:700])
+                return state
             except RpcError as exc:
                 # An explicit RPC rejection is visible and is never retried as a
                 # new delivery. Earlier queue effects remain recoverable by ID.
@@ -616,6 +692,14 @@ def main():
     send.add_argument("--message", required=True)
     send.add_argument("--action", help="Concise exact action for the semantic gate; full evidence stays in --message.")
     send.add_argument("gate_arguments", nargs=argparse.REMAINDER)
+    owner_send = sub.add_parser("owner-send", help="Coordinate with an existing owner without waking supervision.")
+    owner_send.add_argument("--recipient", required=True)
+    owner_send.add_argument("--source-record", required=True)
+    owner_send.add_argument("--owner-record", required=True)
+    owner_send.add_argument("--owner-record-sha256", required=True)
+    owner_send.add_argument("--owner-field", required=True)
+    owner_send.add_argument("--sender-field", required=True)
+    owner_send.add_argument("--message-file", required=True)
     args = parser.parse_args()
     runtime = Runtime(args.config)
     try:
@@ -638,6 +722,11 @@ def main():
         elif args.command == "helper":
             arguments = args.arguments[1:] if args.arguments[:1] == ["--"] else args.arguments
             result = runtime.helper(arguments)
+        elif args.command == "owner-send":
+            result = runtime.owner_send(args.recipient, args.source_record,
+                Path(args.message_file).read_text(), owner_record=args.owner_record,
+                owner_record_sha256=args.owner_record_sha256,
+                owner_field=args.owner_field, sender_field=args.sender_field)
         else:
             extra = args.gate_arguments[1:] if args.gate_arguments[:1] == ["--"] else args.gate_arguments
             result = runtime.gated_send(args.recipient, args.purpose, args.source_record,

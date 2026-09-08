@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -312,6 +313,98 @@ class RuntimeTests(unittest.TestCase):
                                              action='different summary')
         helper.assert_not_called()
         self.assertEqual(self.runtime.status()['deliveries'], [])
+
+    def owner_message(self, **overrides):
+        record = self.root / 'existing-owner-response.json'
+        if not record.exists():
+            record.write_text(json.dumps({'owner_task': 'project-owner',
+                                          'requesting_task': 'target'}))
+        self.runtime.config['mission_source_record'] = 'direct-user:target:mission'
+        arguments = dict(recipient='project-owner', source='direct-user:target:mission',
+                         message='Please arrange one stable read interval. Release checks remain required.',
+                         owner_record=str(record),
+                         owner_record_sha256=hashlib.sha256(record.read_bytes()).hexdigest(),
+                         owner_field='owner_task', sender_field='requesting_task')
+        arguments.update(overrides)
+        return self.runtime.owner_send(**arguments)
+
+    def test_owner_coordination_works_with_all_schedules_stopped(self):
+        for role in ('liveness', 'watcher', 'reviewer'):
+            self.runtime.add_schedule(role, 60, first_due=0)
+        before = [dict(row) for row in self.runtime.db.execute('SELECT * FROM schedules')]
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}), patch.object(self.runtime, 'helper') as helper:
+            result = self.owner_message()
+        helper.assert_not_called()
+        self.assertEqual(result['state'], 'started')
+        self.assertFalse(result['operation_authorized'])
+        self.assertEqual(before, [dict(row) for row in self.runtime.db.execute('SELECT * FROM schedules')])
+        self.assertEqual(self.fake.started, 1)
+        self.assertIn('[gcp-owner-delivery:', self.fake.history[0]['items'][0]['content'][0]['text'])
+
+    def test_owner_route_cannot_impersonate_supervision_or_change_authority(self):
+        for caller, overrides in [('watcher', {}), ('unknown', {}),
+                                  ('target', {'recipient': 'reviewer'}),
+                                  ('target', {'recipient': 'different-owner'}),
+                                  ('target', {'source': 'different-authority'}),
+                                  ('target', {'owner_record_sha256': '0'*64})]:
+            with self.subTest(caller=caller, overrides=overrides):
+                with patch.dict(os.environ, {'CODEX_THREAD_ID': caller}), self.assertRaises(ValueError):
+                    self.owner_message(**overrides)
+        self.assertEqual(self.fake.started, 0)
+        self.assertEqual(self.runtime.status()['deliveries'], [])
+
+    def test_unloaded_owner_preserves_its_own_settings(self):
+        self.fake.not_loaded = True
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
+            self.assertEqual(self.owner_message()['state'], 'started')
+        self.assertEqual(self.fake.resume_arguments, {'threadId': 'project-owner'})
+
+    def test_active_owner_excludes_conflicting_start_and_keeps_request_queued(self):
+        self.fake.active = True
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
+            first = self.owner_message()
+            again = self.owner_message()
+        self.assertEqual(first['state'], 'queued')
+        self.assertEqual(again['delivery_id'], first['delivery_id'])
+        self.assertEqual(self.fake.started, 0)
+        self.assertEqual(len(self.fake.queue), 1)
+        self.fake.active = False
+        self.assertEqual(self.runtime.deliver(first['delivery_id']), 'started')
+
+    def test_owner_receipt_survives_unrelated_checkpoint_without_duplicate(self):
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
+            first = self.owner_message()
+            record = self.root / 'existing-owner-response.json'
+            data = json.loads(record.read_text())
+            data['unrelated_checkpoint'] = 'later-commit'
+            record.write_text(json.dumps(data))
+            again = self.owner_message()
+        self.assertEqual(first['delivery_id'], again['delivery_id'])
+        self.assertEqual(self.fake.started, 1)
+
+    def test_changed_owner_blocks_pending_send_and_retains_evidence(self):
+        self.fake.active = True
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
+            result = self.owner_message()
+        record = self.root / 'existing-owner-response.json'
+        record.write_text(json.dumps({'owner_task': 'new-owner', 'requesting_task': 'target'}))
+        self.fake.active = False
+        self.assertEqual(self.runtime.deliver(result['delivery_id']), 'uncertain')
+        self.assertEqual(self.fake.started, 0)
+        self.assertEqual(len(self.fake.queue), 1)
+        self.assertIn('exact pair', self.runtime.db.execute('SELECT error FROM deliveries').fetchone()[0])
+
+    def test_ambiguous_owner_send_reconciles_after_restart_without_resend(self):
+        self.fake.auto_start = True
+        self.fake.lose_start_response = True
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
+            result = self.owner_message()
+        self.assertEqual(result['state'], 'uncertain')
+        self.path.write_text(json.dumps(self.runtime.config))
+        self.runtime.close()
+        self.runtime = Runtime(self.path, client_factory=self.fake)
+        self.assertEqual(self.runtime.deliver(result['delivery_id']), 'acknowledged')
+        self.assertEqual(self.fake.started, 1)
 
 
 if __name__ == '__main__':

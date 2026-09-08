@@ -73,6 +73,26 @@ across later delivery IDs, transport failures and runtime restarts. Only a
 confirmed native response clears that requirement.
 Resuming the implementation target does not replace its own settings.
 
+Ordinary mission-owner coordination uses `gcp_supervision.py owner-send`, not
+the supervision-role `send` gate. It works with schedules paused and the
+controller stopped. The actual `CODEX_THREAD_ID` must equal the configured
+mission target; never replace it or resume a supervision role to send owner
+work. Bind `--source-record` to the existing mission source, `--recipient` to
+the actual other owner, and `--owner-record` / `--owner-record-sha256` to an
+existing owner-authored JSON record. `--owner-field` and `--sender-field` name
+its top-level fields identifying that owner and this requesting task. Pass
+the exact bounded message through `--message-file`.
+
+The runtime retains the authority and owner binding in its existing delivery
+receipt. It rechecks ownership before pending delivery, preserves the other
+task's settings, queues behind an active owner, and reconciles uncertain sends
+without duplicating them. An unrelated record update does not invalidate the
+unchanged ownership binding or authorize a duplicate message. The receipt uses
+`gcp-owner-delivery` and claims only transport: it does not grant a writer
+interval, independent acceptance, service health, release evidence, or cutover.
+Those decisions stay with their actual owners. Scheduled supervision stays in
+its existing posture throughout ordinary coordination.
+
 Local same-task tracker authority uses the canonical Max review directly through
 `direct-authority-ingest`; it needs no release signing key or OpenSSL. Follow the
 exact provenance and receipt contract in `supervision-policy.md`. A missing
