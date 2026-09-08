@@ -309,10 +309,10 @@ class Runtime:
                  "recipient": recipient, "owner_record": str(path),
                  "owner_record_sha256": owner_record_sha256,
                  "owner_field": owner_field, "sender_field": sender_field}
-        self.validate_owner_route(route, recipient)
+        self.validate_owner_route(route, recipient, record_bytes=data)
         return route
 
-    def validate_owner_route(self, route, recipient):
+    def validate_owner_route(self, route, recipient, *, record_bytes=None):
         group = {self.target} | {r["thread_id"] for r in self.config["roles"].values()}
         if (not recipient or recipient in group or route["recipient"] != recipient
                 or route["sender"] != self.target
@@ -321,7 +321,7 @@ class Runtime:
         path = Path(route["owner_record"])
         if not path.is_absolute():
             raise ValueError("absolute owner record required")
-        record = json.loads(path.read_text())
+        record = json.loads(path.read_bytes() if record_bytes is None else record_bytes)
         if (not isinstance(record, dict) or not route["owner_field"]
                 or not route["sender_field"] or route["owner_field"] == route["sender_field"]
                 or record.get(route["owner_field"]) != recipient

@@ -359,6 +359,27 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(self.owner_message()['state'], 'started')
         self.assertEqual(self.fake.resume_arguments, {'threadId': 'project-owner'})
 
+    def test_owner_admission_validates_the_exact_hashed_snapshot(self):
+        record = self.root / 'existing-owner-response.json'
+        read_bytes = Path.read_bytes
+        def replace_after_hash_read(path):
+            snapshot = read_bytes(path)
+            if path == record:
+                record.write_text(json.dumps({'owner_task': 'project-owner', 'requesting_task': 'target'}))
+            return snapshot
+        self.runtime.config['mission_source_record'] = 'direct-user:target:mission'
+        for invalid in ({'owner_task': 'different-owner', 'requesting_task': 'target'}, None, []):
+            with self.subTest(hashed_record=invalid):
+                record.write_text(json.dumps(invalid))
+                expected_sha = hashlib.sha256(record.read_bytes()).hexdigest()
+                with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}), patch.object(Path, 'read_bytes', replace_after_hash_read):
+                    with self.assertRaisesRegex(ValueError, 'exact pair'):
+                        self.runtime.owner_send('project-owner', 'direct-user:target:mission', 'Arrange the interval.',
+                            owner_record=str(record), owner_record_sha256=expected_sha,
+                            owner_field='owner_task', sender_field='requesting_task')
+        self.assertEqual(self.runtime.status()['deliveries'], [])
+        self.assertEqual(self.fake.started, 0)
+
     def test_active_owner_excludes_conflicting_start_and_keeps_request_queued(self):
         self.fake.active = True
         with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
