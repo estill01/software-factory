@@ -1,5 +1,6 @@
 [
   "supervise-tracker-runs",
+  "implement-tracker-blocks",
   "author-implementation-trackers/scripts/program_revision.py",
   "author-implementation-trackers/scripts/verify_tracker.py"
 ]
