@@ -12143,6 +12143,60 @@ class NoticeGateCorrelationTests(unittest.TestCase):
         self.assertEqual(result["open_incident_ids"], [self.incident_id])
         self.assertEqual(result["open_incidents"], [records[-1]])
 
+    def test_retired_containment_preserves_successor_health_control_and_history(self) -> None:
+        successor_id = "INC-successor-health-control"
+        records = [
+            {
+                "kind": "incident",
+                "record_id": "EVT-000001",
+                "incident_id": self.incident_id,
+                "status": "open",
+                "containment": {
+                    "scope_identity": "pre-disposition-operation",
+                    "expiry_event": "independent-disposition",
+                    "carry_forward": False,
+                    "successor_effects": "allowed",
+                },
+            },
+            {
+                "kind": "incident",
+                "record_id": "EVT-000002",
+                "incident_id": successor_id,
+                "status": "awaiting-target-evidence",
+                "action": "Verify current service health before candidate release.",
+            },
+            {
+                "kind": "resolution",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "status": "resolved",
+                "notice_disposition": "terminal",
+                "evidence": ["EVT-000001", "EVT-000002"],
+            },
+            {
+                "kind": "notification",
+                "record_id": "EVT-000004",
+                "incident_id": self.incident_id,
+                "status": "sent",
+                "evidence": ["EVT-000001"],
+            },
+        ]
+        retained = copy.deepcopy(records)
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["open_incident_ids"], [successor_id])
+        self.assertEqual(result["open_incidents"], [records[1]])
+        self.assertEqual(result["event_count"], len(records))
+        self.assertEqual(records, retained)
+
+        # A descriptive expiry or unrelated disposition cannot itself close
+        # an unresolved control. Only its substantive owner head does that.
+        unresolved = self.run_status(records[:2])
+        self.assertCountEqual(
+            unresolved["open_incident_ids"], [self.incident_id, successor_id]
+        )
+
     def test_target_read_availability_preserves_awaiting_evidence_head(self) -> None:
         records = [
             {

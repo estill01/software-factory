@@ -493,14 +493,19 @@ frontier rule below.
 5. Run focused validation during the edit loop. Complete known in-scope changes
    and any review allowed to mutate the candidate before expensive final mapped
    validation when the workflow permits it.
-6. Freeze the coherent candidate content root, then run the mapped integration
-   validation appropriate to that slice and verify the root did not change.
+6. Freeze the coherent candidate content root, then reuse current mapped proof
+   or run missing integration validation appropriate to that slice. Verify the
+   exact proof dependencies: affected content, inputs, runner/configuration,
+   environment, and any consumed authority or state. A checkpoint, commit,
+   tracker-evidence update, or unrelated change alone does not invalidate proof;
+   record the unchanged dependency identities against the successor revision.
    Create the scoped checkpoint commit only after the candidate is validated.
-   If the candidate changes during or after validation, retain the run as
-   diagnostic and rerun only affected proof against the successor.
+   If consumed dependencies change during or after validation, retain the
+   affected result as diagnostic and rerun only that proof against the successor.
 7. Obtain a distinct reviewer when the tracker or repository requires
    independent review. Keep review read-only until findings are returned and
-   bind it to the exact candidate revision.
+   bind it to the exact candidate revision. Reused proof does not replace that
+   review or current owner, service-health, acceptance, or release gates.
 8. Update the tracker only with evidence that is current. Use its prescribed
    status and completion-evidence format.
 9. Honor the Block's explicit Stop as a mutation/audit boundary. For an exact
@@ -556,7 +561,10 @@ future tracker or wait for the next Block.
 3. Identify the smallest current owner of recurrence. Amend the active execution
    brief first; amend the current tracker, changed-test mapping, runner/profile,
    or implementation only when that owner concretely caused or would repeat the
-   defect in this run. Do not add a parallel policy or remediation subsystem.
+   defect in this run. Apply an ordinary minimal correction already within the
+   user's authorized scope through that owner without repeated permission;
+   preserve any distinct review and effect-specific authority gates. Do not add
+   a parallel policy or remediation subsystem.
 4. Recompute affected scope and validation after the correction. If the producer
    already yielded a valid artifact or commit, freeze and reuse it; repair only
    invalidated currentness, ordering, serialization, declared-no-op, or transfer

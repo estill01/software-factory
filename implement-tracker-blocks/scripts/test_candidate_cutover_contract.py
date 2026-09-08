@@ -1368,5 +1368,54 @@ class CandidateCutoverContractTests(unittest.TestCase):
             self._prepare()
 
 
+class ProofDependencyReconciliationTests(unittest.TestCase):
+    """Proof reuse depends on consumed subjects, not unrelated progress."""
+
+    def graph(self) -> dict[str, object]:
+        records = [
+            {"proof_id": "changed", "subject_root": "a" * 64,
+             "depends_on": [], "currentness": "current"},
+            {"proof_id": "dependent", "subject_root": "b" * 64,
+             "depends_on": ["changed"], "currentness": "current"},
+            {"proof_id": "transitive", "subject_root": "c" * 64,
+             "depends_on": ["dependent"], "currentness": "current"},
+            {"proof_id": "unrelated", "subject_root": "d" * 64,
+             "depends_on": [], "currentness": "current"},
+        ]
+        graph = {"schema_version": 1, "kind": "target-proof-graph", "records": records}
+        graph["graph_root"] = cutover.object_root(graph)
+        return graph
+
+    def test_changed_dependency_invalidates_only_its_transitive_closure(self) -> None:
+        graph = self.graph()
+        retained = cutover._json_bytes(graph)
+
+        after, result = cutover.reconcile_proof(graph, incumbent_root="a" * 64)
+
+        self.assertEqual(result["invalidated_proof_ids"], ["changed", "dependent", "transitive"])
+        self.assertEqual(result["preserved_proof_ids"], ["unrelated"])
+        self.assertEqual(after["records"][-1], graph["records"][-1])
+        self.assertEqual(cutover._json_bytes(graph), retained)
+
+    def test_unrelated_subject_change_preserves_existing_dependency_chain(self) -> None:
+        graph = self.graph()
+
+        after, result = cutover.reconcile_proof(graph, incumbent_root="d" * 64)
+
+        self.assertEqual(result["invalidated_proof_ids"], ["unrelated"])
+        self.assertEqual(result["preserved_proof_ids"], ["changed", "dependent", "transitive"])
+        self.assertEqual(after["records"][:3], graph["records"][:3])
+
+    def test_reuse_rejects_a_current_proof_with_stale_dependency(self) -> None:
+        graph = self.graph()
+        graph["records"][0]["currentness"] = "stale"
+        graph["graph_root"] = cutover.object_root(
+            {key: value for key, value in graph.items() if key != "graph_root"}
+        )
+
+        with self.assertRaisesRegex(cutover.CutoverError, "depends on stale"):
+            cutover.reconcile_proof(graph, incumbent_root="d" * 64)
+
+
 if __name__ == "__main__":
     unittest.main()

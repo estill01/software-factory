@@ -633,7 +633,12 @@ or structural-review outputs, and accepted decision or revision heads.
 - A stale fingerprint, tracker root, Block root, policy head, target revision,
   or evidence root fails closed to recompute the smallest affected slice.
 - Interruption resumes from the last validated owner checkpoint. Valid work is
-  reused; unverified or state-dependent proof is stale.
+  reused. Revalidate each proof's exact dependencies; mark it stale only when
+  those dependencies changed or cannot be verified. Refresh decision and owner
+  currentness separately: a new checkpoint, commit, or unrelated change does not
+  require rerunning proof whose consumed inputs remain identical. Unverified
+  proof stays unaccepted, and live health, authority, release, and required
+  independent review gates retain their own currentness requirements.
 - One current decision may have at most one active correction, candidate, or
   revision mutation owner. A concurrent attempt with the same fingerprint is a
   no-op; a conflicting fingerprint freezes mutation and recomputes currentness.
