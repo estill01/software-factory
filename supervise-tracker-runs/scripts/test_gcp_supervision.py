@@ -24,6 +24,8 @@ class FakeCodex:
         self.resume_arguments = None
         self.resume_writable = True
         self.resume_error = None
+        self.steered = []
+        self.lose_steer_response = False
 
     def __call__(self, *args, **kwargs):
         return self
@@ -43,6 +45,15 @@ class FakeCodex:
         return {'data': self.history}
 
     def call(self, method, args):
+        if method == 'turn/steer':
+            if not self.active or not self.history or args['expectedTurnId'] != self.history[0]['id']:
+                raise RpcError(method, {'code': -1, 'message': 'active turn changed'})
+            self.steered.append(args)
+            self.history[0]['items'].append({'type': 'userMessage', 'content': args['input']})
+            if self.lose_steer_response:
+                self.lose_steer_response = False
+                raise TimeoutError('response lost after accepted steer')
+            return {'turnId': args['expectedTurnId']}
         if method == 'thread/resume':
             if self.resume_error is not None:
                 error, self.resume_error = self.resume_error, None
@@ -380,17 +391,48 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.status()['deliveries'], [])
         self.assertEqual(self.fake.started, 0)
 
-    def test_active_owner_excludes_conflicting_start_and_keeps_request_queued(self):
+    def test_active_owner_receives_coordination_without_waiting_for_mission_end(self):
         self.fake.active = True
+        self.fake.history = [{'id': 'existing-owner-turn', 'status': 'inProgress', 'items': []}]
         with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
             first = self.owner_message()
             again = self.owner_message()
-        self.assertEqual(first['state'], 'queued')
+        self.assertEqual(first['state'], 'started')
         self.assertEqual(again['delivery_id'], first['delivery_id'])
         self.assertEqual(self.fake.started, 0)
-        self.assertEqual(len(self.fake.queue), 1)
-        self.fake.active = False
-        self.assertEqual(self.runtime.deliver(first['delivery_id']), 'started')
+        self.assertEqual(self.fake.queue, [])
+        self.assertEqual(len(self.fake.steered), 1)
+        self.assertEqual(self.fake.steered[0]['threadId'], 'project-owner')
+        self.assertEqual(self.fake.steered[0]['expectedTurnId'], 'existing-owner-turn')
+
+    def test_active_owner_turn_conflict_blocks_delivery(self):
+        self.fake.active = True
+        self.fake.history = [{'id': 'existing-owner-turn', 'status': 'inProgress', 'items': []}]
+        native_call = self.fake.call
+        def change_turn(method, args):
+            if method == 'turn/steer':
+                self.fake.history[0]['id'] = 'different-owner-turn'
+            return native_call(method, args)
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}), patch.object(self.fake, 'call', change_turn):
+            result = self.owner_message()
+        self.assertEqual(result['state'], 'uncertain')
+        self.assertEqual(self.fake.started, 0)
+        self.assertEqual(self.fake.steered, [])
+        self.assertEqual(self.fake.queue, [])
+        self.assertEqual(self.runtime.deliver(result['delivery_id']), 'uncertain')
+
+    def test_lost_active_owner_steer_response_does_not_duplicate_work(self):
+        self.fake.active = True
+        self.fake.lose_steer_response = True
+        self.fake.history = [{'id': 'existing-owner-turn', 'status': 'inProgress', 'items': []}]
+        with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
+            first = self.owner_message()
+            again = self.owner_message()
+        self.assertEqual(first['state'], 'uncertain')
+        self.assertEqual(again['state'], 'acknowledged')
+        self.assertEqual(len(self.fake.steered), 1)
+        self.assertEqual(self.fake.started, 0)
+        self.assertEqual(self.fake.queue, [])
 
     def test_owner_receipt_survives_unrelated_checkpoint_without_duplicate(self):
         with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
@@ -404,12 +446,13 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.fake.started, 1)
 
     def test_changed_owner_blocks_pending_send_and_retains_evidence(self):
-        self.fake.active = True
+        # Preserve a legacy queued owner receipt; new owner messages steer only
+        # the exact active turn, and must never replay this already-owned queue.
+        self.fake.lose_add_response = True
         with patch.dict(os.environ, {'CODEX_THREAD_ID': 'target'}):
             result = self.owner_message()
         record = self.root / 'existing-owner-response.json'
         record.write_text(json.dumps({'owner_task': 'new-owner', 'requesting_task': 'target'}))
-        self.fake.active = False
         self.assertEqual(self.runtime.deliver(result['delivery_id']), 'uncertain')
         self.assertEqual(self.fake.started, 0)
         self.assertEqual(len(self.fake.queue), 1)

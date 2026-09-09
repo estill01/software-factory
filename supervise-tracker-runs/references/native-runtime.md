@@ -85,7 +85,8 @@ the exact bounded message through `--message-file`.
 
 The runtime retains the authority and owner binding in its existing delivery
 receipt. It rechecks ownership before pending delivery, preserves the other
-task's settings, queues behind an active owner, and reconciles uncertain sends
+task's settings, steers an active owner's exact current turn at a native message
+boundary without starting or interrupting its work, and reconciles uncertain sends
 without duplicating them. An unrelated record update does not invalidate the
 unchanged ownership binding or authorize a duplicate message. The receipt uses
 `gcp-owner-delivery` and claims only transport: it does not grant a writer

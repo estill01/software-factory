@@ -457,11 +457,12 @@ class Runtime:
                     if state == "prepared":
                         self.update_delivery(identity, "sending")
                         effect_possible = True
-                        if status == "active" and row["recipient"] == self.target:
-                            turns = client.turns(self.target, limit=1)["data"]
+                        if status == "active" and (row["recipient"] == self.target
+                                                     or row["purpose"] == "owner-coordination"):
+                            turns = client.turns(row["recipient"], limit=1)["data"]
                             if not turns or turns[0]["status"] != "inProgress":
                                 raise TransportError("target active turn changed before steer")
-                            client.call("turn/steer", {"threadId": self.target,
+                            client.call("turn/steer", {"threadId": row["recipient"],
                                 "expectedTurnId": turns[0]["id"], "input": inputs,
                                 "clientUserMessageId": identity})
                             self.update_delivery(identity, "started", turn_id=turns[0]["id"], error=None)
