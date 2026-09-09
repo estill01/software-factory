@@ -85,9 +85,12 @@ the exact bounded message through `--message-file`.
 
 The runtime retains the authority and owner binding in its existing delivery
 receipt. It rechecks ownership before pending delivery, preserves the other
-task's settings, steers an active owner's exact current turn at a native message
-boundary without starting or interrupting its work, and reconciles uncertain sends
-without duplicating them. An unrelated record update does not invalidate the
+task's settings, and submits a new active-owner message through native
+`turn/start` with only `threadId`, `clientUserMessageId`, and `input`. Native
+runtime resolves and steers its live turn; persisted paginated turn history is
+not a live-turn precondition. The receipt records the returned turn identity.
+Idle owners retain the queue path, and queued or uncertain deliveries reconcile
+without replaying the message. An unrelated record update does not invalidate the
 unchanged ownership binding or authorize a duplicate message. The receipt uses
 `gcp-owner-delivery` and claims only transport: it does not grant a writer
 interval, independent acceptance, service health, release evidence, or cutover.

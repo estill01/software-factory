@@ -457,8 +457,15 @@ class Runtime:
                     if state == "prepared":
                         self.update_delivery(identity, "sending")
                         effect_possible = True
-                        if status == "active" and (row["recipient"] == self.target
-                                                     or row["purpose"] == "owner-coordination"):
+                        if status == "active" and row["purpose"] == "owner-coordination":
+                            # The native owner resolves its live turn. Paginated
+                            # history can retain an older inProgress turn.
+                            result = client.call("turn/start", {
+                                "threadId": row["recipient"],
+                                "clientUserMessageId": identity, "input": inputs})
+                            self.update_delivery(identity, "started", turn_id=result["turn"]["id"], error=None)
+                            return "started"
+                        if status == "active" and row["recipient"] == self.target:
                             turns = client.turns(row["recipient"], limit=1)["data"]
                             if not turns or turns[0]["status"] != "inProgress":
                                 raise TransportError("target active turn changed before steer")
