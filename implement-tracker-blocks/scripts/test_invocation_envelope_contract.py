@@ -13,6 +13,24 @@ NORMALIZED_SKILL = " ".join(IMPLEMENT_SKILL.split())
 
 
 class InvocationEnvelopeContractTests(unittest.TestCase):
+    def test_owner_coordination_is_not_restricted_to_supervision_role_routing(self) -> None:
+        paths = [
+            SKILL_ROOT / 'SKILL.md',
+            SKILL_ROOT.parent / 'supervise-tracker-runs/SKILL.md',
+            SKILL_ROOT.parent / 'supervise-tracker-runs/references/supervision-policy.md',
+        ]
+        for path in paths:
+            with self.subTest(source=path.name):
+                text = ' '.join(path.read_text(encoding='utf-8').split())
+                for boundary in ('Supervision-role packets', '`thread-route-gate`',
+                                 '`owner-send`', 'native-runtime.md', 'schedules',
+                                 'impersonat', 'transport', 'operation authority'):
+                    self.assertIn(boundary, text)
+                for blanket in ('when another configured role owns an exact required action',
+                                'Before sending any packet to another Codex thread',
+                                'Send a bounded cross-thread packet only to a configured'):
+                    self.assertNotIn(blanket, text)
+
     def test_resolves_the_complete_maintained_command_chain_before_execution(self) -> None:
         for requirement in (
             "exact maintained runner command chain",

@@ -236,11 +236,14 @@ Repeat independently for additional targets.
   a genuine ambiguity or material trade-off to the user instead.
 - Do not repeat an unchanged incident or steer. Respect the configured cooldown.
 - Keep ordinary implementation, checkpoint, audit, and incident progress in the
-  monitored target thread. Send a cross-thread role packet only to a configured
-  supervision role that owns a required action or decision. Before every such
+  monitored target thread. Supervision-role packets name a configured recipient
+  that owns a required action or decision. Before every such
   send, call the helper's `thread-route-gate` with the exact recipient, purpose,
   source record, and required action, and require `send_allowed=true`. Never use
-  an unrelated chat or side conversation as a status sink. User-facing email
+  an unrelated chat or side conversation as a status sink. Actual mission owners
+  use the bound native `owner-send` path in [native-runtime.md](references/native-runtime.md)
+  for authorized owner coordination even with schedules stopped; supervisor roles
+  must not impersonate those owners. User-facing email
   goes only through the maintained notification gates.
 - An explicit direct-user request may route one bounded `status-broadcast` to
   the recipient policy's exact target. Bind source task/item and scope, record
@@ -1226,10 +1229,12 @@ path-type, byte-bound, encoding, or identity differences fail closed.
   or patent content from a supervisor thread.
 - Do not run the target's commands or tests, create subagents, broaden scope, or
   replace the tracker's required independent audit.
-- Cross-thread communication is action routing, not progress broadcasting. A
-  bounded packet identifies the recipient's required action and must pass
-  `thread-route-gate`; routine evidence and outcomes remain in the target thread
-  or their helper-approved email lane. The gate is read-only and must not become
+- Cross-thread communication is action routing, not progress broadcasting.
+  Supervision-role packets identify the configured recipient's required action
+  and must pass `thread-route-gate`. Actual mission-owner coordination follows
+  the native `owner-send` binding above, which proves transport, not operation
+  authority. Routine evidence and outcomes remain in the target thread or their
+  helper-approved email lane. The gate is read-only and must not become
   another message ledger or authorization system. A critical correction or
   handled report must pass the record-first incident-head check described above.
 - Scheduled inactivity consumes no model tokens; each wake must remain bounded.

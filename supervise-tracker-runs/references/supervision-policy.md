@@ -1303,10 +1303,14 @@ backward and cause redundant rereview.
 ## Cross-thread action routing
 
 Routine implementation, validation, checkpoint, audit, incident, and completion
-progress belongs in the monitored target thread. Before sending any packet to
-another Codex thread, call `thread-route-gate` with the exact configured
-recipient, maintained purpose, source record, and required action. Send only
-when `send_allowed` is true:
+progress belongs in the monitored target thread. Supervision-role packets use
+`thread-route-gate` with the exact configured recipient, maintained purpose,
+source record, and required action; send only when `send_allowed` is true.
+Actual mission owners coordinate authorized work through the native `owner-send`
+binding in [native-runtime.md](native-runtime.md), including with schedules
+stopped. That path requires exact sender/owner proof, excludes role impersonation
+and routine broadcasts, and confers transport, not operation authority.
+For supervision-role routing, call:
 
 ```bash
 python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
@@ -1367,8 +1371,9 @@ the base reviewer; semantic or checkpoint escalation to Sol Max; incident
 outcome review to the notice reviewer; exact maintenance execution to the fix
 executor; correction or handoff to the target; a required correction back to
 the watcher; an inbound Gmail message to the Gmail processor; or an exact
-roundup action to the roundup writer. If no configured role owns a required
-next action, keep the evidence in the target thread and do not cross-post it.
+roundup action to the roundup writer. If no configured recipient owns a required
+supervision-role action, keep that evidence in the target thread and do not
+cross-post it. Actual mission-owner work uses the bound native path above.
 After an accepted policy or skill change, `role-refresh` may carry only the exact
 new instruction to an already configured runtime role; it cannot target the
 implementation thread or an unrelated conversation.
@@ -1489,11 +1494,11 @@ the bound subject. Never guess an address, share a seed across projects, cross
 these lanes, or start a replacement thread during ordinary recovery.
 
 Keep ordinary implementation, checkpoint, audit, and incident progress in the
-monitored target thread. Send a bounded cross-thread packet only to a configured
-watcher, reviewer, notice reviewer, fix executor, Gmail processor, or roundup
-writer that owns a required next action. Never use an unrelated chat or side
-conversation as a status sink. Cross-thread action routing does not replace the
-helper-gated email rules below.
+monitored target thread. Supervision-role packets use the configured recipient
+and `thread-route-gate`; authorized actual mission-owner coordination uses the
+native `owner-send` binding described above. Never use an unrelated chat or side
+conversation as a status sink or treat transport as operation authority.
+Cross-thread action routing does not replace the helper-gated email rules below.
 
 Email is an alert projection, not another authority or complete event mirror:
 
