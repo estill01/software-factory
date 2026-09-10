@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from gcp_supervision import Runtime
-from gcp_codex_transport import RpcError
+from gcp_codex_transport import RpcError, StaleReadbackError
 
 
 class FakeCodex:
@@ -122,6 +122,43 @@ class RuntimeTests(unittest.TestCase):
 
     def message(self):
         return self.runtime.prepare('one', 'watcher', 'Check the exact target.', 'source', 'watcher-action')
+
+    def test_delivery_status_confirms_exact_item_without_resend(self):
+        identity = self.message()
+        self.assertEqual(self.runtime.deliver(identity), 'started')
+        with patch.object(self.fake, 'confirm_delivery', create=True,
+                          return_value={'state': 'received', 'turn_id': 'turn-1'}) as confirm:
+            result = self.runtime.delivery_status(identity)
+        confirm.assert_called_once_with('watcher', identity,
+            self.runtime.marker(identity, 'watcher-action') + '\nCheck the exact target.',
+            expected_turn_id='turn-1')
+        self.assertEqual(result['state'], 'acknowledged')
+        self.assertFalse(result['adoption_confirmed'])
+        self.assertEqual(self.runtime.deliver(identity), 'acknowledged')
+        self.assertEqual(self.fake.started, 1)
+
+    def test_unobserved_receipt_preserves_accepted_state_without_resend(self):
+        identity = self.message()
+        self.runtime.deliver(identity)
+        with patch.object(self.fake, 'confirm_delivery', create=True,
+                          return_value={'state': 'not-observed-in-bounded-tail'}):
+            result = self.runtime.delivery_status(identity)
+        self.assertEqual(result['state'], 'started')
+        self.assertFalse(result['adoption_confirmed'])
+        self.assertEqual(self.fake.started, 1)
+
+    def test_stale_history_can_reconcile_only_an_exact_native_transport_receipt(self):
+        identity = self.message()
+        self.runtime.update_delivery(identity, 'uncertain', turn_id='current')
+        with patch.object(self.fake, 'turns', side_effect=StaleReadbackError('stale')):
+            with patch.object(self.fake, 'confirm_delivery', create=True,
+                              return_value={'state': 'not-observed-in-bounded-tail'}):
+                self.assertEqual(self.runtime.deliver(identity), 'uncertain')
+            with patch.object(self.fake, 'confirm_delivery', create=True,
+                              return_value={'state': 'received', 'turn_id': 'current'}):
+                self.assertEqual(self.runtime.deliver(identity), 'acknowledged')
+        self.assertEqual(self.fake.started, 0)
+        self.assertEqual(self.fake.steered, [])
 
     def test_unloaded_role_restores_original_helper_access_before_delivery(self):
         role = {'thread_id': 'watcher', 'model': 'gpt-5.6-terra',

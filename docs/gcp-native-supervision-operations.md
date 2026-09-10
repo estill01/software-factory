@@ -52,6 +52,40 @@ This path does not depend on scheduled supervision, resume a supervision role,
 or confer permission to perform the requested operation. A route approval alone
 is not a delivery receipt, and delivery is not an owner agreement.
 
+### Current readback and received-message confirmation
+
+`turns` now compares the history API with completed event identities sampled
+from the exact server-selected native task log before the RPC. An older turn,
+a missing newer item, an unavailable log, or an uncertain identity fails closed.
+Only a bounded 8 MiB tail is inspected. The log supplies freshness metadata;
+it is never substituted for the direct semantic-review transcript.
+
+After `owner-send` returns `started`, use the same runtime/configuration with
+`delivery-status --delivery-id <returned-id>`. This confirms the exact native
+received user item against the delivery ID, recipient, turn where known, and
+complete message bytes. It never sends, resumes a task, changes schedules, or
+claims that the recipient adopted the change. Absence from the bounded window
+is `not-observed-in-bounded-tail`, not permission to resend. Stale API history
+may be bypassed only for this exact transport receipt, not semantic review.
+
+Direct user-authorized messages sent outside the runtime ledger can use the
+same transport primitive without creating a supervision group:
+
+```sh
+python3 <accepted-source>/supervise-tracker-runs/scripts/gcp_codex_transport.py \
+  --socket <existing-control-socket> receipt --thread <recipient-id> \
+  --delivery-id <client-message-id> --expected-turn <receiving-turn> \
+  --message-file <exact-sent-text-including-marker>
+```
+
+Treat transport acceptance, verified receipt, recipient agreement, and adopted
+source revision as separate observations in the existing task record. A new
+checkout does not update an installed immutable release: use the reviewed
+installation path, or explicitly invoke a pinned accepted source checkout for
+this bounded read/receipt operation. A service restart is unnecessary for a
+standalone invocation. The current desktop history renderer is not repaired by
+this helper change.
+
 `pause` and `resume` toggle future scheduled wakes in this runtime. Pause does
 not interrupt already running roles or cancel already owned deliveries. Stop
 the service with `sudo systemctl stop gcp-codex-supervision.service` to stop

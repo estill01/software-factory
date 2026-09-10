@@ -22,7 +22,7 @@ import sys
 import time
 import uuid
 
-from gcp_codex_transport import CodexClient, RpcError, TransportError
+from gcp_codex_transport import CodexClient, RpcError, StaleReadbackError, TransportError
 from gcp_supervision_roles import role_resume_arguments
 
 DEFAULT_CONFIG = "/srv/patent-studio/private/gcp-supervision/config.json"
@@ -397,12 +397,41 @@ class Runtime:
                     raise TransportError("native queued submission has no identity")
                 self.update_delivery(row["id"], "queued", queue_id=queue_id, error=None)
                 return "queued", queue_id
-        for turn in client.turns(row["recipient"], limit=4).get("data", []):
+        try:
+            turns = client.turns(row["recipient"], limit=4).get("data", [])
+        except StaleReadbackError:
+            # A native received-user item proves transport only. Never use the
+            # log tail as replacement semantic review content.
+            receipt = self.received_item(client, row)
+            if receipt["state"] == "received":
+                self.update_delivery(row["id"], "acknowledged", turn_id=receipt["turn_id"], error=None)
+                return "acknowledged", None
+            raise
+        for turn in turns:
             if any(item.get("type") == "userMessage" and self.marker(row["id"], row["purpose"]) in canonical(item)
                    for item in turn.get("items", [])):
                 self.update_delivery(row["id"], "acknowledged", turn_id=turn["id"], error=None)
                 return "acknowledged", None
         return "uncertain", None
+
+    def received_item(self, client, row):
+        return client.confirm_delivery(row["recipient"], row["id"],
+            self.marker(row["id"], row["purpose"]) + "\n" + row["message"],
+            expected_turn_id=row["turn_id"])
+
+    def delivery_status(self, identity):
+        """Reconcile accepted transport with receipt; never resend or infer adoption."""
+        with locked(self.root / "delivery.lock"):
+            row = self.db.execute("SELECT * FROM deliveries WHERE id=?", (identity,)).fetchone()
+            if row is None:
+                raise ValueError("unknown delivery")
+            with self.client() as client:
+                receipt = self.received_item(client, row)
+            if receipt["state"] == "received":
+                self.update_delivery(identity, "acknowledged", turn_id=receipt["turn_id"], error=None)
+            return {"delivery_id": identity, "receipt": receipt,
+                    "state": "acknowledged" if receipt["state"] == "received" else row["state"],
+                    "adoption_confirmed": False}
 
     def deliver(self, identity):
         with locked(self.root / "delivery.lock"):
@@ -708,6 +737,8 @@ def main():
     owner_send.add_argument("--owner-field", required=True)
     owner_send.add_argument("--sender-field", required=True)
     owner_send.add_argument("--message-file", required=True)
+    delivery_status = sub.add_parser("delivery-status", help="Confirm the exact received user item without resending.")
+    delivery_status.add_argument("--delivery-id", required=True)
     args = parser.parse_args()
     runtime = Runtime(args.config)
     try:
@@ -730,6 +761,8 @@ def main():
         elif args.command == "helper":
             arguments = args.arguments[1:] if args.arguments[:1] == ["--"] else args.arguments
             result = runtime.helper(arguments)
+        elif args.command == "delivery-status":
+            result = runtime.delivery_status(args.delivery_id)
         elif args.command == "owner-send":
             result = runtime.owner_send(args.recipient, args.source_record,
                 Path(args.message_file).read_text(), owner_record=args.owner_record,

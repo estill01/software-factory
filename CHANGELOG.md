@@ -39,6 +39,15 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Fresh task readback and exact delivery confirmation.** Native task reads
+  reject history that omits newer completed owner events. A bounded,
+  identity-checked transport receipt can confirm the exact received user message
+  even when the history API is stale; it cannot establish semantic review or
+  code adoption. The existing runtime exposes `delivery-status` without retries,
+  task creation, or schedule changes. Standalone receipt inspection uses the
+  same transport implementation. Existing immutable installations require
+  explicit adoption; the desktop history renderer is unchanged.
+
 - **Exact-acceptance-triggered release orchestration.** The supervision owner
   now consumes one reviewer-signed canonical acceptance for the exact
   clean source HEAD/tree, invokes only the flagless `skill_release.py promote`
